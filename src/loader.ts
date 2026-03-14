@@ -1,0 +1,292 @@
+import fs from "node:fs";
+import path from "node:path";
+import yaml from "js-yaml";
+import graphlib from "@dagrejs/graphlib";
+const { Graph, alg } = graphlib;
+import { graphDefinitionSchema } from "./schema/graph-schema.js";
+import type { GraphDefinition } from "./schema/graph-schema.js";
+import type { ValidatedGraph } from "./types.js";
+import { validateExpression } from "./evaluator.js";
+
+/**
+ * Load and validate all *.graph.yaml files from a directory.
+ * Returns a Map of graphId → ValidatedGraph.
+ * Throws on any validation failure with descriptive errors.
+ */
+export function loadGraphs(directory: string): Map<string, ValidatedGraph> {
+  const resolvedDir = path.resolve(directory);
+
+  if (!fs.existsSync(resolvedDir)) {
+    throw new Error(`Graph directory does not exist: ${resolvedDir}`);
+  }
+
+  const files = fs
+    .readdirSync(resolvedDir)
+    .filter((f) => f.endsWith(".graph.yaml"))
+    .map((f) => path.join(resolvedDir, f));
+
+  if (files.length === 0) {
+    throw new Error(`No *.graph.yaml files found in: ${resolvedDir}`);
+  }
+
+  const results = new Map<string, ValidatedGraph>();
+
+  for (const filePath of files) {
+    const content = fs.readFileSync(filePath, "utf-8");
+    const parsed = yaml.load(content);
+
+    // Zod schema validation — typed output, no casts needed
+    const parseResult = graphDefinitionSchema.safeParse(parsed);
+    if (!parseResult.success) {
+      const errors = parseResult.error.issues
+        .map((issue) => `  ${issue.path.join(".")}: ${issue.message}`)
+        .join("\n");
+      throw new Error(
+        `Schema validation failed for ${filePath}:\n${errors}`
+      );
+    }
+
+    const def = parseResult.data;
+
+    // Validate all expressions at load time (item 7)
+    validateExpressions(def, filePath);
+
+    // Build graphlib graph and run structural validation
+    const g = buildAndValidateGraph(def, filePath);
+
+    results.set(def.id, { definition: def, graph: g });
+  }
+
+  // Cross-graph validation: subgraph references and circular detection
+  validateSubgraphReferences(results);
+
+  return results;
+}
+
+/**
+ * Parse-check all expressions in edge conditions and validation rules.
+ * Catches malformed expressions at load time, not at traversal time.
+ */
+function validateExpressions(def: GraphDefinition, filePath: string): void {
+  for (const [nodeId, node] of Object.entries(def.nodes)) {
+    if (node.validations) {
+      for (const v of node.validations) {
+        try {
+          validateExpression(v.expr);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          throw new Error(
+            `[${filePath}] Node "${nodeId}": invalid validation expression "${v.expr}": ${msg}`
+          );
+        }
+      }
+    }
+    if (node.edges) {
+      for (const edge of node.edges) {
+        if (edge.condition) {
+          try {
+            validateExpression(edge.condition);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            throw new Error(
+              `[${filePath}] Node "${nodeId}": edge "${edge.label}" has invalid condition "${edge.condition}": ${msg}`
+            );
+          }
+        }
+      }
+    }
+    // Validate subgraph condition expression
+    if (node.subgraph?.condition) {
+      try {
+        validateExpression(node.subgraph.condition);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(
+          `[${filePath}] Node "${nodeId}": invalid subgraph condition "${node.subgraph.condition}": ${msg}`
+        );
+      }
+    }
+  }
+}
+
+function buildAndValidateGraph(def: GraphDefinition, filePath: string): graphlib.Graph {
+  const g = new Graph({ directed: true });
+  const nodeIds = Object.keys(def.nodes);
+
+  // Add all nodes
+  for (const nodeId of nodeIds) {
+    g.setNode(nodeId, def.nodes[nodeId]);
+  }
+
+  // Validate startNode exists
+  if (!def.nodes[def.startNode]) {
+    throw new Error(
+      `[${filePath}] startNode "${def.startNode}" is not defined in nodes`
+    );
+  }
+
+  for (const [nodeId, node] of Object.entries(def.nodes)) {
+    // Terminal nodes cannot have subgraph
+    if (node.type === "terminal" && node.subgraph) {
+      throw new Error(
+        `[${filePath}] Node "${nodeId}": terminal node must not have a subgraph`
+      );
+    }
+
+    if (node.type === "terminal") {
+      // (d) Terminal nodes must have zero outgoing edges
+      if (node.edges && node.edges.length > 0) {
+        throw new Error(
+          `[${filePath}] Node "${nodeId}": terminal node must not have outgoing edges`
+        );
+      }
+    } else {
+      // (c) Non-terminal nodes must have at least one outgoing edge
+      if (!node.edges || node.edges.length === 0) {
+        throw new Error(
+          `[${filePath}] Node "${nodeId}": non-terminal node of type "${node.type}" must have at least one outgoing edge`
+        );
+      }
+
+      // Add edges to graph and validate targets
+      for (const edge of node.edges) {
+        // (a) All edge targets must point to defined nodes
+        if (!def.nodes[edge.target]) {
+          throw new Error(
+            `[${filePath}] Node "${nodeId}": edge "${edge.label}" targets undefined node "${edge.target}"`
+          );
+        }
+        g.setEdge(nodeId, edge.target, edge.label);
+      }
+    }
+
+    // (f) Gate nodes must have at least one validation
+    if (node.type === "gate") {
+      if (!node.validations || node.validations.length === 0) {
+        throw new Error(
+          `[${filePath}] Node "${nodeId}": gate node must have at least one validation`
+        );
+      }
+    }
+  }
+
+  // (e) No orphan nodes — all nodes reachable from startNode
+  const reachable = new Set<string>();
+  const preorder = alg.preorder(g, [def.startNode]);
+  for (const nodeId of preorder) {
+    reachable.add(nodeId);
+  }
+  for (const nodeId of nodeIds) {
+    if (!reachable.has(nodeId)) {
+      throw new Error(
+        `[${filePath}] Node "${nodeId}": unreachable from startNode "${def.startNode}"`
+      );
+    }
+  }
+
+  // (g) Cycles must include at least one decision or gate node
+  validateCycles(g, def, filePath);
+
+  return g;
+}
+
+/**
+ * Detect cycles and ensure each cycle contains at least one decision or gate node.
+ * Uses Tarjan's SCC algorithm — any SCC with size > 1 is a cycle.
+ * Also check self-loops (single-node SCCs with an edge to themselves).
+ */
+function validateCycles(
+  g: graphlib.Graph,
+  def: GraphDefinition,
+  filePath: string
+): void {
+  const sccs = alg.tarjan(g);
+
+  for (const scc of sccs) {
+    // Only check SCCs that form actual cycles
+    const isCycle =
+      scc.length > 1 ||
+      (scc.length === 1 && g.hasEdge(scc[0], scc[0]));
+
+    if (!isCycle) continue;
+
+    const hasDecisionOrGate = scc.some((nodeId) => {
+      const nodeType = def.nodes[nodeId]?.type;
+      return nodeType === "decision" || nodeType === "gate";
+    });
+
+    if (!hasDecisionOrGate) {
+      throw new Error(
+        `[${filePath}] Cycle detected among nodes [${scc.join(", ")}] with no decision or gate node. ` +
+          `Cycles must include at least one decision or gate node to prevent infinite action loops.`
+      );
+    }
+  }
+}
+
+/**
+ * Cross-graph validation for subgraph references.
+ * 1. Verify all subgraph.graphId references exist in the loaded graph set.
+ * 2. Detect circular subgraph references via DFS.
+ */
+function validateSubgraphReferences(graphs: Map<string, ValidatedGraph>): void {
+  // Build adjacency list for subgraph references
+  const subgraphEdges = new Map<string, Set<string>>();
+
+  for (const [graphId, { definition }] of graphs) {
+    const targets = new Set<string>();
+
+    for (const [nodeId, node] of Object.entries(definition.nodes)) {
+      if (node.subgraph) {
+        const targetId = node.subgraph.graphId;
+
+        // Verify referenced graph exists
+        if (!graphs.has(targetId)) {
+          throw new Error(
+            `Graph "${graphId}", node "${nodeId}": subgraph references unknown graph "${targetId}"`
+          );
+        }
+
+        targets.add(targetId);
+      }
+    }
+
+    if (targets.size > 0) {
+      subgraphEdges.set(graphId, targets);
+    }
+  }
+
+  // Detect circular references via DFS
+  const visited = new Set<string>();
+  const inStack = new Set<string>();
+
+  function dfs(graphId: string, path: string[]): void {
+    if (inStack.has(graphId)) {
+      const cycleStart = path.indexOf(graphId);
+      const cycle = path.slice(cycleStart).concat(graphId);
+      throw new Error(
+        `Circular subgraph reference detected: ${cycle.join(" → ")}`
+      );
+    }
+    if (visited.has(graphId)) return;
+
+    visited.add(graphId);
+    inStack.add(graphId);
+    path.push(graphId);
+
+    const targets = subgraphEdges.get(graphId);
+    if (targets) {
+      for (const target of targets) {
+        dfs(target, [...path]);
+      }
+    }
+
+    inStack.delete(graphId);
+  }
+
+  for (const graphId of graphs.keys()) {
+    if (!visited.has(graphId)) {
+      dfs(graphId, []);
+    }
+  }
+}

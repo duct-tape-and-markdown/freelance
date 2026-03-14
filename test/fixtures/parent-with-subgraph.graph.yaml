@@ -1,0 +1,39 @@
+id: parent-workflow
+version: "1.0.0"
+name: "Parent Workflow"
+description: "A workflow that invokes a child subgraph"
+startNode: start
+context:
+  taskDone: false
+  reviewPassed: false
+
+nodes:
+  start:
+    type: action
+    description: "Begin parent workflow"
+    instructions: "Do the initial work, then advance."
+    edges:
+      - target: quality-gate
+        label: work-done
+
+  quality-gate:
+    type: gate
+    description: "Run quality checks via subgraph"
+    instructions: "This node invokes the review subgraph. After it completes, check reviewPassed."
+    subgraph:
+      graphId: child-review
+      contextMap:
+        taskDone: parentTaskDone
+      returnMap:
+        approved: reviewPassed
+    validations:
+      - expr: "context.reviewPassed == true"
+        message: "Review must pass before advancing."
+    edges:
+      - target: finalize
+        label: pass
+
+  finalize:
+    type: terminal
+    description: "Workflow complete"
+    instructions: "Summarize results."

@@ -1,0 +1,248 @@
+id: knowledge-compilation
+version: "1.0.0"
+name: "Knowledge Compilation Session"
+description: "Orchestrates a Runner compiler session through Claude. Enforces the decompose → assess → explore → construct → evaluate pipeline using the compiler_* MCP tools from the runner server."
+startNode: begin-session
+strictContext: false
+
+context:
+  query: null
+  sessionId: null
+  phaseToken: null
+  facetCount: 0
+  gapCount: 0
+  warmExit: false
+  filesRead: 0
+  propositionsEmitted: 0
+  evaluationDone: false
+  coverageSufficient: false
+  cycleCount: 0
+
+nodes:
+  begin-session:
+    type: action
+    description: "Start a compiler session"
+    instructions: |
+      Call compiler_begin_session with the compilation query.
+
+      The server builds a graph manifest (zero LLM cost) and returns:
+      - sessionId — use this in all subsequent compiler_* calls
+      - phaseToken — pass this to phase-transition calls
+      - manifest — markdown landscape of the existing knowledge graph
+      - entityList — known entities for reference
+
+      Read the manifest carefully. It tells you what the graph already knows.
+
+      Set context.query, context.sessionId, and context.phaseToken from the response.
+    suggestedTools:
+      - compiler_begin_session
+    edges:
+      - target: decompose
+        label: session-started
+        condition: "context.sessionId != null"
+
+  decompose:
+    type: action
+    description: "Decompose the query into facets"
+    instructions: |
+      Analyze the query and the manifest returned from begin_session.
+      Break the query into specific facets — distinct knowledge areas to cover.
+
+      For each facet, identify:
+      - What specific knowledge is needed
+      - Which entities from the manifest relate to it
+
+      Call compiler_report_facets with:
+      - sessionId: context.sessionId
+      - phaseToken: context.phaseToken
+      - facets: array of { text, relevantEntities? }
+
+      The server retrieves existing propositions per facet (zero LLM).
+
+      Update context.phaseToken from the response.
+      Set context.facetCount to the number of facets.
+    suggestedTools:
+      - compiler_report_facets
+    edges:
+      - target: assess-coverage
+        label: facets-reported
+
+  assess-coverage:
+    type: action
+    description: "Assess coverage per facet"
+    instructions: |
+      Review the propositions retrieved for each facet from the previous step.
+
+      For each facet, judge:
+      - "covered" — sufficient knowledge exists
+      - "partial" — some knowledge but gaps remain
+      - "gap" — no meaningful coverage
+
+      Call compiler_report_coverage with:
+      - sessionId: context.sessionId
+      - phaseToken: context.phaseToken
+      - assessments: array of { facet, status }
+
+      The server decides: warm-exit (all covered) or exploration plan (gaps exist).
+
+      If warmExit is true, set context.warmExit = true.
+      Otherwise, update context.phaseToken and set context.gapCount.
+    suggestedTools:
+      - compiler_report_coverage
+    edges:
+      - target: coverage-decision
+        label: coverage-assessed
+
+  coverage-decision:
+    type: decision
+    description: "Route based on coverage assessment"
+    instructions: |
+      If all facets are covered (warmExit), the session is done.
+      If gaps exist, proceed to exploration.
+    edges:
+      - target: done
+        label: warm-exit
+        condition: "context.warmExit == true"
+        description: "All facets covered, no exploration needed"
+      - target: explore
+        label: gaps-found
+        description: "Knowledge gaps exist, explore source code"
+
+  explore:
+    type: action
+    maxTurns: 20
+    description: "Explore source code to fill knowledge gaps"
+    instructions: |
+      Use the compiler exploration tools to read and understand source code
+      for the gap facets. These tools are phase-gated — only available during
+      the exploration phase.
+
+      Available tools (all require sessionId):
+      - compiler_read_file — read source files (tracked for provenance)
+      - compiler_grep_files — search file contents with pattern/regex
+      - compiler_search_files — find files by glob pattern
+      - compiler_list_files — list directory contents
+      - compiler_browse_entities — check existing entities in the graph
+      - compiler_inspect_entity — get full entity details
+
+      Focus on the gaps identified in the coverage assessment.
+      Read enough source to extract meaningful propositions.
+
+      Track context.filesRead as you go.
+    suggestedTools:
+      - compiler_read_file
+      - compiler_grep_files
+      - compiler_search_files
+      - compiler_list_files
+      - compiler_browse_entities
+      - compiler_inspect_entity
+    edges:
+      - target: explore-gate
+        label: explored
+
+  explore-gate:
+    type: gate
+    description: "Verify exploration produced results"
+    instructions: |
+      Before constructing knowledge, verify you actually read source files.
+      Provenance requires file reads — propositions without source are ungrounded.
+    validations:
+      - expr: "context.filesRead > 0"
+        message: "At least one source file must be read during exploration. Call compiler_read_file."
+    edges:
+      - target: construct
+        label: ready-to-construct
+
+  construct:
+    type: action
+    maxTurns: 15
+    description: "Construct and emit knowledge propositions"
+    instructions: |
+      First, call compiler_advance_to_construct with:
+      - sessionId: context.sessionId
+      - phaseToken: context.phaseToken
+
+      Update context.phaseToken from the response.
+
+      Then call compiler_emit_knowledge with propositions. Each proposition:
+      - content: atomic, self-contained claim (minimum 20 words)
+      - entities: 1..N entities with name, optional kind/type/role
+      - relationship: optional category tag (validates, configures, depends_on, etc.)
+      - confidence: optional 0-1 score
+      - sourceFiles: file paths from compiler_read_file calls (for provenance)
+
+      Do NOT include file paths in proposition content — provenance is automatic.
+
+      Cover all gap facets. Update context.propositionsEmitted.
+    suggestedTools:
+      - compiler_advance_to_construct
+      - compiler_emit_knowledge
+    edges:
+      - target: construct-gate
+        label: constructed
+
+  construct-gate:
+    type: gate
+    description: "Verify propositions were emitted"
+    validations:
+      - expr: "context.propositionsEmitted > 0"
+        message: "At least one proposition must be emitted before evaluation."
+    edges:
+      - target: evaluate
+        label: ready-to-evaluate
+
+  evaluate:
+    type: action
+    description: "Evaluate coverage after construction"
+    instructions: |
+      Call compiler_evaluate with:
+      - sessionId: context.sessionId
+      - phaseToken: context.phaseToken
+
+      The server retrieves propositions for remaining gaps (zero LLM).
+
+      Review the results and judge each gap: "covered", "partial", or "gap".
+
+      Call compiler_report_evaluation with your assessments.
+
+      The server returns either "complete" or "loop" (another cycle).
+      Update context.phaseToken from the response.
+      Set context.evaluationDone = true.
+      Set context.coverageSufficient based on whether gaps remain.
+      Increment context.cycleCount.
+    suggestedTools:
+      - compiler_evaluate
+      - compiler_report_evaluation
+    edges:
+      - target: cycle-decision
+        label: evaluated
+
+  cycle-decision:
+    type: decision
+    description: "Complete or loop for another cycle"
+    instructions: |
+      If the runner returned "complete", coverage is sufficient.
+      If it returned "loop" and cycles remain, go back to explore.
+    edges:
+      - target: done
+        label: sufficient
+        condition: "context.coverageSufficient == true"
+      - target: explore
+        label: more-cycles
+        condition: "context.coverageSufficient == false && context.cycleCount < 3"
+      - target: done
+        label: budget-exhausted
+        default: true
+
+  done:
+    type: terminal
+    description: "Compilation session complete"
+    instructions: |
+      Summarize the compilation results:
+      - Query: context.query
+      - Facets: context.facetCount
+      - Gaps found: context.gapCount
+      - Warm exit: context.warmExit
+      - Files read: context.filesRead
+      - Propositions emitted: context.propositionsEmitted
+      - Cycles: context.cycleCount

@@ -1,0 +1,41 @@
+id: valid-default-edge
+version: "1.0.0"
+name: "Default Edge Workflow"
+description: "Tests default edge behavior"
+startNode: start
+
+context:
+  route: null
+
+nodes:
+  start:
+    type: decision
+    description: "Choose a route"
+    instructions: "Set context.route and advance."
+    edges:
+      - target: special
+        label: special-route
+        condition: "context.route == 'special'"
+        description: "Take the special path"
+      - target: normal
+        label: default-route
+        default: true
+        description: "Fallback path"
+
+  special:
+    type: action
+    description: "Special processing"
+    edges:
+      - target: done
+        label: finish
+
+  normal:
+    type: action
+    description: "Normal processing"
+    edges:
+      - target: done
+        label: finish
+
+  done:
+    type: terminal
+    description: "Complete"

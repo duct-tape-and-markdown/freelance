@@ -1,0 +1,69 @@
+id: valid-branching
+version: "1.0.0"
+name: "Branching Workflow"
+description: "A graph with decision branching, reconvergence, and a cycle"
+startNode: start
+
+context:
+  path: null
+  qualityPassed: false
+
+nodes:
+  start:
+    type: action
+    description: "Initialize the workflow"
+    instructions: "Set context.path to 'left' or 'right' based on requirements."
+    edges:
+      - target: choose-path
+        label: initialized
+
+  choose-path:
+    type: decision
+    description: "Decide which processing path to take"
+    instructions: "Evaluate context.path and route accordingly."
+    edges:
+      - target: left-work
+        label: go-left
+        condition: "context.path == 'left'"
+        description: "Take the left processing path"
+      - target: right-work
+        label: go-right
+        condition: "context.path == 'right'"
+        description: "Take the right processing path"
+
+  left-work:
+    type: action
+    description: "Perform left-path processing"
+    instructions: "Do the left-path work."
+    edges:
+      - target: quality-check
+        label: left-done
+
+  right-work:
+    type: action
+    description: "Perform right-path processing"
+    instructions: "Do the right-path work."
+    edges:
+      - target: quality-check
+        label: right-done
+
+  quality-check:
+    type: gate
+    description: "Verify quality of work"
+    instructions: "Check quality and set context.qualityPassed."
+    validations:
+      - expr: "context.qualityPassed == true"
+        message: "Quality check must pass before completing."
+    edges:
+      - target: done
+        label: pass
+        condition: "context.qualityPassed == true"
+      - target: left-work
+        label: redo
+        condition: "context.qualityPassed == false"
+        description: "Cycle back to redo work if quality failed"
+
+  done:
+    type: terminal
+    description: "Workflow complete"
+    instructions: "Summarize the outcome."

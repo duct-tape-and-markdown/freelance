@@ -1,0 +1,17 @@
+id: invalid-missing-target
+version: "1.0.0"
+name: "Invalid Missing Target"
+description: "An edge targets a non-existent node"
+startNode: start
+
+nodes:
+  start:
+    type: action
+    description: "Start node"
+    edges:
+      - target: nonexistent
+        label: go
+
+  done:
+    type: terminal
+    description: "End"

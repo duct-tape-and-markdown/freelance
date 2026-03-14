@@ -1,0 +1,24 @@
+{
+  "name": "graph-engine",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A domain-agnostic, YAML-defined, graph-traversal MCP server",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dagrejs/graphlib": "^2.2.4",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

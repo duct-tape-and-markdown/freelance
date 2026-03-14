@@ -1,0 +1,208 @@
+import { describe, it, expect } from "vitest";
+import { evaluate, EvaluatorError } from "../src/evaluator.js";
+
+describe("evaluate — basic equality", () => {
+  it("context.value == true with true", () => {
+    expect(evaluate("context.value == true", { value: true })).toBe(true);
+  });
+  it("context.value == true with false", () => {
+    expect(evaluate("context.value == true", { value: false })).toBe(false);
+  });
+  it("context.value == 'hello' match", () => {
+    expect(evaluate("context.value == 'hello'", { value: "hello" })).toBe(true);
+  });
+  it("context.value == 'hello' mismatch", () => {
+    expect(evaluate("context.value == 'hello'", { value: "world" })).toBe(false);
+  });
+  it("context.value == null with null", () => {
+    expect(evaluate("context.value == null", { value: null })).toBe(true);
+  });
+  it("context.value == null with undefined property", () => {
+    expect(evaluate("context.value == null", {})).toBe(true);
+  });
+  it("context.value != null with value", () => {
+    expect(evaluate("context.value != null", { value: "something" })).toBe(true);
+  });
+  it("context.count == 0", () => {
+    expect(evaluate("context.count == 0", { count: 0 })).toBe(true);
+  });
+  it("context.count == 3", () => {
+    expect(evaluate("context.count == 3", { count: 3 })).toBe(true);
+  });
+});
+
+describe("evaluate — no type coercion", () => {
+  it("1 is not true", () => {
+    expect(evaluate("context.value == true", { value: 1 })).toBe(false);
+  });
+  it("false is not 0", () => {
+    expect(evaluate("context.value == 0", { value: false })).toBe(false);
+  });
+  it("string '5' is not number 5", () => {
+    expect(evaluate("context.value == '5'", { value: 5 })).toBe(false);
+  });
+});
+
+describe("evaluate — comparison operators", () => {
+  it("5 > 0", () => {
+    expect(evaluate("context.count > 0", { count: 5 })).toBe(true);
+  });
+  it("0 > 0 is false", () => {
+    expect(evaluate("context.count > 0", { count: 0 })).toBe(false);
+  });
+  it("2 < 3", () => {
+    expect(evaluate("context.count < 3", { count: 2 })).toBe(true);
+  });
+  it("3 >= 3", () => {
+    expect(evaluate("context.count >= 3", { count: 3 })).toBe(true);
+  });
+  it("4 <= 3 is false", () => {
+    expect(evaluate("context.count <= 3", { count: 4 })).toBe(false);
+  });
+});
+
+describe("evaluate — logical operators", () => {
+  it("true && true", () => {
+    expect(evaluate("context.a == true && context.b == true", { a: true, b: true })).toBe(true);
+  });
+  it("true && false", () => {
+    expect(evaluate("context.a == true && context.b == true", { a: true, b: false })).toBe(false);
+  });
+  it("false || true", () => {
+    expect(evaluate("context.a == true || context.b == true", { a: false, b: true })).toBe(true);
+  });
+  it("false || false", () => {
+    expect(evaluate("context.a == true || context.b == true", { a: false, b: false })).toBe(false);
+  });
+  it("!false is true", () => {
+    expect(evaluate("!context.value", { value: false })).toBe(true);
+  });
+  it("!true is false", () => {
+    expect(evaluate("!context.value", { value: true })).toBe(false);
+  });
+});
+
+describe("evaluate — nested property access", () => {
+  it("nested.deep match", () => {
+    expect(evaluate("context.nested.deep == 'found'", { nested: { deep: "found" } })).toBe(true);
+  });
+  it("nested.deep missing deep key", () => {
+    expect(evaluate("context.nested.deep == null", { nested: {} })).toBe(true);
+  });
+  it("nested.deep missing nested key entirely", () => {
+    expect(evaluate("context.nested.deep == null", {})).toBe(true);
+  });
+});
+
+describe("evaluate — parentheses", () => {
+  it("(a || b) && c — true", () => {
+    expect(evaluate("(context.a == true || context.b == true) && context.c == true", { a: false, b: true, c: true })).toBe(true);
+  });
+  it("(a || b) && c — false", () => {
+    expect(evaluate("(context.a == true || context.b == true) && context.c == true", { a: false, b: true, c: false })).toBe(false);
+  });
+});
+
+describe("evaluate — short-circuit", () => {
+  it("&& short-circuits on false", () => {
+    // b is undefined, but shouldn't matter since a is false
+    expect(evaluate("context.a == true && context.b == true", { a: false })).toBe(false);
+  });
+  it("|| short-circuits on true", () => {
+    // b is undefined, but shouldn't matter since a is true
+    expect(evaluate("context.a == true || context.b == true", { a: true })).toBe(true);
+  });
+});
+
+describe("evaluate — truthiness (bare property access)", () => {
+  it("true is truthy", () => {
+    expect(evaluate("context.value", { value: true })).toBe(true);
+  });
+  it("nonempty string is truthy", () => {
+    expect(evaluate("context.value", { value: "nonempty" })).toBe(true);
+  });
+  it("0 is falsy", () => {
+    expect(evaluate("context.value", { value: 0 })).toBe(false);
+  });
+  it("null is falsy", () => {
+    expect(evaluate("context.value", { value: null })).toBe(false);
+  });
+  it("empty string is falsy", () => {
+    expect(evaluate("context.value", { value: "" })).toBe(false);
+  });
+  it("undefined is falsy", () => {
+    expect(evaluate("context.value", {})).toBe(false);
+  });
+});
+
+describe("evaluate — error cases", () => {
+  it("=== is not supported", () => {
+    expect(() => evaluate("context.value === true", { value: true })).toThrow(EvaluatorError);
+  });
+  it("unexpected end of expression", () => {
+    expect(() => evaluate("context.value == ", { value: true })).toThrow(EvaluatorError);
+  });
+  it("unclosed string", () => {
+    expect(() => evaluate("context.value == 'unclosed", { value: "" })).toThrow(EvaluatorError);
+  });
+  it("unexpected token at start", () => {
+    expect(() => evaluate("&&", {})).toThrow(EvaluatorError);
+  });
+  it("empty expression", () => {
+    expect(() => evaluate("", {})).toThrow(EvaluatorError);
+  });
+});
+
+describe("evaluate — whitespace handling", () => {
+  it("extra whitespace", () => {
+    expect(evaluate("  context.value  ==  true  ", { value: true })).toBe(true);
+  });
+  it("no whitespace", () => {
+    expect(evaluate("context.value==true", { value: true })).toBe(true);
+  });
+});
+
+describe("evaluate — expressions from spec examples", () => {
+  it("context.remainingItems > 0", () => {
+    expect(evaluate("context.remainingItems > 0", { remainingItems: 5 })).toBe(true);
+  });
+  it("context.remainingItems == 0", () => {
+    expect(evaluate("context.remainingItems == 0", { remainingItems: 0 })).toBe(true);
+  });
+  it("cycleCount < 3 && remainingItems > 0 — true", () => {
+    expect(evaluate("context.cycleCount < 3 && context.remainingItems > 0", { cycleCount: 1, remainingItems: 3 })).toBe(true);
+  });
+  it("cycleCount < 3 && remainingItems > 0 — false", () => {
+    expect(evaluate("context.cycleCount < 3 && context.remainingItems > 0", { cycleCount: 3, remainingItems: 3 })).toBe(false);
+  });
+  it("context.verificationPassed == true", () => {
+    expect(evaluate("context.verificationPassed == true", { verificationPassed: true })).toBe(true);
+  });
+  it("context.qualityScore >= 80 — pass", () => {
+    expect(evaluate("context.qualityScore >= 80", { qualityScore: 85 })).toBe(true);
+  });
+  it("context.qualityScore >= 80 — fail", () => {
+    expect(evaluate("context.qualityScore >= 80", { qualityScore: 75 })).toBe(false);
+  });
+  it("context.changeType == 'standard'", () => {
+    expect(evaluate("context.changeType == 'standard'", { changeType: "standard" })).toBe(true);
+  });
+  it("testsPass == false || lintPass == false — one fails", () => {
+    expect(evaluate("context.testsPass == false || context.lintPass == false", { testsPass: false, lintPass: true })).toBe(true);
+  });
+  it("testsPass == false || lintPass == false — both pass", () => {
+    expect(evaluate("context.testsPass == false || context.lintPass == false", { testsPass: true, lintPass: true })).toBe(false);
+  });
+  it("context.outputUrl != null — has value", () => {
+    expect(evaluate("context.outputUrl != null", { outputUrl: "https://example.com" })).toBe(true);
+  });
+  it("context.outputUrl != null — null", () => {
+    expect(evaluate("context.outputUrl != null", { outputUrl: null })).toBe(false);
+  });
+  it("context.scopeQuestionRaised == true", () => {
+    expect(evaluate("context.scopeQuestionRaised == true", { scopeQuestionRaised: true })).toBe(true);
+  });
+  it("reviewApproved || !touchesSensitiveArea", () => {
+    expect(evaluate("context.reviewApproved == true || context.touchesSensitiveArea == false", { reviewApproved: false, touchesSensitiveArea: false })).toBe(true);
+  });
+});

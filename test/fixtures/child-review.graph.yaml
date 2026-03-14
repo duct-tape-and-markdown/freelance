@@ -1,0 +1,47 @@
+id: child-review
+version: "1.0.0"
+name: "Child Review Checklist"
+description: "A review checklist that works standalone or as a subgraph"
+startNode: check-security
+strictContext: false
+
+context:
+  parentTaskDone: false
+  securityPass: false
+  testsPass: false
+  approved: false
+
+nodes:
+  check-security:
+    type: action
+    description: "Check for security issues"
+    instructions: "Review for security concerns. Set context.securityPass."
+    edges:
+      - target: check-tests
+        label: done
+
+  check-tests:
+    type: action
+    description: "Check test coverage"
+    instructions: "Review test coverage. Set context.testsPass."
+    edges:
+      - target: review-gate
+        label: done
+
+  review-gate:
+    type: gate
+    description: "Final review decision"
+    instructions: "All checks must pass. Set context.approved."
+    validations:
+      - expr: "context.securityPass == true"
+        message: "Security check must pass."
+      - expr: "context.testsPass == true"
+        message: "Tests must pass."
+    edges:
+      - target: complete
+        label: approved
+
+  complete:
+    type: terminal
+    description: "Review complete"
+    instructions: "Summarize review findings."

@@ -1,0 +1,24 @@
+id: invalid-orphan
+version: "1.0.0"
+name: "Invalid Orphan Graph"
+description: "Has an unreachable node"
+startNode: start
+
+nodes:
+  start:
+    type: action
+    description: "Start node"
+    edges:
+      - target: done
+        label: finish
+
+  done:
+    type: terminal
+    description: "End"
+
+  orphan:
+    type: action
+    description: "This node is unreachable"
+    edges:
+      - target: done
+        label: go
