@@ -1,0 +1,28 @@
+id: valid-wait-simple
+version: "1.0.0"
+name: "Simple Wait Workflow"
+description: "Minimal wait node test"
+startNode: start
+
+nodes:
+  start:
+    type: action
+    description: "Start"
+    edges:
+      - target: wait-approval
+        label: done
+
+  wait-approval:
+    type: wait
+    description: "Wait for approval"
+    waitOn:
+      - key: approved
+        type: boolean
+        description: "Human approval"
+    edges:
+      - target: complete
+        label: proceed
+
+  complete:
+    type: terminal
+    description: "Done"

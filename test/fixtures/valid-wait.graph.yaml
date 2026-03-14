@@ -1,0 +1,47 @@
+id: valid-wait
+version: "1.0.0"
+name: "Wait Node Workflow"
+description: "Tests wait node behavior"
+startNode: work
+
+context:
+  taskDone: false
+
+nodes:
+  work:
+    type: action
+    description: "Do the work"
+    instructions: "Complete the task"
+    edges:
+      - target: await-ci
+        label: submitted
+
+  await-ci:
+    type: wait
+    description: "Waiting for CI pipeline to complete"
+    waitOn:
+      - key: ciPassed
+        type: boolean
+        description: "CI pipeline must pass"
+      - key: coverageReport
+        type: string
+        description: "Coverage report URL"
+    timeout: 24h
+    edges:
+      - target: merge
+        label: ready
+        condition: "context.ciPassed == true"
+      - target: fix-ci
+        label: failed
+        condition: "context.ciPassed == false"
+
+  fix-ci:
+    type: action
+    description: "Fix CI failures"
+    edges:
+      - target: await-ci
+        label: resubmitted
+
+  merge:
+    type: terminal
+    description: "Merged successfully"
