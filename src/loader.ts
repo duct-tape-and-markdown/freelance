@@ -9,6 +9,34 @@ import type { ValidatedGraph } from "./types.js";
 import { validateExpression } from "./evaluator.js";
 
 /**
+ * Load and validate a single *.graph.yaml file.
+ * Returns the graph id, definition, and graphlib graph.
+ * Throws on any validation failure with descriptive errors.
+ */
+export function loadSingleGraph(filePath: string): { id: string } & ValidatedGraph {
+  const resolved = path.resolve(filePath);
+  const content = fs.readFileSync(resolved, "utf-8");
+  const parsed = yaml.load(content);
+
+  const parseResult = graphDefinitionSchema.safeParse(parsed);
+  if (!parseResult.success) {
+    const errors = parseResult.error.issues
+      .map((issue) => `  ${issue.path.join(".")}: ${issue.message}`)
+      .join("\n");
+    throw new Error(
+      `Schema validation failed for ${resolved}:\n${errors}`
+    );
+  }
+
+  const def = parseResult.data;
+  validateReturnSchemas(def, resolved);
+  validateExpressions(def, resolved);
+  const graph = buildAndValidateGraph(def, resolved);
+
+  return { id: def.id, definition: def, graph };
+}
+
+/**
  * Load and validate all *.graph.yaml files from a directory.
  * Returns a Map of graphId → ValidatedGraph.
  * Throws on any validation failure with descriptive errors.
@@ -32,36 +60,12 @@ export function loadGraphs(directory: string): Map<string, ValidatedGraph> {
   const results = new Map<string, ValidatedGraph>();
 
   for (const filePath of files) {
-    const content = fs.readFileSync(filePath, "utf-8");
-    const parsed = yaml.load(content);
-
-    // Zod schema validation — typed output, no casts needed
-    const parseResult = graphDefinitionSchema.safeParse(parsed);
-    if (!parseResult.success) {
-      const errors = parseResult.error.issues
-        .map((issue) => `  ${issue.path.join(".")}: ${issue.message}`)
-        .join("\n");
-      throw new Error(
-        `Schema validation failed for ${filePath}:\n${errors}`
-      );
-    }
-
-    const def = parseResult.data;
-
-    // Validate return schemas at load time
-    validateReturnSchemas(def, filePath);
-
-    // Validate all expressions at load time (item 7)
-    validateExpressions(def, filePath);
-
-    // Build graphlib graph and run structural validation
-    const g = buildAndValidateGraph(def, filePath);
-
-    results.set(def.id, { definition: def, graph: g });
+    const { id, definition, graph } = loadSingleGraph(filePath);
+    results.set(id, { definition, graph });
   }
 
   // Cross-graph validation: subgraph references and circular detection
-  validateSubgraphReferences(results);
+  validateCrossGraphRefs(results);
 
   return results;
 }
@@ -283,7 +287,7 @@ function validateCycles(
  * 1. Verify all subgraph.graphId references exist in the loaded graph set.
  * 2. Detect circular subgraph references via DFS.
  */
-function validateSubgraphReferences(graphs: Map<string, ValidatedGraph>): void {
+export function validateCrossGraphRefs(graphs: Map<string, ValidatedGraph>): void {
   // Build adjacency list for subgraph references
   const subgraphEdges = new Map<string, Set<string>>();
 

@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { TraversalManager } from "./traversal-manager.js";
 import { EngineError } from "./errors.js";
+import { VERSION } from "./version.js";
 import type { ValidatedGraph } from "./types.js";
 
 function jsonResponse(result: unknown) {
@@ -35,7 +36,7 @@ export function createServer(
   const manager = new TraversalManager(graphs, options);
 
   const server = new McpServer(
-    { name: "graph-engine", version: "0.1.0" },
+    { name: "freelance", version: VERSION },
   );
 
   // graph_list

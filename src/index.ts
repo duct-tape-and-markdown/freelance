@@ -1,322 +1,243 @@
-import fs from "node:fs";
-import os from "node:os";
+#!/usr/bin/env node
 import path from "node:path";
+import fs from "node:fs";
+import { Command, Option } from "commander";
 import { loadGraphs } from "./loader.js";
 import { startServer } from "./server.js";
 import { startDaemon } from "./daemon.js";
 import { startProxy } from "./proxy.js";
+import { validate } from "./cli/validate.js";
+import { visualize } from "./cli/visualize.js";
+import { setCli, info, fatal, EXIT } from "./cli/output.js";
+import { daemonStop, daemonStatus } from "./cli/daemon.js";
+import { parseDaemonConnect, traversalsList, traversalsInspect, traversalsReset } from "./cli/traversals.js";
+import { VERSION } from "./version.js";
+import { TRAVERSALS_DIR, DEFAULT_PORT } from "./paths.js";
 
-const FREELANCE_DIR = ".freelance";
-const TRAVERSALS_DIR = path.join(FREELANCE_DIR, "traversals");
+const ENV_GRAPHS_DIR = process.env.FREELANCE_GRAPHS_DIR?.trim() || undefined;
 
-function usage(): never {
-  console.error(`Usage:
-  freelance --graphs <dir> [--validate] [--max-depth <n>]   Standalone MCP server
-  freelance mcp --graphs <dir> [--max-depth <n>]            Standalone MCP server
-  freelance mcp --connect <host:port>                       MCP proxy to daemon
-  freelance daemon --graphs <dir> [--port <n>] [--max-depth <n>]  Start daemon
-  freelance daemon stop                                     Stop daemon
-  freelance daemon status                                   Daemon status
-  freelance traversals list                                 List active traversals
-  freelance traversals inspect <id>                         Inspect a traversal
-  freelance traversals reset <id>                           Reset a traversal`);
-  process.exit(1);
-}
-
-function getArg(args: string[], flag: string): string | undefined {
-  const idx = args.indexOf(flag);
-  if (idx === -1 || !args[idx + 1]) return undefined;
-  return args[idx + 1];
-}
-
-function parseMaxDepth(args: string[]): number {
-  const val = getArg(args, "--max-depth");
-  if (!val) return 5;
-  const parsed = parseInt(val, 10);
-  if (isNaN(parsed) || parsed < 1) {
-    console.error("--max-depth must be a positive integer (minimum 1)");
-    process.exit(1);
-  }
-  return parsed;
-}
-
-// --- Validate mode ---
-
-function validateMode(graphsDir: string) {
-  const resolvedDir = path.resolve(graphsDir);
-
-  if (!fs.existsSync(resolvedDir)) {
-    console.error(`Graph directory does not exist: ${resolvedDir}`);
-    process.exit(1);
-  }
-
-  const files = fs
-    .readdirSync(resolvedDir)
-    .filter((f) => f.endsWith(".graph.yaml"));
-
-  if (files.length === 0) {
-    console.error(`No *.graph.yaml files found in: ${resolvedDir}`);
-    process.exit(1);
-  }
-
-  const tmpBase = fs.mkdtempSync(
-    path.join(fs.realpathSync(os.tmpdir()), "ge-")
-  );
-  let loaded = 0;
-  const errors: string[] = [];
-
-  for (const file of files) {
-    const tmpDir = path.join(tmpBase, file);
-    fs.mkdirSync(tmpDir, { recursive: true });
-    fs.copyFileSync(path.join(resolvedDir, file), path.join(tmpDir, file));
-
-    try {
-      const graphs = loadGraphs(tmpDir);
-      for (const [id, { definition, graph }] of graphs) {
-        console.log(
-          `  OK  ${definition.name} (id: ${id}, v${definition.version}, ${graph.nodeCount()} nodes)`
-        );
-        loaded++;
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`  FAIL  ${file}: ${msg}`);
-    }
-  }
-
-  console.log(`\nLoaded ${loaded} graph(s), ${errors.length} failed.\n`);
-
-  if (errors.length > 0) {
-    console.error("Errors:");
-    for (const e of errors) {
-      console.error(e);
-    }
-    process.exit(1);
-  }
-}
-
-// --- Standalone MCP server ---
-
-async function standaloneMode(graphsDir: string, maxDepth: number) {
+function loadGraphsOrFatal(graphsDir: string) {
   try {
-    const graphs = loadGraphs(graphsDir);
-    const ids = [...graphs.keys()];
-    console.error(
-      `Graph Engine: loaded ${graphs.size} graph(s) (${ids.join(", ")}), maxDepth=${maxDepth}`
-    );
-    await startServer(graphs, { maxDepth });
+    return loadGraphs(graphsDir);
   } catch (err) {
-    console.error(
-      "Graph loading failed:",
-      err instanceof Error ? err.message : err
+    fatal(
+      `Graph loading failed: ${err instanceof Error ? err.message : err}`,
+      EXIT.GRAPH_ERROR
     );
-    process.exit(1);
   }
 }
 
-// --- Daemon commands ---
+// --- Program setup ---
 
-async function daemonStart(args: string[]) {
-  const graphsDir = getArg(args, "--graphs");
-  if (!graphsDir) {
-    console.error("daemon requires --graphs <directory>");
-    process.exit(1);
-  }
+const program = new Command();
 
-  const portStr = getArg(args, "--port");
-  const port = portStr ? parseInt(portStr, 10) : 7433;
-  if (isNaN(port) || port < 1 || port > 65535) {
-    console.error("--port must be a valid port number");
-    process.exit(1);
-  }
-
-  const maxDepth = parseMaxDepth(args);
-  const persistDir = path.resolve(TRAVERSALS_DIR);
-
-  try {
-    const graphs = loadGraphs(graphsDir);
-    const ids = [...graphs.keys()];
-    console.error(
-      `Freelance daemon: loaded ${graphs.size} graph(s) (${ids.join(", ")})`
-    );
-    await startDaemon(graphs, {
-      port,
-      host: "127.0.0.1",
-      persistDir,
-      maxDepth,
+program
+  .name("freelance")
+  .description("Graph-based workflow enforcement for AI coding agents")
+  .version(VERSION)
+  .showSuggestionAfterError()
+  .configureHelp({
+    sortSubcommands: false,
+    sortOptions: false,
+  })
+  .addHelpText("before", `freelance v${VERSION} \u2014 Graph-based workflow enforcement for AI coding agents\n`)
+  .option("--json", "Output results as JSON to stdout")
+  .option("--no-color", "Disable colored output")
+  .option("--verbose", "Show detailed progress and debug information")
+  .option("-q, --quiet", "Suppress non-essential output (errors only)")
+  .hook("preAction", (_thisCommand, actionCommand) => {
+    const root = actionCommand.optsWithGlobals();
+    setCli({
+      json: root.json ?? false,
+      quiet: root.quiet ?? false,
+      verbose: root.verbose ?? false,
+      noColor: root.color === false || !!process.env.NO_COLOR,
     });
-  } catch (err) {
-    console.error(
-      "Daemon startup failed:",
-      err instanceof Error ? err.message : err
-    );
-    process.exit(1);
-  }
-}
+  });
 
-function daemonStop() {
-  const pidFile = path.resolve(FREELANCE_DIR, "daemon.pid");
-  if (!fs.existsSync(pidFile)) {
-    console.error("No daemon PID file found. Is the daemon running?");
-    process.exit(1);
-  }
+// --- init ---
 
-  const pid = parseInt(fs.readFileSync(pidFile, "utf-8").trim(), 10);
-  try {
-    process.kill(pid, "SIGTERM");
-    console.log(`Sent SIGTERM to daemon (PID ${pid})`);
-  } catch (e) {
-    const err = e as NodeJS.ErrnoException;
-    if (err.code === "ESRCH") {
-      console.error(`Daemon process (PID ${pid}) not found. Cleaning up PID file.`);
-      fs.unlinkSync(pidFile);
+program
+  .command("init")
+  .description("Set up Freelance for a project or user")
+  .addOption(new Option("--scope <scope>", "Where to install").choices(["project", "user"]).default("project"))
+  .addOption(new Option("--client <client>", "MCP client to configure").choices(["claude-code", "cursor", "windsurf", "cline", "manual"]))
+  .option("--graphs <path>", "Where to put graph definitions")
+  .addOption(new Option("--starter <template>", "Starter graph to scaffold").choices(["change-request", "data-pipeline", "ralph-loop", "blank", "none"]))
+  .option("--daemon", "Configure daemon mode")
+  .option("--port <port>", "Daemon port (used with --daemon)", String(DEFAULT_PORT))
+  .option("--yes", "Skip all prompts, use defaults")
+  .option("--dry-run", "Show what would be created without writing anything")
+  .action(async (opts) => {
+    const { init, initInteractive, INIT_DEFAULTS } = await import("./cli/init.js");
+
+    if (opts.dryRun || opts.yes || opts.client) {
+      await init({
+        scope: opts.scope,
+        client: opts.client ?? "claude-code",
+        graphs: opts.graphs,
+        starter: opts.starter ?? INIT_DEFAULTS.starter,
+        daemon: opts.daemon ?? INIT_DEFAULTS.daemon,
+        daemonPort: opts.port ? parseInt(opts.port, 10) : undefined,
+        dryRun: opts.dryRun ?? INIT_DEFAULTS.dryRun,
+      });
     } else {
-      console.error(`Failed to stop daemon: ${err.message}`);
+      await initInteractive({ dryRun: opts.dryRun });
     }
-    process.exit(1);
-  }
-}
+  });
 
-function daemonStatus() {
-  const pidFile = path.resolve(FREELANCE_DIR, "daemon.pid");
-  if (!fs.existsSync(pidFile)) {
-    console.log("Daemon: not running (no PID file)");
-    return;
-  }
+// --- validate ---
 
-  const pid = parseInt(fs.readFileSync(pidFile, "utf-8").trim(), 10);
-  try {
-    process.kill(pid, 0); // Check if process exists
-    console.log(`Daemon: running (PID ${pid})`);
-  } catch {
-    console.log(`Daemon: not running (stale PID file for ${pid})`);
-  }
-}
+program
+  .command("validate <directory>")
+  .description("Validate graph definitions")
+  .action((directory) => {
+    validate(directory);
+  });
 
-// --- Traversal commands ---
+// --- visualize ---
 
-async function traversalsList(args: string[]) {
-  const { host, port } = parseDaemonConnect(args);
-  try {
-    const res = await fetch(`http://${host}:${port}/traversals`);
-    const data = await res.json() as { traversals: Array<Record<string, unknown>> };
-    if (data.traversals.length === 0) {
-      console.log("No active traversals.");
-      return;
+program
+  .command("visualize <file>")
+  .description("Export graph as Mermaid or DOT diagram")
+  .addOption(new Option("--format <format>", "Output format").choices(["mermaid", "dot"]).default("mermaid"))
+  .option("--output <file>", "Write to file instead of stdout")
+  .option("--open", "Render in browser")
+  .action((file, opts) => {
+    visualize(file, {
+      format: opts.format,
+      output: opts.output,
+      open: opts.open,
+    });
+  });
+
+// --- mcp ---
+
+program
+  .command("mcp")
+  .description("Start MCP server (standalone or proxy to daemon)")
+  .option("--graphs <directory>", "Graph definitions directory")
+  .option("--connect <host:port>", "Connect to daemon instead of standalone")
+  .option("--max-depth <n>", "Maximum subgraph nesting depth", "5")
+  .action(async (opts) => {
+    if (opts.connect) {
+      const { host, port } = parseDaemonConnect(opts);
+      info(`Freelance proxy: connecting to daemon at ${host}:${port}`);
+      await startProxy(host, port);
+    } else {
+      const graphsDir = opts.graphs ?? ENV_GRAPHS_DIR;
+      if (!graphsDir) {
+        fatal(
+          "mcp requires --graphs <directory> or --connect <host:port>\n\n  Set FREELANCE_GRAPHS_DIR to provide a default.",
+          EXIT.INVALID_USAGE
+        );
+      }
+      const maxDepth = parseInt(opts.maxDepth, 10);
+      const graphs = loadGraphsOrFatal(graphsDir);
+      const ids = [...graphs.keys()];
+      info(`Freelance: loaded ${graphs.size} graph(s) (${ids.join(", ")}), maxDepth=${maxDepth}`);
+      await startServer(graphs, { maxDepth });
     }
-    for (const t of data.traversals) {
-      console.log(
-        `  ${t.traversalId}  ${t.graphId} @ ${t.currentNode}  (depth: ${t.stackDepth}, updated: ${t.lastUpdated})`
+  });
+
+// --- daemon ---
+
+const daemonCmd = program
+  .command("daemon")
+  .description("Manage the Freelance daemon");
+
+daemonCmd
+  .command("start", { isDefault: true })
+  .description("Start the daemon")
+  .option("--graphs <directory>", "Graph definitions directory")
+  .option("--port <port>", `Port to listen on (default: ${DEFAULT_PORT})`, String(DEFAULT_PORT))
+  .option("--max-depth <n>", "Maximum subgraph nesting depth", "5")
+  .action(async (opts) => {
+    const graphsDir = opts.graphs ?? ENV_GRAPHS_DIR;
+    if (!graphsDir) {
+      fatal(
+        "daemon start requires --graphs <directory>\n\n  Set FREELANCE_GRAPHS_DIR to provide a default.",
+        EXIT.INVALID_USAGE
       );
     }
-  } catch (e) {
-    console.error(`Failed to connect to daemon at ${host}:${port}: ${(e as Error).message}`);
-    process.exit(1);
-  }
-}
 
-async function traversalsInspect(args: string[]) {
-  const id = args.find((a) => a.startsWith("tr_"));
-  if (!id) {
-    console.error("Usage: freelance traversals inspect <traversalId>");
-    process.exit(1);
-  }
-  const { host, port } = parseDaemonConnect(args);
-  try {
-    const res = await fetch(`http://${host}:${port}/traversals/${id}?detail=position`);
-    const data = await res.json();
-    console.log(JSON.stringify(data, null, 2));
-  } catch (e) {
-    console.error(`Failed to connect to daemon at ${host}:${port}: ${(e as Error).message}`);
-    process.exit(1);
-  }
-}
-
-async function traversalsReset(args: string[]) {
-  const id = args.find((a) => a.startsWith("tr_"));
-  if (!id) {
-    console.error("Usage: freelance traversals reset <traversalId>");
-    process.exit(1);
-  }
-  const { host, port } = parseDaemonConnect(args);
-  try {
-    const res = await fetch(`http://${host}:${port}/traversals/${id}/reset`, { method: "POST" });
-    const data = await res.json();
-    console.log(JSON.stringify(data, null, 2));
-  } catch (e) {
-    console.error(`Failed to connect to daemon at ${host}:${port}: ${(e as Error).message}`);
-    process.exit(1);
-  }
-}
-
-function parseDaemonConnect(args: string[]): { host: string; port: number } {
-  const connect = getArg(args, "--connect");
-  if (connect) {
-    const [host, portStr] = connect.split(":");
-    return { host: host || "127.0.0.1", port: parseInt(portStr, 10) || 7433 };
-  }
-  return { host: "127.0.0.1", port: 7433 };
-}
-
-// --- Main ---
-
-const args = process.argv.slice(2);
-const command = args[0];
-
-if (command === "daemon") {
-  const subcommand = args[1];
-  if (subcommand === "stop") {
-    daemonStop();
-  } else if (subcommand === "status") {
-    daemonStatus();
-  } else {
-    // "daemon --graphs ..." or "daemon start --graphs ..."
-    const daemonArgs = subcommand === "start" ? args.slice(2) : args.slice(1);
-    daemonStart(daemonArgs);
-  }
-} else if (command === "mcp") {
-  const mcpArgs = args.slice(1);
-  const connect = getArg(mcpArgs, "--connect");
-  if (connect) {
-    // Proxy mode
-    const [host, portStr] = connect.split(":");
-    const daemonHost = host || "127.0.0.1";
-    const daemonPort = parseInt(portStr, 10) || 7433;
-    console.error(`Graph Engine proxy: connecting to daemon at ${daemonHost}:${daemonPort}`);
-    startProxy(daemonHost, daemonPort);
-  } else {
-    // Standalone mode
-    const graphsDir = getArg(mcpArgs, "--graphs");
-    if (!graphsDir) {
-      console.error("mcp requires --graphs <directory> or --connect <host:port>");
-      process.exit(1);
+    const port = parseInt(opts.port, 10);
+    if (isNaN(port) || port < 1 || port > 65535) {
+      fatal("--port must be a valid port number (1-65535)", EXIT.INVALID_USAGE);
     }
-    const maxDepth = parseMaxDepth(mcpArgs);
-    standaloneMode(graphsDir, maxDepth);
-  }
-} else if (command === "traversals") {
-  const subcommand = args[1];
-  if (subcommand === "list") {
-    traversalsList(args.slice(2));
-  } else if (subcommand === "inspect") {
-    traversalsInspect(args.slice(2));
-  } else if (subcommand === "reset") {
-    traversalsReset(args.slice(2));
-  } else {
-    console.error("Usage: freelance traversals <list|inspect|reset>");
-    process.exit(1);
-  }
-} else if (args.includes("--graphs")) {
-  // Backward compatible: --graphs flag without subcommand
-  const graphsDir = getArg(args, "--graphs");
-  if (!graphsDir) usage();
-  const maxDepth = parseMaxDepth(args);
+    const maxDepth = parseInt(opts.maxDepth, 10);
+    const persistDir = path.resolve(TRAVERSALS_DIR);
 
-  if (args.includes("--validate")) {
-    validateMode(graphsDir);
-  } else {
-    standaloneMode(graphsDir, maxDepth);
-  }
-} else {
-  usage();
-}
+    const graphs = loadGraphsOrFatal(graphsDir);
+    const ids = [...graphs.keys()];
+    info(`Freelance daemon: loaded ${graphs.size} graph(s) (${ids.join(", ")})`);
+    await startDaemon(graphs, { port, host: "127.0.0.1", persistDir, maxDepth });
+  });
+
+daemonCmd
+  .command("stop")
+  .description("Stop the daemon")
+  .action(() => daemonStop());
+
+daemonCmd
+  .command("status")
+  .description("Check daemon status")
+  .action(() => daemonStatus());
+
+// --- traversals ---
+
+const traversalsCmd = program
+  .command("traversals")
+  .description("Manage active traversals (requires running daemon)");
+
+traversalsCmd
+  .command("list")
+  .description("List active traversals")
+  .option("--connect <host:port>", "Daemon address")
+  .action(async (opts) => {
+    const { host, port } = parseDaemonConnect(opts);
+    await traversalsList(host, port);
+  });
+
+traversalsCmd
+  .command("inspect <id>")
+  .description("Inspect a traversal")
+  .option("--connect <host:port>", "Daemon address")
+  .action(async (id, opts) => {
+    const { host, port } = parseDaemonConnect(opts);
+    await traversalsInspect(host, port, id);
+  });
+
+traversalsCmd
+  .command("reset <id>")
+  .description("Reset a traversal")
+  .option("--connect <host:port>", "Daemon address")
+  .action(async (id, opts) => {
+    const { host, port } = parseDaemonConnect(opts);
+    await traversalsReset(host, port, id);
+  });
+
+// --- completion ---
+
+program
+  .command("completion <shell>")
+  .description("Output shell completion script (bash, zsh, fish)")
+  .action((shell) => {
+    const supported = ["bash", "zsh", "fish"];
+    if (!supported.includes(shell)) {
+      fatal(
+        `Unknown shell: ${shell}. Supported: ${supported.join(", ")}`,
+        EXIT.INVALID_USAGE
+      );
+    }
+    const completionFile = path.resolve(
+      path.dirname(new URL(import.meta.url).pathname),
+      "..", "templates", "completions", `freelance.${shell}`
+    );
+    if (!fs.existsSync(completionFile)) {
+      fatal(`Completion file not found: ${completionFile}`, EXIT.GENERAL_ERROR);
+    }
+    process.stdout.write(fs.readFileSync(completionFile, "utf-8"));
+  });
+
+program.parse();

@@ -167,19 +167,18 @@ export class GraphEngine {
       }
     }
 
-    // Step 4: Find edge by label (defensive: check for zero edges)
-    const edges = currentNodeDef.edges ?? [];
-    if (edges.length === 0) {
+    // Step 4: Find edge by label (terminal nodes have no edges)
+    if (!currentNodeDef.edges) {
       throw new EngineError(
-        `Node "${session.currentNode}" has no outgoing edges`,
+        `Node "${session.currentNode}" is a terminal node with no outgoing edges`,
         "NO_EDGES"
       );
     }
-    const edgeDef = edges.find((e) => e.label === edge);
+    const edgeDef = currentNodeDef.edges.find((e) => e.label === edge);
     if (!edgeDef) {
       throw new EngineError(
         `Edge "${edge}" not found on node "${session.currentNode}". ` +
-          `Available edges: ${edges.map((e) => e.label).join(", ")}`,
+          `Available edges: ${currentNodeDef.edges.map((e: { label: string }) => e.label).join(", ")}`,
         "EDGE_NOT_FOUND"
       );
     }
@@ -475,7 +474,8 @@ export class GraphEngine {
   }
 
   private evaluateTransitions(node: NodeDefinition): TransitionInfo[] {
-    const edges = node.edges ?? [];
+    if (!node.edges) return [];
+    const edges = node.edges;
     const session = this.activeSession();
 
     // Mutable intermediate type for computation before freezing into readonly TransitionInfo
