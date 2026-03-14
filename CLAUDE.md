@@ -44,7 +44,15 @@ freelance init
 - `src/schema/` — Zod schemas for graph definitions (single source of truth for types + validation)
 - `src/evaluator.ts` — Expression evaluator for edge conditions and validations
 - `src/loader.ts` — YAML graph loader with structural validation
-- `src/engine.ts` — Core traversal engine (session state, advance logic, gate enforcement)
+- `src/engine/` — Core traversal engine, decomposed into focused modules:
+  - `engine.ts` — Orchestrator (start, advance dispatch, reset, contextSet, inspect)
+  - `gates.ts` — Pre-advance checks (wait blocking, return schema, validations, edge conditions)
+  - `subgraph.ts` — Stack push/pop with context and return mapping
+  - `state.ts` — Context updates, strict context enforcement, inspect builders
+  - `transitions.ts` — Edge evaluation with default-edge logic
+  - `wait.ts` — Wait condition evaluation and timeout handling
+  - `returns.ts` — Return schema validation
+  - `helpers.ts` — Shared utilities (cloneContext, toNodeInfo)
 - `src/traversal-manager.ts` — Multi-traversal management with GUID addressing and persistence
 - `src/daemon.ts` — HTTP daemon server wrapping TraversalManager
 - `src/proxy.ts` — MCP proxy that bridges stdio to daemon HTTP API
