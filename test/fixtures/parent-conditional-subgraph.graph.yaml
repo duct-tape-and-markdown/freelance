@@ -1,0 +1,38 @@
+id: parent-conditional
+version: "1.0.0"
+name: "Parent with Conditional Subgraph"
+description: "A workflow where the subgraph can be skipped"
+startNode: start
+context:
+  skipReview: false
+  reviewPassed: false
+
+nodes:
+  start:
+    type: action
+    description: "Begin work"
+    instructions: "Do initial work."
+    edges:
+      - target: maybe-review
+        label: done
+
+  maybe-review:
+    type: gate
+    description: "Optionally run review subgraph"
+    instructions: "If skipReview is false, the review subgraph will run."
+    subgraph:
+      graphId: child-review
+      condition: "context.skipReview != true"
+      returnMap:
+        approved: reviewPassed
+    validations:
+      - expr: "context.reviewPassed == true || context.skipReview == true"
+        message: "Review must pass or be skipped."
+    edges:
+      - target: finish
+        label: continue
+
+  finish:
+    type: terminal
+    description: "Done"
+    instructions: "All done."

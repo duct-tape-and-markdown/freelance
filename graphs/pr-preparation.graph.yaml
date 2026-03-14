@@ -1,0 +1,286 @@
+id: pr-preparation
+version: "1.0.0"
+name: "PR Preparation Workflow"
+description: "Enforces the PR checklist from pr-checklist.md: Jira hygiene, PR presentation, and self-review before opening a pull request."
+startNode: verify-ticket-exists
+strictContext: false
+
+context:
+  ticketId: null
+  targetBranch: null
+  fixVersionSet: false
+  resolutionStatusSet: false
+  devNotesAdded: false
+  testingNotesAdded: false
+  subtasksManaged: false
+  debtCaptured: false
+  hasStructuralDebt: false
+  ticketLinked: false
+  prDescriptionWritten: false
+  selfReviewComplete: false
+  isEpic: false
+  epicSubtasksResolved: false
+  hasSubtasks: false
+
+nodes:
+  verify-ticket-exists:
+    type: gate
+    description: "Step 0: Verify a Jira ticket exists"
+    instructions: |
+      All work should have a Jira ticket. If no ticket exists, create one
+      before proceeding.
+
+      If delivering without a ticket, document the justification in the
+      commit message and PR description.
+
+      Set context.ticketId to the ticket key (e.g., DEV-8255).
+    validations:
+      - expr: "context.ticketId != null"
+        message: "A Jira ticket must exist. Set context.ticketId to the ticket key, or document justification for delivering without one."
+    edges:
+      - target: set-fix-version
+        label: ticket-exists
+
+  set-fix-version:
+    type: action
+    description: "Step 1a: Set the fix version"
+    instructions: |
+      If the PR targets a releasing branch (weekly, main, release, monthly),
+      the ticket must have a fix version.
+
+      Retrieve active fix versions:
+        acli jira project view --key DEV --json
+
+      Match the version suffix to the target branch:
+      - weekly or main (weekly delivery): No suffix, nearest Sunday date
+      - monthly: .M suffix
+      - release: .R-# suffix
+      - main (true hotpatch): .H suffix
+      - main (non-releasing repo): No-Release
+
+      If the PR targets a feature branch, do NOT set a fix version.
+
+      Set context.fixVersionSet = true when done.
+    edges:
+      - target: set-resolution-status
+        label: fix-version-set
+
+  set-resolution-status:
+    type: action
+    description: "Step 1b: Set the resolution status"
+    instructions: |
+      Move the ticket to the resolution status matching the PR target branch:
+      - weekly → Patch Weekly
+      - main → Hotfix Main
+      - feature branch → Patch to Feature Branch
+      - monthly → Patch Monthly
+      - release → Fix Release
+
+      Set context.resolutionStatusSet = true when done.
+    edges:
+      - target: add-dev-notes
+        label: status-set
+
+  add-dev-notes:
+    type: action
+    description: "Step 1c: Add development notes"
+    instructions: |
+      Add development notes to the Jira ticket covering:
+      - Technical decisions and compromises
+      - Difficulties encountered
+      - Areas to consider for refactor
+      - Unforeseen scope increase
+      - Technical details for future reference
+
+      Written for future developers (including Claude) who will revisit
+      this area of the codebase.
+
+      Set context.devNotesAdded = true when done.
+    edges:
+      - target: add-testing-notes
+        label: dev-notes-done
+
+  add-testing-notes:
+    type: action
+    description: "Step 1d: Add testing notes"
+    instructions: |
+      Add testing notes to the Jira ticket covering:
+      - Concise overview of the change and scope of effect
+      - The actual issue resolved and expected behavior
+      - Testing considerations (scenarios, edge cases, configurations)
+      - What was skipped or deferred
+
+      Written for both human testers and Claude QA agents.
+      Testing notes must live in the Jira ticket — not in commit messages,
+      PR descriptions, Slack, or email.
+
+      Set context.testingNotesAdded = true when done.
+    edges:
+      - target: manage-subtasks
+        label: testing-notes-done
+
+  manage-subtasks:
+    type: action
+    description: "Step 1e: Manage subtasks"
+    instructions: |
+      If the ticket has subtasks or child tickets:
+      - Close every completed subtask.
+      - Move incomplete subtasks to a new ticket and link back.
+      - Pull QA-relevant testing notes up to the parent ticket.
+
+      Set context.hasSubtasks = true if subtasks existed.
+      Set context.subtasksManaged = true when done (or if no subtasks exist).
+    edges:
+      - target: capture-debt
+        label: subtasks-managed
+
+  capture-debt:
+    type: action
+    description: "Step 1f: Capture structural debt (if applicable)"
+    instructions: |
+      If structural debt was discovered during implementation, capture it:
+
+      1. Query standing debt Epics:
+         project = ENG AND labels = debt-audit AND type = Epic AND statusCategory != Done
+
+      2. Read Epic descriptions to match your finding to a category.
+
+      3. Search for existing tickets before creating new ones.
+
+      4. Enrich existing tickets or create new subtasks with:
+         - What the debt is
+         - Where (file paths, modules)
+         - Why it matters (what gets worse)
+         - Discovery context
+
+      Set context.hasStructuralDebt = true if debt was found.
+      Set context.debtCaptured = true when done (or if no debt found).
+    edges:
+      - target: jira-gate
+        label: debt-handled
+
+  jira-gate:
+    type: gate
+    description: "Verify Jira ticket is complete"
+    instructions: |
+      Verify all Jira preparation steps are complete before moving to PR preparation.
+    validations:
+      - expr: "context.fixVersionSet == true"
+        message: "Fix version must be set on the Jira ticket."
+      - expr: "context.devNotesAdded == true"
+        message: "Development notes must be added to the Jira ticket."
+      - expr: "context.testingNotesAdded == true"
+        message: "Testing notes must be added to the Jira ticket."
+      - expr: "context.subtasksManaged == true"
+        message: "Subtasks must be managed (closed or moved)."
+    edges:
+      - target: link-ticket
+        label: jira-ready
+
+  link-ticket:
+    type: action
+    description: "Step 2a: Link ticket to PR"
+    instructions: |
+      Link the PR to the Jira ticket via:
+      1. GitHub-Jira integration (automatic linking)
+      2. Direct Jira URL in the PR body: https://centercode.jira.com/browse/DEV-XXXX
+
+      For multi-ticket PRs, every ticket's URL must appear in the PR body.
+
+      Set context.ticketLinked = true when done.
+    edges:
+      - target: write-pr-description
+        label: ticket-linked
+
+  write-pr-description:
+    type: action
+    description: "Step 2b: Write PR description"
+    instructions: |
+      Write the PR description covering:
+      - What this PR does (1-3 sentences)
+      - Approach (how it was implemented, especially non-obvious choices)
+      - Concessions (intentional compromises or known limitations)
+      - Tier 1 verification summary (declaration that both checklists
+        were executed + findings summary)
+
+      Do NOT duplicate testing notes — those live in Jira for QA.
+
+      Set context.prDescriptionWritten = true when done.
+    edges:
+      - target: self-review
+        label: description-done
+
+  self-review:
+    type: action
+    description: "Step 2c: Self-review"
+    instructions: |
+      Complete a self-review using the PR diff view before tagging reviewers:
+
+      - Add annotations where the diff alone does not communicate intent.
+      - Flag concessions so reviewers don't waste time on known limitations.
+      - Verify the diff matches your expectation (no unintended files,
+        no debug code, no formatting mixed with substantive changes).
+
+      Set context.selfReviewComplete = true when done.
+    edges:
+      - target: epic-check
+        label: self-review-done
+
+  epic-check:
+    type: decision
+    description: "Check if this is an Epic delivery"
+    instructions: |
+      Is this PR delivering an Epic?
+
+      Set context.isEpic = true if yes.
+    edges:
+      - target: deliver-epic
+        label: is-epic
+        condition: "context.isEpic == true"
+        description: "This is an Epic delivery — additional rules apply"
+      - target: pr-gate
+        label: not-epic
+        description: "Not an Epic, proceed to final gate"
+
+  deliver-epic:
+    type: action
+    description: "Step 3: Deliver an Epic"
+    instructions: |
+      Epic delivery requires:
+      - ALL subtasks must be resolved (closed and addressed).
+      - Acknowledge QA-facing items with a comment on the Epic.
+      - If any tasks are incomplete, either:
+        - Delay the Epic until all work is done, or
+        - Move remaining work to a new Epic and link it.
+
+      Set context.epicSubtasksResolved = true when done.
+    edges:
+      - target: pr-gate
+        label: epic-ready
+
+  pr-gate:
+    type: gate
+    description: "Final PR readiness gate"
+    instructions: |
+      Verify all PR preparation is complete before opening the pull request.
+    validations:
+      - expr: "context.ticketLinked == true"
+        message: "PR must be linked to Jira ticket(s)."
+      - expr: "context.prDescriptionWritten == true"
+        message: "PR description must be written."
+      - expr: "context.selfReviewComplete == true"
+        message: "Self-review must be complete before tagging reviewers."
+    edges:
+      - target: done
+        label: ready-to-open
+
+  done:
+    type: terminal
+    description: "PR is ready to open"
+    instructions: |
+      All preparation is complete. Open the pull request and tag reviewers.
+
+      The PR has been prepared per the team's standards:
+      - Jira ticket is complete (fix version, status, dev notes, testing notes)
+      - PR is linked, described, and self-reviewed
+      - Tier 1 verification summary is in the PR description

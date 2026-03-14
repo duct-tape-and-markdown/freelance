@@ -1,0 +1,34 @@
+id: valid-simple
+version: "1.0.0"
+name: "Simple Workflow"
+description: "A minimal valid graph for testing"
+startNode: start
+
+context:
+  taskStarted: false
+
+nodes:
+  start:
+    type: action
+    description: "Begin the task"
+    instructions: "Initialize the work and set context.taskStarted = true."
+    edges:
+      - target: review
+        label: work-done
+        description: "Work is complete, move to review"
+
+  review:
+    type: gate
+    description: "Review the work"
+    instructions: "Check that the task was started properly."
+    validations:
+      - expr: "context.taskStarted == true"
+        message: "Task must be started before review."
+    edges:
+      - target: done
+        label: approved
+
+  done:
+    type: terminal
+    description: "Task complete"
+    instructions: "Summarize what was accomplished."

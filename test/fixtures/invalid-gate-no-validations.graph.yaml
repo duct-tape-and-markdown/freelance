@@ -1,0 +1,24 @@
+id: invalid-gate-no-validations
+version: "1.0.0"
+name: "Invalid Gate No Validations"
+description: "A gate node with no validations"
+startNode: start
+
+nodes:
+  start:
+    type: action
+    description: "Start node"
+    edges:
+      - target: check
+        label: go
+
+  check:
+    type: gate
+    description: "Gate with no validations"
+    edges:
+      - target: done
+        label: pass
+
+  done:
+    type: terminal
+    description: "End"

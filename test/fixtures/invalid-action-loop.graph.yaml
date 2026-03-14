@@ -1,0 +1,33 @@
+id: invalid-action-loop
+version: "1.0.0"
+name: "Invalid Action Loop"
+description: "A cycle of only action nodes with no decision or gate"
+startNode: start
+
+nodes:
+  start:
+    type: action
+    description: "Start node"
+    edges:
+      - target: step-a
+        label: begin
+
+  step-a:
+    type: action
+    description: "Action A"
+    edges:
+      - target: step-b
+        label: next
+
+  step-b:
+    type: action
+    description: "Action B"
+    edges:
+      - target: step-a
+        label: loop-back
+      - target: done
+        label: finish
+
+  done:
+    type: terminal
+    description: "End"

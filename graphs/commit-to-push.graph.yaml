@@ -1,0 +1,252 @@
+id: commit-to-push
+version: "1.0.0"
+name: "Commit-to-Push Workflow"
+description: "Enforces the commit → verify → push loop from development-workflow.md. Every commit is proven before push. Verification restarts from Step 1 on any finding."
+startNode: implement
+strictContext: false
+
+context:
+  ticketId: null
+  targetBranch: null
+  changeDescription: null
+  commitCount: 0
+  verificationPassed: false
+  findingDescription: null
+  isFinalPush: false
+  fullDiffVerified: false
+  testingEvidenceDeclared: false
+
+nodes:
+  implement:
+    type: action
+    description: "Write or modify code and documentation"
+    instructions: |
+      Implement the change as a coherent, testable unit per scope-discipline.md.
+      Each commit represents a single logical change that can be independently verified.
+
+      Set context.changeDescription to a brief summary of what you changed.
+      Set context.ticketId if working on a Jira ticket.
+      Set context.targetBranch if you know the PR target.
+
+      When ready, commit your work and advance.
+    edges:
+      - target: commit
+        label: ready-to-commit
+        description: "Change is complete, ready to commit"
+
+  commit:
+    type: action
+    description: "Commit the change"
+    instructions: |
+      Commit the change using the format:
+        DEV-XXXX Short description
+
+      If this is a verification fix (fixing something found in the verify step),
+      use the format:
+        DEV-XXXX Fix: short description of fix
+        Tier 1 finding: what verification caught
+
+      Increment context.commitCount.
+    edges:
+      - target: verify-read-diff
+        label: committed
+        description: "Commit done, begin verification"
+
+  verify-read-diff:
+    type: action
+    description: "Step 1: Read the full diff"
+    instructions: |
+      Run git diff to see all changes. Read every line.
+
+      For each file in the diff, verify:
+      - Changes are intentional. No unintended additions, removals, or modifications.
+      - No formatting artifacts (double separators, orphaned blank lines, inconsistent headings).
+      - No duplicate entries in list-style content.
+
+      For generated/pipeline output files, read with extra scrutiny.
+      Do not commit changes you cannot explain.
+
+      Set context.verificationPassed = true if clean, false if issues found.
+      If issues found, set context.findingDescription.
+    edges:
+      - target: verify-code-quality
+        label: diff-clean
+        condition: "context.verificationPassed == true"
+        description: "Diff is clean, continue verification"
+      - target: fix-finding
+        label: diff-issue
+        condition: "context.verificationPassed == false"
+        description: "Issue found in diff, fix it"
+
+  verify-code-quality:
+    type: action
+    description: "Step 2: Verify code quality"
+    instructions: |
+      For every code file in the diff, verify against quality-standards.md dimensions
+      (Complete, Robust, Safe, Performant, Reliable, Clear):
+
+      - Search for stubs in exercised paths (TODO, placeholder, not-implemented).
+      - Validate schema conformance for data files.
+      - Audit imports — remove unused imports.
+      - Check for dead code from refactoring.
+      - Review robustness: input handling, escaping, error handling.
+      - Check for unnecessary cost (redundant calls, poor scaling).
+      - Check reliability (missing file handling, empty inputs).
+      - Evaluate clarity (naming, structure, patterns).
+
+      Set context.verificationPassed = true if clean, false if issues found.
+    edges:
+      - target: verify-docs
+        label: code-clean
+        condition: "context.verificationPassed == true"
+      - target: fix-finding
+        label: code-issue
+        condition: "context.verificationPassed == false"
+
+  verify-docs:
+    type: action
+    description: "Step 3: Verify documentation matches code"
+    instructions: |
+      For every doc file in the diff, and every doc that references changed code:
+
+      - Grep for references to changed functions, paths, config keys.
+      - Scan full files for contradictions (not just changed lines).
+      - Check sibling docs in the same directory.
+      - Verify metadata (front-matter) matches body bidirectionally.
+
+      Set context.verificationPassed = true if clean, false if issues found.
+    edges:
+      - target: verify-pipeline
+        label: docs-clean
+        condition: "context.verificationPassed == true"
+      - target: fix-finding
+        label: docs-issue
+        condition: "context.verificationPassed == false"
+
+  verify-pipeline:
+    type: action
+    description: "Step 4: Verify pipeline and generated output"
+    instructions: |
+      Skip this step if no pipeline or code generator was re-run.
+
+      If a pipeline was re-run:
+      - Diff all output files. Expect only changes your fix should have caused.
+      - Search for duplicates in output.
+      - Verify timestamps, counters, and summary statistics.
+      - Test idempotency if practical (run again, output should not change).
+
+      Set context.verificationPassed = true if clean (or skipped), false if issues found.
+    edges:
+      - target: verify-cross-file
+        label: pipeline-clean
+        condition: "context.verificationPassed == true"
+      - target: fix-finding
+        label: pipeline-issue
+        condition: "context.verificationPassed == false"
+
+  verify-cross-file:
+    type: action
+    description: "Step 5: Verify cross-file consistency"
+    instructions: |
+      - Shared modules: grep for all callers of any changed function signatures.
+      - Data formats: if structure changed, verify all consumers handle it.
+      - Tracking documents: verify section headers and status labels are current.
+      - Documentation metadata: verify dependency graphs match across files.
+
+      Set context.verificationPassed = true if clean, false if issues found.
+    edges:
+      - target: verify-testing-evidence
+        label: cross-file-clean
+        condition: "context.verificationPassed == true"
+      - target: fix-finding
+        label: cross-file-issue
+        condition: "context.verificationPassed == false"
+
+  verify-testing-evidence:
+    type: action
+    description: "Step 6: Declare testing evidence"
+    instructions: |
+      State the evidence that this change works, using three parts:
+      1. What was tested — behaviors, paths, outputs verified.
+      2. How it was tested — static review, commands, tests, pipeline runs.
+      3. Scope of evidence — what it covers and what it does not.
+
+      If this is the final push before a PR (context.isFinalPush == true),
+      evidence must span the FULL breadth of changes on the branch,
+      not just the latest commit.
+
+      Set context.testingEvidenceDeclared = true.
+      Set context.verificationPassed = true.
+    edges:
+      - target: push-decision
+        label: evidence-declared
+
+  push-decision:
+    type: decision
+    description: "Decide whether to push or continue implementing"
+    instructions: |
+      Is this the final commit ready to push?
+
+      If yes, set context.isFinalPush = true and advance to push.
+      If no (more implementation work needed), advance back to implement.
+    edges:
+      - target: pre-push-gate
+        label: ready-to-push
+        condition: "context.isFinalPush == true"
+        description: "All work is done, verify full diff before push"
+      - target: implement
+        label: more-work
+        description: "More changes needed, loop back to implement"
+
+  pre-push-gate:
+    type: gate
+    description: "Final push gate — full-diff verification"
+    instructions: |
+      Before the final push, verify the FULL diff from the base branch
+      (git diff <target-branch>...HEAD). The aggregate change must work
+      end-to-end across the entire diff.
+
+      Set context.fullDiffVerified = true when the full diff is clean.
+    validations:
+      - expr: "context.testingEvidenceDeclared == true"
+        message: "Testing evidence must be declared before push."
+      - expr: "context.fullDiffVerified == true"
+        message: "Full-diff verification must pass before push."
+    edges:
+      - target: push
+        label: verified
+
+  push:
+    type: action
+    description: "Push the branch"
+    instructions: |
+      Execute git push.
+
+      After push, transition to the PR checklist workflow to prepare
+      the Jira ticket and PR before opening the pull request.
+    edges:
+      - target: done
+        label: pushed
+
+  done:
+    type: terminal
+    description: "Branch pushed — ready for PR preparation"
+    instructions: |
+      Branch is pushed. Proceed to the PR preparation workflow
+      (pr-preparation graph) to prepare the Jira ticket and PR.
+
+  fix-finding:
+    type: action
+    description: "Fix the verification finding"
+    instructions: |
+      Fix the issue described in context.findingDescription.
+
+      After fixing, you must restart verification from Step 1.
+      The fix itself may introduce new problems — that is the
+      cascading dynamic the checklist exists to prevent.
+
+      Reset context.verificationPassed = false before advancing.
+    edges:
+      - target: commit
+        label: fixed
+        description: "Fix committed, restart verification from Step 1"

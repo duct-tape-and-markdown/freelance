@@ -1,0 +1,34 @@
+id: valid-strict
+version: "1.0.0"
+name: "Strict Context Workflow"
+description: "A graph with strictContext and maxTurns for testing"
+startNode: start
+strictContext: true
+
+context:
+  taskDone: false
+  progress: 0
+
+nodes:
+  start:
+    type: action
+    description: "Begin the task"
+    instructions: "Do the work. Update progress."
+    maxTurns: 3
+    edges:
+      - target: check
+        label: finished
+
+  check:
+    type: gate
+    description: "Verify completion"
+    validations:
+      - expr: "context.taskDone == true"
+        message: "Task must be completed."
+    edges:
+      - target: done
+        label: approved
+
+  done:
+    type: terminal
+    description: "Complete"

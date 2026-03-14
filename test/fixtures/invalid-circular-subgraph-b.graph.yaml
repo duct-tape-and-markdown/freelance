@@ -1,0 +1,22 @@
+id: circular-b
+version: "1.0.0"
+name: "Circular B"
+description: "Graph B that references Graph A (circular)"
+startNode: start
+context: {}
+
+nodes:
+  start:
+    type: action
+    description: "Start"
+    instructions: "Start"
+    subgraph:
+      graphId: circular-a
+    edges:
+      - target: done
+        label: done
+
+  done:
+    type: terminal
+    description: "Done"
+    instructions: "Done"
