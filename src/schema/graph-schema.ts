@@ -19,6 +19,7 @@ export const edgeDefinitionSchema = z.object({
   condition: z.string().optional(),
   description: z.string().optional(),
   default: z.boolean().optional(),
+  nextStepHint: z.string().optional(),
 });
 
 export const validationRuleSchema = z.object({
@@ -46,6 +47,7 @@ export const nodeDefinitionSchema = z.object({
   instructions: z.string().optional(),
   suggestedTools: z.array(z.string()).optional(),
   maxTurns: z.number().int().min(1).optional(),
+  readOnly: z.boolean().optional(),
   validations: z.array(validationRuleSchema).optional(),
   edges: z.array(edgeDefinitionSchema).optional(),
   subgraph: subgraphDefinitionSchema.optional(),

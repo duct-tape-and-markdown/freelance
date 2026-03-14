@@ -27,6 +27,7 @@ export interface TransitionInfo {
   readonly condition?: string;
   readonly description?: string;
   readonly conditionMet: boolean;
+  readonly nextStepHint?: string;
 }
 
 export interface NodeInfo {
@@ -35,6 +36,7 @@ export interface NodeInfo {
   readonly instructions?: string;
   readonly suggestedTools: readonly string[];
   readonly returns?: ReturnSchema;
+  readonly readOnly?: boolean;
 }
 
 export interface GraphListResult {
