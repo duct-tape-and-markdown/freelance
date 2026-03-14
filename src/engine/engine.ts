@@ -1,26 +1,20 @@
-import { evaluate } from "../evaluator.js";
 import { EngineError } from "../errors.js";
 import { cloneContext, toNodeInfo } from "./helpers.js";
-import { validateReturnSchema } from "./returns.js";
-import { evaluateWaitConditions, checkWaitTimeout, computeTimeoutAt } from "./wait.js";
+import { evaluateTransitions } from "./transitions.js";
+import { checkWaitBlocking, checkReturnSchema, checkValidations, checkEdgeCondition } from "./gates.js";
+import { maybePushSubgraph, popSubgraph } from "./subgraph.js";
+import { applyContextUpdates, enforceStrictContext, buildContextSetResult, buildInspectResult } from "./state.js";
+import { evaluateWaitConditions, computeTimeoutAt } from "./wait.js";
 import type {
   ValidatedGraph,
-  NodeDefinition,
-  WaitCondition,
-  TransitionInfo,
   GraphListResult,
   StartResult,
   AdvanceResult,
   AdvanceSuccessResult,
-  AdvanceErrorResult,
   ContextSetResult,
   InspectResult,
-  InspectPositionResult,
-  InspectHistoryResult,
-  InspectFullResult,
   ResetResult,
   SessionState,
-  StackEntry,
 } from "../types.js";
 
 export class GraphEngine {
@@ -86,8 +80,8 @@ export class GraphEngine {
       graphId,
       currentNode: def.startNode,
       node: toNodeInfo(node),
-      validTransitions: this.evaluateTransitions(node),
-      context: cloneContext(this.activeSession().context),
+      validTransitions: evaluateTransitions(node, context),
+      context: cloneContext(context),
     } satisfies StartResult;
   }
 
@@ -99,70 +93,22 @@ export class GraphEngine {
     const def = this.currentGraphDef();
     const currentNodeDef = def.nodes[session.currentNode];
 
-    // Apply context updates first (persist regardless of outcome)
     if (contextUpdates) {
-      this.applyContextUpdates(contextUpdates);
+      applyContextUpdates(session, contextUpdates);
       session.turnCount++;
     }
 
-    // Wait node blocking — check if conditions are satisfied
-    if (currentNodeDef.type === "wait" && currentNodeDef.waitOn) {
-      const timedOut = checkWaitTimeout(session, currentNodeDef);
-      if (!timedOut) {
-        const waitConditions = evaluateWaitConditions(currentNodeDef.waitOn, session.context);
-        const allSatisfied = waitConditions.every((w) => w.satisfied);
-        if (!allSatisfied) {
-          const unsatisfied = waitConditions.filter((w) => !w.satisfied);
-          return {
-            status: "error",
-            isError: true,
-            currentNode: session.currentNode,
-            reason: `Waiting for external signals: ${unsatisfied.map((w) => `${w.key} (${w.type})`).join(", ")}`,
-            validTransitions: this.evaluateTransitions(currentNodeDef),
-            context: cloneContext(session.context),
-          } satisfies AdvanceErrorResult;
-        }
-      }
-    }
+    // Pre-advance gate checks
+    const waitBlock = checkWaitBlocking(session, currentNodeDef);
+    if (waitBlock) return waitBlock;
 
-    // Validate return schema (structural contract)
-    if (currentNodeDef.returns) {
-      const violation = validateReturnSchema(currentNodeDef.returns, session.context);
-      if (violation) {
-        return {
-          status: "error",
-          isError: true,
-          currentNode: session.currentNode,
-          reason: `Return schema violation: ${violation}`,
-          validTransitions: this.evaluateTransitions(currentNodeDef),
-          context: cloneContext(session.context),
-        } satisfies AdvanceErrorResult;
-      }
-    }
+    const returnBlock = checkReturnSchema(session, currentNodeDef);
+    if (returnBlock) return returnBlock;
 
-    // Check validations on current node
-    if (currentNodeDef.validations && currentNodeDef.validations.length > 0) {
-      for (const v of currentNodeDef.validations) {
-        let result: boolean;
-        try {
-          result = evaluate(v.expr, session.context);
-        } catch {
-          result = false;
-        }
-        if (!result) {
-          return {
-            status: "error",
-            isError: true,
-            currentNode: session.currentNode,
-            reason: `Validation failed: ${v.message}`,
-            validTransitions: this.evaluateTransitions(currentNodeDef),
-            context: cloneContext(session.context),
-          } satisfies AdvanceErrorResult;
-        }
-      }
-    }
+    const validationBlock = checkValidations(session, currentNodeDef);
+    if (validationBlock) return validationBlock;
 
-    // Find edge by label (terminal nodes have no edges)
+    // Find and validate edge
     if (!currentNodeDef.edges) {
       throw new EngineError(
         `Node "${session.currentNode}" is a terminal node with no outgoing edges`,
@@ -178,27 +124,12 @@ export class GraphEngine {
       );
     }
 
-    // Evaluate edge condition
     if (edgeDef.condition) {
-      let condMet: boolean;
-      try {
-        condMet = evaluate(edgeDef.condition, session.context);
-      } catch {
-        condMet = false;
-      }
-      if (!condMet) {
-        return {
-          status: "error",
-          isError: true,
-          currentNode: session.currentNode,
-          reason: `Edge "${edge}" condition not met: ${edgeDef.condition}`,
-          validTransitions: this.evaluateTransitions(currentNodeDef),
-          context: cloneContext(session.context),
-        } satisfies AdvanceErrorResult;
-      }
+      const condBlock = checkEdgeCondition(session, currentNodeDef, edgeDef.condition, edge);
+      if (condBlock) return condBlock;
     }
 
-    // Advance
+    // Record history and advance
     const previousNode = session.currentNode;
     session.history.push({
       node: previousNode,
@@ -213,17 +144,15 @@ export class GraphEngine {
     const isTerminal = newNodeDef.type === "terminal";
     const isWait = newNodeDef.type === "wait";
 
-    // Check if we've reached a terminal node in a child graph (pop)
+    // Subgraph transitions
     if (isTerminal && this.stack.length > 1) {
-      return this.popSubgraph(previousNode, edge, newNodeDef);
+      return popSubgraph(this.stack, this.graphs, previousNode, edge);
     }
-
-    // Check if the new node has a subgraph to push
     if (!isTerminal && !isWait && newNodeDef.subgraph) {
-      return this.maybePushSubgraph(previousNode, edge, newNodeDef);
+      return maybePushSubgraph(this.stack, this.graphs, previousNode, edge, newNodeDef, this.maxDepth);
     }
 
-    // Arriving at a wait node — record arrival time and return "waiting" status
+    // Wait node arrival
     if (isWait && newNodeDef.waitOn) {
       session.waitArrivedAt = new Date().toISOString();
       const waitConditions = evaluateWaitConditions(newNodeDef.waitOn, session.context);
@@ -236,7 +165,7 @@ export class GraphEngine {
         edgeTaken: edge,
         currentNode: session.currentNode,
         node: toNodeInfo(newNodeDef),
-        validTransitions: this.evaluateTransitions(newNodeDef),
+        validTransitions: evaluateTransitions(newNodeDef, session.context),
         context: cloneContext(session.context),
         waitingOn: waitConditions,
         ...(newNodeDef.timeout ? { timeout: newNodeDef.timeout } : {}),
@@ -244,6 +173,7 @@ export class GraphEngine {
       } satisfies AdvanceSuccessResult;
     }
 
+    // Standard advance or terminal
     return {
       status: isTerminal ? "complete" : "advanced",
       isError: false,
@@ -251,7 +181,7 @@ export class GraphEngine {
       edgeTaken: edge,
       currentNode: session.currentNode,
       node: toNodeInfo(newNodeDef),
-      validTransitions: this.evaluateTransitions(newNodeDef),
+      validTransitions: evaluateTransitions(newNodeDef, session.context),
       context: cloneContext(session.context),
       ...(isTerminal
         ? {
@@ -268,112 +198,17 @@ export class GraphEngine {
     const session = this.requireSession();
     const def = this.currentGraphDef();
 
-    if (def.strictContext) {
-      const declaredKeys = new Set(Object.keys(def.context ?? {}));
-      for (const key of Object.keys(updates)) {
-        if (!declaredKeys.has(key)) {
-          throw new EngineError(
-            `Key "${key}" is not declared in the graph's context schema (strictContext is enabled)`,
-            "STRICT_CONTEXT_VIOLATION"
-          );
-        }
-      }
-    }
-
-    this.applyContextUpdates(updates);
+    enforceStrictContext(def, updates);
+    applyContextUpdates(session, updates);
     session.turnCount++;
 
-    const currentNodeDef = def.nodes[session.currentNode];
-    const turnWarning =
-      currentNodeDef.maxTurns && session.turnCount >= currentNodeDef.maxTurns
-        ? `Turn budget reached (${session.turnCount}/${currentNodeDef.maxTurns}). Consider wrapping up and advancing to the next node.`
-        : null;
-
-    return {
-      status: "updated",
-      isError: false,
-      currentNode: session.currentNode,
-      context: cloneContext(session.context),
-      validTransitions: this.evaluateTransitions(currentNodeDef),
-      turnCount: session.turnCount,
-      turnWarning,
-    } satisfies ContextSetResult;
+    return buildContextSetResult(session, def.nodes[session.currentNode]);
   }
 
   inspect(detail: "position" | "full" | "history" = "position"): InspectResult {
     const session = this.requireSession();
     const def = this.currentGraphDef();
-
-    if (detail === "history") {
-      return {
-        graphId: session.graphId,
-        currentNode: session.currentNode,
-        traversalHistory: session.history,
-        contextHistory: session.contextHistory,
-      } satisfies InspectHistoryResult;
-    }
-
-    if (detail === "full") {
-      return {
-        graphId: session.graphId,
-        currentNode: session.currentNode,
-        definition: def,
-        context: cloneContext(session.context),
-      } satisfies InspectFullResult;
-    }
-
-    // position (default)
-    const currentNodeDef = def.nodes[session.currentNode];
-    const turnWarning =
-      currentNodeDef.maxTurns && session.turnCount >= currentNodeDef.maxTurns
-        ? `Turn budget reached (${session.turnCount}/${currentNodeDef.maxTurns}). Consider wrapping up and advancing to the next node.`
-        : null;
-
-    let waitInfo: {
-      waitStatus?: "waiting" | "ready" | "timed_out";
-      waitingOn?: WaitCondition[];
-      timeout?: string;
-      timeoutAt?: string;
-    } = {};
-    if (currentNodeDef.type === "wait" && currentNodeDef.waitOn) {
-      const timedOut = checkWaitTimeout(session, currentNodeDef);
-      const waitConditions = evaluateWaitConditions(currentNodeDef.waitOn, session.context);
-      const allSatisfied = waitConditions.every((w) => w.satisfied);
-
-      let waitStatus: "waiting" | "ready" | "timed_out";
-      if (timedOut) {
-        waitStatus = "timed_out";
-      } else if (allSatisfied) {
-        waitStatus = "ready";
-      } else {
-        waitStatus = "waiting";
-      }
-
-      const timeoutAt = session.waitArrivedAt
-        ? computeTimeoutAt(session.waitArrivedAt, currentNodeDef.timeout)
-        : undefined;
-
-      waitInfo = {
-        waitStatus,
-        waitingOn: waitConditions,
-        ...(currentNodeDef.timeout ? { timeout: currentNodeDef.timeout } : {}),
-        ...(timeoutAt ? { timeoutAt } : {}),
-      };
-    }
-
-    return {
-      graphId: session.graphId,
-      graphName: def.name,
-      currentNode: session.currentNode,
-      node: toNodeInfo(currentNodeDef),
-      validTransitions: this.evaluateTransitions(currentNodeDef),
-      context: cloneContext(session.context),
-      turnCount: session.turnCount,
-      turnWarning,
-      stackDepth: this.stack.length,
-      stack: this.buildStackView(),
-      ...waitInfo,
-    } satisfies InspectPositionResult;
+    return buildInspectResult(detail, session, def, this.stack);
   }
 
   reset(): ResetResult {
@@ -448,217 +283,13 @@ export class GraphEngine {
   }
 
   private currentGraphDef() {
-    return this.graphs.get(this.activeSession().graphId)!.definition;
-  }
-
-  private applyContextUpdates(updates: Record<string, unknown>) {
-    const session = this.activeSession();
-    const timestamp = new Date().toISOString();
-    for (const [key, value] of Object.entries(updates)) {
-      session.context[key] = value;
-      session.contextHistory.push({
-        key,
-        value,
-        setAt: session.currentNode,
-        timestamp,
-      });
-    }
-  }
-
-  private evaluateTransitions(node: NodeDefinition): TransitionInfo[] {
-    if (!node.edges) return [];
-    const edges = node.edges;
-    const session = this.activeSession();
-
-    interface MutableTransition {
-      label: string;
-      target: string;
-      condition?: string;
-      description?: string;
-      nextStepHint?: string;
-      conditionMet: boolean;
-      isDefault: boolean;
-    }
-
-    const results: MutableTransition[] = edges.map((e) => {
-      let conditionMet: boolean;
-      if (e.default) {
-        conditionMet = false;
-      } else if (e.condition) {
-        try {
-          conditionMet = evaluate(e.condition, session.context);
-        } catch {
-          conditionMet = false;
-        }
-      } else {
-        conditionMet = true;
-      }
-
-      return {
-        label: e.label,
-        target: e.target,
-        ...(e.condition ? { condition: e.condition } : {}),
-        ...(e.description ? { description: e.description } : {}),
-        ...(e.nextStepHint ? { nextStepHint: e.nextStepHint } : {}),
-        conditionMet,
-        isDefault: !!e.default,
-      };
-    });
-
-    const anyConditionalMet = results.some(
-      (r) => !r.isDefault && r.conditionMet && edges.find((e) => e.label === r.label)?.condition
-    );
-
-    for (const r of results) {
-      if (r.isDefault) {
-        r.conditionMet = !anyConditionalMet;
-      }
-    }
-
-    return results.map(({ isDefault, ...rest }): TransitionInfo => rest);
-  }
-
-  private buildStackView(): StackEntry[] {
-    return this.stack.map((s, i) => {
-      if (i === this.stack.length - 1) {
-        return { graphId: s.graphId, currentNode: s.currentNode };
-      }
-      return { graphId: s.graphId, suspendedAt: s.currentNode };
-    });
-  }
-
-  private maybePushSubgraph(
-    previousNode: string,
-    edge: string,
-    newNodeDef: NodeDefinition
-  ): AdvanceSuccessResult {
-    const parentSession = this.activeSession();
-    const subgraph = newNodeDef.subgraph!;
-
-    if (subgraph.condition) {
-      let condMet: boolean;
-      try {
-        condMet = evaluate(subgraph.condition, parentSession.context);
-      } catch {
-        condMet = false;
-      }
-      if (!condMet) {
-        return {
-          status: "advanced",
-          isError: false,
-          previousNode,
-          edgeTaken: edge,
-          currentNode: parentSession.currentNode,
-          node: toNodeInfo(newNodeDef),
-          validTransitions: this.evaluateTransitions(newNodeDef),
-          context: cloneContext(parentSession.context),
-        };
-      }
-    }
-
-    if (this.stack.length >= this.maxDepth) {
+    const graph = this.graphs.get(this.activeSession().graphId);
+    if (!graph) {
       throw new EngineError(
-        `Maximum stack depth (${this.maxDepth}) exceeded. Cannot push subgraph '${subgraph.graphId}'. Simplify the workflow or increase maxDepth.`,
-        "STACK_DEPTH_EXCEEDED"
-      );
-    }
-
-    const childGraph = this.graphs.get(subgraph.graphId);
-    if (!childGraph) {
-      throw new EngineError(
-        `Subgraph '${subgraph.graphId}' not found in loaded graphs.`,
+        `Graph "${this.activeSession().graphId}" not found`,
         "GRAPH_NOT_FOUND"
       );
     }
-
-    const childDef = childGraph.definition;
-    const childContext: Record<string, unknown> = {
-      ...(childDef.context ?? {}),
-      ...(subgraph.initialContext ?? {}),
-    };
-
-    if (subgraph.contextMap) {
-      for (const [parentKey, childKey] of Object.entries(subgraph.contextMap)) {
-        if (parentKey in parentSession.context) {
-          childContext[childKey] = parentSession.context[parentKey];
-        }
-      }
-    }
-
-    this.stack.push({
-      graphId: subgraph.graphId,
-      currentNode: childDef.startNode,
-      context: childContext,
-      history: [],
-      contextHistory: [],
-      turnCount: 0,
-      startedAt: new Date().toISOString(),
-    });
-
-    const childStartNode = childDef.nodes[childDef.startNode];
-
-    return {
-      status: "advanced",
-      isError: false,
-      previousNode,
-      edgeTaken: edge,
-      currentNode: childDef.startNode,
-      subgraphPushed: {
-        graphId: subgraph.graphId,
-        startNode: childDef.startNode,
-        stackDepth: this.stack.length,
-      },
-      node: toNodeInfo(childStartNode),
-      validTransitions: this.evaluateTransitions(childStartNode),
-      context: cloneContext(this.activeSession().context),
-    } satisfies AdvanceSuccessResult;
-  }
-
-  private popSubgraph(
-    previousNode: string,
-    edge: string,
-    _terminalNodeDef: NodeDefinition
-  ): AdvanceSuccessResult {
-    const childSession = this.activeSession();
-    const completedGraphId = childSession.graphId;
-
-    this.stack.pop();
-
-    const parentSession = this.activeSession();
-    const parentDef = this.currentGraphDef();
-    const parentNodeDef = parentDef.nodes[parentSession.currentNode];
-    const subgraphDef = parentNodeDef.subgraph!;
-
-    const returnedContext: Record<string, unknown> = {};
-    if (subgraphDef.returnMap) {
-      for (const [childKey, parentKey] of Object.entries(subgraphDef.returnMap)) {
-        if (childKey in childSession.context) {
-          const value = childSession.context[childKey];
-          parentSession.context[parentKey] = value;
-          returnedContext[parentKey] = value;
-          parentSession.contextHistory.push({
-            key: parentKey,
-            value,
-            setAt: parentSession.currentNode,
-            timestamp: new Date().toISOString(),
-          });
-        }
-      }
-    }
-
-    return {
-      status: "subgraph_complete",
-      isError: false,
-      previousNode,
-      edgeTaken: edge,
-      currentNode: parentSession.currentNode,
-      completedGraph: completedGraphId,
-      returnedContext,
-      stackDepth: this.stack.length,
-      resumedNode: parentSession.currentNode,
-      node: toNodeInfo(parentNodeDef),
-      validTransitions: this.evaluateTransitions(parentNodeDef),
-      context: cloneContext(parentSession.context),
-    } satisfies AdvanceSuccessResult;
+    return graph.definition;
   }
 }
