@@ -1,13 +1,13 @@
-import { evaluate } from "./evaluator.js";
-import { EngineError } from "./errors.js";
+import { evaluate } from "../evaluator.js";
+import { EngineError } from "../errors.js";
+import { cloneContext, toNodeInfo } from "./helpers.js";
+import { validateReturnSchema } from "./returns.js";
+import { evaluateWaitConditions, checkWaitTimeout, computeTimeoutAt } from "./wait.js";
 import type {
   ValidatedGraph,
   NodeDefinition,
-  ReturnField,
-  WaitOnEntry,
   WaitCondition,
   TransitionInfo,
-  NodeInfo,
   GraphListResult,
   StartResult,
   AdvanceResult,
@@ -21,11 +21,7 @@ import type {
   ResetResult,
   SessionState,
   StackEntry,
-} from "./types.js";
-
-function cloneContext(ctx: Record<string, unknown>): Record<string, unknown> {
-  return structuredClone(ctx);
-}
+} from "../types.js";
 
 export class GraphEngine {
   private stack: SessionState[] = [];
@@ -103,18 +99,17 @@ export class GraphEngine {
     const def = this.currentGraphDef();
     const currentNodeDef = def.nodes[session.currentNode];
 
-    // Step 2: Apply context updates first (persist regardless of outcome)
+    // Apply context updates first (persist regardless of outcome)
     if (contextUpdates) {
       this.applyContextUpdates(contextUpdates);
       session.turnCount++;
     }
 
-    // Step 2.5: Wait node blocking — check if conditions are satisfied
+    // Wait node blocking — check if conditions are satisfied
     if (currentNodeDef.type === "wait" && currentNodeDef.waitOn) {
-      // Check timeout first
-      const timedOut = this.checkWaitTimeout(session, currentNodeDef);
+      const timedOut = checkWaitTimeout(session, currentNodeDef);
       if (!timedOut) {
-        const waitConditions = this.evaluateWaitConditions(currentNodeDef.waitOn, session.context);
+        const waitConditions = evaluateWaitConditions(currentNodeDef.waitOn, session.context);
         const allSatisfied = waitConditions.every((w) => w.satisfied);
         if (!allSatisfied) {
           const unsatisfied = waitConditions.filter((w) => !w.satisfied);
@@ -130,7 +125,7 @@ export class GraphEngine {
       }
     }
 
-    // Step 3a: Validate return schema (structural contract)
+    // Validate return schema (structural contract)
     if (currentNodeDef.returns) {
       const violation = validateReturnSchema(currentNodeDef.returns, session.context);
       if (violation) {
@@ -145,7 +140,7 @@ export class GraphEngine {
       }
     }
 
-    // Step 3b: Check validations on current node
+    // Check validations on current node
     if (currentNodeDef.validations && currentNodeDef.validations.length > 0) {
       for (const v of currentNodeDef.validations) {
         let result: boolean;
@@ -167,7 +162,7 @@ export class GraphEngine {
       }
     }
 
-    // Step 4: Find edge by label (terminal nodes have no edges)
+    // Find edge by label (terminal nodes have no edges)
     if (!currentNodeDef.edges) {
       throw new EngineError(
         `Node "${session.currentNode}" is a terminal node with no outgoing edges`,
@@ -183,7 +178,7 @@ export class GraphEngine {
       );
     }
 
-    // Step 5: Evaluate edge condition
+    // Evaluate edge condition
     if (edgeDef.condition) {
       let condMet: boolean;
       try {
@@ -203,7 +198,7 @@ export class GraphEngine {
       }
     }
 
-    // Step 6: Advance
+    // Advance
     const previousNode = session.currentNode;
     session.history.push({
       node: previousNode,
@@ -231,8 +226,8 @@ export class GraphEngine {
     // Arriving at a wait node — record arrival time and return "waiting" status
     if (isWait && newNodeDef.waitOn) {
       session.waitArrivedAt = new Date().toISOString();
-      const waitConditions = this.evaluateWaitConditions(newNodeDef.waitOn, session.context);
-      const timeoutAt = this.computeTimeoutAt(session.waitArrivedAt, newNodeDef.timeout);
+      const waitConditions = evaluateWaitConditions(newNodeDef.waitOn, session.context);
+      const timeoutAt = computeTimeoutAt(session.waitArrivedAt, newNodeDef.timeout);
 
       return {
         status: "waiting",
@@ -273,7 +268,6 @@ export class GraphEngine {
     const session = this.requireSession();
     const def = this.currentGraphDef();
 
-    // Strict context check
     if (def.strictContext) {
       const declaredKeys = new Set(Object.keys(def.context ?? {}));
       for (const key of Object.keys(updates)) {
@@ -335,7 +329,6 @@ export class GraphEngine {
         ? `Turn budget reached (${session.turnCount}/${currentNodeDef.maxTurns}). Consider wrapping up and advancing to the next node.`
         : null;
 
-    // Wait node status
     let waitInfo: {
       waitStatus?: "waiting" | "ready" | "timed_out";
       waitingOn?: WaitCondition[];
@@ -343,9 +336,8 @@ export class GraphEngine {
       timeoutAt?: string;
     } = {};
     if (currentNodeDef.type === "wait" && currentNodeDef.waitOn) {
-      // Check timeout (may set _waitTimedOut in context)
-      const timedOut = this.checkWaitTimeout(session, currentNodeDef);
-      const waitConditions = this.evaluateWaitConditions(currentNodeDef.waitOn, session.context);
+      const timedOut = checkWaitTimeout(session, currentNodeDef);
+      const waitConditions = evaluateWaitConditions(currentNodeDef.waitOn, session.context);
       const allSatisfied = waitConditions.every((w) => w.satisfied);
 
       let waitStatus: "waiting" | "ready" | "timed_out";
@@ -358,7 +350,7 @@ export class GraphEngine {
       }
 
       const timeoutAt = session.waitArrivedAt
-        ? this.computeTimeoutAt(session.waitArrivedAt, currentNodeDef.timeout)
+        ? computeTimeoutAt(session.waitArrivedAt, currentNodeDef.timeout)
         : undefined;
 
       waitInfo = {
@@ -478,7 +470,6 @@ export class GraphEngine {
     const edges = node.edges;
     const session = this.activeSession();
 
-    // Mutable intermediate type for computation before freezing into readonly TransitionInfo
     interface MutableTransition {
       label: string;
       target: string;
@@ -488,11 +479,10 @@ export class GraphEngine {
       isDefault: boolean;
     }
 
-    // Evaluate conditions for all non-default edges first
     const results: MutableTransition[] = edges.map((e) => {
       let conditionMet: boolean;
       if (e.default) {
-        conditionMet = false; // placeholder, resolved below
+        conditionMet = false;
       } else if (e.condition) {
         try {
           conditionMet = evaluate(e.condition, session.context);
@@ -500,7 +490,7 @@ export class GraphEngine {
           conditionMet = false;
         }
       } else {
-        conditionMet = true; // no condition = always available
+        conditionMet = true;
       }
 
       return {
@@ -513,9 +503,6 @@ export class GraphEngine {
       };
     });
 
-    // Default edge is available when no explicitly conditional sibling edge is met.
-    // Unconditional edges (no condition property) don't suppress the default —
-    // they're always-available paths, not "matched" conditions.
     const anyConditionalMet = results.some(
       (r) => !r.isDefault && r.conditionMet && edges.find((e) => e.label === r.label)?.condition
     );
@@ -526,60 +513,14 @@ export class GraphEngine {
       }
     }
 
-    // Strip isDefault from the output
     return results.map(({ isDefault, ...rest }): TransitionInfo => rest);
-  }
-
-  private evaluateWaitConditions(
-    waitOn: WaitOnEntry[],
-    context: Record<string, unknown>
-  ): WaitCondition[] {
-    return waitOn.map((entry) => {
-      const value = context[entry.key];
-      const exists = entry.key in context && value !== undefined && value !== null;
-      let typeMatch = false;
-      if (exists) {
-        typeMatch = checkType(value, entry.type);
-      }
-      return {
-        key: entry.key,
-        type: entry.type,
-        ...(entry.description ? { description: entry.description } : {}),
-        satisfied: exists && typeMatch,
-      };
-    });
-  }
-
-  private checkWaitTimeout(session: SessionState, nodeDef: NodeDefinition): boolean {
-    if (!nodeDef.timeout || !session.waitArrivedAt) return false;
-    if (session.context._waitTimedOut === true) return true;
-
-    const timeoutMs = parseDuration(nodeDef.timeout);
-    if (timeoutMs === null) return false;
-
-    const arrivedAt = new Date(session.waitArrivedAt).getTime();
-    const now = Date.now();
-    if (now >= arrivedAt + timeoutMs) {
-      session.context._waitTimedOut = true;
-      return true;
-    }
-    return false;
-  }
-
-  private computeTimeoutAt(arrivedAt: string, timeout?: string): string | undefined {
-    if (!timeout) return undefined;
-    const timeoutMs = parseDuration(timeout);
-    if (timeoutMs === null) return undefined;
-    return new Date(new Date(arrivedAt).getTime() + timeoutMs).toISOString();
   }
 
   private buildStackView(): StackEntry[] {
     return this.stack.map((s, i) => {
       if (i === this.stack.length - 1) {
-        // Active session
         return { graphId: s.graphId, currentNode: s.currentNode };
       }
-      // Suspended parent
       return { graphId: s.graphId, suspendedAt: s.currentNode };
     });
   }
@@ -592,7 +533,6 @@ export class GraphEngine {
     const parentSession = this.activeSession();
     const subgraph = newNodeDef.subgraph!;
 
-    // Evaluate condition — if false, behave as a normal node (no push)
     if (subgraph.condition) {
       let condMet: boolean;
       try {
@@ -601,7 +541,6 @@ export class GraphEngine {
         condMet = false;
       }
       if (!condMet) {
-        // No push — return normal advance result
         return {
           status: "advanced",
           isError: false,
@@ -615,7 +554,6 @@ export class GraphEngine {
       }
     }
 
-    // Check stack depth
     if (this.stack.length >= this.maxDepth) {
       throw new EngineError(
         `Maximum stack depth (${this.maxDepth}) exceeded. Cannot push subgraph '${subgraph.graphId}'. Simplify the workflow or increase maxDepth.`,
@@ -623,7 +561,6 @@ export class GraphEngine {
       );
     }
 
-    // Resolve child graph
     const childGraph = this.graphs.get(subgraph.graphId);
     if (!childGraph) {
       throw new EngineError(
@@ -632,14 +569,12 @@ export class GraphEngine {
       );
     }
 
-    // Build child initial context
     const childDef = childGraph.definition;
     const childContext: Record<string, unknown> = {
       ...(childDef.context ?? {}),
       ...(subgraph.initialContext ?? {}),
     };
 
-    // Apply contextMap: copy parent context keys → child context keys
     if (subgraph.contextMap) {
       for (const [parentKey, childKey] of Object.entries(subgraph.contextMap)) {
         if (parentKey in parentSession.context) {
@@ -648,7 +583,6 @@ export class GraphEngine {
       }
     }
 
-    // Push child session onto stack
     this.stack.push({
       graphId: subgraph.graphId,
       currentNode: childDef.startNode,
@@ -686,16 +620,13 @@ export class GraphEngine {
     const childSession = this.activeSession();
     const completedGraphId = childSession.graphId;
 
-    // Pop child session
     this.stack.pop();
 
-    // Now the parent is the active session
     const parentSession = this.activeSession();
     const parentDef = this.currentGraphDef();
     const parentNodeDef = parentDef.nodes[parentSession.currentNode];
     const subgraphDef = parentNodeDef.subgraph!;
 
-    // Apply returnMap: copy child context keys → parent context keys
     const returnedContext: Record<string, unknown> = {};
     if (subgraphDef.returnMap) {
       for (const [childKey, parentKey] of Object.entries(subgraphDef.returnMap)) {
@@ -728,86 +659,4 @@ export class GraphEngine {
       context: cloneContext(parentSession.context),
     } satisfies AdvanceSuccessResult;
   }
-}
-
-function parseDuration(duration: string): number | null {
-  const regex = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/;
-  const match = duration.match(regex);
-  if (!match || (!match[1] && !match[2] && !match[3])) return null;
-  const hours = parseInt(match[1] ?? "0", 10);
-  const minutes = parseInt(match[2] ?? "0", 10);
-  const seconds = parseInt(match[3] ?? "0", 10);
-  return (hours * 3600 + minutes * 60 + seconds) * 1000;
-}
-
-function toNodeInfo(node: NodeDefinition): NodeInfo {
-  return {
-    type: node.type,
-    description: node.description,
-    ...(node.instructions ? { instructions: node.instructions } : {}),
-    suggestedTools: node.suggestedTools ?? [],
-    ...(node.returns ? { returns: node.returns } : {}),
-  };
-}
-
-function checkType(value: unknown, expectedType: ReturnField["type"]): boolean {
-  switch (expectedType) {
-    case "boolean": return typeof value === "boolean";
-    case "string": return typeof value === "string";
-    case "number": return typeof value === "number";
-    case "array": return Array.isArray(value);
-    case "object": return typeof value === "object" && !Array.isArray(value) && value !== null;
-  }
-}
-
-function actualType(value: unknown): string {
-  if (value === null) return "null";
-  if (value === undefined) return "undefined";
-  if (Array.isArray(value)) return "array";
-  return typeof value;
-}
-
-function validateReturnSchema(
-  returns: NonNullable<NodeDefinition["returns"]>,
-  context: Record<string, unknown>
-): string | null {
-  // Check required keys
-  if (returns.required) {
-    for (const [key, field] of Object.entries(returns.required)) {
-      if (!(key in context) || context[key] === undefined) {
-        return `required key "${key}" (type: ${field.type}) is missing from context`;
-      }
-      const value = context[key];
-      if (!checkType(value, field.type)) {
-        return `key "${key}" expected type "${field.type}" but got "${actualType(value)}"`;
-      }
-      if (field.type === "array" && field.items && Array.isArray(value)) {
-        for (let i = 0; i < value.length; i++) {
-          if (!checkType(value[i], field.items)) {
-            return `key "${key}" array item [${i}] expected type "${field.items}" but got "${actualType(value[i])}"`;
-          }
-        }
-      }
-    }
-  }
-
-  // Check optional keys (only if present)
-  if (returns.optional) {
-    for (const [key, field] of Object.entries(returns.optional)) {
-      if (!(key in context) || context[key] === undefined) continue;
-      const value = context[key];
-      if (!checkType(value, field.type)) {
-        return `key "${key}" expected type "${field.type}" but got "${actualType(value)}"`;
-      }
-      if (field.type === "array" && field.items && Array.isArray(value)) {
-        for (let i = 0; i < value.length; i++) {
-          if (!checkType(value[i], field.items)) {
-            return `key "${key}" array item [${i}] expected type "${field.items}" but got "${actualType(value[i])}"`;
-          }
-        }
-      }
-    }
-  }
-
-  return null;
 }

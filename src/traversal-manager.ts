@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { GraphEngine } from "./engine.js";
+import { GraphEngine } from "./engine/index.js";
 import { EngineError } from "./errors.js";
 import type {
   ValidatedGraph,
