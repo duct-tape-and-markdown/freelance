@@ -5,7 +5,7 @@ import os from "node:os";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { loadGraphs } from "../src/loader.js";
-import { GraphEngine } from "../src/engine.js";
+import { GraphEngine } from "../src/engine/index.js";
 import { createServer } from "../src/server.js";
 import { EngineError } from "../src/errors.js";
 import type { ValidatedGraph } from "../src/types.js";

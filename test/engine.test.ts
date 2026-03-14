@@ -3,7 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { loadGraphs } from "../src/loader.js";
-import { GraphEngine } from "../src/engine.js";
+import { GraphEngine } from "../src/engine/index.js";
 import { EngineError } from "../src/errors.js";
 import type { ValidatedGraph } from "../src/types.js";
 
