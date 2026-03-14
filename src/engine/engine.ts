@@ -475,6 +475,7 @@ export class GraphEngine {
       target: string;
       condition?: string;
       description?: string;
+      nextStepHint?: string;
       conditionMet: boolean;
       isDefault: boolean;
     }
@@ -498,6 +499,7 @@ export class GraphEngine {
         target: e.target,
         ...(e.condition ? { condition: e.condition } : {}),
         ...(e.description ? { description: e.description } : {}),
+        ...(e.nextStepHint ? { nextStepHint: e.nextStepHint } : {}),
         conditionMet,
         isDefault: !!e.default,
       };
