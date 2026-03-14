@@ -26,6 +26,17 @@
     "cursor",
     "automation"
   ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Jwcjwc12/freelance.git"
+  },
+  "homepage": "https://github.com/Jwcjwc12/freelance#readme",
+  "bugs": {
+    "url": "https://github.com/Jwcjwc12/freelance/issues"
+  },
   "license": "MIT",
   "dependencies": {
     "@dagrejs/graphlib": "^2.2.4",
