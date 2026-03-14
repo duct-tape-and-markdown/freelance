@@ -5,10 +5,13 @@ export type {
   EdgeDefinition,
   ValidationRule,
   SubgraphDefinition,
+  ReturnField,
+  ReturnSchema,
+  WaitOnEntry,
   NodeDefinition,
   GraphDefinition,
 } from "./schema/graph-schema.js";
-import type { GraphDefinition, NodeDefinition } from "./schema/graph-schema.js";
+import type { GraphDefinition, NodeDefinition, ReturnSchema } from "./schema/graph-schema.js";
 
 export interface ValidatedGraph {
   readonly definition: GraphDefinition;
@@ -31,6 +34,7 @@ export interface NodeInfo {
   readonly description: string;
   readonly instructions?: string;
   readonly suggestedTools: readonly string[];
+  readonly returns?: ReturnSchema;
 }
 
 export interface GraphListResult {
@@ -58,8 +62,15 @@ export interface SubgraphPushedInfo {
   readonly stackDepth: number;
 }
 
+export interface WaitCondition {
+  readonly key: string;
+  readonly type: string;
+  readonly description?: string;
+  readonly satisfied: boolean;
+}
+
 export interface AdvanceSuccessResult {
-  readonly status: "advanced" | "complete" | "subgraph_complete";
+  readonly status: "advanced" | "complete" | "subgraph_complete" | "waiting";
   readonly isError: false;
   readonly previousNode: string;
   readonly edgeTaken: string;
@@ -73,6 +84,9 @@ export interface AdvanceSuccessResult {
   readonly returnedContext?: Readonly<Record<string, unknown>>;
   readonly stackDepth?: number;
   readonly resumedNode?: string;
+  readonly waitingOn?: readonly WaitCondition[];
+  readonly timeout?: string;
+  readonly timeoutAt?: string;
 }
 
 export interface AdvanceErrorResult {
@@ -113,6 +127,10 @@ export interface InspectPositionResult {
   readonly turnWarning: string | null;
   readonly stackDepth: number;
   readonly stack: readonly StackEntry[];
+  readonly waitStatus?: "waiting" | "ready" | "timed_out";
+  readonly waitingOn?: readonly WaitCondition[];
+  readonly timeout?: string;
+  readonly timeoutAt?: string;
 }
 
 export interface HistoryEntry {
@@ -167,4 +185,27 @@ export interface SessionState {
   contextHistory: ContextHistoryEntry[];
   turnCount: number;
   startedAt: string;
+  waitArrivedAt?: string;
+}
+
+// --- Traversal management types ---
+
+export interface TraversalInfo {
+  readonly traversalId: string;
+  readonly graphId: string;
+  readonly currentNode: string;
+  readonly lastUpdated: string;
+  readonly stackDepth: number;
+}
+
+export interface SerializedTraversal {
+  traversalId: string;
+  stack: SessionState[];
+  createdAt: string;
+  lastUpdated: string;
+}
+
+export interface TraversalListResult {
+  readonly graphs: GraphListResult["graphs"];
+  readonly activeTraversals: readonly TraversalInfo[];
 }

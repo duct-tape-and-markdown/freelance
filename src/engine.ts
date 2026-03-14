@@ -3,6 +3,9 @@ import { EngineError } from "./errors.js";
 import type {
   ValidatedGraph,
   NodeDefinition,
+  ReturnField,
+  WaitOnEntry,
+  WaitCondition,
   TransitionInfo,
   NodeInfo,
   GraphListResult,
@@ -106,7 +109,43 @@ export class GraphEngine {
       session.turnCount++;
     }
 
-    // Step 3: Check validations on current node
+    // Step 2.5: Wait node blocking — check if conditions are satisfied
+    if (currentNodeDef.type === "wait" && currentNodeDef.waitOn) {
+      // Check timeout first
+      const timedOut = this.checkWaitTimeout(session, currentNodeDef);
+      if (!timedOut) {
+        const waitConditions = this.evaluateWaitConditions(currentNodeDef.waitOn, session.context);
+        const allSatisfied = waitConditions.every((w) => w.satisfied);
+        if (!allSatisfied) {
+          const unsatisfied = waitConditions.filter((w) => !w.satisfied);
+          return {
+            status: "error",
+            isError: true,
+            currentNode: session.currentNode,
+            reason: `Waiting for external signals: ${unsatisfied.map((w) => `${w.key} (${w.type})`).join(", ")}`,
+            validTransitions: this.evaluateTransitions(currentNodeDef),
+            context: cloneContext(session.context),
+          } satisfies AdvanceErrorResult;
+        }
+      }
+    }
+
+    // Step 3a: Validate return schema (structural contract)
+    if (currentNodeDef.returns) {
+      const violation = validateReturnSchema(currentNodeDef.returns, session.context);
+      if (violation) {
+        return {
+          status: "error",
+          isError: true,
+          currentNode: session.currentNode,
+          reason: `Return schema violation: ${violation}`,
+          validTransitions: this.evaluateTransitions(currentNodeDef),
+          context: cloneContext(session.context),
+        } satisfies AdvanceErrorResult;
+      }
+    }
+
+    // Step 3b: Check validations on current node
     if (currentNodeDef.validations && currentNodeDef.validations.length > 0) {
       for (const v of currentNodeDef.validations) {
         let result: boolean;
@@ -178,6 +217,7 @@ export class GraphEngine {
 
     const newNodeDef = def.nodes[session.currentNode];
     const isTerminal = newNodeDef.type === "terminal";
+    const isWait = newNodeDef.type === "wait";
 
     // Check if we've reached a terminal node in a child graph (pop)
     if (isTerminal && this.stack.length > 1) {
@@ -185,8 +225,29 @@ export class GraphEngine {
     }
 
     // Check if the new node has a subgraph to push
-    if (!isTerminal && newNodeDef.subgraph) {
+    if (!isTerminal && !isWait && newNodeDef.subgraph) {
       return this.maybePushSubgraph(previousNode, edge, newNodeDef);
+    }
+
+    // Arriving at a wait node — record arrival time and return "waiting" status
+    if (isWait && newNodeDef.waitOn) {
+      session.waitArrivedAt = new Date().toISOString();
+      const waitConditions = this.evaluateWaitConditions(newNodeDef.waitOn, session.context);
+      const timeoutAt = this.computeTimeoutAt(session.waitArrivedAt, newNodeDef.timeout);
+
+      return {
+        status: "waiting",
+        isError: false,
+        previousNode,
+        edgeTaken: edge,
+        currentNode: session.currentNode,
+        node: toNodeInfo(newNodeDef),
+        validTransitions: this.evaluateTransitions(newNodeDef),
+        context: cloneContext(session.context),
+        waitingOn: waitConditions,
+        ...(newNodeDef.timeout ? { timeout: newNodeDef.timeout } : {}),
+        ...(timeoutAt ? { timeoutAt } : {}),
+      } satisfies AdvanceSuccessResult;
     }
 
     return {
@@ -275,6 +336,40 @@ export class GraphEngine {
         ? `Turn budget reached (${session.turnCount}/${currentNodeDef.maxTurns}). Consider wrapping up and advancing to the next node.`
         : null;
 
+    // Wait node status
+    let waitInfo: {
+      waitStatus?: "waiting" | "ready" | "timed_out";
+      waitingOn?: WaitCondition[];
+      timeout?: string;
+      timeoutAt?: string;
+    } = {};
+    if (currentNodeDef.type === "wait" && currentNodeDef.waitOn) {
+      // Check timeout (may set _waitTimedOut in context)
+      const timedOut = this.checkWaitTimeout(session, currentNodeDef);
+      const waitConditions = this.evaluateWaitConditions(currentNodeDef.waitOn, session.context);
+      const allSatisfied = waitConditions.every((w) => w.satisfied);
+
+      let waitStatus: "waiting" | "ready" | "timed_out";
+      if (timedOut) {
+        waitStatus = "timed_out";
+      } else if (allSatisfied) {
+        waitStatus = "ready";
+      } else {
+        waitStatus = "waiting";
+      }
+
+      const timeoutAt = session.waitArrivedAt
+        ? this.computeTimeoutAt(session.waitArrivedAt, currentNodeDef.timeout)
+        : undefined;
+
+      waitInfo = {
+        waitStatus,
+        waitingOn: waitConditions,
+        ...(currentNodeDef.timeout ? { timeout: currentNodeDef.timeout } : {}),
+        ...(timeoutAt ? { timeoutAt } : {}),
+      };
+    }
+
     return {
       graphId: session.graphId,
       graphName: def.name,
@@ -286,6 +381,7 @@ export class GraphEngine {
       turnWarning,
       stackDepth: this.stack.length,
       stack: this.buildStackView(),
+      ...waitInfo,
     } satisfies InspectPositionResult;
   }
 
@@ -328,6 +424,20 @@ export class GraphEngine {
       message:
         "Traversal cleared. Call graph_start to begin a new workflow.",
     } satisfies ResetResult;
+  }
+
+  // --- Serialization (for persistence) ---
+
+  getStack(): SessionState[] {
+    return structuredClone(this.stack);
+  }
+
+  restoreStack(stack: SessionState[]): void {
+    this.stack = structuredClone(stack);
+  }
+
+  hasActiveTraversal(): boolean {
+    return this.stack.length > 0;
   }
 
   // --- Private helpers ---
@@ -418,6 +528,49 @@ export class GraphEngine {
 
     // Strip isDefault from the output
     return results.map(({ isDefault, ...rest }): TransitionInfo => rest);
+  }
+
+  private evaluateWaitConditions(
+    waitOn: WaitOnEntry[],
+    context: Record<string, unknown>
+  ): WaitCondition[] {
+    return waitOn.map((entry) => {
+      const value = context[entry.key];
+      const exists = entry.key in context && value !== undefined && value !== null;
+      let typeMatch = false;
+      if (exists) {
+        typeMatch = checkType(value, entry.type);
+      }
+      return {
+        key: entry.key,
+        type: entry.type,
+        ...(entry.description ? { description: entry.description } : {}),
+        satisfied: exists && typeMatch,
+      };
+    });
+  }
+
+  private checkWaitTimeout(session: SessionState, nodeDef: NodeDefinition): boolean {
+    if (!nodeDef.timeout || !session.waitArrivedAt) return false;
+    if (session.context._waitTimedOut === true) return true;
+
+    const timeoutMs = parseDuration(nodeDef.timeout);
+    if (timeoutMs === null) return false;
+
+    const arrivedAt = new Date(session.waitArrivedAt).getTime();
+    const now = Date.now();
+    if (now >= arrivedAt + timeoutMs) {
+      session.context._waitTimedOut = true;
+      return true;
+    }
+    return false;
+  }
+
+  private computeTimeoutAt(arrivedAt: string, timeout?: string): string | undefined {
+    if (!timeout) return undefined;
+    const timeoutMs = parseDuration(timeout);
+    if (timeoutMs === null) return undefined;
+    return new Date(new Date(arrivedAt).getTime() + timeoutMs).toISOString();
   }
 
   private buildStackView(): StackEntry[] {
@@ -577,11 +730,84 @@ export class GraphEngine {
   }
 }
 
+function parseDuration(duration: string): number | null {
+  const regex = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/;
+  const match = duration.match(regex);
+  if (!match || (!match[1] && !match[2] && !match[3])) return null;
+  const hours = parseInt(match[1] ?? "0", 10);
+  const minutes = parseInt(match[2] ?? "0", 10);
+  const seconds = parseInt(match[3] ?? "0", 10);
+  return (hours * 3600 + minutes * 60 + seconds) * 1000;
+}
+
 function toNodeInfo(node: NodeDefinition): NodeInfo {
   return {
     type: node.type,
     description: node.description,
     ...(node.instructions ? { instructions: node.instructions } : {}),
     suggestedTools: node.suggestedTools ?? [],
+    ...(node.returns ? { returns: node.returns } : {}),
   };
+}
+
+function checkType(value: unknown, expectedType: ReturnField["type"]): boolean {
+  switch (expectedType) {
+    case "boolean": return typeof value === "boolean";
+    case "string": return typeof value === "string";
+    case "number": return typeof value === "number";
+    case "array": return Array.isArray(value);
+    case "object": return typeof value === "object" && !Array.isArray(value) && value !== null;
+  }
+}
+
+function actualType(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+function validateReturnSchema(
+  returns: NonNullable<NodeDefinition["returns"]>,
+  context: Record<string, unknown>
+): string | null {
+  // Check required keys
+  if (returns.required) {
+    for (const [key, field] of Object.entries(returns.required)) {
+      if (!(key in context) || context[key] === undefined) {
+        return `required key "${key}" (type: ${field.type}) is missing from context`;
+      }
+      const value = context[key];
+      if (!checkType(value, field.type)) {
+        return `key "${key}" expected type "${field.type}" but got "${actualType(value)}"`;
+      }
+      if (field.type === "array" && field.items && Array.isArray(value)) {
+        for (let i = 0; i < value.length; i++) {
+          if (!checkType(value[i], field.items)) {
+            return `key "${key}" array item [${i}] expected type "${field.items}" but got "${actualType(value[i])}"`;
+          }
+        }
+      }
+    }
+  }
+
+  // Check optional keys (only if present)
+  if (returns.optional) {
+    for (const [key, field] of Object.entries(returns.optional)) {
+      if (!(key in context) || context[key] === undefined) continue;
+      const value = context[key];
+      if (!checkType(value, field.type)) {
+        return `key "${key}" expected type "${field.type}" but got "${actualType(value)}"`;
+      }
+      if (field.type === "array" && field.items && Array.isArray(value)) {
+        for (let i = 0; i < value.length; i++) {
+          if (!checkType(value[i], field.items)) {
+            return `key "${key}" array item [${i}] expected type "${field.items}" but got "${actualType(value[i])}"`;
+          }
+        }
+      }
+    }
+  }
+
+  return null;
 }

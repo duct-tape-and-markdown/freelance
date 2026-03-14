@@ -1,0 +1,57 @@
+id: valid-returns
+version: "1.0.0"
+name: "Return Schema Workflow"
+description: "Tests return schema validation on nodes"
+startNode: implement
+
+context:
+  taskType: null
+
+nodes:
+  implement:
+    type: action
+    description: "Implement the feature"
+    instructions: "Write code and record what you did."
+    returns:
+      required:
+        filesChanged:
+          type: array
+          items: string
+          description: "List of files modified"
+        testsWritten:
+          type: boolean
+          description: "Whether tests were written"
+      optional:
+        scopeNotes:
+          type: string
+          description: "Out-of-scope work identified"
+        metrics:
+          type: object
+          description: "Freeform metrics data"
+    edges:
+      - target: review
+        label: done
+
+  review:
+    type: gate
+    description: "Review the implementation"
+    instructions: "Check the work."
+    validations:
+      - expr: "context.testsWritten == true"
+        message: "Tests must be written before review."
+    returns:
+      required:
+        reviewPassed:
+          type: boolean
+          description: "Whether review passed"
+      optional:
+        reviewComments:
+          type: array
+          items: string
+    edges:
+      - target: complete
+        label: approved
+
+  complete:
+    type: terminal
+    description: "Work complete"

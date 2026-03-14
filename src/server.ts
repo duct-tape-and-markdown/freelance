@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { GraphEngine } from "./engine.js";
+import { TraversalManager } from "./traversal-manager.js";
 import { EngineError } from "./errors.js";
 import type { ValidatedGraph } from "./types.js";
 
@@ -30,9 +30,9 @@ function handleError(e: unknown) {
 
 export function createServer(
   graphs: Map<string, ValidatedGraph>,
-  options?: { maxDepth?: number }
+  options?: { maxDepth?: number; persistDir?: string }
 ): McpServer {
-  const engine = new GraphEngine(graphs, options);
+  const manager = new TraversalManager(graphs, options);
 
   const server = new McpServer(
     { name: "graph-engine", version: "0.1.0" },
@@ -41,22 +41,28 @@ export function createServer(
   // graph_list
   server.tool(
     "graph_list",
-    "List all available workflow graphs. Call this to discover which graphs are loaded and can be started.",
+    "List all available workflow graphs and active traversals. Call this to discover which graphs are loaded and can be started.",
     {},
-    () => jsonResponse(engine.list())
+    () => {
+      try {
+        return jsonResponse(manager.listGraphs());
+      } catch (e) {
+        return handleError(e);
+      }
+    }
   );
 
   // graph_start
   server.tool(
     "graph_start",
-    "Begin traversing a workflow graph. Must be called before advance, context_set, or inspect. Call graph_list first to see available graphs.",
+    "Begin traversing a workflow graph. Returns a traversalId for subsequent operations. Call graph_list first to see available graphs.",
     {
       graphId: z.string().min(1),
       initialContext: z.record(z.string(), z.unknown()).optional(),
     },
     ({ graphId, initialContext }) => {
       try {
-        return jsonResponse(engine.start(graphId, initialContext));
+        return jsonResponse(manager.createTraversal(graphId, initialContext));
       } catch (e) {
         return handleError(e);
       }
@@ -68,12 +74,14 @@ export function createServer(
     "graph_advance",
     "Move to the next node by taking a labeled edge. Optionally include context updates that are applied before edge evaluation. Context updates persist even if the advance fails.",
     {
+      traversalId: z.string().optional(),
       edge: z.string().min(1),
       contextUpdates: z.record(z.string(), z.unknown()).optional(),
     },
-    ({ edge, contextUpdates }) => {
+    ({ traversalId, edge, contextUpdates }) => {
       try {
-        const result = engine.advance(edge, contextUpdates);
+        const id = manager.resolveTraversalId(traversalId);
+        const result = manager.advance(id, edge, contextUpdates);
         if (result.isError) {
           return errorResponse(result.reason, result);
         }
@@ -89,11 +97,13 @@ export function createServer(
     "graph_context_set",
     "Update session context without advancing. Use this to record work results before choosing which edge to take. Returns updated valid transitions with conditionMet evaluated.",
     {
+      traversalId: z.string().optional(),
       updates: z.record(z.string(), z.unknown()),
     },
-    ({ updates }) => {
+    ({ traversalId, updates }) => {
       try {
-        return jsonResponse(engine.contextSet(updates));
+        const id = manager.resolveTraversalId(traversalId);
+        return jsonResponse(manager.contextSet(id, updates));
       } catch (e) {
         return handleError(e);
       }
@@ -105,11 +115,13 @@ export function createServer(
     "graph_inspect",
     "Read-only introspection of current graph state. Use after context compaction to re-orient. Returns current position, valid transitions, and context.",
     {
+      traversalId: z.string().optional(),
       detail: z.enum(["position", "full", "history"]).default("position"),
     },
-    ({ detail }) => {
+    ({ traversalId, detail }) => {
       try {
-        return jsonResponse(engine.inspect(detail));
+        const id = manager.resolveTraversalId(traversalId);
+        return jsonResponse(manager.inspect(id, detail));
       } catch (e) {
         return handleError(e);
       }
@@ -117,21 +129,23 @@ export function createServer(
   );
 
   // graph_reset
-  // Note: confirm is z.boolean() (not z.literal(true)) intentionally.
-  // If the agent passes false, the handler returns a descriptive error message.
-  // Using z.literal(true) would reject with a generic zod validation error,
-  // which is less helpful for agent recovery.
   server.tool(
     "graph_reset",
-    "Clear the current traversal. Call this to start over or switch to a different graph. Requires confirm: true as a safety check.",
+    "Clear a traversal. Call this to start over or switch to a different graph. Requires confirm: true as a safety check.",
     {
+      traversalId: z.string().optional(),
       confirm: z.boolean(),
     },
-    ({ confirm }) => {
+    ({ traversalId, confirm }) => {
       if (confirm !== true) {
         return errorResponse("Must pass confirm: true to reset.");
       }
-      return jsonResponse(engine.reset());
+      try {
+        const id = manager.resolveTraversalId(traversalId);
+        return jsonResponse(manager.resetTraversal(id));
+      } catch (e) {
+        return handleError(e);
+      }
     }
   );
 
@@ -140,7 +154,7 @@ export function createServer(
 
 export async function startServer(
   graphs: Map<string, ValidatedGraph>,
-  options?: { maxDepth?: number }
+  options?: { maxDepth?: number; persistDir?: string }
 ): Promise<void> {
   const server = createServer(graphs, options);
   const transport = new StdioServerTransport();

@@ -4,6 +4,9 @@
   "type": "module",
   "description": "A domain-agnostic, YAML-defined, graph-traversal MCP server",
   "main": "dist/index.js",
+  "bin": {
+    "freelance": "dist/index.js"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",

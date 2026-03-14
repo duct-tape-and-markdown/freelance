@@ -48,6 +48,9 @@ export function loadGraphs(directory: string): Map<string, ValidatedGraph> {
 
     const def = parseResult.data;
 
+    // Validate return schemas at load time
+    validateReturnSchemas(def, filePath);
+
     // Validate all expressions at load time (item 7)
     validateExpressions(def, filePath);
 
@@ -61,6 +64,48 @@ export function loadGraphs(directory: string): Map<string, ValidatedGraph> {
   validateSubgraphReferences(results);
 
   return results;
+}
+
+/**
+ * Validate return schema structure on nodes.
+ * - items only valid on array type
+ * - required/optional keys must not overlap
+ * - terminal nodes must not have returns
+ */
+function validateReturnSchemas(def: GraphDefinition, filePath: string): void {
+  for (const [nodeId, node] of Object.entries(def.nodes)) {
+    if (!node.returns) continue;
+
+    if (node.type === "terminal") {
+      throw new Error(
+        `[${filePath}] Node "${nodeId}": terminal node must not have a returns schema`
+      );
+    }
+
+    const requiredKeys = new Set(Object.keys(node.returns.required ?? {}));
+    const optionalKeys = new Set(Object.keys(node.returns.optional ?? {}));
+
+    for (const key of optionalKeys) {
+      if (requiredKeys.has(key)) {
+        throw new Error(
+          `[${filePath}] Node "${nodeId}": returns key "${key}" appears in both required and optional`
+        );
+      }
+    }
+
+    const allFields = {
+      ...(node.returns.required ?? {}),
+      ...(node.returns.optional ?? {}),
+    };
+
+    for (const [key, field] of Object.entries(allFields)) {
+      if (field.items && field.type !== "array") {
+        throw new Error(
+          `[${filePath}] Node "${nodeId}": returns key "${key}" has "items" but type is "${field.type}" (items only valid on array type)`
+        );
+      }
+    }
+  }
 }
 
 /**
@@ -168,6 +213,15 @@ function buildAndValidateGraph(def: GraphDefinition, filePath: string): graphlib
         );
       }
     }
+
+    // Wait nodes must have at least one waitOn entry
+    if (node.type === "wait") {
+      if (!node.waitOn || node.waitOn.length === 0) {
+        throw new Error(
+          `[${filePath}] Node "${nodeId}": wait node must have at least one waitOn entry`
+        );
+      }
+    }
   }
 
   // (e) No orphan nodes — all nodes reachable from startNode
@@ -210,15 +264,15 @@ function validateCycles(
 
     if (!isCycle) continue;
 
-    const hasDecisionOrGate = scc.some((nodeId) => {
+    const hasBreakingNode = scc.some((nodeId) => {
       const nodeType = def.nodes[nodeId]?.type;
-      return nodeType === "decision" || nodeType === "gate";
+      return nodeType === "decision" || nodeType === "gate" || nodeType === "wait";
     });
 
-    if (!hasDecisionOrGate) {
+    if (!hasBreakingNode) {
       throw new Error(
-        `[${filePath}] Cycle detected among nodes [${scc.join(", ")}] with no decision or gate node. ` +
-          `Cycles must include at least one decision or gate node to prevent infinite action loops.`
+        `[${filePath}] Cycle detected among nodes [${scc.join(", ")}] with no decision, gate, or wait node. ` +
+          `Cycles must include at least one decision, gate, or wait node to prevent infinite action loops.`
       );
     }
   }
