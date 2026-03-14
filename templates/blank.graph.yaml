@@ -1,0 +1,23 @@
+id: my-workflow
+version: "1.0.0"
+name: "My Workflow"
+description: "Describe what this workflow enforces"
+startNode: start
+
+context: {}
+
+nodes:
+  start:
+    type: action
+    description: "First step"
+    instructions: |
+      What should the agent do here?
+    edges:
+      - target: done
+        label: complete
+
+  done:
+    type: terminal
+    description: "Workflow complete"
+    instructions: |
+      Summarize what was done.

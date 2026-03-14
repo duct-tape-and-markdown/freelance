@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { TraversalManager } from "./traversal-manager.js";
 import { EngineError } from "./errors.js";
+import { getPidFilePath } from "./paths.js";
+import { info } from "./cli/output.js";
 import type { ValidatedGraph } from "./types.js";
 
 interface DaemonOptions {
@@ -102,7 +104,7 @@ export function createDaemon(
       // POST /shutdown
       if (method === "POST" && pathname === "/shutdown") {
         jsonOk(res, { status: "shutting_down" });
-        setTimeout(() => process.exit(0), 100);
+        server.close(() => process.exit(0));
         return;
       }
 
@@ -133,23 +135,22 @@ export async function startDaemon(
 ): Promise<void> {
   const { server } = createDaemon(graphs, options);
 
-  // Write PID file
-  const pidDir = path.dirname(options.persistDir);
-  const pidFile = path.join(pidDir, "daemon.pid");
-  fs.mkdirSync(pidDir, { recursive: true });
-  fs.writeFileSync(pidFile, String(process.pid));
+  // Write PID file (includes port for status reporting)
+  const pidFile = getPidFilePath();
+  fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+  fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid, port: options.port }));
 
   return new Promise<void>((resolve, reject) => {
     server.listen(options.port, options.host, () => {
-      console.error(`Freelance daemon listening on ${options.host}:${options.port}`);
-      console.error(`PID: ${process.pid}`);
-      console.error(`Persistence: ${options.persistDir}`);
+      info(`Freelance daemon listening on ${options.host}:${options.port}`);
+      info(`PID: ${process.pid}`);
+      info(`Persistence: ${options.persistDir}`);
     });
 
     server.on("error", reject);
 
     const shutdown = () => {
-      console.error("\nShutting down daemon...");
+      info("\nShutting down daemon...");
       server.close(() => {
         try { fs.unlinkSync(pidFile); } catch {}
         process.exit(0);

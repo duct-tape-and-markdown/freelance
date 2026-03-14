@@ -1,6 +1,6 @@
-# Graph Engine
+# Freelance
 
-A domain-agnostic, YAML-defined, graph-traversal MCP server.
+Graph-based workflow enforcement for AI coding agents.
 
 ## Development
 
@@ -12,25 +12,31 @@ A domain-agnostic, YAML-defined, graph-traversal MCP server.
 
 ```bash
 # Validate graph definitions
-node dist/index.js --graphs ./path/to/graphs/ --validate
+freelance validate ./path/to/graphs/
 
-# Start standalone MCP server (per-session state, no daemon)
-node dist/index.js --graphs ./path/to/graphs/
+# Visualize a graph
+freelance visualize ./graphs/my.graph.yaml --format mermaid
+
+# Start standalone MCP server
+freelance mcp --graphs ./path/to/graphs/
 
 # Start daemon (long-running, multi-traversal, persisted)
-node dist/index.js daemon --graphs ./graphs/ --port 7433
+freelance daemon start --graphs ./graphs/ --port 7433
 
 # Start MCP proxy connecting to daemon
-node dist/index.js mcp --connect localhost:7433
+freelance mcp --connect localhost:7433
 
 # Daemon management
-node dist/index.js daemon stop
-node dist/index.js daemon status
+freelance daemon stop
+freelance daemon status
 
 # Traversal management (requires running daemon)
-node dist/index.js traversals list
-node dist/index.js traversals inspect tr_a1b2c3d4
-node dist/index.js traversals reset tr_a1b2c3d4
+freelance traversals list
+freelance traversals inspect tr_a1b2c3d4
+freelance traversals reset tr_a1b2c3d4
+
+# Project setup
+freelance init
 ```
 
 ## Project structure
@@ -43,7 +49,9 @@ node dist/index.js traversals reset tr_a1b2c3d4
 - `src/daemon.ts` — HTTP daemon server wrapping TraversalManager
 - `src/proxy.ts` — MCP proxy that bridges stdio to daemon HTTP API
 - `src/server.ts` — MCP tool surface (6 tools wrapping TraversalManager)
-- `src/index.ts` — CLI entry point with subcommands
+- `src/cli/` — CLI subcommand handlers (init, validate, visualize, daemon, traversals, output)
+- `src/index.ts` — CLI entry point (Commander.js)
+- `templates/` — Starter graph templates and shell completions
 
 ## Graph definitions
 

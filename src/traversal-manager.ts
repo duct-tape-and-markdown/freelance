@@ -147,17 +147,13 @@ export class TraversalManager {
   // --- Persistence ---
 
   private touch(traversalId: string): void {
-    const meta = this.metadata.get(traversalId);
-    if (meta) {
-      meta.lastUpdated = new Date().toISOString();
-    }
+    this.metadata.get(traversalId)!.lastUpdated = new Date().toISOString();
   }
 
   private persist(traversalId: string): void {
     if (!this.persistDir) return;
-    const engine = this.traversals.get(traversalId);
-    const meta = this.metadata.get(traversalId);
-    if (!engine || !meta) return;
+    const engine = this.traversals.get(traversalId)!;
+    const meta = this.metadata.get(traversalId)!;
 
     const data: SerializedTraversal = {
       traversalId,
@@ -180,7 +176,6 @@ export class TraversalManager {
 
   private restoreAll(): void {
     if (!this.persistDir) return;
-    if (!fs.existsSync(this.persistDir)) return;
 
     const files = fs.readdirSync(this.persistDir).filter((f) => f.endsWith(".json"));
     for (const file of files) {

@@ -1,20 +1,37 @@
 {
-  "name": "graph-engine",
-  "version": "0.1.0",
+  "name": "freelance",
+  "version": "1.0.0",
   "type": "module",
-  "description": "A domain-agnostic, YAML-defined, graph-traversal MCP server",
+  "description": "Graph-based workflow enforcement for AI coding agents",
   "main": "dist/index.js",
   "bin": {
     "freelance": "dist/index.js"
   },
+  "files": [
+    "dist/",
+    "templates/"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
     "test": "vitest run"
   },
+  "keywords": [
+    "mcp",
+    "workflow",
+    "graph",
+    "ai",
+    "agent",
+    "claude",
+    "cursor",
+    "automation"
+  ],
+  "license": "MIT",
   "dependencies": {
     "@dagrejs/graphlib": "^2.2.4",
+    "@inquirer/prompts": "^8.3.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "commander": "^14.0.3",
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {

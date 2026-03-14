@@ -1,0 +1,100 @@
+id: data-pipeline
+version: "1.0.0"
+name: "Data Processing Pipeline"
+description: "Orchestrates a multi-phase data processing workflow with quality gates"
+startNode: scan-sources
+strictContext: true
+
+context:
+  sourceCount: 0
+  processedCount: 0
+  qualityScore: 0
+  verificationPassed: false
+  remainingItems: 0
+  cycleCount: 0
+
+nodes:
+  scan-sources:
+    type: action
+    description: "Identify and catalog data sources"
+    instructions: |
+      Scan the target scope and catalog all data sources.
+      Record source identifiers, types, and metadata.
+      Set context.sourceCount to the total found.
+    edges:
+      - target: assess
+        label: scan-complete
+        description: "Sources cataloged, assess what needs processing"
+
+  assess:
+    type: action
+    description: "Evaluate which sources need processing"
+    instructions: |
+      Compare cataloged sources against already-processed records.
+      Identify gaps — sources with no output or stale output.
+      Set context.remainingItems to the count needing work.
+    edges:
+      - target: plan
+        label: gaps-found
+        condition: "context.remainingItems > 0"
+        description: "Unprocessed sources found"
+      - target: verify
+        label: all-current
+        condition: "context.remainingItems == 0"
+        description: "Everything is up to date, skip to verification"
+
+  plan:
+    type: action
+    description: "Plan the processing batch"
+    instructions: |
+      Group remaining items by type/priority.
+      Define a processing order and budget for this cycle.
+    edges:
+      - target: execute
+        label: plan-ready
+
+  execute:
+    type: action
+    maxTurns: 20
+    description: "Process the planned batch"
+    instructions: |
+      Follow the plan. Process each item in order.
+      Track progress in context as you go.
+      Set context.processedCount when the batch is done.
+    edges:
+      - target: verify
+        label: batch-complete
+
+  verify:
+    type: gate
+    description: "Verify processing quality"
+    instructions: |
+      Check all outputs for quality.
+      Set context.qualityScore (0-100) and context.verificationPassed.
+    validations:
+      - expr: "context.verificationPassed == true"
+        message: "Quality verification failed. Review outputs before proceeding."
+      - expr: "context.qualityScore >= 80"
+        message: "Quality score must be at least 80. Current score is below threshold."
+    edges:
+      - target: cycle-check
+        label: verified
+
+  cycle-check:
+    type: decision
+    description: "Decide whether another processing cycle is needed"
+    instructions: |
+      Evaluate: are there remaining unprocessed items? Is the cycle budget exhausted?
+    edges:
+      - target: assess
+        label: more-cycles
+        condition: "context.cycleCount < 3 && context.remainingItems > 0"
+      - target: complete
+        label: done
+        default: true
+
+  complete:
+    type: terminal
+    description: "Pipeline finished"
+    instructions: |
+      Summarize: total sources, items processed, quality score, remaining gaps.
