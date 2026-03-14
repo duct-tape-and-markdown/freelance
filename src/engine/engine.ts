@@ -615,7 +615,7 @@ export class GraphEngine {
   private popSubgraph(
     previousNode: string,
     edge: string,
-    terminalNodeDef: NodeDefinition
+    _terminalNodeDef: NodeDefinition
   ): AdvanceSuccessResult {
     const childSession = this.activeSession();
     const completedGraphId = childSession.graphId;

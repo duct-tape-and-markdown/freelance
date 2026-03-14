@@ -1,7 +1,7 @@
 import type { NodeDefinition, WaitOnEntry, WaitCondition, SessionState } from "../types.js";
 import { checkType } from "./returns.js";
 
-export function parseDuration(duration: string): number | null {
+function parseDuration(duration: string): number | null {
   const regex = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/;
   const match = duration.match(regex);
   if (!match || (!match[1] && !match[2] && !match[3])) return null;
