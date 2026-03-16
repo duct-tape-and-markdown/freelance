@@ -19,6 +19,24 @@ function generateTraversalId(): string {
   return "tr_" + crypto.randomBytes(4).toString("hex");
 }
 
+/**
+ * Snapshot graph definitions so in-flight traversals are pinned to the
+ * definitions they were created with. Clones `definition` via structuredClone;
+ * shares `graph` (graphlib) by reference (engine never mutates it).
+ */
+function snapshotGraphs(
+  graphs: Map<string, ValidatedGraph>
+): Map<string, ValidatedGraph> {
+  const snapshot = new Map<string, ValidatedGraph>();
+  for (const [id, vg] of graphs) {
+    snapshot.set(id, {
+      definition: structuredClone(vg.definition),
+      graph: vg.graph, // shared by reference — immutable at runtime
+    });
+  }
+  return snapshot;
+}
+
 export class TraversalManager {
   private traversals = new Map<string, GraphEngine>();
   private metadata = new Map<string, { createdAt: string; lastUpdated: string }>();
@@ -35,11 +53,26 @@ export class TraversalManager {
     }
   }
 
+  /**
+   * Replace the live graph registry. Existing traversals keep their
+   * snapshotted graphs; new traversals use the updated registry.
+   */
+  updateGraphs(newGraphs: Map<string, ValidatedGraph>): void {
+    this.graphs = newGraphs;
+  }
+
   listGraphs(): TraversalListResult {
-    const engine = new GraphEngine(this.graphs, this.options);
-    const { graphs } = engine.list();
+    const graphList = [];
+    for (const [id, vg] of this.graphs) {
+      graphList.push({
+        id,
+        name: vg.definition.name,
+        version: vg.definition.version,
+        description: vg.definition.description ?? "",
+      });
+    }
     return {
-      graphs,
+      graphs: graphList,
       activeTraversals: this.listTraversals(),
     };
   }
@@ -67,7 +100,8 @@ export class TraversalManager {
     initialContext?: Record<string, unknown>
   ): { traversalId: string } & StartResult {
     const id = generateTraversalId();
-    const engine = new GraphEngine(this.graphs, this.options);
+    const snapshot = snapshotGraphs(this.graphs);
+    const engine = new GraphEngine(snapshot, this.options);
     const result = engine.start(graphId, initialContext);
     const now = new Date().toISOString();
     this.traversals.set(id, engine);
@@ -188,7 +222,11 @@ export class TraversalManager {
           continue;
         }
 
-        const engine = new GraphEngine(this.graphs, this.options);
+        // Restored traversals use a snapshot of the current graphs.
+        // If graph definitions changed since persistence, the engine
+        // will use the new definitions (acceptable for restore).
+        const snapshot = snapshotGraphs(this.graphs);
+        const engine = new GraphEngine(snapshot, this.options);
         engine.restoreStack(data.stack);
         this.traversals.set(data.traversalId, engine);
         this.metadata.set(data.traversalId, {
