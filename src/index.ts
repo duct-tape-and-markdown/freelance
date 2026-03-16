@@ -9,7 +9,7 @@ import { startProxy } from "./proxy.js";
 import { validate } from "./cli/validate.js";
 import { visualize } from "./cli/visualize.js";
 import { setCli, info, fatal, EXIT } from "./cli/output.js";
-import { daemonStop, daemonStatus } from "./cli/daemon.js";
+import { daemonStop, daemonStatus, checkRunningDaemon } from "./cli/daemon.js";
 import { parseDaemonConnect, traversalsList, traversalsInspect, traversalsReset } from "./cli/traversals.js";
 import { VERSION } from "./version.js";
 import { TRAVERSALS_DIR, DEFAULT_PORT } from "./paths.js";
@@ -149,6 +149,13 @@ daemonCmd
   .option("--port <port>", `Port to listen on (default: ${DEFAULT_PORT})`, String(DEFAULT_PORT))
   .option("--max-depth <n>", "Maximum subgraph nesting depth", "5")
   .action(async (opts) => {
+    // Idempotent: if daemon is already running, report and exit
+    const running = checkRunningDaemon();
+    if (running) {
+      info(`Daemon already running (PID ${running.pid}, port ${running.port})`);
+      process.exit(0);
+    }
+
     const graphsDir = opts.graphs ?? ENV_GRAPHS_DIR;
     if (!graphsDir) {
       fatal(

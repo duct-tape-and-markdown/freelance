@@ -170,7 +170,9 @@ export async function startDaemon(
   // Write PID file (includes port for status reporting)
   const pidFile = getPidFilePath();
   fs.mkdirSync(path.dirname(pidFile), { recursive: true });
-  fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid, port: options.port }));
+  const pidData: Record<string, unknown> = { pid: process.pid, port: options.port };
+  if (options.graphsDir) pidData.graphsDir = options.graphsDir;
+  fs.writeFileSync(pidFile, JSON.stringify(pidData));
 
   return new Promise<void>((resolve, reject) => {
     server.listen(options.port, options.host, () => {
