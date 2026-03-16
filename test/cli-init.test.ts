@@ -14,7 +14,6 @@ function defaults(overrides: Partial<InitOptions> = {}): InitOptions {
     scope: "project",
     client: "claude-code",
     starter: "change-request",
-    daemon: false,
     dryRun: false,
     ...overrides,
   };
@@ -81,8 +80,7 @@ describe("CLI init", () => {
     expect(fs.existsSync(claudeMd)).toBe(true);
     const content = fs.readFileSync(claudeMd, "utf-8");
     expect(content).toContain("graph_list");
-    expect(content).toContain("graph_start");
-    expect(content).toContain("graph_inspect");
+    expect(content).toContain("graph_guide");
   });
 
   it("appends to existing CLAUDE.md without duplicating", async () => {
@@ -124,15 +122,6 @@ describe("CLI init", () => {
   it("skips CLAUDE.md for non-claude-code clients", async () => {
     await init(defaults({ client: "cursor" }));
     expect(fs.existsSync(path.join(workDir, "CLAUDE.md"))).toBe(false);
-  });
-
-  it("daemon mode sets --connect in MCP args", async () => {
-    await init(defaults({ daemon: true, daemonPort: 9999 }));
-    const mcpJson = path.join(workDir, ".mcp.json");
-    const config = JSON.parse(fs.readFileSync(mcpJson, "utf-8"));
-    const args = config.mcpServers.freelance.args as string[];
-    expect(args).toContain("--connect");
-    expect(args).toContain("localhost:9999");
   });
 
   it("dry-run creates no files", async () => {
@@ -279,15 +268,6 @@ describe("CLI init", () => {
     expect(fs.existsSync(configPath)).toBe(true);
     const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
     expect(config.mcpServers.freelance).toBeDefined();
-  });
-
-  it("daemon mode without explicit port defaults to 7433", async () => {
-    await init(defaults({ daemon: true }));
-    const mcpJson = path.join(workDir, ".mcp.json");
-    const config = JSON.parse(fs.readFileSync(mcpJson, "utf-8"));
-    const args = config.mcpServers.freelance.args as string[];
-    expect(args).toContain("--connect");
-    expect(args).toContain("localhost:7433");
   });
 
   it("CLAUDE.md skipped when existing content contains 'Freelance'", async () => {
