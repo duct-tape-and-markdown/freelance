@@ -56,14 +56,14 @@ describe("CLI inspect", () => {
   });
 
   it("silent when no traversals directory exists", () => {
-    inspect({ active: true, oneline: false });
+    inspect({ oneline: false });
     expect(stderrSpy).not.toHaveBeenCalled();
     expect(stdoutSpy).not.toHaveBeenCalled();
   });
 
   it("silent when traversals directory is empty", () => {
     fs.mkdirSync(path.join(workDir, ".freelance", "traversals"), { recursive: true });
-    inspect({ active: true, oneline: false });
+    inspect({ oneline: false });
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 
@@ -75,7 +75,7 @@ describe("CLI inspect", () => {
       JSON.stringify(makeTraversal("tr_abc12345", "my-graph", "build"))
     );
 
-    inspect({ active: true, oneline: false });
+    inspect({ oneline: false });
     const output = stderrSpy.mock.calls.map((c) => c[0]).join("");
     expect(output).toContain("tr_abc12345");
     expect(output).toContain("my-graph");
@@ -90,7 +90,7 @@ describe("CLI inspect", () => {
       JSON.stringify(makeTraversal("tr_abc12345", "ralph-loop", "plan"))
     );
 
-    inspect({ active: true, oneline: true });
+    inspect({ oneline: true });
     const output = stderrSpy.mock.calls.map((c) => c[0]).join("");
     expect(output).toContain("[Freelance]");
     expect(output).toContain("ralph-loop @ plan");
@@ -105,7 +105,7 @@ describe("CLI inspect", () => {
       JSON.stringify(makeTraversal("tr_abc12345", "my-graph", "verify"))
     );
 
-    inspect({ active: true, oneline: false });
+    inspect({ oneline: false });
     const output = stdoutSpy.mock.calls.map((c) => c[0]).join("");
     const result = JSON.parse(output);
     expect(result.traversals).toHaveLength(1);
@@ -122,7 +122,7 @@ describe("CLI inspect", () => {
       JSON.stringify(makeTraversal("tr_good", "my-graph", "start"))
     );
 
-    inspect({ active: true, oneline: false });
+    inspect({ oneline: false });
     const output = stderrSpy.mock.calls.map((c) => c[0]).join("");
     expect(output).toContain("tr_good");
     expect(output).not.toContain("tr_bad");
@@ -136,7 +136,7 @@ describe("CLI inspect", () => {
       JSON.stringify({ traversalId: "tr_empty", stack: [], createdAt: "", lastUpdated: "" })
     );
 
-    inspect({ active: true, oneline: false });
+    inspect({ oneline: false });
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 
@@ -152,7 +152,7 @@ describe("CLI inspect", () => {
       JSON.stringify(makeTraversal("tr_002", "graph-b", "node-2"))
     );
 
-    inspect({ active: true, oneline: true });
+    inspect({ oneline: true });
     const output = stderrSpy.mock.calls.map((c) => c[0]).join("");
     expect(output).toContain("tr_001");
     expect(output).toContain("tr_002");

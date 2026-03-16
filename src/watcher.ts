@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { loadGraphs, validateCrossGraphRefs } from "./loader.js";
+import { loadGraphs } from "./loader.js";
 import type { ValidatedGraph } from "./types.js";
 
 export interface WatcherOptions {
@@ -33,7 +33,6 @@ export function watchGraphs(options: WatcherOptions): () => void {
   function reload() {
     try {
       const graphs = loadGraphs(graphsDir);
-      validateCrossGraphRefs(graphs);
       onUpdate(graphs);
     } catch (e) {
       onError(e instanceof Error ? e : new Error(String(e)));

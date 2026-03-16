@@ -5,7 +5,6 @@ import { TRAVERSALS_DIR } from "../paths.js";
 import type { SerializedTraversal } from "../types.js";
 
 export interface InspectOptions {
-  active: boolean;
   oneline: boolean;
 }
 

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { cli, info, fatal, outputJson, EXIT } from "./output.js";
-import { DEFAULT_PORT, getPidFilePath } from "../paths.js";
+import { getPidFilePath } from "../paths.js";
 
 export interface PidFileData {
   pid: number;
