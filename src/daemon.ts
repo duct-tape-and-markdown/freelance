@@ -5,6 +5,7 @@ import { TraversalManager } from "./traversal-manager.js";
 import { EngineError } from "./errors.js";
 import { getPidFilePath } from "./paths.js";
 import { info } from "./cli/output.js";
+import { getGuide, getGuideTopics } from "./guide.js";
 import type { ValidatedGraph } from "./types.js";
 
 interface DaemonOptions {
@@ -106,6 +107,19 @@ export function createDaemon(
         jsonOk(res, { status: "shutting_down" });
         server.close(() => process.exit(0));
         return;
+      }
+
+      // GET /guide
+      if (method === "GET" && pathname === "/guide") {
+        const topic = url.searchParams.get("topic") ?? undefined;
+        if (!topic) {
+          return jsonOk(res, { topics: getGuideTopics() });
+        }
+        const result = getGuide(topic);
+        if ("error" in result) {
+          return jsonError(res, result.error);
+        }
+        return jsonOk(res, result);
       }
 
       // GET /health

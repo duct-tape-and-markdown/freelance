@@ -4,6 +4,7 @@ import { z } from "zod";
 import { TraversalManager } from "./traversal-manager.js";
 import { EngineError } from "./errors.js";
 import { VERSION } from "./version.js";
+import { getGuide } from "./guide.js";
 import type { ValidatedGraph } from "./types.js";
 
 function jsonResponse(result: unknown) {
@@ -147,6 +148,22 @@ export function createServer(
       } catch (e) {
         return handleError(e);
       }
+    }
+  );
+
+  // graph_guide
+  server.tool(
+    "graph_guide",
+    "Get help with authoring Freelance workflow graphs. Call with no topic to see available topics.",
+    {
+      topic: z.string().optional(),
+    },
+    ({ topic }) => {
+      const result = getGuide(topic);
+      if ("error" in result) {
+        return errorResponse(result.error);
+      }
+      return jsonResponse(result);
     }
   );
 
