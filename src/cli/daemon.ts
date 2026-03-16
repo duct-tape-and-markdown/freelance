@@ -2,14 +2,38 @@ import fs from "node:fs";
 import { cli, info, fatal, outputJson, EXIT } from "./output.js";
 import { DEFAULT_PORT, getPidFilePath } from "../paths.js";
 
-export function readPidFile(): { pid: number; port: number } | null {
+export interface PidFileData {
+  pid: number;
+  port: number;
+  graphsDir?: string;
+}
+
+export function readPidFile(): PidFileData | null {
   const pidFile = getPidFilePath();
   if (!fs.existsSync(pidFile)) return null;
   const raw = fs.readFileSync(pidFile, "utf-8").trim();
   try {
-    const data = JSON.parse(raw) as { pid: number; port: number };
-    return { pid: data.pid, port: data.port };
+    const data = JSON.parse(raw) as PidFileData;
+    return { pid: data.pid, port: data.port, graphsDir: data.graphsDir };
   } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if a daemon is already running. Returns PID info if alive, null otherwise.
+ * Cleans up stale PID files.
+ */
+export function checkRunningDaemon(): PidFileData | null {
+  const pidInfo = readPidFile();
+  if (!pidInfo) return null;
+
+  try {
+    process.kill(pidInfo.pid, 0);
+    return pidInfo; // Process is alive
+  } catch {
+    // Stale PID file — clean up
+    try { fs.unlinkSync(getPidFilePath()); } catch {}
     return null;
   }
 }
@@ -56,13 +80,15 @@ export function daemonStatus(): void {
     return;
   }
 
-  const { pid, port } = pidInfo;
+  const { pid, port, graphsDir } = pidInfo;
   try {
     process.kill(pid, 0);
     if (cli.json) {
-      outputJson({ running: true, pid, port });
+      outputJson({ running: true, pid, port, graphsDir });
     } else {
-      info(`Daemon: running (PID ${pid}, port ${port})`);
+      let msg = `Daemon: running (PID ${pid}, port ${port})`;
+      if (graphsDir) msg += `\n  Graphs: ${graphsDir}`;
+      info(msg);
     }
   } catch {
     if (cli.json) {
