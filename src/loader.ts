@@ -58,10 +58,27 @@ export function loadGraphs(directory: string): Map<string, ValidatedGraph> {
   }
 
   const results = new Map<string, ValidatedGraph>();
+  const errors: string[] = [];
 
   for (const filePath of files) {
-    const { id, definition, graph } = loadSingleGraph(filePath);
-    results.set(id, { definition, graph });
+    try {
+      const { id, definition, graph } = loadSingleGraph(filePath);
+      results.set(id, { definition, graph });
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  if (results.size === 0) {
+    throw new Error(
+      `All ${files.length} graph(s) failed validation:\n${errors.join("\n")}`
+    );
+  }
+
+  if (errors.length > 0) {
+    process.stderr.write(
+      `Warning: ${errors.length} graph(s) failed validation and were skipped:\n${errors.join("\n")}\n`
+    );
   }
 
   // Cross-graph validation: subgraph references and circular detection
