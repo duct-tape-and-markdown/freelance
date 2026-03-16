@@ -160,6 +160,16 @@ export function createProxy(daemonHost: string, daemonPort: number): McpServer {
     }
   );
 
+  // graph_guide
+  server.tool(
+    "graph_guide",
+    "Get help with authoring Freelance workflow graphs.",
+    {
+      topic: z.string().optional(),
+    },
+    ({ topic }) => callDaemon("GET", topic ? `/guide?topic=${encodeURIComponent(topic)}` : "/guide")
+  );
+
   return server;
 }
 
