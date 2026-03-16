@@ -180,6 +180,27 @@ describe("Daemon HTTP API", () => {
     });
   });
 
+  it("GET /guide returns topics list", async () => {
+    const { status, data } = await request(port, "GET", "/guide");
+    expect(status).toBe(200);
+    expect(data.topics).toBeDefined();
+    expect(Array.isArray(data.topics)).toBe(true);
+    expect(data.topics).toContain("basics");
+  });
+
+  it("GET /guide?topic=basics returns content", async () => {
+    const { status, data } = await request(port, "GET", "/guide?topic=basics");
+    expect(status).toBe(200);
+    expect(data.content).toBeDefined();
+    expect(data.content).toContain("Graph Basics");
+  });
+
+  it("GET /guide?topic=unknown returns error", async () => {
+    const { status, data } = await request(port, "GET", "/guide?topic=nonexistent");
+    expect(status).toBe(400);
+    expect(data.error).toContain("nonexistent");
+  });
+
   it("advance with context updates that fail validation", async () => {
     const { data: created } = await request(port, "POST", "/traversals", {
       graphId: "valid-simple",
