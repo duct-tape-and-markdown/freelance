@@ -74,7 +74,8 @@ describe("Graph watcher", () => {
     });
     cleanups.push(stop);
 
-    // Write invalid graph
+    // Remove valid graph and write only an invalid one so all graphs fail
+    fs.unlinkSync(path.join(dir, "valid-simple.graph.yaml"));
     fs.writeFileSync(
       path.join(dir, "broken.graph.yaml"),
       "id: broken\nnot_valid: true\n"
