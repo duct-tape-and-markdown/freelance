@@ -217,6 +217,18 @@ traversalsCmd
     await traversalsReset(host, port, id);
   });
 
+// --- inspect ---
+
+program
+  .command("inspect")
+  .description("Show active traversals from persisted state")
+  .option("--active", "Show only active traversals", true)
+  .option("--oneline", "Compact one-line output (for hooks)")
+  .action(async (opts) => {
+    const { inspect } = await import("./cli/inspect.js");
+    inspect({ active: opts.active, oneline: opts.oneline ?? false });
+  });
+
 // --- completion ---
 
 program
