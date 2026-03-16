@@ -180,7 +180,7 @@ function writeSessionStartHook(): string | null {
   // Check if hook already exists
   if (settings.hooks?.SessionStart) {
     const existing = JSON.stringify(settings.hooks.SessionStart);
-    if (existing.includes("freelance") && existing.includes("inspect")) {
+    if (existing.includes("freelance@latest inspect")) {
       return null; // Already configured
     }
   }
@@ -202,7 +202,7 @@ function wouldWriteSessionStartHook(): boolean {
   if (!fs.existsSync(settingsPath)) return true;
 
   const raw = fs.readFileSync(settingsPath, "utf-8");
-  return !(raw.includes("freelance") && raw.includes("inspect"));
+  return !raw.includes("freelance@latest inspect");
 }
 
 function appendClaudeMd(): boolean {

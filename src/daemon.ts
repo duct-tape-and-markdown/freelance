@@ -174,7 +174,7 @@ export async function startDaemon(
   if (options.graphsDir) pidData.graphsDir = options.graphsDir;
   fs.writeFileSync(pidFile, JSON.stringify(pidData));
 
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<void>((_resolve, reject) => {
     server.listen(options.port, options.host, () => {
       info(`Freelance daemon listening on ${options.host}:${options.port}`);
       info(`PID: ${process.pid}`);
