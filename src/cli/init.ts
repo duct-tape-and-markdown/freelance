@@ -181,6 +181,55 @@ During a traversal:
 
 Never skip nodes. If \`graph_advance\` returns an error, read it — it tells you what's wrong.`;
 
+// --- SessionStart hook ---
+
+const HOOK_COMMAND = "npx -y freelance@latest inspect --active --oneline";
+
+interface ClaudeSettings {
+  hooks?: {
+    SessionStart?: Array<{
+      matcher: string;
+      hooks: Array<{ type: string; command: string }>;
+    }>;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+function writeSessionStartHook(): string | null {
+  const settingsDir = path.join(process.cwd(), ".claude");
+  const settingsPath = path.join(settingsDir, "settings.json");
+
+  const settings: ClaudeSettings = readJsonFile(settingsPath) as ClaudeSettings;
+
+  // Check if hook already exists
+  if (settings.hooks?.SessionStart) {
+    const existing = JSON.stringify(settings.hooks.SessionStart);
+    if (existing.includes("freelance") && existing.includes("inspect")) {
+      return null; // Already configured
+    }
+  }
+
+  if (!settings.hooks) settings.hooks = {};
+  if (!settings.hooks.SessionStart) settings.hooks.SessionStart = [];
+
+  settings.hooks.SessionStart.push({
+    matcher: "",
+    hooks: [{ type: "command", command: HOOK_COMMAND }],
+  });
+
+  writeJsonFile(settingsPath, settings as McpConfig);
+  return settingsPath;
+}
+
+function wouldWriteSessionStartHook(): boolean {
+  const settingsPath = path.join(process.cwd(), ".claude", "settings.json");
+  if (!fs.existsSync(settingsPath)) return true;
+
+  const raw = fs.readFileSync(settingsPath, "utf-8");
+  return !(raw.includes("freelance") && raw.includes("inspect"));
+}
+
 function appendClaudeMd(): boolean {
   const claudeMdPath = path.join(process.cwd(), "CLAUDE.md");
 
@@ -285,6 +334,15 @@ export async function init(options: InitOptions): Promise<void> {
     }
   }
 
+  // 5. SessionStart hook for claude-code
+  if (client === "claude-code") {
+    if (wouldWriteSessionStartHook()) {
+      actions.push({ verb: "configure", target: ".claude/settings.json", detail: "SessionStart hook" });
+    } else {
+      actions.push({ verb: "skip", target: ".claude/settings.json", detail: "hook already configured" });
+    }
+  }
+
   // --- Dry run ---
   if (dryRun) {
     if (cli.json) {
@@ -356,6 +414,17 @@ export async function init(options: InitOptions): Promise<void> {
       filesCreated.push(path.join(process.cwd(), "CLAUDE.md"));
     } else {
       results.push("CLAUDE.md already has Freelance instructions");
+    }
+  }
+
+  // 5. Write SessionStart hook for Claude Code
+  if (client === "claude-code") {
+    const hookPath = writeSessionStartHook();
+    if (hookPath) {
+      results.push(`Configured SessionStart hook in ${displayPath(hookPath)}`);
+      filesCreated.push(hookPath);
+    } else {
+      results.push("SessionStart hook already configured");
     }
   }
 
