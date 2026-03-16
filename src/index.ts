@@ -167,7 +167,7 @@ daemonCmd
     const graphs = loadGraphsOrFatal(graphsDir);
     const ids = [...graphs.keys()];
     info(`Freelance daemon: loaded ${graphs.size} graph(s) (${ids.join(", ")})`);
-    await startDaemon(graphs, { port, host: "127.0.0.1", persistDir, maxDepth });
+    await startDaemon(graphs, { port, host: "127.0.0.1", persistDir, maxDepth, graphsDir: path.resolve(graphsDir) });
   });
 
 daemonCmd

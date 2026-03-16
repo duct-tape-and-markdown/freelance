@@ -6,6 +6,7 @@ import { EngineError } from "./errors.js";
 import { getPidFilePath } from "./paths.js";
 import { info } from "./cli/output.js";
 import { getGuide, getGuideTopics } from "./guide.js";
+import { watchGraphs } from "./watcher.js";
 import type { ValidatedGraph } from "./types.js";
 
 interface DaemonOptions {
@@ -13,6 +14,7 @@ interface DaemonOptions {
   host: string;
   persistDir: string;
   maxDepth?: number;
+  graphsDir?: string;
 }
 
 async function readBody(req: http.IncomingMessage): Promise<string> {
@@ -36,11 +38,27 @@ function jsonError(res: http.ServerResponse, message: string, status = 400): voi
 export function createDaemon(
   graphs: Map<string, ValidatedGraph>,
   options: DaemonOptions
-): { server: http.Server; manager: TraversalManager } {
+): { server: http.Server; manager: TraversalManager; stopWatcher?: () => void } {
   const manager = new TraversalManager(graphs, {
     maxDepth: options.maxDepth,
     persistDir: options.persistDir,
   });
+
+  // Start file watcher if graphsDir provided
+  let stopWatcher: (() => void) | undefined;
+  if (options.graphsDir) {
+    stopWatcher = watchGraphs({
+      graphsDir: options.graphsDir,
+      onUpdate: (newGraphs) => {
+        manager.updateGraphs(newGraphs);
+        const ids = [...newGraphs.keys()];
+        info(`Graph reload: ${newGraphs.size} graph(s) (${ids.join(", ")})`);
+      },
+      onError: (err) => {
+        info(`Graph reload failed: ${err.message}`);
+      },
+    });
+  }
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
@@ -140,14 +158,14 @@ export function createDaemon(
     }
   });
 
-  return { server, manager };
+  return { server, manager, stopWatcher };
 }
 
 export async function startDaemon(
   graphs: Map<string, ValidatedGraph>,
   options: DaemonOptions
 ): Promise<void> {
-  const { server } = createDaemon(graphs, options);
+  const { server, stopWatcher } = createDaemon(graphs, options);
 
   // Write PID file (includes port for status reporting)
   const pidFile = getPidFilePath();
@@ -159,12 +177,16 @@ export async function startDaemon(
       info(`Freelance daemon listening on ${options.host}:${options.port}`);
       info(`PID: ${process.pid}`);
       info(`Persistence: ${options.persistDir}`);
+      if (options.graphsDir) {
+        info(`Watching: ${options.graphsDir}`);
+      }
     });
 
     server.on("error", reject);
 
     const shutdown = () => {
       info("\nShutting down daemon...");
+      if (stopWatcher) stopWatcher();
       server.close(() => {
         try { fs.unlinkSync(pidFile); } catch {}
         process.exit(0);
