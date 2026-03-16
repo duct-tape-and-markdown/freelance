@@ -16,14 +16,11 @@ export interface InitOptions {
   client: Client;
   graphs?: string;
   starter: Starter;
-  daemon: boolean;
-  daemonPort?: number;
   dryRun: boolean;
 }
 
 export const INIT_DEFAULTS = {
   starter: "change-request" as Starter,
-  daemon: false,
   dryRun: false,
 } as const;
 
@@ -98,14 +95,7 @@ function writeJsonFile(filePath: string, data: McpConfig): void {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n");
 }
 
-function getMcpEntry(graphsPath: string, daemon?: boolean, daemonPort?: number): Record<string, unknown> {
-  if (daemon) {
-    const port = daemonPort ?? 7433;
-    return {
-      command: "npx",
-      args: ["-y", "freelance@latest", "mcp", "--connect", `localhost:${port}`],
-    };
-  }
+function getMcpEntry(graphsPath: string): Record<string, unknown> {
   return {
     command: "npx",
     args: ["-y", "freelance@latest", "mcp", "--graphs", graphsPath],
@@ -144,9 +134,7 @@ function getConfigPath(client: Client, scope: Scope): string {
 function writeClientConfig(
   client: Client,
   scope: Scope,
-  graphsPath: string,
-  daemon?: boolean,
-  daemonPort?: number
+  graphsPath: string
 ): string | null {
   if (client === "manual") return null;
 
@@ -157,29 +145,16 @@ function writeClientConfig(
   if (!config.mcpServers) config.mcpServers = {};
 
   const servers = config.mcpServers as Record<string, unknown>;
-  servers.freelance = getMcpEntry(graphsPath, daemon, daemonPort);
+  servers.freelance = getMcpEntry(graphsPath);
   writeJsonFile(configPath, config);
   return configPath;
 }
 
 // --- CLAUDE.md append ---
 
-const CLAUDE_MD_SECTION = `## Workflow execution
+const CLAUDE_MD_SECTION = `## Freelance
 
-This project uses Freelance to enforce structured workflows.
-Freelance is an MCP server — its tools are available automatically.
-
-Call \`graph_list\` to see available workflows.
-Call \`graph_start\` with a graph ID to begin a workflow.
-Call \`graph_inspect\` if you lose track of where you are.
-
-During a traversal:
-1. Read the instructions at each node and execute them
-2. Update context via \`graph_context_set\` as you complete work
-3. Advance via \`graph_advance\` with the appropriate edge label
-4. Continue until you reach a terminal node
-
-Never skip nodes. If \`graph_advance\` returns an error, read it — it tells you what's wrong.`;
+This project uses Freelance for workflow enforcement. Call \`graph_list\` to see available workflows and \`graph_guide\` for authoring help.`;
 
 // --- SessionStart hook ---
 
@@ -256,8 +231,8 @@ function wouldAppendClaudeMd(): boolean {
 
 // --- Main init ---
 
-function printManualConfig(graphsPath: string, daemon?: boolean, daemonPort?: number): void {
-  const entry = getMcpEntry(graphsPath, daemon, daemonPort);
+function printManualConfig(graphsPath: string): void {
+  const entry = getMcpEntry(graphsPath);
   info("\nAdd this to your MCP client configuration:\n");
   process.stdout.write(JSON.stringify({ mcpServers: { freelance: entry } }, null, 2) + "\n");
 }
@@ -265,7 +240,6 @@ function printManualConfig(graphsPath: string, daemon?: boolean, daemonPort?: nu
 export async function init(options: InitOptions): Promise<void> {
   const scope = options.scope;
   const client = options.client;
-  const daemon = options.daemon;
   const starter = options.starter;
   const dryRun = options.dryRun;
 
@@ -397,9 +371,9 @@ export async function init(options: InitOptions): Promise<void> {
 
   // 3. Write MCP config
   if (client === "manual") {
-    printManualConfig(graphsConfigPath, daemon, options.daemonPort);
+    printManualConfig(graphsConfigPath);
   } else {
-    const configPath = writeClientConfig(client, scope, graphsConfigPath, daemon, options.daemonPort);
+    const configPath = writeClientConfig(client, scope, graphsConfigPath);
     if (configPath) {
       results.push(`Configured MCP server in ${displayPath(configPath)} (${scope} scope)`);
       filesCreated.push(configPath);
@@ -507,7 +481,7 @@ export async function initInteractive(opts?: { dryRun?: boolean }): Promise<void
     ],
   });
 
-  await init({ scope, client, starter, daemon: INIT_DEFAULTS.daemon, dryRun: opts?.dryRun ?? INIT_DEFAULTS.dryRun });
+  await init({ scope, client, starter, dryRun: opts?.dryRun ?? INIT_DEFAULTS.dryRun });
 }
 
 function clientDisplayName(client: Client): string {

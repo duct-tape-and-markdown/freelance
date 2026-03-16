@@ -64,8 +64,6 @@ program
   .addOption(new Option("--client <client>", "MCP client to configure").choices(["claude-code", "cursor", "windsurf", "cline", "manual"]))
   .option("--graphs <path>", "Where to put graph definitions")
   .addOption(new Option("--starter <template>", "Starter graph to scaffold").choices(["change-request", "data-pipeline", "ralph-loop", "blank", "none"]))
-  .option("--daemon", "Configure daemon mode")
-  .option("--port <port>", "Daemon port (used with --daemon)", String(DEFAULT_PORT))
   .option("--yes", "Skip all prompts, use defaults")
   .option("--dry-run", "Show what would be created without writing anything")
   .action(async (opts) => {
@@ -77,8 +75,6 @@ program
         client: opts.client ?? "claude-code",
         graphs: opts.graphs,
         starter: opts.starter ?? INIT_DEFAULTS.starter,
-        daemon: opts.daemon ?? INIT_DEFAULTS.daemon,
-        daemonPort: opts.port ? parseInt(opts.port, 10) : undefined,
         dryRun: opts.dryRun ?? INIT_DEFAULTS.dryRun,
       });
     } else {
