@@ -348,4 +348,42 @@ describe("CLI init", () => {
     expect(stderr).toContain("Next steps:");
     expect(stderr).toContain("graph_list");
   });
+
+  it("writes SessionStart hook for claude-code client", async () => {
+    await init(defaults());
+    const settingsPath = path.join(workDir, ".claude", "settings.json");
+    expect(fs.existsSync(settingsPath)).toBe(true);
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+    expect(settings.hooks?.SessionStart).toBeDefined();
+    expect(settings.hooks.SessionStart).toHaveLength(1);
+    expect(settings.hooks.SessionStart[0].hooks[0].command).toContain("freelance");
+    expect(settings.hooks.SessionStart[0].hooks[0].command).toContain("inspect");
+  });
+
+  it("does not duplicate SessionStart hook on re-init", async () => {
+    await init(defaults());
+    await init(defaults());
+    const settingsPath = path.join(workDir, ".claude", "settings.json");
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+    expect(settings.hooks.SessionStart).toHaveLength(1);
+  });
+
+  it("preserves existing settings when adding hook", async () => {
+    const settingsDir = path.join(workDir, ".claude");
+    fs.mkdirSync(settingsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(settingsDir, "settings.json"),
+      JSON.stringify({ customSetting: true }, null, 2)
+    );
+    await init(defaults());
+    const settings = JSON.parse(fs.readFileSync(path.join(settingsDir, "settings.json"), "utf-8"));
+    expect(settings.customSetting).toBe(true);
+    expect(settings.hooks?.SessionStart).toHaveLength(1);
+  });
+
+  it("skips SessionStart hook for non-claude-code clients", async () => {
+    await init(defaults({ client: "cursor" }));
+    const settingsPath = path.join(workDir, ".claude", "settings.json");
+    expect(fs.existsSync(settingsPath)).toBe(false);
+  });
 });
