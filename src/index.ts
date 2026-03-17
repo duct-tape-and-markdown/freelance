@@ -2,7 +2,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { Command, Option } from "commander";
-import { loadGraphs } from "./loader.js";
+import { loadGraphs, loadGraphsLayered } from "./loader.js";
 import { startServer } from "./server.js";
 import { startDaemon } from "./daemon.js";
 import { startProxy } from "./proxy.js";
@@ -14,11 +14,70 @@ import { parseDaemonConnect, traversalsList, traversalsInspect, traversalsReset 
 import { VERSION } from "./version.js";
 import { TRAVERSALS_DIR, DEFAULT_PORT } from "./paths.js";
 
-const ENV_GRAPHS_DIR = process.env.FREELANCE_GRAPHS_DIR?.trim() || undefined;
+/**
+ * Resolve graph directories in precedence order:
+ * 1. Environment variable (colon-separated on Unix, semicolon on Windows)
+ * 2. Project-level: ./freelance/graphs or ./graphs (if exists)
+ * 3. User-level: ~/.freelance/graphs (if exists)
+ */
+function resolveDefaultGraphsDirs(): string[] {
+  // Parse environment variable
+  const envValue = process.env.FREELANCE_GRAPHS_DIR?.trim();
+  if (envValue) {
+    return envValue.split(path.delimiter);
+  }
 
-function loadGraphsOrFatal(graphsDir: string) {
+  const dirs: string[] = [];
+
+  // Project-level (highest priority)
+  const projectFreelance = path.resolve("./freelance/graphs");
+  const projectGraphs = path.resolve("./graphs");
+
+  if (fs.existsSync(projectFreelance)) {
+    dirs.push(projectFreelance);
+  } else if (fs.existsSync(projectGraphs)) {
+    dirs.push(projectGraphs);
+  }
+
+  // User-level
+  const userHome = process.env.HOME || process.env.USERPROFILE || "~";
+  const userGraphs = path.resolve(userHome, ".freelance", "graphs");
+  if (fs.existsSync(userGraphs)) {
+    dirs.push(userGraphs);
+  }
+
+  return dirs;
+}
+
+/**
+ * Parse CLI --graphs options (repeatable) and merge with defaults.
+ * Returns array of resolved directory paths.
+ */
+function resolveGraphsDirs(cliGraphs?: string | string[] | null): string[] {
+  if (cliGraphs && (Array.isArray(cliGraphs) ? cliGraphs.length > 0 : true)) {
+    // CLI value provided: use it, don't apply defaults
+    const dirs = Array.isArray(cliGraphs) ? cliGraphs : [cliGraphs];
+    return dirs.map((d) => path.resolve(d));
+  }
+
+  return resolveDefaultGraphsDirs();
+}
+
+function loadGraphsOrFatal(graphsDirs?: string | string[] | null) {
+  const dirs = resolveGraphsDirs(graphsDirs);
+
+  if (dirs.length === 0) {
+    fatal(
+      "No graph directories found or provided.\n\n" +
+        "Specify with: --graphs <directory>\n" +
+        "Or set: FREELANCE_GRAPHS_DIR=dir1:dir2\n" +
+        "Or create: ./graphs/ or ~/.freelance/graphs/",
+      EXIT.INVALID_USAGE
+    );
+  }
+
   try {
-    return loadGraphs(graphsDir);
+    return dirs.length === 1 ? loadGraphs(dirs[0]) : loadGraphsLayered(dirs);
   } catch (err) {
     fatal(
       `Graph loading failed: ${err instanceof Error ? err.message : err}`,
@@ -112,7 +171,11 @@ program
 program
   .command("mcp")
   .description("Start MCP server (standalone or proxy to daemon)")
-  .option("--graphs <directory>", "Graph definitions directory")
+  .option(
+    "--graphs <directory>",
+    "Graph definitions directory (repeatable for layering)",
+    (value: string, previous?: string[]) => (previous ? [...previous, value] : [value])
+  )
   .option("--connect <host:port>", "Connect to daemon instead of standalone")
   .option("--max-depth <n>", "Maximum subgraph nesting depth", "5")
   .action(async (opts) => {
@@ -121,17 +184,11 @@ program
       info(`Freelance proxy: connecting to daemon at ${host}:${port}`);
       await startProxy(host, port);
     } else {
-      const graphsDir = opts.graphs ?? ENV_GRAPHS_DIR;
-      if (!graphsDir) {
-        fatal(
-          "mcp requires --graphs <directory> or --connect <host:port>\n\n  Set FREELANCE_GRAPHS_DIR to provide a default.",
-          EXIT.INVALID_USAGE
-        );
-      }
       const maxDepth = parseInt(opts.maxDepth, 10);
-      const graphs = loadGraphsOrFatal(graphsDir);
+      const graphs = loadGraphsOrFatal(opts.graphs);
       const ids = [...graphs.keys()];
-      info(`Freelance: loaded ${graphs.size} graph(s) (${ids.join(", ")}), maxDepth=${maxDepth}`);
+      const dirs = resolveGraphsDirs(opts.graphs);
+      info(`Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}`);
       await startServer(graphs, { maxDepth });
     }
   });
@@ -145,7 +202,11 @@ const daemonCmd = program
 daemonCmd
   .command("start", { isDefault: true })
   .description("Start the daemon")
-  .option("--graphs <directory>", "Graph definitions directory")
+  .option(
+    "--graphs <directory>",
+    "Graph definitions directory (repeatable for layering)",
+    (value: string, previous?: string[]) => (previous ? [...previous, value] : [value])
+  )
   .option("--port <port>", `Port to listen on (default: ${DEFAULT_PORT})`, String(DEFAULT_PORT))
   .option("--max-depth <n>", "Maximum subgraph nesting depth", "5")
   .action(async (opts) => {
@@ -156,14 +217,6 @@ daemonCmd
       process.exit(0);
     }
 
-    const graphsDir = opts.graphs ?? ENV_GRAPHS_DIR;
-    if (!graphsDir) {
-      fatal(
-        "daemon start requires --graphs <directory>\n\n  Set FREELANCE_GRAPHS_DIR to provide a default.",
-        EXIT.INVALID_USAGE
-      );
-    }
-
     const port = parseInt(opts.port, 10);
     if (isNaN(port) || port < 1 || port > 65535) {
       fatal("--port must be a valid port number (1-65535)", EXIT.INVALID_USAGE);
@@ -171,10 +224,11 @@ daemonCmd
     const maxDepth = parseInt(opts.maxDepth, 10);
     const persistDir = path.resolve(TRAVERSALS_DIR);
 
-    const graphs = loadGraphsOrFatal(graphsDir);
+    const graphs = loadGraphsOrFatal(opts.graphs);
+    const graphsDirs = resolveGraphsDirs(opts.graphs);
     const ids = [...graphs.keys()];
-    info(`Freelance daemon: loaded ${graphs.size} graph(s) (${ids.join(", ")})`);
-    await startDaemon(graphs, { port, host: "127.0.0.1", persistDir, maxDepth, graphsDir: path.resolve(graphsDir) });
+    info(`Freelance daemon: loaded ${graphs.size} graph(s) from ${graphsDirs.length} directory(ies)`);
+    await startDaemon(graphs, { port, host: "127.0.0.1", persistDir, maxDepth, graphsDir: graphsDirs.join(path.delimiter) });
   });
 
 daemonCmd

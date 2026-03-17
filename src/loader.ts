@@ -88,6 +88,80 @@ export function loadGraphs(directory: string): Map<string, ValidatedGraph> {
 }
 
 /**
+ * Load and validate graphs from multiple directories with cascading resolution.
+ * Later directories shadow earlier ones (same graph ID in later dir wins).
+ * Non-existent or empty directories are skipped with warnings.
+ * Returns a Map of graphId → ValidatedGraph.
+ */
+export function loadGraphsLayered(directories: string[]): Map<string, ValidatedGraph> {
+  const results = new Map<string, ValidatedGraph>();
+  const warnings: string[] = [];
+
+  if (directories.length === 0) {
+    throw new Error("No graph directories provided");
+  }
+
+  // Load in order so later directories override earlier ones
+  for (const dir of directories) {
+    const resolvedDir = path.resolve(dir);
+
+    if (!fs.existsSync(resolvedDir)) {
+      warnings.push(`Skipped ${resolvedDir}: directory does not exist`);
+      continue;
+    }
+
+    const files = fs
+      .readdirSync(resolvedDir)
+      .filter((f) => f.endsWith(".graph.yaml"))
+      .map((f) => path.join(resolvedDir, f));
+
+    if (files.length === 0) {
+      warnings.push(`Skipped ${resolvedDir}: no *.graph.yaml files found`);
+      continue;
+    }
+
+    const errors: string[] = [];
+
+    for (const filePath of files) {
+      try {
+        const { id, definition, graph } = loadSingleGraph(filePath);
+        if (results.has(id)) {
+          warnings.push(
+            `Graph "${id}" from ${resolvedDir} shadows earlier definition from another directory`
+          );
+        }
+        results.set(id, { definition, graph });
+      } catch (e) {
+        errors.push(e instanceof Error ? e.message : String(e));
+      }
+    }
+
+    if (errors.length > 0) {
+      warnings.push(
+        `Warning from ${resolvedDir}: ${errors.length} graph(s) failed validation:\n${errors.join("\n")}`
+      );
+    }
+  }
+
+  if (results.size === 0) {
+    const dirs = directories.map((d) => path.resolve(d)).join(", ");
+    throw new Error(
+      `No valid graphs found in any directory: ${dirs}.\n\nSearched: ${directories.join(" → ")}`
+    );
+  }
+
+  // Emit warnings after successful load
+  if (warnings.length > 0) {
+    process.stderr.write(`Warnings:\n${warnings.join("\n")}\n`);
+  }
+
+  // Cross-graph validation: subgraph references and circular detection
+  validateCrossGraphRefs(results);
+
+  return results;
+}
+
+/**
  * Validate return schema structure on nodes.
  * - items only valid on array type
  * - required/optional keys must not overlap
