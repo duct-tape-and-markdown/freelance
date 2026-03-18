@@ -17,7 +17,7 @@ import { TRAVERSALS_DIR, DEFAULT_PORT } from "./paths.js";
 /**
  * Resolve graph directories in precedence order:
  * 1. Environment variable (colon-separated on Unix, semicolon on Windows)
- * 2. Project-level: ./freelance/graphs or ./graphs (if exists)
+ * 2. Project-level: ./.freelance/graphs (if exists)
  * 3. User-level: ~/.freelance/graphs (if exists)
  */
 function resolveDefaultGraphsDirs(): string[] {
@@ -30,12 +30,8 @@ function resolveDefaultGraphsDirs(): string[] {
   const dirs: string[] = [];
 
   // Project-level (highest priority)
-  const projectFreelance = path.resolve("./freelance/graphs");
-  const projectGraphs = path.resolve("./graphs");
-
-  if (fs.existsSync(projectFreelance)) {
-    dirs.push(projectFreelance);
-  } else if (fs.existsSync(projectGraphs)) {
+  const projectGraphs = path.resolve(".freelance", "graphs");
+  if (fs.existsSync(projectGraphs)) {
     dirs.push(projectGraphs);
   }
 
@@ -71,7 +67,7 @@ function loadGraphsOrFatal(graphsDirs?: string | string[] | null) {
       "No graph directories found or provided.\n\n" +
         "Specify with: --graphs <directory>\n" +
         "Or set: FREELANCE_GRAPHS_DIR=dir1:dir2\n" +
-        "Or create: ./graphs/ or ~/.freelance/graphs/",
+        "Or create: ./.freelance/graphs/ or ~/.freelance/graphs/",
       EXIT.INVALID_USAGE
     );
   }
