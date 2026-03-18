@@ -131,49 +131,49 @@
           "location": "src/agent/registry.ts",
           "description": "Agent registry with CLI commands and MCP config patterns",
           "approach": "Define registry mapping agent names to their CLI commands, MCP config methods, and permission bypass flags. Support claude-code, opencode, cursor, and custom (user-provided --agent-cmd). Each entry knows how to construct the spawn command.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "A2",
           "location": "src/agent/prompt.ts",
           "description": "Initial prompt generation from graph first node",
           "approach": "Generate prompt text that tells the agent about its active traversal, graph ID, and to call graph_inspect. For --resume, include current node and state hint. Append user's --prompt text if provided.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "A3",
           "location": "src/agent/spawner.ts",
           "description": "Child process spawning with PID tracking",
           "approach": "Use Node child_process.spawn to launch agent with appropriate CLI args and MCP configuration. Track PID. Support --attach (inherit stdio) and --detach (pipe to log file). Log to ~/.freelance/logs/<traversal-id>.log for detached mode.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "A4",
           "location": "src/daemon.ts",
           "description": "Daemon agent registration API endpoints",
           "approach": "Add three endpoints: POST /traversals/:id/agent (register PID + type), GET /traversals/:id/agent (get status: running/exited/none via process.kill(pid, 0) check), DELETE /traversals/:id/agent (kill process). Store agent info in traversal metadata.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "A5",
           "location": "src/agent/logs.ts",
           "description": "Log file management for detached agents",
           "approach": "Manage ~/.freelance/logs/ directory. Create log files per traversal ID. Provide tail-reading function for dashboard log viewer. Handle log rotation/cleanup for old traversals.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "A6",
           "location": "src/agent/resume.ts",
           "description": "Resume logic for existing traversals",
           "approach": "freelance run --resume <id> spawns new agent for active traversal. Validates traversal exists and is active. Generates resume prompt with current node info. Registers new agent PID with daemon.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "A7",
           "location": "src/index.ts, src/cli/run.ts",
           "description": "Register 'freelance run' CLI command",
           "approach": "Add run subcommand with options: <graph-id>, --agent, --prompt, --model, --cwd, --attach, --detach, --port, --resume. Orchestrates: start traversal → generate prompt → spawn agent → register with daemon. Connects to daemon (starts it if needed or errors).",
-          "status": "pending"
+          "status": "done"
         }
       ]
     },

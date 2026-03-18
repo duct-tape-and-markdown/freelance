@@ -137,4 +137,16 @@ export class DaemonClient {
   async advance(id: string, edge: string, contextUpdates?: Record<string, unknown>): Promise<unknown> {
     return this.request("POST", `/traversals/${id}/advance`, { edge, contextUpdates });
   }
+
+  async registerAgent(id: string, pid: number, agentType: string): Promise<unknown> {
+    return this.request("POST", `/traversals/${id}/agent`, { pid, agentType });
+  }
+
+  async getAgentStatus(id: string): Promise<{ status: string; pid?: number; agentType?: string }> {
+    return this.request("GET", `/traversals/${id}/agent`);
+  }
+
+  async killAgent(id: string): Promise<unknown> {
+    return this.request("DELETE", `/traversals/${id}/agent`);
+  }
 }
