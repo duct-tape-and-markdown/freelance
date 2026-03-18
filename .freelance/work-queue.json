@@ -84,42 +84,42 @@
           "location": "src/dashboard/components/overlays/GraphPicker.tsx",
           "description": "Graph picker overlay for new traversal",
           "approach": "Uses @inkjs/ui Select component. Lists available graphs from daemon with name + description. Arrow keys to navigate, Enter to confirm (calls startTraversal), Escape to cancel. Rendered as overlay on top of current view.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "O2",
           "location": "src/dashboard/components/overlays/WaitSignal.tsx",
           "description": "Wait node signal overlay with dynamic form",
           "approach": "Uses @inkjs/ui TextInput for each waitOn field. Shows traversal name, waiting conditions. Tab between fields. Boolean fields show toggle, string fields show text input. Enter to submit (calls contextSet), Escape to cancel.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "O3",
           "location": "src/dashboard/components/overlays/ResetConfirm.tsx",
           "description": "Reset confirmation overlay",
           "approach": "Uses @inkjs/ui ConfirmInput. Shows traversal name and ID, warns about clearing context/history. Y to confirm (calls resetTraversal), n or Escape to cancel.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "O4",
           "location": "src/dashboard/components/overlays/HelpOverlay.tsx",
           "description": "Help overlay showing all keybinds and slash commands",
           "approach": "Static content overlay listing navigation keys, leader key actions, and slash commands. Escape to close. Content generated from the active keybind configuration so custom bindings are reflected.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "O5",
           "location": "src/dashboard/components/SlashCommand.tsx",
           "description": "Slash command input bar in status area",
           "approach": "TextInput that activates on '/' keypress. Parses command and args, dispatches to appropriate action (new, reset, signal, graphs, filter, help, quit). Shows in the status bar area. Escape to cancel.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "O6",
           "location": "src/dashboard/components/GraphMap.tsx",
           "description": "ASCII flow graph map with current node highlighted",
           "approach": "Renders simplified ASCII flow: node names in sequence following edge order. Current node in [brackets], visited nodes normal, unvisited dimmed. Branch points shown with indentation (├─/└─). Generated client-side from graph definition + traversal history. Linear graphs trivial, branching follows edges depth-first.",
-          "status": "pending"
+          "status": "done"
         }
       ]
     },
