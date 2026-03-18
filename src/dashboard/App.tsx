@@ -1,9 +1,10 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { Box, Text, useApp } from "ink";
 import { Spinner } from "@inkjs/ui";
 import { PanelLayout } from "./components/PanelLayout.js";
 import { TraversalRow } from "./components/TraversalRow.js";
 import { DetailPanel } from "./components/DetailPanel.js";
+import { HelpOverlay } from "./components/overlays/HelpOverlay.js";
 import { usePolling } from "./hooks/usePolling.js";
 import { useKeyboard, type DashboardAction } from "./hooks/useKeyboard.js";
 import type { DaemonClient } from "./client.js";
@@ -14,27 +15,44 @@ interface AppProps {
   config: DashboardConfig;
 }
 
-type Overlay = "none" | "help" | "graph_picker" | "reset_confirm" | "wait_signal";
+type Overlay = "none" | "help";
 
 export function App({ client, config }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [overlay, setOverlay] = useState<Overlay>("none");
+  const [graphCount, setGraphCount] = useState(0);
 
-  const { traversals, selectedDetail, error, loading } = usePolling(client, null, {
-    activeInterval: config.poll_interval_active,
-    waitingInterval: config.poll_interval_waiting,
-  });
+  // Fetch graph count once on mount
+  useEffect(() => {
+    client.listGraphs().then((g) => setGraphCount(g.length)).catch(() => {});
+  }, [client]);
+
+  const { traversals, selectedDetail: detail, error, loading } = usePolling(
+    client,
+    null, // will be overridden below
+    {
+      activeInterval: config.poll_interval_active,
+      waitingInterval: config.poll_interval_waiting,
+    }
+  );
 
   const selectedTraversal = traversals[selectedIndex] ?? null;
 
-  // Re-poll detail for selected traversal
-  const { selectedDetail: detail } = usePolling(
+  // Poll detail for selected traversal
+  const { selectedDetail: detailForSelected } = usePolling(
     client,
-    selectedTraversal?.id ?? null,
+    selectedTraversal?.traversalId ?? null,
     { activeInterval: config.poll_interval_active, waitingInterval: config.poll_interval_waiting }
   );
+
+  // Clamp selection when traversals list changes
+  useEffect(() => {
+    if (selectedIndex >= traversals.length && traversals.length > 0) {
+      setSelectedIndex(traversals.length - 1);
+    }
+  }, [traversals.length, selectedIndex]);
 
   const handleAction = useCallback(
     (action: DashboardAction) => {
@@ -46,7 +64,7 @@ export function App({ client, config }: AppProps): React.ReactElement {
           setSelectedIndex((i) => Math.min(traversals.length - 1, i + 1));
           break;
         case "expand":
-          setExpanded(true);
+          if (selectedTraversal) setExpanded(true);
           break;
         case "back":
           if (overlay !== "none") {
@@ -55,35 +73,26 @@ export function App({ client, config }: AppProps): React.ReactElement {
             setExpanded(false);
           }
           break;
-        case "new_traversal":
-          setOverlay("graph_picker");
-          break;
-        case "reset":
-          setOverlay("reset_confirm");
-          break;
-        case "signal_wait":
-          setOverlay("wait_signal");
-          break;
         case "help":
           setOverlay("help");
-          break;
-        case "kill_agent":
-          if (selectedTraversal) {
-            client.killAgent(selectedTraversal.id).catch(() => {});
-          }
           break;
         case "quit":
           exit();
           break;
       }
     },
-    [traversals.length, overlay, exit]
+    [traversals.length, overlay, exit, selectedTraversal, client]
   );
 
   const { leaderPending } = useKeyboard({
     onAction: handleAction,
     enabled: overlay === "none",
   });
+
+  // --- Overlay handlers ---
+
+
+  // --- Render ---
 
   if (loading) {
     return (
@@ -101,6 +110,12 @@ export function App({ client, config }: AppProps): React.ReactElement {
     );
   }
 
+  // Overlay rendering
+  if (overlay === "help") {
+    return <HelpOverlay onClose={() => setOverlay("none")} />;
+  }
+
+
   // Left panel: traversal list
   const leftPanel = (
     <Box flexDirection="column">
@@ -111,58 +126,24 @@ export function App({ client, config }: AppProps): React.ReactElement {
         </Box>
       )}
       {traversals.map((t, i) => (
-        <TraversalRow key={t.id} traversal={t} selected={i === selectedIndex} compact={false} />
+        <TraversalRow key={t.traversalId} traversal={t} selected={i === selectedIndex} compact={false} />
       ))}
     </Box>
   );
 
   // Right panel: detail
-  const rightPanel = <DetailPanel summary={selectedTraversal} detail={detail} />;
+  const rightPanel = <DetailPanel summary={selectedTraversal} detail={detailForSelected} />;
 
-  // Status bar
-  const active = traversals.filter((t) => t.status === "active").length;
-  const waiting = traversals.filter((t) => t.status === "waiting").length;
-  const complete = traversals.filter((t) => t.status === "completed").length;
-
+  // Status bar — daemon only lists active traversals
   const statusBar = (
     <Box>
       <Text dimColor>
-        Graphs: {traversals.length}  Active: {active}  Waiting: {waiting}  Complete: {complete}
+        Graphs: {graphCount}  Traversals: {traversals.length}
         {"       "}
-        {leaderPending ? <Text color="yellow">LEADER...</Text> : <Text dimColor>ctrl+x h help  q quit</Text>}
       </Text>
+      {leaderPending ? <Text color="yellow">LEADER...</Text> : <Text dimColor>ctrl+x h help  q quit</Text>}
     </Box>
   );
-
-  // Overlay rendering
-  if (overlay === "help") {
-    return (
-      <Box flexDirection="column" padding={1}>
-        <Text bold> Dashboard Help</Text>
-        <Text />
-        <Text bold> Navigation</Text>
-        <Text>  ↑/↓           Select traversal</Text>
-        <Text>  Tab            Switch panels</Text>
-        <Text>  Enter          Expand traversal detail</Text>
-        <Text>  Escape         Back / cancel</Text>
-        <Text>  PageUp/Down    Scroll detail</Text>
-        <Text />
-        <Text bold> Actions (ctrl+x then key)</Text>
-        <Text>  n              New traversal</Text>
-        <Text>  r              Reset traversal</Text>
-        <Text>  w              Signal wait node</Text>
-        <Text>  g              Graph list</Text>
-        <Text>  l              Filter traversals</Text>
-        <Text>  x              Kill agent</Text>
-        <Text>  h              This help</Text>
-        <Text>  q              Quit</Text>
-        <Text />
-        <Text dimColor> Slash commands: /new /reset /signal /graphs /help /quit</Text>
-        <Text />
-        <Text dimColor> esc close</Text>
-      </Box>
-    );
-  }
 
   return (
     <PanelLayout

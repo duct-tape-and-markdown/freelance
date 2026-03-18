@@ -39,8 +39,6 @@ export function createDaemon(
   graphs: Map<string, ValidatedGraph>,
   options: DaemonOptions
 ): { server: http.Server; manager: TraversalManager; stopWatcher?: () => void } {
-  const agentRegistry = new Map<string, { pid: number; agentType: string; registeredAt: string }>();
-
   const manager = new TraversalManager(graphs, {
     maxDepth: options.maxDepth,
     persistDir: options.persistDir,
@@ -121,54 +119,6 @@ export function createDaemon(
           return jsonOk(res, result);
         }
 
-        // POST /traversals/:id/agent — register agent PID + type
-        if (method === "POST" && action === "agent") {
-          const body = JSON.parse(await readBody(req));
-          const pid = body.pid as number;
-          const agentType = body.agentType as string;
-          if (!pid || !agentType) {
-            return jsonError(res, "pid and agentType are required");
-          }
-          agentRegistry.set(traversalId, { pid, agentType, registeredAt: new Date().toISOString() });
-          return jsonOk(res, { status: "registered", pid, agentType }, 201);
-        }
-
-        // GET /traversals/:id/agent — get agent status
-        if (method === "GET" && action === "agent") {
-          const info = agentRegistry.get(traversalId);
-          if (!info) {
-            return jsonOk(res, { status: "none" });
-          }
-          // Check if process is still alive
-          let alive = false;
-          try {
-            process.kill(info.pid, 0);
-            alive = true;
-          } catch {
-            alive = false;
-          }
-          return jsonOk(res, {
-            status: alive ? "running" : "exited",
-            pid: info.pid,
-            agentType: info.agentType,
-            registeredAt: info.registeredAt,
-          });
-        }
-
-        // DELETE /traversals/:id/agent — kill agent process
-        if (method === "DELETE" && action === "agent") {
-          const info = agentRegistry.get(traversalId);
-          if (!info) {
-            return jsonError(res, "No agent registered for this traversal", 404);
-          }
-          try {
-            process.kill(info.pid, "SIGTERM");
-          } catch {
-            // Process already dead — that's fine
-          }
-          agentRegistry.delete(traversalId);
-          return jsonOk(res, { status: "killed", pid: info.pid });
-        }
       }
 
       // POST /shutdown

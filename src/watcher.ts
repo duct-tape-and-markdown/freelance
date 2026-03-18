@@ -1,9 +1,10 @@
 import fs from "node:fs";
-import { loadGraphs } from "./loader.js";
+import path from "node:path";
+import { loadGraphs, loadGraphsLayered } from "./loader.js";
 import type { ValidatedGraph } from "./types.js";
 
 export interface WatcherOptions {
-  /** Directory containing *.graph.yaml files */
+  /** Directory or path-delimiter-separated directories containing *.graph.yaml files */
   graphsDir: string;
   /** Called with new validated graphs on successful reload */
   onUpdate: (graphs: Map<string, ValidatedGraph>) => void;
@@ -14,42 +15,51 @@ export interface WatcherOptions {
 }
 
 /**
- * Watch a directory for graph file changes and reload on modification.
+ * Watch one or more directories for graph file changes and reload on modification.
+ *
+ * The graphsDir string may contain multiple directories separated by the
+ * platform path delimiter (`:` on Unix, `;` on Windows).
  *
  * Uses fs.watch with debounce. On any change to *.graph.yaml files,
- * re-reads the entire directory, validates, and calls onUpdate.
- *
- * Note: fs.watch behavior varies by platform. On Linux (inotify) it is
- * reliable. On macOS (FSEvents) it may fire duplicate or miss events.
- * The debounce mitigates duplicate fires.
+ * re-reads all directories, validates, and calls onUpdate.
  *
  * Returns a cleanup function that stops watching.
  */
 export function watchGraphs(options: WatcherOptions): () => void {
   const { graphsDir, onUpdate, onError, debounceMs = 200 } = options;
 
+  // Split on platform delimiter to support multiple directories
+  const dirs = graphsDir.split(path.delimiter).filter((d) => d.length > 0);
+
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   function reload() {
     try {
-      const graphs = loadGraphs(graphsDir);
+      const graphs = dirs.length === 1 ? loadGraphs(dirs[0]) : loadGraphsLayered(dirs);
       onUpdate(graphs);
     } catch (e) {
       onError(e instanceof Error ? e : new Error(String(e)));
     }
   }
 
-  const watcher = fs.watch(graphsDir, (eventType, filename) => {
-    // Only react to graph files
-    if (!filename?.endsWith(".graph.yaml")) return;
-
-    // Debounce: coalesce rapid changes into a single reload
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(reload, debounceMs);
-  });
+  // Watch each directory individually
+  const watchers: fs.FSWatcher[] = [];
+  for (const dir of dirs) {
+    if (!fs.existsSync(dir)) continue;
+    try {
+      const watcher = fs.watch(dir, (eventType, filename) => {
+        if (!filename?.endsWith(".graph.yaml")) return;
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(reload, debounceMs);
+      });
+      watchers.push(watcher);
+    } catch {
+      // Directory may not be watchable — skip silently
+    }
+  }
 
   return () => {
     if (debounceTimer) clearTimeout(debounceTimer);
-    watcher.close();
+    for (const w of watchers) w.close();
   };
 }

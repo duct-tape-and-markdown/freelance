@@ -53,7 +53,7 @@ export function usePolling(
       return;
     }
     try {
-      const detail = await client.inspectTraversal(selectedId, "full");
+      const detail = await client.inspectTraversal(selectedId, "position");
       setSelectedDetail(detail);
     } catch {
       setSelectedDetail(null);
@@ -68,8 +68,8 @@ export function usePolling(
 
   // Polling loop — uses the fastest needed interval
   useEffect(() => {
-    const hasActive = traversals.some((t) => t.status === "active");
-    const interval = hasActive ? intervals.activeInterval : intervals.waitingInterval;
+    // All listed traversals are active (daemon only tracks active ones)
+    const interval = traversals.length > 0 ? intervals.activeInterval : intervals.waitingInterval;
 
     const timer = setInterval(() => {
       fetchTraversals();

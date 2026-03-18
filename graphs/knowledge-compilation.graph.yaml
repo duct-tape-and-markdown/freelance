@@ -1,39 +1,42 @@
 id: knowledge-compilation
-version: "1.0.0"
+version: "3.1.0"
 name: "Knowledge Compilation Session"
-description: "Orchestrates a Runner compiler session through Claude. Enforces the decompose → assess → explore → construct → evaluate pipeline using the compiler_* MCP tools from the runner server."
+description: >
+  Orchestrates a Runner compiler session. You are the compiler — you read source
+  code, validate existing knowledge, fill gaps, and emit propositions into the
+  graph. Every query reads sources. Every query deepens the graph.
 startNode: begin-session
 strictContext: false
 
 context:
   query: null
+  queryIntent: null
   sessionId: null
-  phaseToken: null
+  manifest: null
+  entityList: null
   facetCount: 0
   gapCount: 0
-  warmExit: false
+  gapFacets: null
   filesRead: 0
   propositionsEmitted: 0
-  evaluationDone: false
   coverageSufficient: false
   cycleCount: 0
 
 nodes:
   begin-session:
     type: action
-    description: "Start a compiler session"
+    description: "Start a compiler session and receive the graph manifest"
     instructions: |
       Call compiler_begin_session with the compilation query.
 
-      The server builds a graph manifest (zero LLM cost) and returns:
-      - sessionId — use this in all subsequent compiler_* calls
-      - phaseToken — pass this to phase-transition calls
-      - manifest — markdown landscape of the existing knowledge graph
-      - entityList — known entities for reference
+      The server returns:
+      - sessionId — use in all subsequent compiler_* calls
+      - manifest — what the graph already knows
+      - entityList — entities you MUST reuse during construction
 
-      Read the manifest carefully. It tells you what the graph already knows.
+      Read the manifest. It's your head start — not your answer.
 
-      Set context.query, context.sessionId, and context.phaseToken from the response.
+      Set context.query, context.sessionId, context.manifest, context.entityList.
     suggestedTools:
       - compiler_begin_session
     edges:
@@ -43,24 +46,36 @@ nodes:
 
   decompose:
     type: action
-    description: "Decompose the query into facets"
+    description: "Classify query intent and decompose into facets"
     instructions: |
-      Analyze the query and the manifest returned from begin_session.
-      Break the query into specific facets — distinct knowledge areas to cover.
+      ## Step 1: Classify the query intent
 
-      For each facet, identify:
-      - What specific knowledge is needed
-      - Which entities from the manifest relate to it
+      Set context.queryIntent to ONE of:
 
-      Call compiler_report_facets with:
-      - sessionId: context.sessionId
-      - phaseToken: context.phaseToken
-      - facets: array of { text, relevantEntities? }
+      **implementation** — how code works internally
+      Signals: "how does X work", "what does X do", "trace the flow"
 
-      The server retrieves existing propositions per facet (zero LLM).
+      **architecture** — how components relate and why
+      Signals: "how does X relate to Y", "what depends on X"
 
-      Update context.phaseToken from the response.
-      Set context.facetCount to the number of facets.
+      **procedural** — how to accomplish something
+      Signals: "how do I", "how to set up", "steps to"
+
+      **diagnostic** — why something happens or fails
+      Signals: "why does X", "what causes", "what happens if"
+
+      ## Step 2: Decompose into facets
+
+      Shape facets by intent:
+      - implementation → what code does, how data flows, what calls what
+      - architecture → boundaries, dependencies, design patterns
+      - procedural → steps, prerequisites, configuration, outcomes
+      - diagnostic → conditions, triggers, failure modes, side effects
+
+      Each facet: a concrete, answerable question. Not a category.
+
+      Call compiler_report_facets with sessionId and your facets.
+      Set context.facetCount.
     suggestedTools:
       - compiler_report_facets
     edges:
@@ -69,111 +84,162 @@ nodes:
 
   assess-coverage:
     type: action
-    description: "Assess coverage per facet"
+    description: "Review existing knowledge and identify what to validate"
     instructions: |
-      Review the propositions retrieved for each facet from the previous step.
+      Review the propositions retrieved for each facet.
 
-      For each facet, judge:
-      - "covered" — sufficient knowledge exists
-      - "partial" — some knowledge but gaps remain
-      - "gap" — no meaningful coverage
+      For each facet, classify what the graph already has:
+      - "covered" — useful answer at the right abstraction level for the intent
+      - "partial" — topic touched but wrong vocabulary level, or significant gaps
+      - "gap" — irrelevant or absent
 
-      Call compiler_report_coverage with:
-      - sessionId: context.sessionId
-      - phaseToken: context.phaseToken
-      - assessments: array of { facet, status }
+      A facet answered with implementation-level detail when the intent is
+      procedural is "partial" — the topic exists but the framing doesn't
+      serve the audience.
 
-      The server decides: warm-exit (all covered) or exploration plan (gaps exist).
+      Call compiler_report_coverage with sessionId and your assessments.
 
-      If warmExit is true, set context.warmExit = true.
-      Otherwise, update context.phaseToken and set context.gapCount.
+      Note which facets have existing coverage — you'll validate those against
+      sources during exploration. Note which are gaps — you'll fill those.
+
+      Set context.gapCount and context.gapFacets (include partial facets).
     suggestedTools:
       - compiler_report_coverage
     edges:
-      - target: coverage-decision
-        label: coverage-assessed
-
-  coverage-decision:
-    type: decision
-    description: "Route based on coverage assessment"
-    instructions: |
-      If all facets are covered (warmExit), the session is done.
-      If gaps exist, proceed to exploration.
-    edges:
-      - target: done
-        label: warm-exit
-        condition: "context.warmExit == true"
-        description: "All facets covered, no exploration needed"
       - target: explore
-        label: gaps-found
-        description: "Knowledge gaps exist, explore source code"
+        label: coverage-assessed
 
   explore:
     type: action
     maxTurns: 20
-    description: "Explore source code to fill knowledge gaps"
+    description: "Read source code to validate and deepen knowledge"
     instructions: |
-      Use the compiler exploration tools to read and understand source code
-      for the gap facets. These tools are phase-gated — only available during
-      the exploration phase.
+      Budget: 3-5 source files. grep first, read second.
 
-      Available tools (all require sessionId):
-      - compiler_read_file — read source files (tracked for provenance)
-      - compiler_grep_files — search file contents with pattern/regex
-      - compiler_search_files — find files by glob pattern
+      You have two jobs:
+      1. **Validate** — for facets with existing coverage, read the source to
+         confirm the graph's claims are still accurate
+      2. **Fill** — for gap/partial facets, read source to extract new knowledge
+
+      ## Source tools (runner — tracked for provenance)
+      - compiler_grep_files — find relevant code
+      - compiler_search_files — locate files by pattern
+      - compiler_read_file — read what matters (tracked for provenance)
       - compiler_list_files — list directory contents
-      - compiler_browse_entities — check existing entities in the graph
-      - compiler_inspect_entity — get full entity details
 
-      Focus on the gaps identified in the coverage assessment.
-      Read enough source to extract meaningful propositions.
+      ## Graph tools (runner)
+      - compiler_browse_entities / compiler_inspect_entity — check existing knowledge
 
-      Track context.filesRead as you go.
+      ## Code intelligence (connect-lsp — if available)
+      Use cross-language tools to discover connections across ASP/C#/SQL:
+      - cross_trace — forward trace from a symbol across language boundaries
+      - cross_impact — reverse impact (who calls this)
+      - cross_chain — full call chain with language transitions
+      - asp_*, sql_*, dotnet_* — per-language definition, references, symbols
+
+      These tools reveal connections but don't establish provenance.
+      Always compiler_read_file on files you discover through them.
+
+      Depth over breadth. Permission to stop early.
+
+      Increment context.filesRead for each compiler_read_file call.
     suggestedTools:
-      - compiler_read_file
       - compiler_grep_files
       - compiler_search_files
       - compiler_list_files
+      - compiler_read_file
       - compiler_browse_entities
       - compiler_inspect_entity
+      - cross_trace
+      - cross_impact
+      - cross_chain
     edges:
       - target: explore-gate
         label: explored
 
   explore-gate:
     type: gate
-    description: "Verify exploration produced results"
+    description: "Verify source files were read"
     instructions: |
-      Before constructing knowledge, verify you actually read source files.
-      Provenance requires file reads — propositions without source are ungrounded.
+      Provenance requires file reads. Propositions without source are ungrounded.
     validations:
       - expr: "context.filesRead > 0"
-        message: "At least one source file must be read during exploration. Call compiler_read_file."
+        message: "Read at least one source file via compiler_read_file."
     edges:
       - target: construct
         label: ready-to-construct
 
   construct:
     type: action
-    maxTurns: 15
-    description: "Construct and emit knowledge propositions"
+    maxTurns: 5
+    description: "Decompose findings and emit propositions"
     instructions: |
-      First, call compiler_advance_to_construct with:
-      - sessionId: context.sessionId
-      - phaseToken: context.phaseToken
+      Call compiler_advance_to_construct with sessionId.
 
-      Update context.phaseToken from the response.
+      ## Step 1: Decompose your findings
 
-      Then call compiler_emit_knowledge with propositions. Each proposition:
-      - content: atomic, self-contained claim (minimum 20 words)
-      - entities: 1..N entities with name, optional kind/type/role
-      - relationship: optional category tag (validates, configures, depends_on, etc.)
-      - confidence: optional 0-1 score
-      - sourceFiles: file paths from compiler_read_file calls (for provenance)
+      Before touching the emission schema, enumerate what you learned as a
+      plain list of atomic facts. Apply the Dense X decomposition rules:
 
-      Do NOT include file paths in proposition content — provenance is automatic.
+      1. Split compound sentences into simple sentences
+      2. For any named entity with additional descriptive information,
+         separate that into its own proposition
+      3. Each fact must be interpretable without the others
 
-      Cover all gap facets. Update context.propositionsEmitted.
+      Split when you see:
+      - "and" / "also" / "additionally" joining independent facts
+      - A sequence of more than 2 steps
+      - A cause AND its effect
+      - Multiple subjects doing different things
+
+      Keep together when:
+      - The parts are meaningless alone
+      - Splitting would destroy the relationship
+
+      ## Step 2: Check vocabulary against intent
+
+      context.queryIntent determines vocabulary:
+
+      **implementation** — technical: class names, method signatures, parameters
+      **architecture** — component-level: service names, layers, protocols
+      **procedural** — product/domain: no class names or method signatures
+      **diagnostic** — troubleshooting: conditions, error codes, failure paths
+
+      ## Step 3: Knowledge type awareness
+
+      Source code contains four knowledge types (Revised Bloom's Taxonomy):
+      - Factual — concrete values, configuration, specific details
+      - Conceptual — relationships, patterns, classifications
+      - Procedural — sequences, algorithms, decision criteria
+      - Metacognitive — trade-offs, design rationale
+
+      Let the query guide which types you emphasize.
+
+      ## Step 4: Emit
+
+      Call compiler_emit_knowledge with sessionId. Each proposition:
+      - content: one atomic fact
+      - entities: 1-2 hub concepts (named at the intent's vocabulary level)
+      - relationship: category tag
+      - confidence: 0-1
+      - sourceFiles: only the files THIS fact came from
+      - relatedTo: link to related propositions. Two modes:
+        { propositionIndex: N, relation } — this batch
+        { propositionId: "uuid", relation } — existing graph proposition
+        Relations: elaborates, causal, supports, contradicts, derives
+        Build onto prior knowledge when inspectEntity reveals related facts.
+
+      ## Anti-patterns — never emit:
+      - Inventories, statistics, listings
+      - Meta-references ("the file defines...")
+      - Organizational summaries ("organized into...")
+
+      ## Entity rules:
+      - REUSE entities from context.entityList
+      - 3:1+ proposition-to-entity ratio
+      - Entity with 1 proposition = dead end
+
+      Update context.propositionsEmitted with the count.
     suggestedTools:
       - compiler_advance_to_construct
       - compiler_emit_knowledge
@@ -186,7 +252,7 @@ nodes:
     description: "Verify propositions were emitted"
     validations:
       - expr: "context.propositionsEmitted > 0"
-        message: "At least one proposition must be emitted before evaluation."
+        message: "Emit at least one proposition."
     edges:
       - target: evaluate
         label: ready-to-evaluate
@@ -195,20 +261,16 @@ nodes:
     type: action
     description: "Evaluate coverage after construction"
     instructions: |
-      Call compiler_evaluate with:
-      - sessionId: context.sessionId
-      - phaseToken: context.phaseToken
+      Call compiler_evaluate with sessionId.
 
-      The server retrieves propositions for remaining gaps (zero LLM).
+      For each facet, judge with the same two-question test:
+      1. Do propositions address the core question?
+      2. At the right vocabulary level for the intent?
 
-      Review the results and judge each gap: "covered", "partial", or "gap".
+      Call compiler_report_evaluation with sessionId and assessments.
 
-      Call compiler_report_evaluation with your assessments.
-
-      The server returns either "complete" or "loop" (another cycle).
-      Update context.phaseToken from the response.
-      Set context.evaluationDone = true.
-      Set context.coverageSufficient based on whether gaps remain.
+      Set context.coverageSufficient based on the verdict.
+      Set context.gapFacets to remaining gaps.
       Increment context.cycleCount.
     suggestedTools:
       - compiler_evaluate
@@ -219,10 +281,9 @@ nodes:
 
   cycle-decision:
     type: decision
-    description: "Complete or loop for another cycle"
+    description: "Complete or loop"
     instructions: |
-      If the runner returned "complete", coverage is sufficient.
-      If it returned "loop" and cycles remain, go back to explore.
+      Sufficient → done. Gaps remain → explore again.
     edges:
       - target: done
         label: sufficient
@@ -236,13 +297,18 @@ nodes:
 
   done:
     type: terminal
-    description: "Compilation session complete"
+    description: "Compilation complete — synthesize the answer"
     instructions: |
-      Summarize the compilation results:
+      The graph now has validated, intent-appropriate propositions for this query.
+
+      Synthesize a complete answer from the graph's propositions. Use runner_query
+      to retrieve the final set of relevant propositions, then compose an answer
+      at the vocabulary level matching context.queryIntent.
+
+      After the answer, summarize the compilation:
       - Query: context.query
+      - Intent: context.queryIntent
       - Facets: context.facetCount
-      - Gaps found: context.gapCount
-      - Warm exit: context.warmExit
       - Files read: context.filesRead
       - Propositions emitted: context.propositionsEmitted
       - Cycles: context.cycleCount

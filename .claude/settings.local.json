@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm link)",
+      "mcp__graph-engine__graph_list"
+    ]
+  }
+}

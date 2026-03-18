@@ -2,18 +2,9 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { TraversalDetail, TraversalSummary } from "../client.js";
 
-interface AgentInfo {
-  status: string;
-  pid?: number;
-  agentType?: string;
-  registeredAt?: string;
-}
-
 interface DetailPanelProps {
   summary: TraversalSummary | null;
   detail: TraversalDetail | null;
-  agent?: AgentInfo | null;
-  logLines?: string[];
 }
 
 const NODE_TYPE_COLORS: Record<string, string> = {
@@ -38,7 +29,7 @@ function formatTimestamp(ts: string): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-export function DetailPanel({ summary, detail, agent, logLines }: DetailPanelProps): React.ReactElement {
+export function DetailPanel({ summary, detail }: DetailPanelProps): React.ReactElement {
   if (!summary || !detail) {
     return (
       <Box flexDirection="column" paddingLeft={1}>
@@ -52,8 +43,8 @@ export function DetailPanel({ summary, detail, agent, logLines }: DetailPanelPro
   return (
     <Box flexDirection="column" paddingLeft={1} paddingRight={1}>
       {/* Header */}
-      <Text bold>{summary.graphId} v{summary.graphVersion}</Text>
-      <Text dimColor>({summary.id})</Text>
+      <Text bold>{detail.graphId}</Text>
+      <Text dimColor>({summary.traversalId})</Text>
 
       {/* Current node */}
       <Box marginTop={1}>
@@ -63,29 +54,15 @@ export function DetailPanel({ summary, detail, agent, logLines }: DetailPanelPro
         <Text color={nodeColor}>({detail.node?.type})</Text>
       </Box>
 
-      {/* Agent */}
-      {agent && agent.status !== "none" && (
-        <Section title="Agent">
-          <Box>
-            <Text>{agent.agentType ?? "unknown"} (pid {agent.pid})</Text>
-            <Text>{"  "}</Text>
-            <Text color={agent.status === "running" ? "green" : "yellow"}>
-              {agent.status === "running" ? "● running" : "⚠ exited"}
-            </Text>
-          </Box>
-        </Section>
-      )}
-
-      {/* Agent Log */}
-      {logLines && logLines.length > 0 && (
-        <Section title={`Agent Log (last ${logLines.length} lines)`}>
-          {logLines.map((line, i) => (
-            <Text key={i} dimColor>{line}</Text>
-          ))}
-        </Section>
+      {/* Node description */}
+      {detail.node?.description && (
+        <Box>
+          <Text dimColor>{detail.node.description}</Text>
+        </Box>
       )}
 
       {/* Context */}
+      {detail.context && (
       <Section title="Context">
         {Object.entries(detail.context).map(([key, value]) => (
           <Box key={key}>
@@ -95,9 +72,10 @@ export function DetailPanel({ summary, detail, agent, logLines }: DetailPanelPro
           </Box>
         ))}
       </Section>
+      )}
 
       {/* History */}
-      {detail.history && detail.history.length > 0 && (
+      {Array.isArray(detail.history) && detail.history.length > 0 && (
         <Section title="History">
           {detail.history.map((entry, i) => (
             <Box key={i}>
@@ -113,7 +91,7 @@ export function DetailPanel({ summary, detail, agent, logLines }: DetailPanelPro
       )}
 
       {/* Available edges */}
-      {detail.validTransitions.length > 0 && (
+      {detail.validTransitions && detail.validTransitions.length > 0 && (
         <Section title="Edges">
           {detail.validTransitions.map((edge) => (
             <Box key={edge.label}>

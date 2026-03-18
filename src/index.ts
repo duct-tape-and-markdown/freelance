@@ -284,45 +284,29 @@ program
 // --- run ---
 
 program
-  .command("run [graph-id]")
-  .description("Start a traversal and spawn an agent session")
-  .option("--agent <agent>", "Agent to spawn (claude-code, opencode, cursor, custom)", "claude-code")
-  .option("--agent-cmd <cmd>", "Custom agent command (overrides --agent)")
-  .option("--prompt <text>", "Additional initial prompt")
-  .option("--model <model>", "Model to use (passed to agent CLI)")
-  .option("--cwd <dir>", "Working directory for the agent")
-  .option("--attach", "Attach to the agent terminal (interactive)")
-  .option("--detach", "Run agent in background (default)", true)
+  .command("run <graph-id>")
+  .description("Print or execute the command to start an agent with Freelance")
+  .option("--agent <agent>", "Agent CLI to use", "claude-code")
+  .option("--prompt <text>", "Custom initial prompt")
+  .option("--model <model>", "Model to use (passed to agent)")
+  .option("--dry-run", "Print the command without executing")
   .option("--port <port>", `Daemon port (default: ${DEFAULT_PORT})`, String(DEFAULT_PORT))
   .option("--host <host>", "Daemon host", "127.0.0.1")
-  .option("--resume <id>", "Resume an existing traversal")
-  .option("--dangerously-skip-permissions", "Skip agent permission prompts")
   .action(async (graphId, opts) => {
     const port = parseInt(opts.port, 10);
     if (isNaN(port) || port < 1 || port > 65535) {
       fatal("--port must be a valid port number (1-65535)", EXIT.INVALID_USAGE);
     }
-    try {
-      const { run } = await import("./cli/run.js");
-      await run({
-        graphId,
-        agent: opts.agent,
-        agentCmd: opts.agentCmd,
-        prompt: opts.prompt,
-        model: opts.model,
-        cwd: opts.cwd,
-        attach: !!opts.attach,
-        port,
-        host: opts.host,
-        resume: opts.resume,
-        dangerouslySkipPermissions: opts.dangerouslySkipPermissions,
-      });
-    } catch (err) {
-      fatal(
-        err instanceof Error ? err.message : String(err),
-        EXIT.GENERAL_ERROR
-      );
-    }
+    const { run } = await import("./cli/run.js");
+    run({
+      graphId,
+      agent: opts.agent,
+      prompt: opts.prompt,
+      model: opts.model,
+      dryRun: opts.dryRun,
+      port,
+      host: opts.host,
+    });
   });
 
 // --- dashboard ---
