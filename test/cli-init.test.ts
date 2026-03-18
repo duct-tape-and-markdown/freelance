@@ -46,12 +46,12 @@ describe("CLI init", () => {
 
   it("creates graphs directory", async () => {
     await init(defaults());
-    expect(fs.existsSync(path.join(workDir, "graphs"))).toBe(true);
+    expect(fs.existsSync(path.join(workDir, ".freelance", "graphs"))).toBe(true);
   });
 
   it("copies starter template", async () => {
     await init(defaults());
-    const graphFile = path.join(workDir, "graphs", "change-request.graph.yaml");
+    const graphFile = path.join(workDir, ".freelance", "graphs", "change-request.graph.yaml");
     expect(fs.existsSync(graphFile)).toBe(true);
     const content = fs.readFileSync(graphFile, "utf-8");
     expect(content).toContain("change-request");
@@ -115,7 +115,7 @@ describe("CLI init", () => {
 
   it("skips starter when starter=none", async () => {
     await init(defaults({ starter: "none" }));
-    const graphs = fs.readdirSync(path.join(workDir, "graphs"));
+    const graphs = fs.readdirSync(path.join(workDir, ".freelance", "graphs"));
     expect(graphs).toHaveLength(0);
   });
 
@@ -126,7 +126,7 @@ describe("CLI init", () => {
 
   it("dry-run creates no files", async () => {
     await init(defaults({ dryRun: true }));
-    expect(fs.existsSync(path.join(workDir, "graphs"))).toBe(false);
+    expect(fs.existsSync(path.join(workDir, ".freelance", "graphs"))).toBe(false);
     expect(fs.existsSync(path.join(workDir, ".mcp.json"))).toBe(false);
     expect(fs.existsSync(path.join(workDir, "CLAUDE.md"))).toBe(false);
   });
@@ -164,7 +164,7 @@ describe("CLI init", () => {
       const dir = tmpDir();
       process.chdir(dir);
       await init(defaults({ starter, client: "manual" }));
-      const graphFile = path.join(dir, "graphs", `${starter}.graph.yaml`);
+      const graphFile = path.join(dir, ".freelance", "graphs", `${starter}.graph.yaml`);
       expect(fs.existsSync(graphFile), `${starter} template missing`).toBe(true);
     }
   });
@@ -177,7 +177,7 @@ describe("CLI init", () => {
   });
 
   it("does not overwrite existing graph file", async () => {
-    const graphsDir = path.join(workDir, "graphs");
+    const graphsDir = path.join(workDir, ".freelance", "graphs");
     fs.mkdirSync(graphsDir, { recursive: true });
     const graphFile = path.join(graphsDir, "change-request.graph.yaml");
     fs.writeFileSync(graphFile, "# custom content\nid: change-request\n");
@@ -200,7 +200,7 @@ describe("CLI init", () => {
     const config = JSON.parse(fs.readFileSync(mcpJson, "utf-8"));
     const args = config.mcpServers.freelance.args as string[];
     const graphsArg = args[args.indexOf("--graphs") + 1];
-    expect(graphsArg).toBe("./graphs");
+    expect(graphsArg).toBe("./.freelance/graphs");
   });
 
   it("user scope writes config to ~/.claude.json", async () => {
@@ -313,7 +313,7 @@ describe("CLI init", () => {
   });
 
   it("dry-run with existing graph shows 'Would skip'", async () => {
-    const graphsDir = path.join(workDir, "graphs");
+    const graphsDir = path.join(workDir, ".freelance", "graphs");
     fs.mkdirSync(graphsDir, { recursive: true });
     fs.writeFileSync(path.join(graphsDir, "change-request.graph.yaml"), "id: cr\n");
     await init(defaults({ dryRun: true }));

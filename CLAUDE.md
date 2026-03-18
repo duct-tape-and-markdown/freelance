@@ -15,13 +15,13 @@ Graph-based workflow enforcement for AI coding agents.
 Graphs can be loaded from multiple directories in cascading order (later directories shadow earlier ones):
 
 **Automatic resolution** (no flags needed):
-1. `./freelance/graphs` or `./graphs` (project-level, if exists)
+1. `./.freelance/graphs` (project-level, if exists)
 2. `~/.freelance/graphs` (user-level, if exists)
 
 **Explicit directories** (CLI):
 ```bash
 # Load from multiple directories (repeatable)
-freelance mcp --graphs ./graphs --graphs ~/.freelance/graphs
+freelance mcp --graphs ./.freelance/graphs --graphs ~/.freelance/graphs
 ```
 
 **Environment variable** (colon-separated on Unix, semicolon on Windows):

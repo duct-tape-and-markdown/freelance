@@ -252,14 +252,14 @@ export async function init(options: InitOptions): Promise<void> {
   } else if (scope === "user") {
     graphsDir = path.join(home, ".freelance", "graphs");
   } else {
-    graphsDir = path.resolve("graphs");
+    graphsDir = path.resolve(".freelance", "graphs");
   }
 
   // The path to use in MCP config (relative for local/project, absolute for user)
   const graphsConfigPath =
     scope === "user"
       ? graphsDir
-      : `./${path.relative(process.cwd(), graphsDir)}`;
+      : `./${path.relative(process.cwd(), graphsDir).replace(/\\/g, "/")}`;
 
   // Collect actions for dry-run or execution
   interface Action {
