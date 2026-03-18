@@ -41,14 +41,18 @@
   "license": "MIT",
   "dependencies": {
     "@dagrejs/graphlib": "^2.2.4",
+    "@inkjs/ui": "^2.0.0",
     "@inquirer/prompts": "^8.3.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "commander": "^14.0.3",
-    "js-yaml": "^4.1.0"
+    "ink": "^6.8.0",
+    "js-yaml": "^4.1.0",
+    "react": "^19.2.4"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
+    "@types/react": "^19.2.14",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"

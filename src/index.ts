@@ -281,6 +281,29 @@ program
     inspect({ oneline: opts.oneline ?? false });
   });
 
+// --- dashboard ---
+
+program
+  .command("dashboard")
+  .description("Open the dashboard TUI (requires running daemon)")
+  .option("--port <port>", `Daemon port (default: ${DEFAULT_PORT})`, String(DEFAULT_PORT))
+  .option("--host <host>", "Daemon host", "127.0.0.1")
+  .action(async (opts) => {
+    const port = parseInt(opts.port, 10);
+    if (isNaN(port) || port < 1 || port > 65535) {
+      fatal("--port must be a valid port number (1-65535)", EXIT.INVALID_USAGE);
+    }
+    try {
+      const { startDashboard } = await import("./dashboard/index.js");
+      await startDashboard({ host: opts.host, port });
+    } catch (err) {
+      fatal(
+        err instanceof Error ? err.message : String(err),
+        EXIT.GENERAL_ERROR
+      );
+    }
+  });
+
 // --- completion ---
 
 program

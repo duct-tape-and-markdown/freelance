@@ -1,0 +1,214 @@
+{
+  "source": "Dashboard & Agent Spawning v2 spec — two layers turning the daemon into a visible control plane",
+  "batches": [
+    {
+      "name": "Batch 1: Dashboard Core (Phase 1)",
+      "items": [
+        {
+          "id": "D1",
+          "location": "package.json, src/",
+          "description": "Install ink, @inkjs/ui, and ink-text-input dependencies",
+          "approach": "Add ink (React for terminals), @inkjs/ui (Badge, ProgressBar, Spinner, Select, TextInput, ConfirmInput, StatusMessage, OrderedList), and ink-text-input as production dependencies. These are lazy-imported by dashboard/run commands only.",
+          "status": "done"
+        },
+        {
+          "id": "D2",
+          "location": "src/dashboard/client.ts",
+          "description": "Daemon HTTP client wrapper for dashboard polling",
+          "approach": "Create a DaemonClient class using Node fetch. Methods: listTraversals(), inspectTraversal(id), getGraphs(), resetTraversal(id), startTraversal(graphId), contextSet(id, updates). Handles connection errors gracefully. Configurable host/port.",
+          "status": "done"
+        },
+        {
+          "id": "D3",
+          "location": "src/dashboard/components/PanelLayout.tsx",
+          "description": "Two-panel responsive layout component",
+          "approach": "Ink Box-based flexbox layout. Three breakpoints: wide (>=120 cols) full two-panel 40/60 split, medium (80-119) narrow left panel, narrow (<80) single panel with forward/back navigation. Uses useStdout() for terminal width detection.",
+          "status": "done"
+        },
+        {
+          "id": "D4",
+          "location": "src/dashboard/components/TraversalRow.tsx",
+          "description": "Left panel traversal row component",
+          "approach": "Shows status indicator (● active, ◌ waiting, ✓ complete, ✗ failed), graph name, current node name, ProgressBar (from @inkjs/ui) for nodes visited/total, duration. Wait nodes show ⏳ with timeout remaining.",
+          "status": "done"
+        },
+        {
+          "id": "D5",
+          "location": "src/dashboard/components/DetailPanel.tsx",
+          "description": "Right panel detail view component",
+          "approach": "Shows graph metadata, timing, current node with type Badge, context key-value pairs (scrollable), history (timestamped transitions), available edges with conditions, gate validations with StatusMessage. Sections are collapsible.",
+          "status": "done"
+        },
+        {
+          "id": "D6",
+          "location": "src/dashboard/components/EdgeIndicator.tsx",
+          "description": "Available edge with live condition evaluation",
+          "approach": "Shows edge label, target, condition expression, and live ● (true) / ○ (false) indicator evaluated from current context in real time.",
+          "status": "done"
+        },
+        {
+          "id": "D7",
+          "location": "src/dashboard/hooks/usePolling.ts",
+          "description": "Polling loop with differential updates",
+          "approach": "Custom React hook. Active traversals poll every 2s, waiting every 5s, completed on initial load only. Diffs responses and only triggers re-render on actual changes. Intervals configurable via dashboard.json.",
+          "status": "done"
+        },
+        {
+          "id": "D8",
+          "location": "src/dashboard/hooks/useKeyboard.ts, src/dashboard/keybinds.ts",
+          "description": "Leader key + arrow key navigation system",
+          "approach": "OpenCode-style leader key (ctrl+x default). useInput from ink for key handling. Leader key sets a pending state, next keypress dispatches action. Arrow keys for list selection, Tab for panel switch, Enter for expand, Escape for back. Keybinds loaded from ~/.freelance/dashboard.json if it exists.",
+          "status": "done"
+        },
+        {
+          "id": "D9",
+          "location": "src/dashboard/App.tsx, src/dashboard/index.ts",
+          "description": "Main dashboard app component and entry point",
+          "approach": "Top-level Ink App component composing PanelLayout, TraversalRow list, DetailPanel. Manages selected traversal state, expanded/collapsed view, overlay stack. Entry point connects to daemon (error + start command hint if not running), renders App via ink render().",
+          "status": "done"
+        },
+        {
+          "id": "D10",
+          "location": "src/index.ts, src/cli/dashboard.ts",
+          "description": "Register 'freelance dashboard' CLI command",
+          "approach": "Add dashboard subcommand to Commander program with --port option. Handler checks daemon is running (via DaemonClient health check), then lazy-imports and renders the dashboard app. If daemon not running, prints error with 'freelance daemon start' hint.",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "name": "Batch 2: Overlays & Interactions (Phase 2)",
+      "items": [
+        {
+          "id": "O1",
+          "location": "src/dashboard/components/overlays/GraphPicker.tsx",
+          "description": "Graph picker overlay for new traversal",
+          "approach": "Uses @inkjs/ui Select component. Lists available graphs from daemon with name + description. Arrow keys to navigate, Enter to confirm (calls startTraversal), Escape to cancel. Rendered as overlay on top of current view.",
+          "status": "pending"
+        },
+        {
+          "id": "O2",
+          "location": "src/dashboard/components/overlays/WaitSignal.tsx",
+          "description": "Wait node signal overlay with dynamic form",
+          "approach": "Uses @inkjs/ui TextInput for each waitOn field. Shows traversal name, waiting conditions. Tab between fields. Boolean fields show toggle, string fields show text input. Enter to submit (calls contextSet), Escape to cancel.",
+          "status": "pending"
+        },
+        {
+          "id": "O3",
+          "location": "src/dashboard/components/overlays/ResetConfirm.tsx",
+          "description": "Reset confirmation overlay",
+          "approach": "Uses @inkjs/ui ConfirmInput. Shows traversal name and ID, warns about clearing context/history. Y to confirm (calls resetTraversal), n or Escape to cancel.",
+          "status": "pending"
+        },
+        {
+          "id": "O4",
+          "location": "src/dashboard/components/overlays/HelpOverlay.tsx",
+          "description": "Help overlay showing all keybinds and slash commands",
+          "approach": "Static content overlay listing navigation keys, leader key actions, and slash commands. Escape to close. Content generated from the active keybind configuration so custom bindings are reflected.",
+          "status": "pending"
+        },
+        {
+          "id": "O5",
+          "location": "src/dashboard/components/SlashCommand.tsx",
+          "description": "Slash command input bar in status area",
+          "approach": "TextInput that activates on '/' keypress. Parses command and args, dispatches to appropriate action (new, reset, signal, graphs, filter, help, quit). Shows in the status bar area. Escape to cancel.",
+          "status": "pending"
+        },
+        {
+          "id": "O6",
+          "location": "src/dashboard/components/GraphMap.tsx",
+          "description": "ASCII flow graph map with current node highlighted",
+          "approach": "Renders simplified ASCII flow: node names in sequence following edge order. Current node in [brackets], visited nodes normal, unvisited dimmed. Branch points shown with indentation (├─/└─). Generated client-side from graph definition + traversal history. Linear graphs trivial, branching follows edges depth-first.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "name": "Batch 3: Agent Spawning (Phase 3)",
+      "items": [
+        {
+          "id": "A1",
+          "location": "src/agent/registry.ts",
+          "description": "Agent registry with CLI commands and MCP config patterns",
+          "approach": "Define registry mapping agent names to their CLI commands, MCP config methods, and permission bypass flags. Support claude-code, opencode, cursor, and custom (user-provided --agent-cmd). Each entry knows how to construct the spawn command.",
+          "status": "pending"
+        },
+        {
+          "id": "A2",
+          "location": "src/agent/prompt.ts",
+          "description": "Initial prompt generation from graph first node",
+          "approach": "Generate prompt text that tells the agent about its active traversal, graph ID, and to call graph_inspect. For --resume, include current node and state hint. Append user's --prompt text if provided.",
+          "status": "pending"
+        },
+        {
+          "id": "A3",
+          "location": "src/agent/spawner.ts",
+          "description": "Child process spawning with PID tracking",
+          "approach": "Use Node child_process.spawn to launch agent with appropriate CLI args and MCP configuration. Track PID. Support --attach (inherit stdio) and --detach (pipe to log file). Log to ~/.freelance/logs/<traversal-id>.log for detached mode.",
+          "status": "pending"
+        },
+        {
+          "id": "A4",
+          "location": "src/daemon.ts",
+          "description": "Daemon agent registration API endpoints",
+          "approach": "Add three endpoints: POST /traversals/:id/agent (register PID + type), GET /traversals/:id/agent (get status: running/exited/none via process.kill(pid, 0) check), DELETE /traversals/:id/agent (kill process). Store agent info in traversal metadata.",
+          "status": "pending"
+        },
+        {
+          "id": "A5",
+          "location": "src/agent/logs.ts",
+          "description": "Log file management for detached agents",
+          "approach": "Manage ~/.freelance/logs/ directory. Create log files per traversal ID. Provide tail-reading function for dashboard log viewer. Handle log rotation/cleanup for old traversals.",
+          "status": "pending"
+        },
+        {
+          "id": "A6",
+          "location": "src/agent/resume.ts",
+          "description": "Resume logic for existing traversals",
+          "approach": "freelance run --resume <id> spawns new agent for active traversal. Validates traversal exists and is active. Generates resume prompt with current node info. Registers new agent PID with daemon.",
+          "status": "pending"
+        },
+        {
+          "id": "A7",
+          "location": "src/index.ts, src/cli/run.ts",
+          "description": "Register 'freelance run' CLI command",
+          "approach": "Add run subcommand with options: <graph-id>, --agent, --prompt, --model, --cwd, --attach, --detach, --port, --resume. Orchestrates: start traversal → generate prompt → spawn agent → register with daemon. Connects to daemon (starts it if needed or errors).",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "name": "Batch 4: Integration (Phase 4)",
+      "items": [
+        {
+          "id": "I1",
+          "location": "src/dashboard/components/TraversalRow.tsx, src/dashboard/components/DetailPanel.tsx",
+          "description": "Agent status display in dashboard",
+          "approach": "TraversalRow shows 'agent: claude (pid 12345)' when agent attached. DetailPanel expanded view shows Agent section with type, PID, status (● running / ⚠ exited / ○ none), model, and log path. Polls agent status endpoint.",
+          "status": "pending"
+        },
+        {
+          "id": "I2",
+          "location": "src/dashboard/hooks/useKeyboard.ts",
+          "description": "Agent kill from dashboard via leader+x",
+          "approach": "Add <leader>x binding that calls DELETE /traversals/:id/agent. Show ConfirmInput before killing. Traversal stays active at current node after agent is killed.",
+          "status": "pending"
+        },
+        {
+          "id": "I3",
+          "location": "src/dashboard/components/LogViewer.tsx",
+          "description": "Log viewer in expanded detail view",
+          "approach": "Read-only tail of the agent log file. Shows last 20 lines by default. Updates in real time via polling. Scrollable with PageUp/PageDown when focused. Tab to switch focus between context/history/log sections.",
+          "status": "pending"
+        },
+        {
+          "id": "I4",
+          "location": "src/dashboard/config.ts",
+          "description": "Keybind customization via dashboard.json",
+          "approach": "Load ~/.freelance/dashboard.json for keybind overrides, theme selection, and poll intervals. Merge with defaults. Support comma-separated multiple bindings per action (e.g., 'up,k'). Help overlay reflects active config.",
+          "status": "pending"
+        }
+      ]
+    }
+  ]
+}
