@@ -2,10 +2,17 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { TraversalSummary } from "../client.js";
 
+interface AgentInfo {
+  status: string;
+  pid?: number;
+  agentType?: string;
+}
+
 interface TraversalRowProps {
   traversal: TraversalSummary;
   selected: boolean;
   compact: boolean; // medium terminal — hide progress bar
+  agent?: AgentInfo | null;
 }
 
 const STATUS_INDICATORS: Record<string, { symbol: string; color: string }> = {
@@ -35,10 +42,14 @@ function renderProgressBar(visited: number, total: number, width: number): strin
   return "█".repeat(filled) + "░".repeat(empty);
 }
 
-export function TraversalRow({ traversal, selected, compact }: TraversalRowProps): React.ReactElement {
+export function TraversalRow({ traversal, selected, compact, agent }: TraversalRowProps): React.ReactElement {
   const statusInfo = STATUS_INDICATORS[traversal.status] ?? STATUS_INDICATORS.active;
   const duration = formatDuration(traversal.startedAt);
   const progress = `${traversal.visitedNodes}/${traversal.nodeCount}`;
+
+  const agentLabel = agent && agent.status !== "none"
+    ? `  agent: ${agent.agentType ?? "?"} (pid ${agent.pid})`
+    : "";
 
   return (
     <Box flexDirection="column" paddingLeft={1} paddingRight={1}>
@@ -48,6 +59,7 @@ export function TraversalRow({ traversal, selected, compact }: TraversalRowProps
         <Text color={statusInfo.color}>{statusInfo.symbol} </Text>
         <Text bold={selected}>{traversal.graphId}</Text>
         <Text dimColor>{"  "}{traversal.currentNode}</Text>
+        {agentLabel && <Text dimColor>{agentLabel}</Text>}
       </Box>
       {!compact && (
         <Box paddingLeft={selected ? 4 : 4}>

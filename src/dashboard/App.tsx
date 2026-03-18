@@ -67,6 +67,11 @@ export function App({ client, config }: AppProps): React.ReactElement {
         case "help":
           setOverlay("help");
           break;
+        case "kill_agent":
+          if (selectedTraversal) {
+            client.killAgent(selectedTraversal.id).catch(() => {});
+          }
+          break;
         case "quit":
           exit();
           break;

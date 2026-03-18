@@ -185,28 +185,28 @@
           "location": "src/dashboard/components/TraversalRow.tsx, src/dashboard/components/DetailPanel.tsx",
           "description": "Agent status display in dashboard",
           "approach": "TraversalRow shows 'agent: claude (pid 12345)' when agent attached. DetailPanel expanded view shows Agent section with type, PID, status (● running / ⚠ exited / ○ none), model, and log path. Polls agent status endpoint.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "I2",
           "location": "src/dashboard/hooks/useKeyboard.ts",
           "description": "Agent kill from dashboard via leader+x",
           "approach": "Add <leader>x binding that calls DELETE /traversals/:id/agent. Show ConfirmInput before killing. Traversal stays active at current node after agent is killed.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "I3",
           "location": "src/dashboard/components/LogViewer.tsx",
           "description": "Log viewer in expanded detail view",
           "approach": "Read-only tail of the agent log file. Shows last 20 lines by default. Updates in real time via polling. Scrollable with PageUp/PageDown when focused. Tab to switch focus between context/history/log sections.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "I4",
           "location": "src/dashboard/config.ts",
           "description": "Keybind customization via dashboard.json",
           "approach": "Load ~/.freelance/dashboard.json for keybind overrides, theme selection, and poll intervals. Merge with defaults. Support comma-separated multiple bindings per action (e.g., 'up,k'). Help overlay reflects active config.",
-          "status": "pending"
+          "status": "done"
         }
       ]
     }
