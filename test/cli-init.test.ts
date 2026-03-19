@@ -13,7 +13,7 @@ function defaults(overrides: Partial<InitOptions> = {}): InitOptions {
   return {
     scope: "project",
     client: "claude-code",
-    starter: "change-request",
+    starter: "blank",
     dryRun: false,
     ...overrides,
   };
@@ -51,10 +51,10 @@ describe("CLI init", () => {
 
   it("copies starter template", async () => {
     await init(defaults());
-    const graphFile = path.join(workDir, ".freelance", "graphs", "change-request.graph.yaml");
+    const graphFile = path.join(workDir, ".freelance", "graphs", "blank.graph.yaml");
     expect(fs.existsSync(graphFile)).toBe(true);
     const content = fs.readFileSync(graphFile, "utf-8");
-    expect(content).toContain("change-request");
+    expect(content).toContain("my-workflow");
   });
 
   it("writes .mcp.json for claude-code project scope", async () => {
@@ -160,7 +160,7 @@ describe("CLI init", () => {
   });
 
   it("each starter template copies correctly", async () => {
-    for (const starter of ["change-request", "data-pipeline", "ralph-loop", "blank"] as const) {
+    for (const starter of ["blank"] as const) {
       const dir = tmpDir();
       process.chdir(dir);
       await init(defaults({ starter, client: "manual" }));
@@ -173,14 +173,14 @@ describe("CLI init", () => {
     const customDir = path.join(workDir, "custom", "workflows");
     await init(defaults({ graphs: customDir, client: "manual" }));
     expect(fs.existsSync(customDir)).toBe(true);
-    expect(fs.existsSync(path.join(customDir, "change-request.graph.yaml"))).toBe(true);
+    expect(fs.existsSync(path.join(customDir, "blank.graph.yaml"))).toBe(true);
   });
 
   it("does not overwrite existing graph file", async () => {
     const graphsDir = path.join(workDir, ".freelance", "graphs");
     fs.mkdirSync(graphsDir, { recursive: true });
-    const graphFile = path.join(graphsDir, "change-request.graph.yaml");
-    fs.writeFileSync(graphFile, "# custom content\nid: change-request\n");
+    const graphFile = path.join(graphsDir, "blank.graph.yaml");
+    fs.writeFileSync(graphFile, "# custom content\nid: blank\n");
 
     await init(defaults({ client: "manual" }));
     const content = fs.readFileSync(graphFile, "utf-8");
@@ -315,7 +315,7 @@ describe("CLI init", () => {
   it("dry-run with existing graph shows 'Would skip'", async () => {
     const graphsDir = path.join(workDir, ".freelance", "graphs");
     fs.mkdirSync(graphsDir, { recursive: true });
-    fs.writeFileSync(path.join(graphsDir, "change-request.graph.yaml"), "id: cr\n");
+    fs.writeFileSync(path.join(graphsDir, "blank.graph.yaml"), "id: cr\n");
     await init(defaults({ dryRun: true }));
     const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
     expect(stderr).toContain("Would skip:");

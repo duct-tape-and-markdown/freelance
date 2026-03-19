@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // "user" writes config into ~/.claude.json (personal, all projects).
 export type Scope = "project" | "user";
 export type Client = "claude-code" | "cursor" | "windsurf" | "cline" | "manual";
-export type Starter = "change-request" | "data-pipeline" | "ralph-loop" | "blank" | "none";
+export type Starter = "blank" | "none";
 
 export interface InitOptions {
   scope: Scope;
@@ -20,7 +20,7 @@ export interface InitOptions {
 }
 
 export const INIT_DEFAULTS = {
-  starter: "change-request" as Starter,
+  starter: "blank" as Starter,
   dryRun: false,
 } as const;
 
@@ -464,19 +464,7 @@ export async function initInteractive(opts?: { dryRun?: boolean }): Promise<void
   const starter = await select<Starter>({
     message: "Start with an example graph?",
     choices: [
-      {
-        value: "change-request",
-        name: "Change request workflow (branching, gates, quality checks)",
-      },
-      {
-        value: "data-pipeline",
-        name: "Data pipeline (cycles, verification, turn budgets)",
-      },
-      {
-        value: "ralph-loop",
-        name: "Ralph loop (spec \u2192 plan \u2192 build \u2192 verify)",
-      },
-      { value: "blank", name: "Blank graph (empty template)" },
+      { value: "blank", name: "Blank graph (starter template)" },
       { value: "none", name: "No graph (I'll add my own)" },
     ],
   });

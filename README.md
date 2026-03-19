@@ -7,17 +7,17 @@ State lives server-side — it can't be compacted away, forgotten, or bypassed. 
 ## Quick Start
 
 ```bash
-npm install
-npm run build
+# Set up Freelance in your project (creates graphs, configures MCP)
+npx freelance init
 
-# Set up Freelance in a project
+# That's it. Your agent now has access to graph_list, graph_start, etc.
+```
+
+Or install globally:
+
+```bash
+npm install -g freelance
 freelance init
-
-# Or manually: validate graph definitions
-freelance validate ./graphs/
-
-# Visualize a graph
-freelance visualize ./graphs/my-workflow.graph.yaml --format mermaid
 ```
 
 ## How It Works
@@ -72,6 +72,28 @@ nodes:
 | `graph_context_set` | Update session context without advancing |
 | `graph_inspect` | Read-only introspection (position, history, or full graph) |
 | `graph_reset` | Clear traversal and start over |
+| `graph_guide` | Get authoring guidance for writing graphs |
+
+## Graph Directory Resolution
+
+Graphs load automatically from these directories (no flags needed):
+
+1. `./.freelance/graphs/` — project-level graphs
+2. `~/.freelance/graphs/` — user-level graphs (shared across projects)
+
+Later directories shadow earlier ones by graph ID, so user-level graphs can override project defaults.
+
+You can also specify directories explicitly:
+
+```bash
+freelance mcp --graphs ./my-graphs/
+```
+
+Or via environment variable (colon-separated on Unix, semicolon on Windows):
+
+```bash
+export FREELANCE_GRAPHS_DIR="./graphs:~/.freelance/graphs"
+```
 
 ## Running Modes
 
@@ -80,16 +102,16 @@ nodes:
 For single-session use. Process starts with the agent, dies with the agent.
 
 ```bash
-freelance mcp --graphs ./graphs/
+freelance mcp
 ```
 
 ### Daemon mode (multi-session, persistent)
 
-Long-running server with traversal persistence across restarts.
+Long-running server with traversal persistence across agent restarts. An agent that crashes resumes at the exact node it left off.
 
 ```bash
 # Start daemon
-freelance daemon start --graphs ./graphs/ --port 7433
+freelance daemon start
 
 # Connect via MCP proxy (stdio bridge to daemon HTTP API)
 freelance mcp --connect localhost:7433
@@ -112,7 +134,7 @@ Run `freelance init` in your project, or add manually to `.mcp.json`:
   "mcpServers": {
     "freelance": {
       "command": "npx",
-      "args": ["freelance", "mcp", "--graphs", "./graphs/"]
+      "args": ["-y", "freelance", "mcp"]
     }
   }
 }
@@ -127,7 +149,7 @@ Add to `.cursor/mcp.json`:
   "mcpServers": {
     "freelance": {
       "command": "npx",
-      "args": ["freelance", "mcp", "--graphs", "./graphs/"]
+      "args": ["-y", "freelance", "mcp"]
     }
   }
 }
@@ -140,20 +162,22 @@ Any client that supports stdio transport:
 ```json
 {
   "command": "npx",
-  "args": ["freelance", "mcp", "--graphs", "./graphs/"]
+  "args": ["-y", "freelance", "mcp"]
 }
 ```
 
 ## CLI Reference
 
 ```
-freelance init                    # Interactive project setup
-freelance validate <dir>          # Validate graph definitions
-freelance visualize <file>        # Render graph as Mermaid or DOT
-freelance mcp --graphs <dir>      # Start standalone MCP server
-freelance mcp --connect <host>    # Start MCP proxy to daemon
-freelance daemon start|stop|status
-freelance traversals list|inspect|reset
+freelance init                       # Interactive project setup
+freelance validate <dir>             # Validate graph definitions
+freelance visualize <file>           # Render graph as Mermaid or DOT
+freelance inspect                    # Show active traversals from persisted state
+freelance mcp                        # Start standalone MCP server
+freelance mcp --connect <host:port>  # Start MCP proxy to daemon
+freelance daemon start|stop|status   # Manage the daemon
+freelance traversals list|inspect|reset  # Manage traversals (requires daemon)
+freelance completion bash|zsh|fish   # Output shell completion script
 ```
 
 ## Node Types

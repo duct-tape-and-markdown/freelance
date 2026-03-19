@@ -118,7 +118,7 @@ program
   .addOption(new Option("--scope <scope>", "Where to install").choices(["project", "user"]).default("project"))
   .addOption(new Option("--client <client>", "MCP client to configure").choices(["claude-code", "cursor", "windsurf", "cline", "manual"]))
   .option("--graphs <path>", "Where to put graph definitions")
-  .addOption(new Option("--starter <template>", "Starter graph to scaffold").choices(["change-request", "data-pipeline", "ralph-loop", "blank", "none"]))
+  .addOption(new Option("--starter <template>", "Starter graph to scaffold").choices(["blank", "none"]))
   .option("--yes", "Skip all prompts, use defaults")
   .option("--dry-run", "Show what would be created without writing anything")
   .action(async (opts) => {
@@ -182,7 +182,6 @@ program
     } else {
       const maxDepth = parseInt(opts.maxDepth, 10);
       const graphs = loadGraphsOrFatal(opts.graphs);
-      const ids = [...graphs.keys()];
       const dirs = resolveGraphsDirs(opts.graphs);
       info(`Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}`);
       await startServer(graphs, { maxDepth });
@@ -222,7 +221,6 @@ daemonCmd
 
     const graphs = loadGraphsOrFatal(opts.graphs);
     const graphsDirs = resolveGraphsDirs(opts.graphs);
-    const ids = [...graphs.keys()];
     info(`Freelance daemon: loaded ${graphs.size} graph(s) from ${graphsDirs.length} directory(ies)`);
     await startDaemon(graphs, { port, host: "127.0.0.1", persistDir, maxDepth, graphsDir: graphsDirs.join(path.delimiter) });
   });
