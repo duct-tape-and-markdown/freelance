@@ -1,0 +1,21 @@
+id: invalid-bad-subgraph-condition
+version: "1.0.0"
+name: "Invalid Subgraph Condition"
+description: "Has a malformed subgraph condition expression"
+startNode: start
+
+nodes:
+  start:
+    type: action
+    description: "Action with bad subgraph condition"
+    instructions: "test"
+    subgraph:
+      graphId: "some-graph"
+      condition: "context.x %%% y"
+    edges:
+      - target: done
+        label: ok
+
+  done:
+    type: terminal
+    description: "End"

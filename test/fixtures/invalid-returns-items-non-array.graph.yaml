@@ -1,0 +1,21 @@
+id: invalid-returns-items-non-array
+version: "1.0.0"
+name: "Invalid Returns Items Non-Array"
+description: "Returns field has items but type is not array"
+startNode: start
+
+nodes:
+  start:
+    type: action
+    description: "Start"
+    instructions: "test"
+    returns:
+      required:
+        result: { type: string, items: string }
+    edges:
+      - target: done
+        label: ok
+
+  done:
+    type: terminal
+    description: "End"

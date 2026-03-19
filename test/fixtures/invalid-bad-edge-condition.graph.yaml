@@ -1,0 +1,19 @@
+id: invalid-bad-edge-condition
+version: "1.0.0"
+name: "Invalid Edge Condition"
+description: "Has a malformed edge condition expression"
+startNode: start
+
+nodes:
+  start:
+    type: action
+    description: "Action with bad edge condition"
+    instructions: "test"
+    edges:
+      - target: done
+        label: ok
+        condition: "context.x %%% y"
+
+  done:
+    type: terminal
+    description: "End"
