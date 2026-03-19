@@ -161,18 +161,38 @@ export function createDaemon(
   return { server, manager, stopWatcher };
 }
 
+export function writePidFile(port: number, graphsDir?: string): string {
+  const pidFile = getPidFilePath();
+  fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+  const pidData: Record<string, unknown> = { pid: process.pid, port };
+  if (graphsDir) pidData.graphsDir = graphsDir;
+  fs.writeFileSync(pidFile, JSON.stringify(pidData));
+  return pidFile;
+}
+
+export function registerShutdownHandlers(
+  server: http.Server,
+  pidFile: string,
+  stopWatcher?: () => void
+): void {
+  const shutdown = () => {
+    info("\nShutting down daemon...");
+    if (stopWatcher) stopWatcher();
+    server.close(() => {
+      try { fs.unlinkSync(pidFile); } catch {}
+      process.exit(0);
+    });
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+}
+
 export async function startDaemon(
   graphs: Map<string, ValidatedGraph>,
   options: DaemonOptions
 ): Promise<void> {
   const { server, stopWatcher } = createDaemon(graphs, options);
-
-  // Write PID file (includes port for status reporting)
-  const pidFile = getPidFilePath();
-  fs.mkdirSync(path.dirname(pidFile), { recursive: true });
-  const pidData: Record<string, unknown> = { pid: process.pid, port: options.port };
-  if (options.graphsDir) pidData.graphsDir = options.graphsDir;
-  fs.writeFileSync(pidFile, JSON.stringify(pidData));
+  const pidFile = writePidFile(options.port, options.graphsDir);
 
   return new Promise<void>((_, reject) => {
     server.listen(options.port, options.host, () => {
@@ -185,16 +205,6 @@ export async function startDaemon(
     });
 
     server.on("error", reject);
-
-    const shutdown = () => {
-      info("\nShutting down daemon...");
-      if (stopWatcher) stopWatcher();
-      server.close(() => {
-        try { fs.unlinkSync(pidFile); } catch {}
-        process.exit(0);
-      });
-    };
-    process.on("SIGINT", shutdown);
-    process.on("SIGTERM", shutdown);
+    registerShutdownHandlers(server, pidFile, stopWatcher);
   });
 }

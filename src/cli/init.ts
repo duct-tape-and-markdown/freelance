@@ -2,13 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { cli, outputJson, info, fatal, EXIT, homeDir, displayPath } from "./output.js";
+import { type Client, detectClients, clientDisplayName, allClientChoices } from "./clients.js";
+export type { Client } from "./clients.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // "project" writes config into the repo (committed/shared with team).
 // "user" writes config into ~/.claude.json (personal, all projects).
 export type Scope = "project" | "user";
-export type Client = "claude-code" | "cursor" | "windsurf" | "cline" | "manual";
 export type Starter = "blank" | "none";
 
 export interface InitOptions {
@@ -41,35 +42,7 @@ function getTemplatesDir(): string {
   );
 }
 
-// --- Client detection ---
-
-export function detectClients(): Client[] {
-  const detected: Client[] = [];
-
-  // Check for Claude Code CLI
-  const envPath = process.env.PATH;
-  if (!envPath) return detected;
-  const pathDirs = envPath.split(path.delimiter);
-  for (const dir of pathDirs) {
-    if (fs.existsSync(path.join(dir, "claude"))) {
-      detected.push("claude-code");
-      break;
-    }
-  }
-
-  // Check for Cursor
-  if (fs.existsSync(path.join(process.cwd(), ".cursor"))) {
-    detected.push("cursor");
-  }
-
-  // Check for Windsurf
-  const home = homeDir();
-  if (fs.existsSync(path.join(home, ".codeium", "windsurf"))) {
-    detected.push("windsurf");
-  }
-
-  return detected;
-}
+// Client detection, display names, and choice lists live in ./clients.ts
 
 // --- Config writing ---
 
@@ -472,27 +445,3 @@ export async function initInteractive(opts?: { dryRun?: boolean }): Promise<void
   await init({ scope, client, starter, dryRun: opts?.dryRun ?? INIT_DEFAULTS.dryRun });
 }
 
-function clientDisplayName(client: Client): string {
-  switch (client) {
-    case "claude-code":
-      return "Claude Code";
-    case "cursor":
-      return "Cursor";
-    case "windsurf":
-      return "Windsurf";
-    case "cline":
-      return "Cline";
-    case "manual":
-      return "Other / manual";
-  }
-}
-
-function allClientChoices() {
-  return [
-    { value: "claude-code" as const, name: "Claude Code" },
-    { value: "cursor" as const, name: "Cursor" },
-    { value: "windsurf" as const, name: "Windsurf" },
-    { value: "cline" as const, name: "Cline" },
-    { value: "manual" as const, name: "Other / manual" },
-  ];
-}

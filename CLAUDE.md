@@ -79,11 +79,13 @@ freelance init
   - `returns.ts` — Return schema validation
   - `helpers.ts` — Shared utilities (cloneContext, toNodeInfo)
 - `src/traversal-manager.ts` — Multi-traversal management with GUID addressing and persistence
-- `src/daemon.ts` — HTTP daemon server wrapping TraversalManager
+- `src/graph-resolution.ts` — Graph directory resolution and loading (env var, project, user cascading)
+- `src/daemon.ts` — HTTP daemon server wrapping TraversalManager, PID file management, shutdown handlers
 - `src/proxy.ts` — MCP proxy that bridges stdio to daemon HTTP API
 - `src/server.ts` — MCP tool surface (6 tools wrapping TraversalManager)
 - `src/cli/` — CLI subcommand handlers (init, validate, visualize, daemon, traversals, output)
-- `src/index.ts` — CLI entry point (Commander.js)
+  - `cli/clients.ts` — Client detection (claude-code, cursor, windsurf, cline) and display helpers
+- `src/index.ts` — CLI entry point (Commander.js, command dispatch only)
 - `templates/` — Starter graph templates and shell completions
 
 ## Graph definitions
