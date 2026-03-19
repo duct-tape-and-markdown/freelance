@@ -317,7 +317,7 @@ describe("Daemon edge cases", () => {
       port: 0,
       host: "127.0.0.1",
       persistDir,
-      graphsDir,
+      graphsDirs: [graphsDir],
     });
     expect(daemon.stopWatcher).toBeDefined();
 
@@ -363,7 +363,7 @@ describe("Daemon edge cases", () => {
       port: 0,
       host: "127.0.0.1",
       persistDir,
-      graphsDir,
+      graphsDirs: [graphsDir],
     });
 
     await new Promise<void>((resolve) => {
@@ -426,7 +426,7 @@ describe("Daemon edge cases", () => {
         port: 0,
         host: "127.0.0.1",
         persistDir,
-        graphsDir: persistDir,
+        graphsDirs: [persistDir],
       });
 
       // Wait for the server to start
@@ -436,7 +436,7 @@ describe("Daemon edge cases", () => {
       expect(fs.existsSync(pidFile)).toBe(true);
       const pidData = JSON.parse(fs.readFileSync(pidFile, "utf-8"));
       expect(pidData.pid).toBe(process.pid);
-      expect(pidData.graphsDir).toBe(persistDir);
+      expect(pidData.graphsDirs).toEqual([persistDir]);
 
       // Info messages should have been written
       expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Freelance daemon listening"));

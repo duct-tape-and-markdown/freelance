@@ -373,7 +373,7 @@ function parse(result: Awaited<ReturnType<Client["callTool"]>>): any {
 
 async function setupMcp(...files: string[]) {
   const graphs = loadFixtures(...files);
-  const server = createServer(graphs);
+  const { server } = createServer(graphs);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "1.0.0" });
   await server.connect(serverTransport);

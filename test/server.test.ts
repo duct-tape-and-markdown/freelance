@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
@@ -10,11 +10,15 @@ import type { ValidatedGraph } from "../src/types.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
-function loadFixtures(...files: string[]): Map<string, ValidatedGraph> {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "server-test-"));
+function copyFixtures(tmpDir: string, ...files: string[]): void {
   for (const f of files) {
     fs.copyFileSync(path.join(FIXTURES_DIR, f), path.join(tmpDir, f));
   }
+}
+
+function loadFixtures(...files: string[]): Map<string, ValidatedGraph> {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "server-test-"));
+  copyFixtures(tmpDir, ...files);
   return loadGraphs(tmpDir);
 }
 
@@ -29,7 +33,7 @@ describe("MCP server integration", () => {
 
   beforeEach(async () => {
     const graphs = loadFixtures("valid-simple.graph.yaml", "valid-branching.graph.yaml");
-    const server = createServer(graphs);
+    const { server } = createServer(graphs);
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
     client = new Client({ name: "test-client", version: "1.0.0" });
@@ -268,5 +272,95 @@ describe("MCP server integration", () => {
       });
       expect(startResult.isError).toBeFalsy();
     });
+  });
+});
+
+describe("MCP server hot-reload", () => {
+  it("picks up new graph files via watcher", async () => {
+    const graphsDir = fs.mkdtempSync(path.join(os.tmpdir(), "server-reload-"));
+    copyFixtures(graphsDir, "valid-simple.graph.yaml");
+    const graphs = loadGraphs(graphsDir);
+
+    const { server, stopWatcher } = createServer(graphs, { graphsDirs: [graphsDir] });
+    expect(stopWatcher).toBeDefined();
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    try {
+      // Initially only one graph
+      const before = parseContent(await client.callTool({ name: "graph_list", arguments: {} })) as {
+        graphs: Array<{ id: string }>;
+      };
+      expect(before.graphs).toHaveLength(1);
+      expect(before.graphs[0].id).toBe("valid-simple");
+
+      // Copy a second graph file into the watched dir
+      copyFixtures(graphsDir, "valid-branching.graph.yaml");
+
+      // Wait for debounce (200ms default) + buffer
+      await new Promise((r) => setTimeout(r, 500));
+
+      // Now graph_list should return both
+      const after = parseContent(await client.callTool({ name: "graph_list", arguments: {} })) as {
+        graphs: Array<{ id: string }>;
+      };
+      expect(after.graphs).toHaveLength(2);
+      const ids = after.graphs.map((g) => g.id).sort();
+      expect(ids).toEqual(["valid-branching", "valid-simple"]);
+    } finally {
+      if (stopWatcher) stopWatcher();
+      await client.close();
+      await server.close();
+      fs.rmSync(graphsDir, { recursive: true, force: true });
+    }
+  });
+
+  it("logs to stderr on reload failure", async () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const graphsDir = fs.mkdtempSync(path.join(os.tmpdir(), "server-reload-err-"));
+    copyFixtures(graphsDir, "valid-simple.graph.yaml");
+    const graphs = loadGraphs(graphsDir);
+
+    const { server, stopWatcher } = createServer(graphs, { graphsDirs: [graphsDir] });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    try {
+      // Break the graph file
+      fs.writeFileSync(path.join(graphsDir, "valid-simple.graph.yaml"), "not: valid: yaml: [[[");
+
+      await new Promise((r) => setTimeout(r, 500));
+
+      // Should have logged the error to stderr
+      const errorLogged = stderrSpy.mock.calls.some(
+        (c) => typeof c[0] === "string" && c[0].includes("Graph reload failed")
+      );
+      expect(errorLogged).toBe(true);
+
+      // Original graph should still be usable
+      const result = await client.callTool({
+        name: "graph_start",
+        arguments: { graphId: "valid-simple" },
+      });
+      expect(result.isError).toBeFalsy();
+    } finally {
+      if (stopWatcher) stopWatcher();
+      await client.close();
+      await server.close();
+      stderrSpy.mockRestore();
+      fs.rmSync(graphsDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not start watcher when graphsDirs is not provided", () => {
+    const graphs = loadFixtures("valid-simple.graph.yaml");
+    const { stopWatcher } = createServer(graphs);
+    expect(stopWatcher).toBeUndefined();
   });
 });

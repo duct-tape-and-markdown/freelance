@@ -34,13 +34,13 @@ describe("writePidFile", () => {
     const data = JSON.parse(fs.readFileSync(result, "utf-8"));
     expect(data.pid).toBe(process.pid);
     expect(data.port).toBe(8080);
-    expect(data.graphsDir).toBeUndefined();
+    expect(data.graphsDirs).toBeUndefined();
   });
 
-  it("includes graphsDir when provided", () => {
-    const result = writePidFile(8080, "/tmp/graphs");
+  it("includes graphsDirs when provided", () => {
+    const result = writePidFile(8080, ["/tmp/graphs"]);
     const data = JSON.parse(fs.readFileSync(result, "utf-8"));
-    expect(data.graphsDir).toBe("/tmp/graphs");
+    expect(data.graphsDirs).toEqual(["/tmp/graphs"]);
   });
 
   it("creates parent directories", () => {

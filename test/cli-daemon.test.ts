@@ -45,13 +45,13 @@ describe("readPidFile", () => {
   it("parses valid PID file with pid and port", () => {
     fs.writeFileSync(pidFilePath, JSON.stringify({ pid: 1234, port: 7433 }));
     const result = readPidFile();
-    expect(result).toEqual({ pid: 1234, port: 7433, graphsDir: undefined });
+    expect(result).toEqual({ pid: 1234, port: 7433, graphsDirs: undefined });
   });
 
-  it("parses valid PID file with graphsDir", () => {
-    fs.writeFileSync(pidFilePath, JSON.stringify({ pid: 1234, port: 7433, graphsDir: "/tmp/graphs" }));
+  it("parses valid PID file with graphsDirs", () => {
+    fs.writeFileSync(pidFilePath, JSON.stringify({ pid: 1234, port: 7433, graphsDirs: ["/tmp/graphs"] }));
     const result = readPidFile();
-    expect(result).toEqual({ pid: 1234, port: 7433, graphsDir: "/tmp/graphs" });
+    expect(result).toEqual({ pid: 1234, port: 7433, graphsDirs: ["/tmp/graphs"] });
   });
 
   it("returns null for invalid JSON", () => {
@@ -69,7 +69,7 @@ describe("checkRunningDaemon", () => {
     // Use our own PID — we know it's alive
     fs.writeFileSync(pidFilePath, JSON.stringify({ pid: process.pid, port: 7433 }));
     const result = checkRunningDaemon();
-    expect(result).toEqual({ pid: process.pid, port: 7433, graphsDir: undefined });
+    expect(result).toEqual({ pid: process.pid, port: 7433, graphsDirs: undefined });
   });
 
   it("cleans up stale PID file when process is dead", () => {
@@ -145,13 +145,13 @@ describe("daemonStatus", () => {
   });
 
   it("reports running when process is alive (text mode)", () => {
-    fs.writeFileSync(pidFilePath, JSON.stringify({ pid: process.pid, port: 7433, graphsDir: "/tmp/g" }));
+    fs.writeFileSync(pidFilePath, JSON.stringify({ pid: process.pid, port: 7433, graphsDirs: ["/tmp/g"] }));
     daemonStatus();
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining(`PID ${process.pid}`));
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Graphs: /tmp/g"));
   });
 
-  it("reports running without graphsDir line when not set", () => {
+  it("reports running without graphsDirs line when not set", () => {
     fs.writeFileSync(pidFilePath, JSON.stringify({ pid: process.pid, port: 7433 }));
     daemonStatus();
     const output = stderrSpy.mock.calls.map((c) => c[0]).join("");
@@ -161,10 +161,10 @@ describe("daemonStatus", () => {
 
   it("reports running in json mode", () => {
     setCli({ json: true });
-    fs.writeFileSync(pidFilePath, JSON.stringify({ pid: process.pid, port: 7433, graphsDir: "/tmp/g" }));
+    fs.writeFileSync(pidFilePath, JSON.stringify({ pid: process.pid, port: 7433, graphsDirs: ["/tmp/g"] }));
     daemonStatus();
     const output = stdoutSpy.mock.calls.map((c) => c[0]).join("");
-    expect(JSON.parse(output)).toEqual({ running: true, pid: process.pid, port: 7433, graphsDir: "/tmp/g" });
+    expect(JSON.parse(output)).toEqual({ running: true, pid: process.pid, port: 7433, graphsDirs: ["/tmp/g"] });
   });
 
   it("reports stale PID in text mode", () => {
