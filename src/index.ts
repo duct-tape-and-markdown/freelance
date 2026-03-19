@@ -2,7 +2,6 @@
 import path from "node:path";
 import fs from "node:fs";
 import { Command, Option } from "commander";
-import { loadGraphs, loadGraphsLayered } from "./loader.js";
 import { startServer } from "./server.js";
 import { startDaemon } from "./daemon.js";
 import { startProxy } from "./proxy.js";
@@ -13,74 +12,7 @@ import { daemonStop, daemonStatus, checkRunningDaemon } from "./cli/daemon.js";
 import { parseDaemonConnect, traversalsList, traversalsInspect, traversalsReset } from "./cli/traversals.js";
 import { VERSION } from "./version.js";
 import { TRAVERSALS_DIR, DEFAULT_PORT } from "./paths.js";
-
-/**
- * Resolve graph directories in precedence order:
- * 1. Environment variable (colon-separated on Unix, semicolon on Windows)
- * 2. Project-level: ./.freelance/graphs (if exists)
- * 3. User-level: ~/.freelance/graphs (if exists)
- */
-function resolveDefaultGraphsDirs(): string[] {
-  // Parse environment variable
-  const envValue = process.env.FREELANCE_GRAPHS_DIR?.trim();
-  if (envValue) {
-    return envValue.split(path.delimiter);
-  }
-
-  const dirs: string[] = [];
-
-  // Project-level (highest priority)
-  const projectGraphs = path.resolve(".freelance", "graphs");
-  if (fs.existsSync(projectGraphs)) {
-    dirs.push(projectGraphs);
-  }
-
-  // User-level
-  const userHome = process.env.HOME || process.env.USERPROFILE || "~";
-  const userGraphs = path.resolve(userHome, ".freelance", "graphs");
-  if (fs.existsSync(userGraphs)) {
-    dirs.push(userGraphs);
-  }
-
-  return dirs;
-}
-
-/**
- * Parse CLI --graphs options (repeatable) and merge with defaults.
- * Returns array of resolved directory paths.
- */
-function resolveGraphsDirs(cliGraphs?: string | string[] | null): string[] {
-  if (cliGraphs && (Array.isArray(cliGraphs) ? cliGraphs.length > 0 : true)) {
-    // CLI value provided: use it, don't apply defaults
-    const dirs = Array.isArray(cliGraphs) ? cliGraphs : [cliGraphs];
-    return dirs.map((d) => path.resolve(d));
-  }
-
-  return resolveDefaultGraphsDirs();
-}
-
-function loadGraphsOrFatal(graphsDirs?: string | string[] | null) {
-  const dirs = resolveGraphsDirs(graphsDirs);
-
-  if (dirs.length === 0) {
-    fatal(
-      "No graph directories found or provided.\n\n" +
-        "Specify with: --graphs <directory>\n" +
-        "Or set: FREELANCE_GRAPHS_DIR=dir1:dir2\n" +
-        "Or create: ./.freelance/graphs/ or ~/.freelance/graphs/",
-      EXIT.INVALID_USAGE
-    );
-  }
-
-  try {
-    return dirs.length === 1 ? loadGraphs(dirs[0]) : loadGraphsLayered(dirs);
-  } catch (err) {
-    fatal(
-      `Graph loading failed: ${err instanceof Error ? err.message : err}`,
-      EXIT.GRAPH_ERROR
-    );
-  }
-}
+import { resolveGraphsDirs, loadGraphsOrFatal } from "./graph-resolution.js";
 
 // --- Program setup ---
 
@@ -302,4 +234,11 @@ program
     process.stdout.write(fs.readFileSync(completionFile, "utf-8"));
   });
 
-program.parse();
+export { program };
+
+// Only parse when run directly (not when imported in tests)
+const isMain = process.argv[1] && (
+  import.meta.url.endsWith(process.argv[1].replace(/.*[/\\]/, "")) ||
+  import.meta.url === `file://${process.argv[1]}`
+);
+if (isMain) program.parse();
