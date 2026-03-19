@@ -1,0 +1,18 @@
+id: invalid-bad-startnode
+version: "1.0.0"
+name: "Invalid Start Node"
+description: "startNode references non-existent node"
+startNode: nonexistent
+
+nodes:
+  start:
+    type: action
+    description: "Start"
+    instructions: "test"
+    edges:
+      - target: done
+        label: ok
+
+  done:
+    type: terminal
+    description: "End"

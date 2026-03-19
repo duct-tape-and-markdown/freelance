@@ -1,0 +1,23 @@
+id: invalid-returns-overlap
+version: "1.0.0"
+name: "Invalid Returns Overlap"
+description: "Returns key in both required and optional"
+startNode: start
+
+nodes:
+  start:
+    type: action
+    description: "Start"
+    instructions: "test"
+    returns:
+      required:
+        result: { type: string }
+      optional:
+        result: { type: number }
+    edges:
+      - target: done
+        label: ok
+
+  done:
+    type: terminal
+    description: "End"

@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18, 20, 22]
+        node-version: [20, 22, 24]
 
     steps:
       - uses: actions/checkout@v4
@@ -25,10 +25,16 @@ jobs:
 
       - run: npm run build
 
-      - run: npm test
-
-      - name: Validate example graphs
-        run: node dist/index.js validate ./graphs/
+      - name: Test with coverage
+        run: npx vitest run --coverage --coverage.reporter=text --coverage.thresholds.lines=90
 
       - name: Validate test fixtures
         run: node dist/index.js validate ./test/fixtures-valid/
+
+      - name: CLI smoke test
+        run: |
+          node dist/index.js --help
+          node dist/index.js visualize ./test/fixtures-valid/valid-simple.graph.yaml --format mermaid
+
+      - name: Package dry-run
+        run: npm pack --dry-run

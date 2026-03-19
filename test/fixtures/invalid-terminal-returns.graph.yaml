@@ -1,0 +1,21 @@
+id: invalid-terminal-returns
+version: "1.0.0"
+name: "Invalid Terminal Returns"
+description: "Terminal node with returns schema"
+startNode: start
+
+nodes:
+  start:
+    type: action
+    description: "Start"
+    instructions: "test"
+    edges:
+      - target: done
+        label: ok
+
+  done:
+    type: terminal
+    description: "End"
+    returns:
+      required:
+        result: { type: string }

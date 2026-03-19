@@ -1,0 +1,21 @@
+id: invalid-bad-expression
+version: "1.0.0"
+name: "Invalid Expression"
+description: "Has a malformed validation expression"
+startNode: start
+
+nodes:
+  start:
+    type: gate
+    description: "Gate with bad expression"
+    instructions: "test"
+    validations:
+      - expr: "context.foo %%% bar"
+        message: "Bad expression"
+    edges:
+      - target: done
+        label: ok
+
+  done:
+    type: terminal
+    description: "End"

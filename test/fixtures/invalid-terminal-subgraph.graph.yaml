@@ -1,0 +1,20 @@
+id: invalid-terminal-subgraph
+version: "1.0.0"
+name: "Invalid Terminal Subgraph"
+description: "Terminal node with subgraph"
+startNode: start
+
+nodes:
+  start:
+    type: action
+    description: "Start"
+    instructions: "test"
+    edges:
+      - target: done
+        label: ok
+
+  done:
+    type: terminal
+    description: "End"
+    subgraph:
+      graphId: "some-graph"

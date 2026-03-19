@@ -1,0 +1,15 @@
+id: invalid-no-edges
+version: "1.0.0"
+name: "Invalid No Edges"
+description: "Non-terminal node without edges"
+startNode: start
+
+nodes:
+  start:
+    type: action
+    description: "Action with no edges"
+    instructions: "test"
+
+  done:
+    type: terminal
+    description: "End"
