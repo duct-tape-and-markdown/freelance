@@ -5,7 +5,7 @@ import { getPidFilePath } from "../paths.js";
 export interface PidFileData {
   pid: number;
   port: number;
-  graphsDir?: string;
+  graphsDirs?: string[];
 }
 
 export function readPidFile(): PidFileData | null {
@@ -14,7 +14,7 @@ export function readPidFile(): PidFileData | null {
   const raw = fs.readFileSync(pidFile, "utf-8").trim();
   try {
     const data = JSON.parse(raw) as PidFileData;
-    return { pid: data.pid, port: data.port, graphsDir: data.graphsDir };
+    return { pid: data.pid, port: data.port, graphsDirs: data.graphsDirs };
   } catch {
     return null;
   }
@@ -80,14 +80,14 @@ export function daemonStatus(): void {
     return;
   }
 
-  const { pid, port, graphsDir } = pidInfo;
+  const { pid, port, graphsDirs } = pidInfo;
   try {
     process.kill(pid, 0);
     if (cli.json) {
-      outputJson({ running: true, pid, port, graphsDir });
+      outputJson({ running: true, pid, port, graphsDirs });
     } else {
       let msg = `Daemon: running (PID ${pid}, port ${port})`;
-      if (graphsDir) msg += `\n  Graphs: ${graphsDir}`;
+      if (graphsDirs?.length) msg += `\n  Graphs: ${graphsDirs.join(", ")}`;
       info(msg);
     }
   } catch {

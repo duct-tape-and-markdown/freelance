@@ -116,7 +116,7 @@ program
       const graphs = loadGraphsOrFatal(opts.graphs);
       const dirs = resolveGraphsDirs(opts.graphs);
       info(`Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}`);
-      await startServer(graphs, { maxDepth });
+      await startServer(graphs, { maxDepth, graphsDirs: dirs });
     }
   });
 
@@ -154,7 +154,7 @@ daemonCmd
     const graphs = loadGraphsOrFatal(opts.graphs);
     const graphsDirs = resolveGraphsDirs(opts.graphs);
     info(`Freelance daemon: loaded ${graphs.size} graph(s) from ${graphsDirs.length} directory(ies)`);
-    await startDaemon(graphs, { port, host: "127.0.0.1", persistDir, maxDepth, graphsDir: graphsDirs.join(path.delimiter) });
+    await startDaemon(graphs, { port, host: "127.0.0.1", persistDir, maxDepth, graphsDirs });
   });
 
 daemonCmd

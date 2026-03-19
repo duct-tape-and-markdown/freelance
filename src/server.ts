@@ -5,6 +5,7 @@ import { TraversalManager } from "./traversal-manager.js";
 import { EngineError } from "./errors.js";
 import { VERSION } from "./version.js";
 import { getGuide } from "./guide.js";
+import { watchGraphs } from "./watcher.js";
 import type { ValidatedGraph } from "./types.js";
 
 function jsonResponse(result: unknown) {
@@ -30,11 +31,26 @@ function handleError(e: unknown) {
   return errorResponse(`Internal error: ${message}`);
 }
 
+export interface ServerOptions {
+  maxDepth?: number;
+  persistDir?: string;
+  graphsDirs?: string[];
+}
+
 export function createServer(
   graphs: Map<string, ValidatedGraph>,
-  options?: { maxDepth?: number; persistDir?: string }
-): McpServer {
+  options?: ServerOptions
+): { server: McpServer; stopWatcher?: () => void } {
   const manager = new TraversalManager(graphs, options);
+
+  let stopWatcher: (() => void) | undefined;
+  if (options?.graphsDirs?.length) {
+    stopWatcher = watchGraphs({
+      graphsDir: options.graphsDirs,
+      onUpdate: (newGraphs) => manager.updateGraphs(newGraphs),
+      onError: (err) => { process.stderr.write(`Graph reload failed: ${err.message}\n`); },
+    });
+  }
 
   const server = new McpServer(
     { name: "freelance", version: VERSION },
@@ -167,18 +183,19 @@ export function createServer(
     }
   );
 
-  return server;
+  return { server, stopWatcher };
 }
 
 export async function startServer(
   graphs: Map<string, ValidatedGraph>,
-  options?: { maxDepth?: number; persistDir?: string }
+  options?: ServerOptions
 ): Promise<void> {
-  const server = createServer(graphs, options);
+  const { server, stopWatcher } = createServer(graphs, options);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
   const shutdown = async () => {
+    if (stopWatcher) stopWatcher();
     await server.close();
     process.exit(0);
   };

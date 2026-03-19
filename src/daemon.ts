@@ -14,7 +14,7 @@ interface DaemonOptions {
   host: string;
   persistDir: string;
   maxDepth?: number;
-  graphsDir?: string;
+  graphsDirs?: string[];
 }
 
 async function readBody(req: http.IncomingMessage): Promise<string> {
@@ -44,11 +44,11 @@ export function createDaemon(
     persistDir: options.persistDir,
   });
 
-  // Start file watcher if graphsDir provided
+  // Start file watcher if graphsDirs provided
   let stopWatcher: (() => void) | undefined;
-  if (options.graphsDir) {
+  if (options.graphsDirs?.length) {
     stopWatcher = watchGraphs({
-      graphsDir: options.graphsDir,
+      graphsDir: options.graphsDirs,
       onUpdate: (newGraphs) => {
         manager.updateGraphs(newGraphs);
         const ids = [...newGraphs.keys()];
@@ -161,11 +161,11 @@ export function createDaemon(
   return { server, manager, stopWatcher };
 }
 
-export function writePidFile(port: number, graphsDir?: string): string {
+export function writePidFile(port: number, graphsDirs?: string[]): string {
   const pidFile = getPidFilePath();
   fs.mkdirSync(path.dirname(pidFile), { recursive: true });
   const pidData: Record<string, unknown> = { pid: process.pid, port };
-  if (graphsDir) pidData.graphsDir = graphsDir;
+  if (graphsDirs?.length) pidData.graphsDirs = graphsDirs;
   fs.writeFileSync(pidFile, JSON.stringify(pidData));
   return pidFile;
 }
@@ -192,15 +192,15 @@ export async function startDaemon(
   options: DaemonOptions
 ): Promise<void> {
   const { server, stopWatcher } = createDaemon(graphs, options);
-  const pidFile = writePidFile(options.port, options.graphsDir);
+  const pidFile = writePidFile(options.port, options.graphsDirs);
 
   return new Promise<void>((_, reject) => {
     server.listen(options.port, options.host, () => {
       info(`Freelance daemon listening on ${options.host}:${options.port}`);
       info(`PID: ${process.pid}`);
       info(`Persistence: ${options.persistDir}`);
-      if (options.graphsDir) {
-        info(`Watching: ${options.graphsDir}`);
+      if (options.graphsDirs?.length) {
+        info(`Watching: ${options.graphsDirs.join(", ")}`);
       }
     });
 

@@ -30,7 +30,7 @@ async function setup() {
     "data-pipeline.graph.yaml",
     "change-request.graph.yaml"
   );
-  const server = createServer(graphs);
+  const { server } = createServer(graphs);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "1.0.0" });
   await server.connect(serverTransport);
