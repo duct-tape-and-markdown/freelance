@@ -68,10 +68,10 @@ function writeJsonFile(filePath: string, data: McpConfig): void {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n");
 }
 
-function getMcpEntry(graphsPath: string): Record<string, unknown> {
+function getMcpEntry(): Record<string, unknown> {
   return {
     command: "npx",
-    args: ["-y", "freelance@latest", "mcp", "--graphs", graphsPath],
+    args: ["-y", "freelance@latest", "mcp"],
   };
 }
 
@@ -107,7 +107,6 @@ function getConfigPath(client: Client, scope: Scope): string {
 function writeClientConfig(
   client: Client,
   scope: Scope,
-  graphsPath: string
 ): string | null {
   if (client === "manual") return null;
 
@@ -118,7 +117,7 @@ function writeClientConfig(
   if (!config.mcpServers) config.mcpServers = {};
 
   const servers = config.mcpServers as Record<string, unknown>;
-  servers.freelance = getMcpEntry(graphsPath);
+  servers.freelance = getMcpEntry();
   writeJsonFile(configPath, config);
   return configPath;
 }
@@ -204,8 +203,8 @@ function wouldAppendClaudeMd(): boolean {
 
 // --- Main init ---
 
-function printManualConfig(graphsPath: string): void {
-  const entry = getMcpEntry(graphsPath);
+function printManualConfig(): void {
+  const entry = getMcpEntry();
   info("\nAdd this to your MCP client configuration:\n");
   process.stdout.write(JSON.stringify({ mcpServers: { freelance: entry } }, null, 2) + "\n");
 }
@@ -228,8 +227,8 @@ export async function init(options: InitOptions): Promise<void> {
     graphsDir = path.resolve(".freelance", "graphs");
   }
 
-  // The path to use in MCP config (relative for local/project, absolute for user)
-  const graphsConfigPath =
+  // Display-friendly path (relative for project scope, absolute for user scope)
+  const graphsDisplayPath =
     scope === "user"
       ? graphsDir
       : `./${path.relative(process.cwd(), graphsDir).replace(/\\/g, "/")}`;
@@ -244,14 +243,14 @@ export async function init(options: InitOptions): Promise<void> {
 
   // 1. Graphs directory
   if (!fs.existsSync(graphsDir)) {
-    actions.push({ verb: "create", target: `${graphsConfigPath}/` });
+    actions.push({ verb: "create", target: `${graphsDisplayPath}/` });
   }
 
   // 2. Starter graph
   if (starter !== "none") {
     const destFile = path.join(graphsDir, `${starter}.graph.yaml`);
     if (!fs.existsSync(destFile)) {
-      actions.push({ verb: "create", target: `${graphsConfigPath}/${starter}.graph.yaml` });
+      actions.push({ verb: "create", target: `${graphsDisplayPath}/${starter}.graph.yaml` });
     } else {
       actions.push({ verb: "skip", target: `${starter}.graph.yaml`, detail: "already exists" });
     }
@@ -319,7 +318,7 @@ export async function init(options: InitOptions): Promise<void> {
   // 1. Create graphs directory
   if (!fs.existsSync(graphsDir)) {
     fs.mkdirSync(graphsDir, { recursive: true });
-    results.push(`Created ${graphsConfigPath}/`);
+    results.push(`Created ${graphsDisplayPath}/`);
     filesCreated.push(graphsDir);
   }
 
@@ -335,7 +334,7 @@ export async function init(options: InitOptions): Promise<void> {
     const destFile = path.join(graphsDir, `${starter}.graph.yaml`);
     if (!fs.existsSync(destFile)) {
       fs.copyFileSync(templateFile, destFile);
-      results.push(`Created ${graphsConfigPath}/${starter}.graph.yaml`);
+      results.push(`Created ${graphsDisplayPath}/${starter}.graph.yaml`);
       filesCreated.push(destFile);
     } else {
       results.push(`Skipped ${starter}.graph.yaml (already exists)`);
@@ -344,9 +343,9 @@ export async function init(options: InitOptions): Promise<void> {
 
   // 3. Write MCP config
   if (client === "manual") {
-    printManualConfig(graphsConfigPath);
+    printManualConfig();
   } else {
-    const configPath = writeClientConfig(client, scope, graphsConfigPath);
+    const configPath = writeClientConfig(client, scope);
     if (configPath) {
       results.push(`Configured MCP server in ${displayPath(configPath)} (${scope} scope)`);
       filesCreated.push(configPath);
@@ -394,7 +393,7 @@ Next steps:
   3. Call graph_list to see available workflows
   4. Call graph_start to begin a workflow
 
-  Run 'freelance validate ${graphsConfigPath}/' to check your graph definitions.
+  Run 'freelance validate ${graphsDisplayPath}/' to check your graph definitions.
 
 Happy building.`);
 }
