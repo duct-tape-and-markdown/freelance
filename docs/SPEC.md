@@ -945,3 +945,30 @@ If the engine proves valuable beyond the team, consider broader distribution.
 4. **Graph hot-reloading.** When a graph definition file changes on disk, in-progress sessions use the stale version (loaded at startup). Per-session state makes this acceptable at small scale. If sessions become very long or graphs change frequently, a `graph_reload` tool or file-watch mechanism could be added.
 
 5. **Human-in-the-loop gates.** Some workflow steps may require human approval. The current spec handles this via context — the agent sets `context.approved = true` after getting human confirmation in the chat. A more robust pattern might involve the engine pausing traversal until an external signal arrives, but this requires an HTTP endpoint or file-watch mechanism, which contradicts the "pure stdio, zero infrastructure" principle. Context-based approval is sufficient for v1.
+
+6. **Parallel branch execution (fork node).** A `fork` node type would allow a node to fan out into multiple concurrent branches that execute independently and rejoin at a gate. Each branch would be a subgraph invocation with isolated context via the existing `contextMap`/`returnMap` machinery. The fork blocks advance on its outgoing edges until all branches reach their terminal nodes, at which point all `returnMap` values merge back into the parent context.
+
+   Proposed schema:
+   ```yaml
+   fan-out:
+     type: fork
+     description: "Run categorize and crossref in parallel"
+     branches:
+       - id: categorize
+         subgraph: categorize-branch
+         contextMap: { concepts: concepts }
+         returnMap: { tags: tags }
+       - id: crossref
+         subgraph: crossref-branch
+         contextMap: { concepts: concepts }
+         returnMap: { crossRefsChecked: crossRefsChecked }
+     edges:
+       - target: store-gate
+         label: branches-complete
+   ```
+
+   The MCP tool `graph_advance` would take an optional `branch` parameter to target a specific branch. `graph_inspect` would show all active branch positions. New statuses: `forked` (entered fork), `branch_advanced` (moved within a branch), `branch_complete` (one branch done, others pending), `fork_complete` (all branches done, fork's outgoing edges available).
+
+   **Why this matters for multi-agent workflows:** When a client can spawn multiple agents per traversal, fork gives the engine the structure to route each agent to a different branch. Each branch has its own sub-stack (supporting nested subgraphs), and context isolation prevents cross-contamination. The join condition is implicit — all branches must reach terminal — so no new expression syntax is needed.
+
+   **Why this is deferred:** With a single sequential agent, fork branches execute via interleaving, not true parallelism. The agent would almost certainly finish one branch before starting the next, which is equivalent to sequential subgraph nodes. The value becomes compelling only when multi-agent orchestration is a real use case. Implementation details are captured in the project's plan archive.

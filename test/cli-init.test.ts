@@ -194,13 +194,13 @@ describe("CLI init", () => {
     await expect(init(defaults())).rejects.toThrow(/invalid JSON/);
   });
 
-  it("MCP config uses relative path for project scope", async () => {
+  it("MCP config omits --graphs (relies on auto-resolution)", async () => {
     await init(defaults());
     const mcpJson = path.join(workDir, ".mcp.json");
     const config = JSON.parse(fs.readFileSync(mcpJson, "utf-8"));
     const args = config.mcpServers.freelance.args as string[];
-    const graphsArg = args[args.indexOf("--graphs") + 1];
-    expect(graphsArg).toBe("./.freelance/graphs");
+    expect(args).not.toContain("--graphs");
+    expect(args).toEqual(["-y", "freelance@latest", "mcp"]);
   });
 
   it("user scope writes config to ~/.claude.json", async () => {
@@ -218,7 +218,7 @@ describe("CLI init", () => {
     }
   });
 
-  it("user scope uses absolute path for graphs dir", async () => {
+  it("user scope MCP config omits --graphs (relies on auto-resolution)", async () => {
     const fakeHome = tmpDir();
     const origHome = process.env.HOME;
     process.env.HOME = fakeHome;
@@ -227,8 +227,8 @@ describe("CLI init", () => {
       const claudeJson = path.join(fakeHome, ".claude.json");
       const config = JSON.parse(fs.readFileSync(claudeJson, "utf-8"));
       const args = config.mcpServers.freelance.args as string[];
-      const graphsArg = args[args.indexOf("--graphs") + 1];
-      expect(path.isAbsolute(graphsArg)).toBe(true);
+      expect(args).not.toContain("--graphs");
+      expect(args).toEqual(["-y", "freelance@latest", "mcp"]);
     } finally {
       process.env.HOME = origHome;
     }
