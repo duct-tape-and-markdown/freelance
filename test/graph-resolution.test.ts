@@ -20,7 +20,7 @@ afterEach(() => {
 
 describe("resolveDefaultGraphsDirs", () => {
   it("parses FREELANCE_GRAPHS_DIR env var", () => {
-    process.env.FREELANCE_GRAPHS_DIR = "/a:/b";
+    process.env.FREELANCE_GRAPHS_DIR = `/a${path.delimiter}/b`;
     expect(resolveDefaultGraphsDirs()).toEqual(["/a", "/b"]);
   });
 
