@@ -24,12 +24,6 @@ Graphs can be loaded from multiple directories in cascading order (later directo
 freelance mcp --graphs ./.freelance/graphs --graphs ~/.freelance/graphs
 ```
 
-**Environment variable** (colon-separated on Unix, semicolon on Windows):
-```bash
-export FREELANCE_GRAPHS_DIR="./graphs:~/.freelance/graphs"
-freelance mcp  # Uses env var
-```
-
 ### Commands
 
 ```bash

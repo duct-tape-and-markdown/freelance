@@ -200,7 +200,7 @@ describe("CLI init", () => {
     const config = JSON.parse(fs.readFileSync(mcpJson, "utf-8"));
     const args = config.mcpServers.freelance.args as string[];
     expect(args).not.toContain("--graphs");
-    expect(args).toEqual(["-y", "freelance@latest", "mcp"]);
+    expect(args).toEqual(["-y", "freelance-mcp@latest", "mcp"]);
   });
 
   it("user scope writes config to ~/.claude.json", async () => {
@@ -228,7 +228,7 @@ describe("CLI init", () => {
       const config = JSON.parse(fs.readFileSync(claudeJson, "utf-8"));
       const args = config.mcpServers.freelance.args as string[];
       expect(args).not.toContain("--graphs");
-      expect(args).toEqual(["-y", "freelance@latest", "mcp"]);
+      expect(args).toEqual(["-y", "freelance-mcp@latest", "mcp"]);
     } finally {
       process.env.HOME = origHome;
     }

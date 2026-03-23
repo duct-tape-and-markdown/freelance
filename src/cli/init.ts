@@ -71,7 +71,7 @@ function writeJsonFile(filePath: string, data: McpConfig): void {
 function getMcpEntry(): Record<string, unknown> {
   return {
     command: "npx",
-    args: ["-y", "freelance@latest", "mcp"],
+    args: ["-y", "freelance-mcp@latest", "mcp"],
   };
 }
 
@@ -130,7 +130,7 @@ This project uses Freelance for workflow enforcement. Call \`graph_list\` to see
 
 // --- SessionStart hook ---
 
-const HOOK_COMMAND = "npx -y freelance@latest inspect --active --oneline";
+const HOOK_COMMAND = "npx -y freelance-mcp@latest inspect --active --oneline";
 
 interface ClaudeSettings {
   hooks?: {
@@ -152,7 +152,7 @@ function writeSessionStartHook(): string | null {
   // Check if hook already exists
   if (settings.hooks?.SessionStart) {
     const existing = JSON.stringify(settings.hooks.SessionStart);
-    if (existing.includes("freelance@latest inspect")) {
+    if (existing.includes("freelance-mcp@latest inspect")) {
       return null; // Already configured
     }
   }
@@ -174,7 +174,7 @@ function wouldWriteSessionStartHook(): boolean {
   if (!fs.existsSync(settingsPath)) return true;
 
   const raw = fs.readFileSync(settingsPath, "utf-8");
-  return !raw.includes("freelance@latest inspect");
+  return !raw.includes("freelance-mcp@latest inspect");
 }
 
 function appendClaudeMd(): boolean {
