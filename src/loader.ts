@@ -1,8 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
-import graphlib from "@dagrejs/graphlib";
-const { Graph, alg } = graphlib;
+import { Graph, alg } from "@dagrejs/graphlib";
 import { graphDefinitionSchema } from "./schema/graph-schema.js";
 import type { GraphDefinition } from "./schema/graph-schema.js";
 import type { ValidatedGraph } from "./types.js";
@@ -249,7 +248,7 @@ function validateExpressions(def: GraphDefinition, filePath: string): void {
   }
 }
 
-function buildAndValidateGraph(def: GraphDefinition, filePath: string): graphlib.Graph {
+function buildAndValidateGraph(def: GraphDefinition, filePath: string): Graph {
   const g = new Graph({ directed: true });
   const nodeIds = Object.keys(def.nodes);
 
@@ -345,7 +344,7 @@ function buildAndValidateGraph(def: GraphDefinition, filePath: string): graphlib
  * Also check self-loops (single-node SCCs with an edge to themselves).
  */
 function validateCycles(
-  g: graphlib.Graph,
+  g: Graph,
   def: GraphDefinition,
   filePath: string
 ): void {
