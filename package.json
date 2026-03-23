@@ -40,7 +40,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@dagrejs/graphlib": "^2.2.4",
+    "@dagrejs/graphlib": "^4.0.1",
     "@inquirer/prompts": "^8.3.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "commander": "^14.0.3",

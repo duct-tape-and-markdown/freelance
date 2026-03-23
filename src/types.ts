@@ -1,4 +1,4 @@
-import type graphlib from "@dagrejs/graphlib";
+import type { Graph } from "@dagrejs/graphlib";
 
 // Re-export schema types — single source of truth in schema/graph-schema.ts
 export type {
@@ -15,7 +15,7 @@ import type { GraphDefinition, NodeDefinition, ReturnSchema } from "./schema/gra
 
 export interface ValidatedGraph {
   readonly definition: GraphDefinition;
-  readonly graph: graphlib.Graph;
+  readonly graph: Graph;
 }
 
 // --- Result types (designed for direct MCP serialization) ---
