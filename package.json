@@ -1,5 +1,5 @@
 {
-  "name": "freelance",
+  "name": "freelance-mcp",
   "version": "1.0.0",
   "type": "module",
   "description": "Graph-based workflow enforcement for AI coding agents",

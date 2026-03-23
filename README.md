@@ -7,23 +7,21 @@ State lives server-side — it can't be compacted away, forgotten, or bypassed. 
 ## Quick Start
 
 ```bash
-# Set up Freelance in your project (creates graphs, configures MCP)
-npx freelance init
+# Clone and install
+git clone https://github.com/Jwcjwc12/freelance.git
+cd freelance
+npm install && npm run build
+npm link
 
-# That's it. Your agent now has access to graph_list, graph_start, etc.
-```
-
-Or install globally:
-
-```bash
-npm install -g freelance
+# Set up Freelance in your project
+cd /path/to/your/project
 freelance init
 ```
 
 ## How It Works
 
 1. Define workflows as directed graphs in YAML (`.graph.yaml` files)
-2. Freelance loads them and exposes 6 MCP tools to the agent
+2. Freelance loads them and exposes 7 MCP tools to the agent
 3. The agent calls `graph_start` to begin a workflow, `graph_advance` to move between nodes
 4. Gate nodes block advancement until conditions are met — quality enforcement without documentation
 5. After context compaction, the agent calls `graph_inspect` and re-orients instantly
@@ -89,17 +87,11 @@ You can also specify directories explicitly:
 freelance mcp --graphs ./my-graphs/
 ```
 
-Or via environment variable (colon-separated on Unix, semicolon on Windows):
-
-```bash
-export FREELANCE_GRAPHS_DIR="./graphs:~/.freelance/graphs"
-```
-
 ## Running Modes
 
 ### Standalone MCP server (stdio)
 
-For single-session use. Process starts with the agent, dies with the agent.
+For single-session use. Process starts with the agent, dies with the agent. Graphs auto-reload when files change.
 
 ```bash
 freelance mcp
@@ -125,44 +117,18 @@ freelance traversals inspect tr_a1b2c3d4
 
 ## MCP Configuration
 
-### Claude Code
+Run `freelance init` to auto-detect your client and generate the config. Supports Claude Code, Cursor, Windsurf, and Cline.
 
-Run `freelance init` in your project, or add manually to `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "freelance": {
-      "command": "npx",
-      "args": ["-y", "freelance", "mcp"]
-    }
-  }
-}
-```
-
-### Cursor
-
-Add to `.cursor/mcp.json`:
+To configure manually, add to your client's MCP config (e.g., `.mcp.json` for Claude Code, `.cursor/mcp.json` for Cursor):
 
 ```json
 {
   "mcpServers": {
     "freelance": {
-      "command": "npx",
-      "args": ["-y", "freelance", "mcp"]
+      "command": "freelance",
+      "args": ["mcp"]
     }
   }
-}
-```
-
-### Any MCP client
-
-Any client that supports stdio transport:
-
-```json
-{
-  "command": "npx",
-  "args": ["-y", "freelance", "mcp"]
 }
 ```
 
