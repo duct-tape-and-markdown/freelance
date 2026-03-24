@@ -84,6 +84,40 @@ describe("hashSources", () => {
     expect(result.hash).not.toBe(result.sources[0].hash);
     expect(result.hash).not.toBe(result.sources[1].hash);
   });
+
+  it("combined hash is order-independent", () => {
+    const ab = hashSources([{ path: fileA }, { path: fileB }]);
+    const ba = hashSources([{ path: fileB }, { path: fileA }]);
+    expect(ab.hash).toBe(ba.hash);
+  });
+
+  it("produces stable hashes across CRLF and LF", () => {
+    const crlfFile = path.join(tmpDir, "crlf.md");
+    const lfFile = path.join(tmpDir, "lf.md");
+    fs.writeFileSync(crlfFile, "Line 1\r\nLine 2\r\n");
+    fs.writeFileSync(lfFile, "Line 1\nLine 2\n");
+
+    const crlfHash = hashSource({ path: crlfFile });
+    const lfHash = hashSource({ path: lfFile });
+    expect(crlfHash.hash).toBe(lfHash.hash);
+
+    fs.unlinkSync(crlfFile);
+    fs.unlinkSync(lfFile);
+  });
+
+  it("ignores trailing whitespace differences", () => {
+    const trailingFile = path.join(tmpDir, "trailing.md");
+    const noTrailingFile = path.join(tmpDir, "no-trailing.md");
+    fs.writeFileSync(trailingFile, "Content here\n\n\n");
+    fs.writeFileSync(noTrailingFile, "Content here");
+
+    const h1 = hashSource({ path: trailingFile });
+    const h2 = hashSource({ path: noTrailingFile });
+    expect(h1.hash).toBe(h2.hash);
+
+    fs.unlinkSync(trailingFile);
+    fs.unlinkSync(noTrailingFile);
+  });
 });
 
 describe("checkSources", () => {
@@ -130,6 +164,21 @@ describe("checkSourcesDetailed", () => {
     expect(result.drifted[0].actual).not.toBe(hashed.sources[1].hash);
 
     fs.writeFileSync(fileB, originalContent);
+  });
+
+  it("handles deleted file gracefully", () => {
+    const tempFile = path.join(tmpDir, "to-delete.md");
+    fs.writeFileSync(tempFile, "# Temporary\n\nWill be deleted.\n");
+    const hashed = hashSources([{ path: tempFile }]);
+
+    fs.unlinkSync(tempFile);
+
+    const result = checkSourcesDetailed(hashed.sources);
+    expect(result.valid).toBe(false);
+    expect(result.drifted).toHaveLength(1);
+    expect(result.drifted[0].path).toBe(tempFile);
+    expect(result.drifted[0].actual).toBe("FILE_NOT_FOUND");
+    expect(result.drifted[0].expected).toBe(hashed.sources[0].hash);
   });
 });
 

@@ -78,13 +78,21 @@ export function hashSource(
 
 /**
  * Hash multiple source references and produce a combined hash.
+ * Sources are sorted by path+section before combining to ensure
+ * deterministic hashes regardless of input order.
  */
 export function hashSources(
   sources: SourceRef[],
   resolver?: SectionResolver
 ): SourceHashResult {
   const hashed = sources.map((s) => hashSource(s, resolver));
-  const combinedHash = hashContent(hashed.map((h) => h.hash).join(":"));
+  // Sort by path+section for deterministic combined hash
+  const sorted = [...hashed].sort((a, b) => {
+    const keyA = `${a.path}#${a.section ?? ""}`;
+    const keyB = `${b.path}#${b.section ?? ""}`;
+    return keyA.localeCompare(keyB);
+  });
+  const combinedHash = hashContent(sorted.map((h) => h.hash).join(":"));
   return { hash: combinedHash, sources: hashed };
 }
 
@@ -119,6 +127,7 @@ export function checkSources(
 
 /**
  * Check sources with per-source expected hashes for precise drift detection.
+ * Handles missing files gracefully (reports as drifted with actual: "FILE_NOT_FOUND").
  */
 export function checkSourcesDetailed(
   expectedSources: HashedSource[],
@@ -127,16 +136,26 @@ export function checkSourcesDetailed(
   const drifted: DriftedSource[] = [];
 
   for (const expected of expectedSources) {
-    const current = hashSource(
-      { path: expected.path, section: expected.section },
-      resolver
-    );
-    if (current.hash !== expected.hash) {
+    try {
+      const current = hashSource(
+        { path: expected.path, section: expected.section },
+        resolver
+      );
+      if (current.hash !== expected.hash) {
+        drifted.push({
+          path: expected.path,
+          section: expected.section,
+          expected: expected.hash,
+          actual: current.hash,
+        });
+      }
+    } catch {
+      // File not found or unreadable — report as drifted
       drifted.push({
         path: expected.path,
         section: expected.section,
         expected: expected.hash,
-        actual: current.hash,
+        actual: "FILE_NOT_FOUND",
       });
     }
   }
@@ -190,10 +209,18 @@ function resolveContent(source: SourceRef, resolver?: SectionResolver): string {
   return fs.readFileSync(source.path, "utf-8");
 }
 
+/**
+ * Normalize content before hashing: convert CRLF to LF, trim trailing whitespace.
+ * This ensures stable hashes across platforms and minor whitespace edits.
+ */
+function normalizeContent(content: string): string {
+  return content.replace(/\r\n/g, "\n").trimEnd();
+}
+
 function hashContent(content: string): string {
   return crypto
     .createHash("sha256")
-    .update(content)
+    .update(normalizeContent(content))
     .digest("hex")
     .substring(0, 16);
 }
