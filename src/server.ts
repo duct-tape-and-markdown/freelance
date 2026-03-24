@@ -6,6 +6,8 @@ import { EngineError } from "./errors.js";
 import { VERSION } from "./version.js";
 import { getGuide } from "./guide.js";
 import { watchGraphs } from "./watcher.js";
+import { hashSources, checkSourcesDetailed, validateGraphSources } from "./sources.js";
+import type { SourceRef, SectionResolver } from "./sources.js";
 import type { ValidatedGraph } from "./types.js";
 
 function jsonResponse(result: unknown) {
@@ -35,6 +37,7 @@ export interface ServerOptions {
   maxDepth?: number;
   persistDir?: string;
   graphsDirs?: string[];
+  sectionResolver?: SectionResolver;
 }
 
 export function createServer(
@@ -80,7 +83,24 @@ export function createServer(
     },
     ({ graphId, initialContext }) => {
       try {
-        return jsonResponse(manager.createTraversal(graphId, initialContext));
+        const result = manager.createTraversal(graphId, initialContext);
+
+        // Check source bindings for drift (informational only)
+        const graph = graphs.get(graphId);
+        if (graph) {
+          const sourceCheck = validateGraphSources(
+            graph.definition,
+            options?.sectionResolver
+          );
+          if (!sourceCheck.valid) {
+            return jsonResponse({
+              ...result,
+              sourceWarnings: sourceCheck.warnings,
+            });
+          }
+        }
+
+        return jsonResponse(result);
       } catch (e) {
         return handleError(e);
       }
@@ -180,6 +200,47 @@ export function createServer(
         return errorResponse(result.error);
       }
       return jsonResponse(result);
+    }
+  );
+
+  // graph_sources_hash
+  server.tool(
+    "graph_sources_hash",
+    "Hash one or more source locations for provenance stamping. Used when authoring graphs with source bindings. If section is provided and a section resolver is configured, hashes only that section's content; otherwise hashes the entire file.",
+    {
+      sources: z.array(z.object({
+        path: z.string().min(1),
+        section: z.string().optional(),
+      })),
+    },
+    ({ sources }) => {
+      try {
+        const result = hashSources(sources as SourceRef[], options?.sectionResolver);
+        return jsonResponse(result);
+      } catch (e) {
+        return handleError(e);
+      }
+    }
+  );
+
+  // graph_sources_check
+  server.tool(
+    "graph_sources_check",
+    "Validate previously stamped source hashes against current file state. Returns which sources have drifted since the graph was authored.",
+    {
+      sources: z.array(z.object({
+        path: z.string().min(1),
+        section: z.string().optional(),
+        hash: z.string().min(1),
+      })),
+    },
+    ({ sources }) => {
+      try {
+        const result = checkSourcesDetailed(sources, options?.sectionResolver);
+        return jsonResponse(result);
+      } catch (e) {
+        return handleError(e);
+      }
     }
   );
 

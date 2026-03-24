@@ -74,8 +74,9 @@ program
 program
   .command("validate <directory>")
   .description("Validate graph definitions")
-  .action((directory) => {
-    validate(directory);
+  .option("--sources", "Also validate source bindings for drift")
+  .action((directory, opts) => {
+    validate(directory, { checkSources: opts.sources });
   });
 
 // --- visualize ---

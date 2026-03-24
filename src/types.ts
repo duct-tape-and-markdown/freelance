@@ -8,6 +8,7 @@ export type {
   ReturnField,
   ReturnSchema,
   WaitOnEntry,
+  SourceBinding,
   NodeDefinition,
   GraphDefinition,
 } from "./schema/graph-schema.js";

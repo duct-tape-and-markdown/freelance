@@ -55,7 +55,7 @@ describe("program commands", () => {
   it("validate command calls validate function", async () => {
     const { validate } = await import("../src/cli/validate.js");
     await program.parseAsync(["node", "freelance", "validate", "/tmp/test"]);
-    expect(validate).toHaveBeenCalledWith("/tmp/test");
+    expect(validate).toHaveBeenCalledWith("/tmp/test", { checkSources: undefined });
   });
 
   it("visualize command calls visualize function", async () => {
