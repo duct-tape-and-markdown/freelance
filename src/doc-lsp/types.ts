@@ -16,7 +16,6 @@ export interface CorpusConfig {
   readonly root: string;
   readonly patterns: Record<string, string>; // name → regex string
   readonly frontMatter: boolean;
-  readonly format?: "markdown" | "json";
 }
 
 export interface DocLspConfig {

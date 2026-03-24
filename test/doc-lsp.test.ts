@@ -307,11 +307,9 @@ describe("DocLspTools", () => {
       expect(result!.ids).toBeGreaterThan(0);
     });
 
-    it("returns null for empty corpus", () => {
+    it("returns null for unknown corpus", () => {
       const result = tools.coverage("nonexistent-corpus");
-      // Returns results from all corpora as fallback, or null if truly empty
-      // Since we have docs, it'll return something
-      expect(result).toBeTruthy();
+      expect(result).toBeNull();
     });
   });
 });

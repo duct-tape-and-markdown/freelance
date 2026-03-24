@@ -8,9 +8,13 @@
  * hashing.
  */
 
-import crypto from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 import type { GraphDefinition } from "./schema/graph-schema.js";
+import { hashContent } from "./doc-lsp/hash.js";
+
+// Re-export for consumers
+export { hashContent } from "./doc-lsp/hash.js";
 
 // --- Types ---
 
@@ -52,6 +56,13 @@ export interface SourceValidationResult {
   warnings: NodeSourceWarning[];
 }
 
+export interface SourceOptions {
+  /** Resolver for extracting section content (typically from Doc LSP). */
+  resolver?: SectionResolver;
+  /** Base directory for resolving relative source paths. [O-4] */
+  basePath?: string;
+}
+
 /**
  * Resolve section content from a file.
  * If provided, the sectionResolver extracts section content (typically from the Doc LSP).
@@ -65,13 +76,24 @@ export type SectionResolver = (
 // --- Hashing ---
 
 /**
+ * Resolve a source path to an absolute path using basePath if provided. [O-4]
+ */
+function resolveSourcePath(sourcePath: string, basePath?: string): string {
+  if (path.isAbsolute(sourcePath)) return sourcePath;
+  if (basePath) return path.resolve(basePath, sourcePath);
+  return path.resolve(sourcePath);
+}
+
+/**
  * Hash the content of a single source reference.
  */
 export function hashSource(
   source: SourceRef,
-  resolver?: SectionResolver
+  resolverOrOptions?: SectionResolver | SourceOptions
 ): HashedSource {
-  const content = resolveContent(source, resolver);
+  const opts = normalizeOptions(resolverOrOptions);
+  const resolvedPath = resolveSourcePath(source.path, opts.basePath);
+  const content = resolveContent(resolvedPath, source.section, opts.resolver);
   const hash = hashContent(content);
   return { path: source.path, section: source.section, hash };
 }
@@ -83,9 +105,13 @@ export function hashSource(
  */
 export function hashSources(
   sources: SourceRef[],
-  resolver?: SectionResolver
+  resolverOrOptions?: SectionResolver | SourceOptions
 ): SourceHashResult {
-  const hashed = sources.map((s) => hashSource(s, resolver));
+  if (sources.length === 0) {
+    return { hash: hashContent(""), sources: [] };
+  }
+  const opts = normalizeOptions(resolverOrOptions);
+  const hashed = sources.map((s) => hashSource(s, opts));
   // Sort by path+section for deterministic combined hash
   const sorted = [...hashed].sort((a, b) => {
     const keyA = `${a.path}#${a.section ?? ""}`;
@@ -97,49 +123,24 @@ export function hashSources(
 }
 
 /**
- * Check whether a previously stamped hash still matches current source state.
- */
-export function checkSources(
-  expectedHash: string,
-  sources: SourceRef[],
-  resolver?: SectionResolver
-): SourceCheckResult {
-  const current = hashSources(sources, resolver);
-  if (current.hash === expectedHash) {
-    return { valid: true, drifted: [] };
-  }
-
-  // Find which individual sources drifted
-  const drifted: DriftedSource[] = [];
-
-  // Re-hash each source individually to find drift
-  // We need the original per-source hashes to compare.
-  // If the caller stored per-source hashes, they can use checkSourcesDetailed.
-  // For the combined hash check, we just report all sources as potentially drifted.
-  // This is conservative but correct.
-  return { valid: false, drifted: current.sources.map((s) => ({
-    path: s.path,
-    section: s.section,
-    expected: "unknown",
-    actual: s.hash,
-  })) };
-}
-
-/**
  * Check sources with per-source expected hashes for precise drift detection.
  * Handles missing files gracefully (reports as drifted with actual: "FILE_NOT_FOUND").
  */
 export function checkSourcesDetailed(
   expectedSources: HashedSource[],
-  resolver?: SectionResolver
+  resolverOrOptions?: SectionResolver | SourceOptions
 ): SourceCheckResult {
+  if (expectedSources.length === 0) {
+    return { valid: true, drifted: [] };
+  }
+  const opts = normalizeOptions(resolverOrOptions);
   const drifted: DriftedSource[] = [];
 
   for (const expected of expectedSources) {
     try {
       const current = hashSource(
         { path: expected.path, section: expected.section },
-        resolver
+        opts
       );
       if (current.hash !== expected.hash) {
         drifted.push({
@@ -166,20 +167,19 @@ export function checkSourcesDetailed(
 /**
  * Validate all source bindings across a graph definition.
  * Returns warnings for any nodes with drifted sources.
+ * Source paths resolve relative to basePath (typically the graph file's directory). [O-4]
  */
 export function validateGraphSources(
   definition: GraphDefinition,
-  resolver?: SectionResolver
+  resolverOrOptions?: SectionResolver | SourceOptions
 ): SourceValidationResult {
+  const opts = normalizeOptions(resolverOrOptions);
   const warnings: NodeSourceWarning[] = [];
 
   for (const [nodeId, node] of Object.entries(definition.nodes)) {
-    const sources = (node as Record<string, unknown>).sources as
-      | Array<{ path: string; section?: string; hash: string }>
-      | undefined;
-    if (!sources || sources.length === 0) continue;
+    if (!node.sources || node.sources.length === 0) continue;
 
-    const result = checkSourcesDetailed(sources, resolver);
+    const result = checkSourcesDetailed(node.sources, opts);
     if (!result.valid) {
       warnings.push({
         node: nodeId,
@@ -196,31 +196,21 @@ export function validateGraphSources(
 
 // --- Private ---
 
-function resolveContent(source: SourceRef, resolver?: SectionResolver): string {
-  if (source.section && resolver) {
-    const sectionContent = resolver(source.path, source.section);
+function normalizeOptions(resolverOrOptions?: SectionResolver | SourceOptions): SourceOptions {
+  if (!resolverOrOptions) return {};
+  if (typeof resolverOrOptions === "function") return { resolver: resolverOrOptions };
+  return resolverOrOptions;
+}
+
+function resolveContent(absolutePath: string, section: string | undefined, resolver?: SectionResolver): string {
+  if (section && resolver) {
+    const sectionContent = resolver(absolutePath, section);
     if (sectionContent !== null) return sectionContent;
   }
 
   // Fall back to whole file
-  if (!fs.existsSync(source.path)) {
-    throw new Error(`Source file not found: ${source.path}`);
+  if (!fs.existsSync(absolutePath)) {
+    throw new Error(`Source file not found: ${absolutePath}`);
   }
-  return fs.readFileSync(source.path, "utf-8");
-}
-
-/**
- * Normalize content before hashing: convert CRLF to LF, trim trailing whitespace.
- * This ensures stable hashes across platforms and minor whitespace edits.
- */
-function normalizeContent(content: string): string {
-  return content.replace(/\r\n/g, "\n").trimEnd();
-}
-
-function hashContent(content: string): string {
-  return crypto
-    .createHash("sha256")
-    .update(normalizeContent(content))
-    .digest("hex")
-    .substring(0, 16);
+  return fs.readFileSync(absolutePath, "utf-8");
 }

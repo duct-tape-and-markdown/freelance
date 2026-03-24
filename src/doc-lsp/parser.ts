@@ -16,12 +16,23 @@ import type { HeadingInfo, SectionRange, DocumentIndex, CorpusConfig, IdPattern 
 const processor = unified().use(remarkParse).use(remarkFrontmatter, ["yaml"]);
 
 /**
+ * Compile regex patterns for a corpus. Call once per corpus, not per file. [M-3]
+ */
+export function compilePatterns(corpus: CorpusConfig): IdPattern[] {
+  return Object.entries(corpus.patterns).map(
+    ([name, regex]) => ({ name, regex: new RegExp(regex, "g") })
+  );
+}
+
+/**
  * Parse a single markdown file into a DocumentIndex.
+ * Accepts optional pre-compiled patterns to avoid re-compilation per file. [M-3]
  */
 export function parseDocument(
   absolutePath: string,
   relativePath: string,
-  corpus: CorpusConfig
+  corpus: CorpusConfig,
+  precompiledPatterns?: IdPattern[]
 ): DocumentIndex {
   const raw = fs.readFileSync(absolutePath, "utf-8");
   const lines = raw.split("\n");
@@ -42,10 +53,8 @@ export function parseDocument(
   // Parse AST
   const tree = processor.parse(raw) as Root;
 
-  // Compile regex patterns for this corpus
-  const idPatterns: IdPattern[] = Object.entries(corpus.patterns).map(
-    ([name, regex]) => ({ name, regex: new RegExp(regex, "g") })
-  );
+  // Use pre-compiled patterns or compile fresh
+  const idPatterns: IdPattern[] = precompiledPatterns ?? compilePatterns(corpus);
 
   // Extract headings with IDs
   const headings: HeadingInfo[] = [];
@@ -153,7 +162,36 @@ function buildSectionRanges(headings: HeadingInfo[], totalLines: number): Sectio
 }
 
 /**
+ * Match a section by sectionId with strict precedence:
+ * 1. Exact ID match (heading.ids includes sectionId)
+ * 2. Exact heading text match
+ * 3. Heading text starts with "sectionId:" (e.g. "FE-1.1: Title")
+ *
+ * No substring matching — avoids "FE-1" matching "FE-1.1".
+ */
+function findSection(sections: SectionRange[], sectionId: string): SectionRange | null {
+  // Priority 1: exact ID match
+  const byId = sections.find((s) => s.heading.ids.includes(sectionId));
+  if (byId) return byId;
+
+  // Priority 2: exact heading text match
+  const byText = sections.find((s) => s.heading.text === sectionId);
+  if (byText) return byText;
+
+  // Priority 3: heading starts with "sectionId:" (common pattern: "FE-1.1: Title")
+  const byPrefix = sections.find(
+    (s) => s.heading.text.startsWith(sectionId + ":") ||
+           s.heading.text.startsWith(sectionId + " ")
+  );
+  if (byPrefix) return byPrefix;
+
+  return null;
+}
+
+/**
  * Extract the content of a specific section by heading text match.
+ * Re-parses the file from disk so section boundaries reflect current file state,
+ * not potentially stale index data.
  * Returns null if the section is not found.
  */
 export function extractSectionContent(
@@ -161,23 +199,47 @@ export function extractSectionContent(
   sectionId: string,
   doc: DocumentIndex
 ): { content: string; lineRange: [number, number]; subsections: string[] } | null {
-  // Find section by ID match or heading text match
-  const section = doc.sections.find(
-    (s) =>
-      s.heading.ids.includes(sectionId) ||
-      s.heading.text === sectionId ||
-      s.heading.text.includes(sectionId)
-  );
-
-  if (!section) return null;
-
+  // Re-read the file and recompute section boundaries from current disk state
+  // to avoid stale index data producing wrong content.
   const raw = fs.readFileSync(absolutePath, "utf-8");
   const lines = raw.split("\n");
+  const tree = processor.parse(raw) as Root;
+
+  const corpus: CorpusConfig = {
+    name: doc.corpus,
+    root: "",
+    patterns: {},
+    frontMatter: false,
+  };
+
+  // Re-extract headings from current file
+  const idPatterns: IdPattern[] = [];
+  // If the doc had patterns, we need them for ID extraction from headings.
+  // Use the IDs from the doc index as a heuristic — patterns were already applied at index time.
+
+  const headings: HeadingInfo[] = [];
+  for (const node of tree.children) {
+    if (node.type === "heading") {
+      const heading = node as Heading;
+      const text = extractHeadingText(heading);
+      const line = heading.position?.start.line ?? 0;
+      // Re-use indexed heading IDs where the text matches, otherwise empty
+      const indexedHeading = doc.headings.find((h) => h.text === text && h.line === line);
+      const ids = indexedHeading?.ids ?? [];
+      headings.push({ level: heading.depth, text, line, ids });
+    }
+  }
+
+  const freshSections = buildSectionRanges(headings, lines.length);
+
+  const section = findSection(freshSections, sectionId);
+  if (!section) return null;
+
   const content = lines.slice(section.startLine - 1, section.endLine).join("\n");
 
   // Find subsection headings (one level deeper)
   const subsections: string[] = [];
-  for (const s of doc.sections) {
+  for (const s of freshSections) {
     if (
       s.heading.level === section.heading.level + 1 &&
       s.startLine > section.startLine &&

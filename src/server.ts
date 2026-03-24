@@ -7,7 +7,7 @@ import { VERSION } from "./version.js";
 import { getGuide } from "./guide.js";
 import { watchGraphs } from "./watcher.js";
 import { hashSources, checkSourcesDetailed, validateGraphSources } from "./sources.js";
-import type { SourceRef, SectionResolver } from "./sources.js";
+import type { SourceRef, SectionResolver, SourceOptions } from "./sources.js";
 import type { ValidatedGraph } from "./types.js";
 
 function jsonResponse(result: unknown) {
@@ -38,6 +38,8 @@ export interface ServerOptions {
   persistDir?: string;
   graphsDirs?: string[];
   sectionResolver?: SectionResolver;
+  /** Check source bindings at graph_start (default: false). Provenance is a build concern. */
+  validateSourcesOnStart?: boolean;
 }
 
 export function createServer(
@@ -85,18 +87,21 @@ export function createServer(
       try {
         const result = manager.createTraversal(graphId, initialContext);
 
-        // Check source bindings for drift (informational only)
-        const graph = graphs.get(graphId);
-        if (graph) {
-          const sourceCheck = validateGraphSources(
-            graph.definition,
-            options?.sectionResolver
-          );
-          if (!sourceCheck.valid) {
-            return jsonResponse({
-              ...result,
-              sourceWarnings: sourceCheck.warnings,
-            });
+        // Source validation at start is opt-in — provenance is a build concern, not runtime [S-5]
+        if (options?.validateSourcesOnStart) {
+          const graph = graphs.get(graphId);
+          if (graph) {
+            const sourceOpts: SourceOptions = { resolver: options.sectionResolver };
+            const sourceCheck = validateGraphSources(
+              graph.definition,
+              sourceOpts
+            );
+            if (!sourceCheck.valid) {
+              return jsonResponse({
+                ...result,
+                sourceWarnings: sourceCheck.warnings,
+              });
+            }
           }
         }
 
@@ -211,11 +216,12 @@ export function createServer(
       sources: z.array(z.object({
         path: z.string().min(1),
         section: z.string().optional(),
-      })),
+      })).min(1),
     },
     ({ sources }) => {
       try {
-        const result = hashSources(sources as SourceRef[], options?.sectionResolver);
+        const sourceOpts: SourceOptions = { resolver: options?.sectionResolver };
+        const result = hashSources(sources as SourceRef[], sourceOpts);
         return jsonResponse(result);
       } catch (e) {
         return handleError(e);
@@ -232,11 +238,12 @@ export function createServer(
         path: z.string().min(1),
         section: z.string().optional(),
         hash: z.string().min(1),
-      })),
+      })).min(1),
     },
     ({ sources }) => {
       try {
-        const result = checkSourcesDetailed(sources, options?.sectionResolver);
+        const sourceOpts: SourceOptions = { resolver: options?.sectionResolver };
+        const result = checkSourcesDetailed(sources, sourceOpts);
         return jsonResponse(result);
       } catch (e) {
         return handleError(e);

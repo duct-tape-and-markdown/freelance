@@ -5,7 +5,6 @@ import os from "node:os";
 import {
   hashSource,
   hashSources,
-  checkSources,
   checkSourcesDetailed,
   validateGraphSources,
 } from "../src/sources.js";
@@ -120,29 +119,6 @@ describe("hashSources", () => {
   });
 });
 
-describe("checkSources", () => {
-  it("returns valid for unchanged sources", () => {
-    const original = hashSources([{ path: fileA }, { path: fileB }]);
-    const result = checkSources(original.hash, [{ path: fileA }, { path: fileB }]);
-    expect(result.valid).toBe(true);
-    expect(result.drifted).toHaveLength(0);
-  });
-
-  it("returns invalid when a source changes", () => {
-    const original = hashSources([{ path: fileA }]);
-    // Modify the file
-    const originalContent = fs.readFileSync(fileA, "utf-8");
-    fs.writeFileSync(fileA, "# Modified\n\nDifferent content.\n");
-
-    const result = checkSources(original.hash, [{ path: fileA }]);
-    expect(result.valid).toBe(false);
-    expect(result.drifted.length).toBeGreaterThan(0);
-
-    // Restore
-    fs.writeFileSync(fileA, originalContent);
-  });
-});
-
 describe("checkSourcesDetailed", () => {
   it("returns valid for unchanged sources", () => {
     const hashed = hashSources([{ path: fileA }, { path: fileB }]);
@@ -206,8 +182,6 @@ describe("validateGraphSources", () => {
   });
 
   it("detects drift in source-bound nodes", () => {
-    const hashed = hashSource({ path: fileA });
-
     const definition = {
       id: "test",
       version: "1.0",

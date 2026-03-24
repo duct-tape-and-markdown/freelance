@@ -7,7 +7,8 @@
 export { DocumentIndexStore } from "./index-builder.js";
 export { DocLspTools } from "./tools.js";
 export { loadConfig } from "./config.js";
-export { parseDocument, extractSectionContent } from "./parser.js";
+export { parseDocument, extractSectionContent, compilePatterns } from "./parser.js";
+export { normalizeContent, hashContent } from "./hash.js";
 export { watchCorpora } from "./watcher.js";
 export { createDocLspServer, startDocLspServer } from "./server.js";
 export type {

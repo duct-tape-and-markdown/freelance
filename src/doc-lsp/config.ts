@@ -74,7 +74,6 @@ function parseConfigFile(filePath: string): DocLspConfig {
         root: resolvedRoot,
         patterns,
         frontMatter: c.front_matter !== false,
-        format: (c.format as CorpusConfig["format"]) ?? "markdown",
       };
     }
   );

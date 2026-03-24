@@ -11,9 +11,9 @@
  * Self-contained — no imports from freelance core.
  */
 
-import crypto from "node:crypto";
 import { DocumentIndexStore } from "./index-builder.js";
 import { extractSectionContent } from "./parser.js";
+import { hashContent } from "./hash.js";
 import type {
   DocResolveResult,
   DocSectionResult,
@@ -31,33 +31,7 @@ export class DocLspTools {
    */
   resolve(id: string): DocResolveResult {
     const locations = this.index.resolveId(id);
-
-    // Find related IDs: other IDs that co-occur in the same documents
-    const relatedIds: Record<string, string[]> = {};
-    const seenDocs = new Set<string>();
-
-    for (const loc of locations) {
-      const key = `${loc.corpus}:${loc.path}`;
-      if (seenDocs.has(key)) continue;
-      seenDocs.add(key);
-
-      const doc = this.index.getDocument(loc.corpus, loc.path);
-      if (!doc) continue;
-
-      // Look for IDs from front-matter references
-      if (doc.frontMatter) {
-        for (const [field, value] of Object.entries(doc.frontMatter)) {
-          if (Array.isArray(value)) {
-            const stringValues = value.filter((v): v is string => typeof v === "string");
-            if (stringValues.length > 0) {
-              relatedIds[field] = stringValues;
-            }
-          }
-        }
-      }
-    }
-
-    return { locations, relatedIds };
+    return { locations, relatedIds: {} };
   }
 
   /**
@@ -70,11 +44,7 @@ export class DocLspTools {
     const result = extractSectionContent(doc.absolutePath, sectionId, doc);
     if (!result) return null;
 
-    const hash = crypto
-      .createHash("sha256")
-      .update(result.content)
-      .digest("hex")
-      .substring(0, 16);
+    const hash = hashContent(result.content);
 
     return {
       content: result.content,
@@ -105,37 +75,22 @@ export class DocLspTools {
 
   /**
    * doc_dependencies: Return what a document depends on and what depends on it.
+   * Uses pre-computed dependency index for O(1) lookup. [S-3]
    */
   dependencies(docPath: string): DocDependenciesResult | null {
     const doc = this.findDoc(docPath);
     if (!doc) return null;
 
-    const dependsOn: DocDependenciesResult["dependsOn"] = [];
+    // Forward deps from pre-computed index
+    const dependsOn = this.index.getForwardDeps(doc.path);
+
+    // Reverse deps from pre-computed index
+    const reverseDepPaths = this.index.getReverseDeps(doc.path);
+
+    // Also include explicit depended_on_by from front-matter
     const dependedOnBy: DocDependenciesResult["dependedOnBy"] = [];
+    const seen = new Set<string>();
 
-    // Parse depends_on from front-matter
-    if (doc.frontMatter?.depends_on) {
-      const deps = Array.isArray(doc.frontMatter.depends_on)
-        ? doc.frontMatter.depends_on
-        : [doc.frontMatter.depends_on];
-
-      for (const dep of deps) {
-        if (typeof dep === "string") {
-          dependsOn.push({ path: dep, relationship: "depends_on" });
-        } else if (typeof dep === "object" && dep !== null) {
-          const d = dep as Record<string, unknown>;
-          dependsOn.push({
-            path: (d.path as string) ?? String(dep),
-            relationship: (d.relationship as string) ?? "depends_on",
-            ids: Array.isArray(d.ids)
-              ? d.ids.filter((v): v is string => typeof v === "string")
-              : undefined,
-          });
-        }
-      }
-    }
-
-    // Parse depended_on_by from front-matter
     if (doc.frontMatter?.depended_on_by) {
       const deps = Array.isArray(doc.frontMatter.depended_on_by)
         ? doc.frontMatter.depended_on_by
@@ -144,41 +99,26 @@ export class DocLspTools {
       for (const dep of deps) {
         if (typeof dep === "string") {
           dependedOnBy.push({ path: dep, relationship: "depended_on_by" });
+          seen.add(dep);
         } else if (typeof dep === "object" && dep !== null) {
           const d = dep as Record<string, unknown>;
+          const depPath = (d.path as string) ?? String(dep);
           dependedOnBy.push({
-            path: (d.path as string) ?? String(dep),
+            path: depPath,
             relationship: (d.relationship as string) ?? "depended_on_by",
             ids: Array.isArray(d.ids)
               ? d.ids.filter((v): v is string => typeof v === "string")
               : undefined,
           });
+          seen.add(depPath);
         }
       }
     }
 
-    // Find reverse dependencies: scan all docs for depends_on references to this path
-    for (const otherDoc of this.index.allDocuments()) {
-      if (otherDoc.path === doc.path && otherDoc.corpus === doc.corpus) continue;
-      if (!otherDoc.frontMatter?.depends_on) continue;
-
-      const otherDeps = Array.isArray(otherDoc.frontMatter.depends_on)
-        ? otherDoc.frontMatter.depends_on
-        : [otherDoc.frontMatter.depends_on];
-
-      for (const dep of otherDeps) {
-        const depPath = typeof dep === "string" ? dep : (dep as Record<string, unknown>)?.path;
-        if (depPath === doc.path) {
-          // Check if already listed in dependedOnBy from front-matter
-          const already = dependedOnBy.some((d) => d.path === otherDoc.path);
-          if (!already) {
-            const rel =
-              typeof dep === "object" && dep !== null
-                ? ((dep as Record<string, unknown>).relationship as string) ?? "depends_on"
-                : "depends_on";
-            dependedOnBy.push({ path: otherDoc.path, relationship: rel });
-          }
-        }
+    // Add computed reverse deps not already declared
+    for (const depPath of reverseDepPaths) {
+      if (!seen.has(depPath)) {
+        dependedOnBy.push({ path: depPath, relationship: "depends_on" });
       }
     }
 
@@ -187,28 +127,22 @@ export class DocLspTools {
 
   /**
    * doc_coverage: Report what exists and what's missing across a corpus.
+   * Returns null if the scope doesn't match any corpus. [S-6]
    */
   coverage(scope: string): DocCoverageResult | null {
     const docs = this.index.getCorpusDocuments(scope);
     if (docs.length === 0) {
-      // Try across all corpora if scope doesn't match a single corpus
-      const allDocs = this.index.allDocuments();
-      if (allDocs.length === 0) return null;
+      // Scope must match a corpus name — don't silently fall back to all corpora
+      return null;
     }
 
-    // Collect all IDs across the corpus
+    // Collect all IDs across the corpus [M-2: removed unused idsByDoc]
     const allIds = new Set<string>();
-    const idsByDoc = new Map<string, Set<string>>();
 
-    const corpusDocs = docs.length > 0 ? docs : this.index.allDocuments();
-
-    for (const doc of corpusDocs) {
-      const docIds = new Set<string>();
+    for (const doc of docs) {
       for (const id of doc.ids) {
         allIds.add(id);
-        docIds.add(id);
       }
-      idsByDoc.set(`${doc.corpus}:${doc.path}`, docIds);
     }
 
     // Build coverage by document: which IDs appear in which documents
@@ -216,7 +150,7 @@ export class DocLspTools {
 
     // Group documents by directory pattern for tier analysis
     const docGroups = new Map<string, DocumentIndex[]>();
-    for (const doc of corpusDocs) {
+    for (const doc of docs) {
       const dir = doc.path.split("/").slice(0, -1).join("/") || doc.corpus;
       let group = docGroups.get(dir);
       if (!group) {
@@ -241,7 +175,7 @@ export class DocLspTools {
 
     return {
       corpus: scope,
-      documents: corpusDocs.length,
+      documents: docs.length,
       ids: allIds.size,
       coverage,
     };
