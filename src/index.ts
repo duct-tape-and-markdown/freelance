@@ -13,6 +13,7 @@ import { parseDaemonConnect, traversalsList, traversalsInspect, traversalsReset 
 import { VERSION } from "./version.js";
 import { TRAVERSALS_DIR, DEFAULT_PORT } from "./paths.js";
 import { resolveGraphsDirs, loadGraphsOrFatal } from "./graph-resolution.js";
+import { extractSection } from "./section-resolver.js";
 
 // --- Program setup ---
 
@@ -116,8 +117,9 @@ program
       const maxDepth = parseInt(opts.maxDepth, 10);
       const graphs = loadGraphsOrFatal(opts.graphs);
       const dirs = resolveGraphsDirs(opts.graphs);
-      info(`Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}`);
-      await startServer(graphs, { maxDepth, graphsDirs: dirs });
+      const sectionResolver = (filePath: string, section: string) => extractSection(filePath, section);
+      info(`Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}, section resolver active`);
+      await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver });
     }
   });
 
