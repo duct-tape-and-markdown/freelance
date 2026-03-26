@@ -42,7 +42,7 @@
   "dependencies": {
     "@dagrejs/graphlib": "^4.0.1",
     "@inquirer/prompts": "^8.3.2",
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.28.0",
     "commander": "^14.0.3",
     "js-yaml": "^4.1.0",
     "remark-parse": "^11.0.0",
