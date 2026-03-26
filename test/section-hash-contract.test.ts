@@ -10,7 +10,7 @@
 import { describe, it, expect } from "vitest";
 import path from "node:path";
 import { extractSection } from "../src/section-resolver.js";
-import { hashContent } from "../src/doc-lsp/hash.js";
+import { hashContent } from "../src/sources.js";
 
 const FIXTURE = path.resolve(__dirname, "fixtures/section-hash-contract.md");
 
