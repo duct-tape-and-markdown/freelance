@@ -6,6 +6,8 @@ import { EngineError } from "./errors.js";
 import { VERSION } from "./version.js";
 import { getGuide } from "./guide.js";
 import { watchGraphs } from "./watcher.js";
+import { hashSources, checkSourcesDetailed, validateGraphSources } from "./sources.js";
+import type { SourceRef, SectionResolver, SourceOptions } from "./sources.js";
 import type { ValidatedGraph } from "./types.js";
 
 function jsonResponse(result: unknown) {
@@ -35,6 +37,9 @@ export interface ServerOptions {
   maxDepth?: number;
   persistDir?: string;
   graphsDirs?: string[];
+  sectionResolver?: SectionResolver;
+  /** Check source bindings at graph_start (default: false). Provenance is a build concern. */
+  validateSourcesOnStart?: boolean;
 }
 
 export function createServer(
@@ -80,7 +85,27 @@ export function createServer(
     },
     ({ graphId, initialContext }) => {
       try {
-        return jsonResponse(manager.createTraversal(graphId, initialContext));
+        const result = manager.createTraversal(graphId, initialContext);
+
+        // Source validation at start is opt-in — provenance is a build concern, not runtime [S-5]
+        if (options?.validateSourcesOnStart) {
+          const graph = graphs.get(graphId);
+          if (graph) {
+            const sourceOpts: SourceOptions = { resolver: options.sectionResolver };
+            const sourceCheck = validateGraphSources(
+              graph.definition,
+              sourceOpts
+            );
+            if (!sourceCheck.valid) {
+              return jsonResponse({
+                ...result,
+                sourceWarnings: sourceCheck.warnings,
+              });
+            }
+          }
+        }
+
+        return jsonResponse(result);
       } catch (e) {
         return handleError(e);
       }
@@ -180,6 +205,49 @@ export function createServer(
         return errorResponse(result.error);
       }
       return jsonResponse(result);
+    }
+  );
+
+  // graph_sources_hash
+  server.tool(
+    "graph_sources_hash",
+    "Hash one or more source locations for provenance stamping. Used when authoring graphs with source bindings. If section is provided and a section resolver is configured, hashes only that section's content; otherwise hashes the entire file.",
+    {
+      sources: z.array(z.object({
+        path: z.string().min(1),
+        section: z.string().optional(),
+      })).min(1),
+    },
+    ({ sources }) => {
+      try {
+        const sourceOpts: SourceOptions = { resolver: options?.sectionResolver };
+        const result = hashSources(sources as SourceRef[], sourceOpts);
+        return jsonResponse(result);
+      } catch (e) {
+        return handleError(e);
+      }
+    }
+  );
+
+  // graph_sources_check
+  server.tool(
+    "graph_sources_check",
+    "Validate previously stamped source hashes against current file state. Returns which sources have drifted since the graph was authored.",
+    {
+      sources: z.array(z.object({
+        path: z.string().min(1),
+        section: z.string().optional(),
+        hash: z.string().min(1),
+      })).min(1),
+    },
+    ({ sources }) => {
+      try {
+        const sourceOpts: SourceOptions = { resolver: options?.sectionResolver };
+        const result = checkSourcesDetailed(sources, sourceOpts);
+        return jsonResponse(result);
+      } catch (e) {
+        return handleError(e);
+      }
     }
   );
 

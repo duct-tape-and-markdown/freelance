@@ -41,6 +41,14 @@ export const waitOnEntrySchema = z.object({
   description: z.string().optional(),
 });
 
+export const sourceBindingSchema = z.object({
+  path: z.string(),
+  section: z.string().optional(),
+  hash: z.string(),
+});
+
+export type SourceBinding = z.infer<typeof sourceBindingSchema>;
+
 export const nodeDefinitionSchema = z.object({
   type: z.enum(["action", "decision", "gate", "terminal", "wait"]),
   description: z.string(),
@@ -54,6 +62,7 @@ export const nodeDefinitionSchema = z.object({
   returns: returnSchemaDefinition.optional(),
   waitOn: z.array(waitOnEntrySchema).optional(),
   timeout: z.string().optional(),
+  sources: z.array(sourceBindingSchema).optional(),
 });
 
 export const graphDefinitionSchema = z.object({
