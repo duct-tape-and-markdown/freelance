@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx -y freelance-mcp@latest inspect --active --oneline"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '**IMPORTANT** - Workflows may apply. Call freelance_list, match the user'\"'\"'s task to an available graph, and start it before doing other work.'",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

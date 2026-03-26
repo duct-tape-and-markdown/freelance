@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { getGuide, getGuideTopics, GUIDE_TOPICS } from "../src/guide.js";
 
-describe("graph_guide", () => {
+describe("freelance_guide", () => {
   it("getGuideTopics returns all 7 topics", () => {
     const topics = getGuideTopics();
     expect(topics).toHaveLength(7);
@@ -26,7 +26,7 @@ describe("graph_guide", () => {
     expect("content" in result).toBe(true);
     if ("content" in result) {
       expect(result.content).toContain("Graph Basics");
-      expect(result.content).toContain("graph_list");
+      expect(result.content).toContain("freelance_list");
     }
   });
 

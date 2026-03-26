@@ -5,3 +5,5 @@ dist
 coverage/
 *.tsbuildinfo
 .freelance/
+.envrc
+.git-credentials

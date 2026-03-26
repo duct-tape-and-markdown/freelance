@@ -53,23 +53,23 @@ async function callTool(client: Client, name: string, args: Record<string, unkno
 }
 
 async function start(client: Client, graphId: string) {
-  return callTool(client, "graph_start", { graphId });
+  return callTool(client, "freelance_start", { graphId });
 }
 
 async function advance(client: Client, edge: string, contextUpdates?: Record<string, unknown>) {
-  return callTool(client, "graph_advance", { edge, ...(contextUpdates ? { contextUpdates } : {}) });
+  return callTool(client, "freelance_advance", { edge, ...(contextUpdates ? { contextUpdates } : {}) });
 }
 
 async function ctxSet(client: Client, updates: Record<string, unknown>) {
-  return callTool(client, "graph_context_set", { updates });
+  return callTool(client, "freelance_context_set", { updates });
 }
 
 async function inspect(client: Client, detail: string = "position") {
-  return callTool(client, "graph_inspect", { detail });
+  return callTool(client, "freelance_inspect", { detail });
 }
 
 async function reset(client: Client) {
-  return callTool(client, "graph_reset", { confirm: true });
+  return callTool(client, "freelance_reset", { confirm: true });
 }
 
 // =============================================================================
@@ -88,8 +88,8 @@ describe("Data pipeline — happy path (full traversal)", () => {
   afterEach(async () => cleanup());
 
   it("traverses from scan-sources to complete", async () => {
-    // 1. graph_list
-    const list = await callTool(client, "graph_list");
+    // 1. freelance_list
+    const list = await callTool(client, "freelance_list");
     expect(list.data.graphs.some((g: any) => g.id === "data-pipeline")).toBe(true);
 
     // 2. Start
@@ -576,7 +576,7 @@ describe("Context updates persist on failed advance", () => {
     // At verify, validations will fail
 
     // Advance with contextUpdates — validation fails but context should persist
-    const fail = await callTool(client, "graph_advance", {
+    const fail = await callTool(client, "freelance_advance", {
       edge: "verified",
       contextUpdates: { verificationPassed: false, qualityScore: 42 },
     });

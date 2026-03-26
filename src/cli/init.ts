@@ -126,7 +126,7 @@ function writeClientConfig(
 
 const CLAUDE_MD_SECTION = `## Freelance
 
-This project uses Freelance for workflow enforcement. Call \`graph_list\` to see available workflows and \`graph_guide\` for authoring help.`;
+This project uses Freelance for workflow enforcement. Call \`freelance_list\` to see available workflows and \`freelance_guide\` for authoring help.`;
 
 // --- SessionStart hook ---
 
@@ -182,7 +182,7 @@ function appendClaudeMd(): boolean {
 
   if (fs.existsSync(claudeMdPath)) {
     const content = fs.readFileSync(claudeMdPath, "utf-8");
-    if (content.includes("graph_list") || content.includes("Freelance")) {
+    if (content.includes("freelance_list") || content.includes("Freelance")) {
       return false;
     }
     fs.writeFileSync(claudeMdPath, content.trimEnd() + "\n\n" + CLAUDE_MD_SECTION + "\n");
@@ -196,7 +196,7 @@ function wouldAppendClaudeMd(): boolean {
   const claudeMdPath = path.join(process.cwd(), "CLAUDE.md");
   if (fs.existsSync(claudeMdPath)) {
     const content = fs.readFileSync(claudeMdPath, "utf-8");
-    return !content.includes("graph_list") && !content.includes("Freelance");
+    return !content.includes("freelance_list") && !content.includes("Freelance");
   }
   return true;
 }
@@ -390,8 +390,8 @@ export async function init(options: InitOptions): Promise<void> {
 Next steps:
   1. Start your AI coding agent in this directory
   2. The agent will see Freelance's tools automatically
-  3. Call graph_list to see available workflows
-  4. Call graph_start to begin a workflow
+  3. Call freelance_list to see available workflows
+  4. Call freelance_start to begin a workflow
 
   Run 'freelance validate ${graphsDisplayPath}/' to check your graph definitions.
 

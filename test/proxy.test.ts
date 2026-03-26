@@ -68,8 +68,8 @@ describe("MCP proxy → daemon integration", () => {
     await cleanup();
   });
 
-  it("graph_list returns available graphs via proxy", async () => {
-    const result = await client.callTool({ name: "graph_list", arguments: {} });
+  it("freelance_list returns available graphs via proxy", async () => {
+    const result = await client.callTool({ name: "freelance_list", arguments: {} });
     const data = parseContent(result);
     expect(data.graphs).toBeDefined();
     expect(Array.isArray(data.graphs)).toBe(true);
@@ -79,9 +79,9 @@ describe("MCP proxy → daemon integration", () => {
     expect(ids).toContain("valid-branching");
   });
 
-  it("graph_start creates traversal via proxy", async () => {
+  it("freelance_start creates traversal via proxy", async () => {
     const result = await client.callTool({
-      name: "graph_start",
+      name: "freelance_start",
       arguments: { graphId: "valid-simple" },
     });
     const data = parseContent(result);
@@ -93,7 +93,7 @@ describe("MCP proxy → daemon integration", () => {
   it("full lifecycle through proxy: start → context → advance → inspect → reset", async () => {
     // Start
     const startResult = await client.callTool({
-      name: "graph_start",
+      name: "freelance_start",
       arguments: { graphId: "valid-simple" },
     });
     const started = parseContent(startResult);
@@ -102,7 +102,7 @@ describe("MCP proxy → daemon integration", () => {
 
     // Context set
     const ctxResult = await client.callTool({
-      name: "graph_context_set",
+      name: "freelance_context_set",
       arguments: { traversalId, updates: { taskStarted: true } },
     });
     const ctx = parseContent(ctxResult);
@@ -110,7 +110,7 @@ describe("MCP proxy → daemon integration", () => {
 
     // Advance
     const advResult = await client.callTool({
-      name: "graph_advance",
+      name: "freelance_advance",
       arguments: { traversalId, edge: "work-done" },
     });
     const adv = parseContent(advResult);
@@ -118,7 +118,7 @@ describe("MCP proxy → daemon integration", () => {
 
     // Inspect
     const inspectResult = await client.callTool({
-      name: "graph_inspect",
+      name: "freelance_inspect",
       arguments: { traversalId, detail: "position" },
     });
     const inspected = parseContent(inspectResult);
@@ -126,7 +126,7 @@ describe("MCP proxy → daemon integration", () => {
 
     // Advance to terminal
     const adv2Result = await client.callTool({
-      name: "graph_advance",
+      name: "freelance_advance",
       arguments: { traversalId, edge: "approved" },
     });
     const adv2 = parseContent(adv2Result);
@@ -134,7 +134,7 @@ describe("MCP proxy → daemon integration", () => {
 
     // Reset
     const resetResult = await client.callTool({
-      name: "graph_reset",
+      name: "freelance_reset",
       arguments: { traversalId, confirm: true },
     });
     const reset = parseContent(resetResult);
@@ -143,7 +143,7 @@ describe("MCP proxy → daemon integration", () => {
 
   it("proxy returns error for failed advance (gate validation)", async () => {
     const startResult = await client.callTool({
-      name: "graph_start",
+      name: "freelance_start",
       arguments: { graphId: "valid-simple" },
     });
     const started = parseContent(startResult);
@@ -151,27 +151,27 @@ describe("MCP proxy → daemon integration", () => {
 
     // Advance to review node
     await client.callTool({
-      name: "graph_advance",
+      name: "freelance_advance",
       arguments: { traversalId, edge: "work-done" },
     });
 
     // Try to advance past gate without meeting validation — should get isError
     const advResult = await client.callTool({
-      name: "graph_advance",
+      name: "freelance_advance",
       arguments: { traversalId, edge: "approved" },
     });
     expect(advResult.isError).toBe(true);
 
     // Clean up
     await client.callTool({
-      name: "graph_reset",
+      name: "freelance_reset",
       arguments: { traversalId, confirm: true },
     });
   });
 
-  it("graph_reset without confirm returns error", async () => {
+  it("freelance_reset without confirm returns error", async () => {
     const result = await client.callTool({
-      name: "graph_reset",
+      name: "freelance_reset",
       arguments: { confirm: false },
     });
     expect(result.isError).toBe(true);
@@ -179,7 +179,7 @@ describe("MCP proxy → daemon integration", () => {
 
   it("proxy handles inspect with history detail", async () => {
     const startResult = await client.callTool({
-      name: "graph_start",
+      name: "freelance_start",
       arguments: { graphId: "valid-simple" },
     });
     const started = parseContent(startResult);
@@ -187,12 +187,12 @@ describe("MCP proxy → daemon integration", () => {
 
     // Advance once to create history
     await client.callTool({
-      name: "graph_advance",
+      name: "freelance_advance",
       arguments: { traversalId, edge: "work-done" },
     });
 
     const inspectResult = await client.callTool({
-      name: "graph_inspect",
+      name: "freelance_inspect",
       arguments: { traversalId, detail: "history" },
     });
     const data = parseContent(inspectResult);
@@ -202,7 +202,7 @@ describe("MCP proxy → daemon integration", () => {
     expect(history[0].node).toBe("start");
 
     await client.callTool({
-      name: "graph_reset",
+      name: "freelance_reset",
       arguments: { traversalId, confirm: true },
     });
   });

@@ -51,8 +51,8 @@ describe("MCP server integration", () => {
   });
 
   describe("happy path", () => {
-    it("graph_list returns correct graphs", async () => {
-      const result = await client.callTool({ name: "graph_list", arguments: {} });
+    it("freelance_list returns correct graphs", async () => {
+      const result = await client.callTool({ name: "freelance_list", arguments: {} });
       expect(result.isError).toBeFalsy();
       const data = parseContent(result) as { graphs: Array<{ id: string }> };
       expect(data.graphs).toHaveLength(2);
@@ -63,7 +63,7 @@ describe("MCP server integration", () => {
     it("full traversal: start → advance → terminal", async () => {
       // Start
       const startResult = await client.callTool({
-        name: "graph_start",
+        name: "freelance_start",
         arguments: { graphId: "valid-simple" },
       });
       expect(startResult.isError).toBeFalsy();
@@ -73,7 +73,7 @@ describe("MCP server integration", () => {
 
       // Advance to review (with context update)
       const adv1 = await client.callTool({
-        name: "graph_advance",
+        name: "freelance_advance",
         arguments: { edge: "work-done", contextUpdates: { taskStarted: true } },
       });
       expect(adv1.isError).toBeFalsy();
@@ -83,7 +83,7 @@ describe("MCP server integration", () => {
 
       // Advance to done (terminal)
       const adv2 = await client.callTool({
-        name: "graph_advance",
+        name: "freelance_advance",
         arguments: { edge: "approved" },
       });
       expect(adv2.isError).toBeFalsy();
@@ -99,7 +99,7 @@ describe("MCP server integration", () => {
 
     it("response has correct structure", async () => {
       const result = await client.callTool({
-        name: "graph_start",
+        name: "freelance_start",
         arguments: { graphId: "valid-simple" },
       });
       expect(result.content).toBeDefined();
@@ -114,14 +114,14 @@ describe("MCP server integration", () => {
   describe("full lifecycle", () => {
     it("list → start → context_set → advance → terminal → reset → restart", async () => {
       // List available graphs
-      const listResult = await client.callTool({ name: "graph_list", arguments: {} });
+      const listResult = await client.callTool({ name: "freelance_list", arguments: {} });
       expect(listResult.isError).toBeFalsy();
       const listData = parseContent(listResult) as { graphs: Array<{ id: string }> };
       expect(listData.graphs.length).toBeGreaterThan(0);
 
       // Start a graph
       const startResult = await client.callTool({
-        name: "graph_start",
+        name: "freelance_start",
         arguments: { graphId: "valid-simple" },
       });
       expect(startResult.isError).toBeFalsy();
@@ -134,7 +134,7 @@ describe("MCP server integration", () => {
 
       // Set context
       const ctxResult = await client.callTool({
-        name: "graph_context_set",
+        name: "freelance_context_set",
         arguments: { updates: { taskStarted: true } },
       });
       expect(ctxResult.isError).toBeFalsy();
@@ -147,7 +147,7 @@ describe("MCP server integration", () => {
 
       // Advance: start → review
       const adv1 = await client.callTool({
-        name: "graph_advance",
+        name: "freelance_advance",
         arguments: { edge: "work-done" },
       });
       expect(adv1.isError).toBeFalsy();
@@ -157,7 +157,7 @@ describe("MCP server integration", () => {
 
       // Advance: review → done (terminal)
       const adv2 = await client.callTool({
-        name: "graph_advance",
+        name: "freelance_advance",
         arguments: { edge: "approved" },
       });
       expect(adv2.isError).toBeFalsy();
@@ -170,7 +170,7 @@ describe("MCP server integration", () => {
 
       // Reset
       const resetResult = await client.callTool({
-        name: "graph_reset",
+        name: "freelance_reset",
         arguments: { confirm: true },
       });
       expect(resetResult.isError).toBeFalsy();
@@ -180,7 +180,7 @@ describe("MCP server integration", () => {
 
       // Restart works
       const restartResult = await client.callTool({
-        name: "graph_start",
+        name: "freelance_start",
         arguments: { graphId: "valid-simple" },
       });
       expect(restartResult.isError).toBeFalsy();
@@ -191,35 +191,35 @@ describe("MCP server integration", () => {
   });
 
   describe("error handling", () => {
-    it("graph_start with invalid graphId → isError", async () => {
+    it("freelance_start with invalid graphId → isError", async () => {
       const result = await client.callTool({
-        name: "graph_start",
+        name: "freelance_start",
         arguments: { graphId: "nonexistent" },
       });
       expect(result.isError).toBe(true);
     });
 
-    it("graph_advance before starting → isError", async () => {
+    it("freelance_advance before starting → isError", async () => {
       const result = await client.callTool({
-        name: "graph_advance",
+        name: "freelance_advance",
         arguments: { edge: "some-edge" },
       });
       expect(result.isError).toBe(true);
     });
 
-    it("graph_advance with gate validation failure → isError with full state", async () => {
+    it("freelance_advance with gate validation failure → isError with full state", async () => {
       await client.callTool({
-        name: "graph_start",
+        name: "freelance_start",
         arguments: { graphId: "valid-simple" },
       });
       // Advance to gate without setting taskStarted
       await client.callTool({
-        name: "graph_advance",
+        name: "freelance_advance",
         arguments: { edge: "work-done" },
       });
       // Try to pass gate
       const result = await client.callTool({
-        name: "graph_advance",
+        name: "freelance_advance",
         arguments: { edge: "approved" },
       });
       expect(result.isError).toBe(true);
@@ -235,30 +235,30 @@ describe("MCP server integration", () => {
       expect(data.context).toBeDefined();
     });
 
-    it("graph_context_set before starting → isError", async () => {
+    it("freelance_context_set before starting → isError", async () => {
       const result = await client.callTool({
-        name: "graph_context_set",
+        name: "freelance_context_set",
         arguments: { updates: { foo: "bar" } },
       });
       expect(result.isError).toBe(true);
     });
 
-    it("graph_reset without confirm: true → isError", async () => {
+    it("freelance_reset without confirm: true → isError", async () => {
       const result = await client.callTool({
-        name: "graph_reset",
+        name: "freelance_reset",
         arguments: { confirm: false },
       });
       expect(result.isError).toBe(true);
     });
 
-    it("graph_reset with confirm: true → success, then start works", async () => {
+    it("freelance_reset with confirm: true → success, then start works", async () => {
       await client.callTool({
-        name: "graph_start",
+        name: "freelance_start",
         arguments: { graphId: "valid-simple" },
       });
 
       const resetResult = await client.callTool({
-        name: "graph_reset",
+        name: "freelance_reset",
         arguments: { confirm: true },
       });
       expect(resetResult.isError).toBeFalsy();
@@ -267,7 +267,7 @@ describe("MCP server integration", () => {
 
       // Can start again
       const startResult = await client.callTool({
-        name: "graph_start",
+        name: "freelance_start",
         arguments: { graphId: "valid-simple" },
       });
       expect(startResult.isError).toBeFalsy();
@@ -291,7 +291,7 @@ describe("MCP server hot-reload", () => {
 
     try {
       // Initially only one graph
-      const before = parseContent(await client.callTool({ name: "graph_list", arguments: {} })) as {
+      const before = parseContent(await client.callTool({ name: "freelance_list", arguments: {} })) as {
         graphs: Array<{ id: string }>;
       };
       expect(before.graphs).toHaveLength(1);
@@ -303,8 +303,8 @@ describe("MCP server hot-reload", () => {
       // Wait for debounce (200ms default) + buffer
       await new Promise((r) => setTimeout(r, 500));
 
-      // Now graph_list should return both
-      const after = parseContent(await client.callTool({ name: "graph_list", arguments: {} })) as {
+      // Now freelance_list should return both
+      const after = parseContent(await client.callTool({ name: "freelance_list", arguments: {} })) as {
         graphs: Array<{ id: string }>;
       };
       expect(after.graphs).toHaveLength(2);
@@ -345,7 +345,7 @@ describe("MCP server hot-reload", () => {
 
       // Original graph should still be usable
       const result = await client.callTool({
-        name: "graph_start",
+        name: "freelance_start",
         arguments: { graphId: "valid-simple" },
       });
       expect(result.isError).toBeFalsy();

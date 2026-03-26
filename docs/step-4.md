@@ -35,19 +35,19 @@ export async function startServer(graphs: Map<string, ValidatedGraph>): Promise<
 
 Register each tool using `server.tool(name, description, schema, handler)`. The description is important — it's what the agent sees in tool discovery.
 
-#### `graph_list`
+#### `freelance_list`
 
 - **Description:** "List all available workflow graphs. Call this to discover which graphs are loaded and can be started."
 - **Input schema:** empty object (no parameters)
 - **Handler:** Call `engine.list()`, return the result as a text content block (JSON stringified).
 
-#### `graph_start`
+#### `freelance_start`
 
-- **Description:** "Begin traversing a workflow graph. Must be called before advance, context_set, or inspect. Call graph_list first to see available graphs."
+- **Description:** "Begin traversing a workflow graph. Must be called before advance, context_set, or inspect. Call freelance_list first to see available graphs."
 - **Input schema:** `{ graphId: z.string(), initialContext: z.record(z.unknown()).optional() }`
 - **Handler:** Call `engine.start()`. On success, return text content with the result JSON. On `EngineError`, return `isError: true` with the error message.
 
-#### `graph_advance`
+#### `freelance_advance`
 
 - **Description:** "Move to the next node by taking a labeled edge. Optionally include context updates that are applied before edge evaluation. Context updates persist even if the advance fails."
 - **Input schema:** `{ edge: z.string(), contextUpdates: z.record(z.unknown()).optional() }`
@@ -56,19 +56,19 @@ Register each tool using `server.tool(name, description, schema, handler)`. The 
   - Result with `isError: true` — structured failure (validation/condition) → return `isError: true` with the full result JSON so the agent can see state and recover
   - Success → return text content with result JSON
 
-#### `graph_context_set`
+#### `freelance_context_set`
 
 - **Description:** "Update session context without advancing. Use this to record work results before choosing which edge to take. Returns updated valid transitions with conditionMet evaluated."
 - **Input schema:** `{ updates: z.record(z.unknown()) }`
 - **Handler:** Call `engine.contextSet()`. On success, return text content. On `EngineError`, return `isError: true`.
 
-#### `graph_inspect`
+#### `freelance_inspect`
 
 - **Description:** "Read-only introspection of current graph state. Use after context compaction to re-orient. Returns current position, valid transitions, and context."
 - **Input schema:** `{ detail: z.enum(['position', 'full', 'history']).default('position') }`
 - **Handler:** Call `engine.inspect()`. On success, return text content. On `EngineError`, return `isError: true`.
 
-#### `graph_reset`
+#### `freelance_reset`
 
 - **Description:** "Clear the current traversal. Call this to start over or switch to a different graph. Requires confirm: true as a safety check."
 - **Input schema:** `{ confirm: z.boolean() }`
@@ -110,8 +110,8 @@ The server should handle graceful shutdown on SIGINT/SIGTERM.
 Add a `--validate` flag that runs the old behavior: load graphs, report results, exit. This is useful for CI and debugging without starting the MCP server.
 
 ```
-graph-engine --graphs ./graphs/                  # Start MCP server
-graph-engine --graphs ./graphs/ --validate       # Validate and exit
+freelance mcp --graphs ./graphs/                  # Start MCP server
+freelance validate ./graphs/                      # Validate and exit
 ```
 
 ## Tests (`test/server.test.ts`)
@@ -127,17 +127,17 @@ If the SDK's test utilities don't support this cleanly, an alternative approach:
 Write tests for:
 
 ### Happy path
-- `graph_list` returns the correct graphs
-- `graph_start` → `graph_advance` (through a few nodes) → reach terminal
+- `freelance_list` returns the correct graphs
+- `freelance_start` → `freelance_advance` (through a few nodes) → reach terminal
 - Verify each response has the expected structure (status, currentNode, validTransitions, context)
 
 ### Error handling
-- `graph_start` with invalid graphId → isError response
-- `graph_advance` before starting → isError response
-- `graph_advance` with gate validation failure → isError response with full state
-- `graph_context_set` before starting → isError response
-- `graph_reset` without confirm: true → isError response
-- `graph_reset` with confirm: true → success, then `graph_start` works again
+- `freelance_start` with invalid graphId → isError response
+- `freelance_advance` before starting → isError response
+- `freelance_advance` with gate validation failure → isError response with full state
+- `freelance_context_set` before starting → isError response
+- `freelance_reset` without confirm: true → isError response
+- `freelance_reset` with confirm: true → success, then `freelance_start` works again
 
 ### Response structure
 - All success responses have `content` array with text type

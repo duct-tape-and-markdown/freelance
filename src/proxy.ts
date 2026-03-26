@@ -56,7 +56,7 @@ async function daemonRequest(
 
 export function createProxy(daemonHost: string, daemonPort: number): McpServer {
   const server = new McpServer(
-    { name: "graph-engine-proxy", version: "0.1.0" },
+    { name: "freelance-proxy", version: "0.1.0" },
   );
 
   async function callDaemon(method: string, path: string, body?: unknown) {
@@ -76,17 +76,17 @@ export function createProxy(daemonHost: string, daemonPort: number): McpServer {
     }
   }
 
-  // graph_list
+  // freelance_list
   server.tool(
-    "graph_list",
+    "freelance_list",
     "List all available workflow graphs and active traversals.",
     {},
     () => callDaemon("GET", "/graphs")
   );
 
-  // graph_start
+  // freelance_start
   server.tool(
-    "graph_start",
+    "freelance_start",
     "Begin traversing a workflow graph. Returns a traversalId for subsequent operations.",
     {
       graphId: z.string().min(1),
@@ -96,9 +96,9 @@ export function createProxy(daemonHost: string, daemonPort: number): McpServer {
       callDaemon("POST", "/traversals", { graphId, initialContext })
   );
 
-  // graph_advance
+  // freelance_advance
   server.tool(
-    "graph_advance",
+    "freelance_advance",
     "Move to the next node by taking a labeled edge. Context updates persist even if the advance fails.",
     {
       traversalId: z.string().optional(),
@@ -107,14 +107,14 @@ export function createProxy(daemonHost: string, daemonPort: number): McpServer {
     },
     async ({ traversalId, edge, contextUpdates }) => {
       const id = traversalId ?? await resolveId(daemonHost, daemonPort);
-      if (!id) return errorResponse("No active traversals. Call graph_start first.");
+      if (!id) return errorResponse("No active traversals. Call freelance_start first.");
       return callDaemon("POST", `/traversals/${id}/advance`, { edge, contextUpdates });
     }
   );
 
-  // graph_context_set
+  // freelance_context_set
   server.tool(
-    "graph_context_set",
+    "freelance_context_set",
     "Update session context without advancing.",
     {
       traversalId: z.string().optional(),
@@ -122,14 +122,14 @@ export function createProxy(daemonHost: string, daemonPort: number): McpServer {
     },
     async ({ traversalId, updates }) => {
       const id = traversalId ?? await resolveId(daemonHost, daemonPort);
-      if (!id) return errorResponse("No active traversals. Call graph_start first.");
+      if (!id) return errorResponse("No active traversals. Call freelance_start first.");
       return callDaemon("POST", `/traversals/${id}/context`, { updates });
     }
   );
 
-  // graph_inspect
+  // freelance_inspect
   server.tool(
-    "graph_inspect",
+    "freelance_inspect",
     "Read-only introspection of current graph state.",
     {
       traversalId: z.string().optional(),
@@ -137,14 +137,14 @@ export function createProxy(daemonHost: string, daemonPort: number): McpServer {
     },
     async ({ traversalId, detail }) => {
       const id = traversalId ?? await resolveId(daemonHost, daemonPort);
-      if (!id) return errorResponse("No active traversals. Call graph_start first.");
+      if (!id) return errorResponse("No active traversals. Call freelance_start first.");
       return callDaemon("GET", `/traversals/${id}?detail=${detail}`);
     }
   );
 
-  // graph_reset
+  // freelance_reset
   server.tool(
-    "graph_reset",
+    "freelance_reset",
     "Clear a traversal. Requires confirm: true.",
     {
       traversalId: z.string().optional(),
@@ -160,9 +160,9 @@ export function createProxy(daemonHost: string, daemonPort: number): McpServer {
     }
   );
 
-  // graph_guide
+  // freelance_guide
   server.tool(
-    "graph_guide",
+    "freelance_guide",
     "Get help with authoring Freelance workflow graphs.",
     {
       topic: z.string().optional(),

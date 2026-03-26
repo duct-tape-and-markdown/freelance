@@ -38,7 +38,7 @@ export interface ServerOptions {
   persistDir?: string;
   graphsDirs?: string[];
   sectionResolver?: SectionResolver;
-  /** Check source bindings at graph_start (default: false). Provenance is a build concern. */
+  /** Check source bindings at freelance_start (default: false). Provenance is a build concern. */
   validateSourcesOnStart?: boolean;
 }
 
@@ -61,9 +61,9 @@ export function createServer(
     { name: "freelance", version: VERSION },
   );
 
-  // graph_list
+  // freelance_list
   server.tool(
-    "graph_list",
+    "freelance_list",
     "List all available workflow graphs and active traversals. Call this to discover which graphs are loaded and can be started.",
     {},
     () => {
@@ -75,10 +75,10 @@ export function createServer(
     }
   );
 
-  // graph_start
+  // freelance_start
   server.tool(
-    "graph_start",
-    "Begin traversing a workflow graph. Returns a traversalId for subsequent operations. Call graph_list first to see available graphs.",
+    "freelance_start",
+    "Begin traversing a workflow graph. Returns a traversalId for subsequent operations. Call freelance_list first to see available graphs.",
     {
       graphId: z.string().min(1),
       initialContext: z.record(z.string(), z.unknown()).optional(),
@@ -112,9 +112,9 @@ export function createServer(
     }
   );
 
-  // graph_advance
+  // freelance_advance
   server.tool(
-    "graph_advance",
+    "freelance_advance",
     "Move to the next node by taking a labeled edge. Optionally include context updates that are applied before edge evaluation. Context updates persist even if the advance fails.",
     {
       traversalId: z.string().optional(),
@@ -135,9 +135,9 @@ export function createServer(
     }
   );
 
-  // graph_context_set
+  // freelance_context_set
   server.tool(
-    "graph_context_set",
+    "freelance_context_set",
     "Update session context without advancing. Use this to record work results before choosing which edge to take. Returns updated valid transitions with conditionMet evaluated.",
     {
       traversalId: z.string().optional(),
@@ -153,9 +153,9 @@ export function createServer(
     }
   );
 
-  // graph_inspect
+  // freelance_inspect
   server.tool(
-    "graph_inspect",
+    "freelance_inspect",
     "Read-only introspection of current graph state. Use after context compaction to re-orient. Returns current position, valid transitions, and context.",
     {
       traversalId: z.string().optional(),
@@ -171,9 +171,9 @@ export function createServer(
     }
   );
 
-  // graph_reset
+  // freelance_reset
   server.tool(
-    "graph_reset",
+    "freelance_reset",
     "Clear a traversal. Call this to start over or switch to a different graph. Requires confirm: true as a safety check.",
     {
       traversalId: z.string().optional(),
@@ -192,9 +192,9 @@ export function createServer(
     }
   );
 
-  // graph_guide
+  // freelance_guide
   server.tool(
-    "graph_guide",
+    "freelance_guide",
     "Get help with authoring Freelance workflow graphs. Call with no topic to see available topics.",
     {
       topic: z.string().optional(),
@@ -208,9 +208,9 @@ export function createServer(
     }
   );
 
-  // graph_sources_hash
+  // freelance_sources_hash
   server.tool(
-    "graph_sources_hash",
+    "freelance_sources_hash",
     "Hash one or more source locations for provenance stamping. Used when authoring graphs with source bindings. If section is provided and a section resolver is configured, hashes only that section's content; otherwise hashes the entire file.",
     {
       sources: z.array(z.object({
@@ -229,9 +229,9 @@ export function createServer(
     }
   );
 
-  // graph_sources_check
+  // freelance_sources_check
   server.tool(
-    "graph_sources_check",
+    "freelance_sources_check",
     "Validate previously stamped source hashes against current file state. Returns which sources have drifted since the graph was authored.",
     {
       sources: z.array(z.object({

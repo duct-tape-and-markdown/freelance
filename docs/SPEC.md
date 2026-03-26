@@ -27,9 +27,9 @@ The pattern emerged from constraining an AI agent to a phase-based state machine
 │              MCP Client (any agent)           │
 │                                              │
 │  Calls MCP tools:                            │
-│  graph_list, graph_start, graph_advance,     │
-│  graph_context_set, graph_inspect,           │
-│  graph_reset                                 │
+│  freelance_list, freelance_start, freelance_advance,     │
+│  freelance_context_set, freelance_inspect,           │
+│  freelance_reset                              │
 └──────────────────┬──────────────────────────┘
                    │ stdio (JSON-RPC)
                    │
@@ -96,14 +96,14 @@ nodes:
         message: string       # Error message if validation fails
     
     # Optional: turn budget for action nodes
-    # After this many graph_context_set calls at this node,
+    # After this many freelance_context_set calls at this node,
     # the next response includes a warning to wrap up
     maxTurns: number
     
     # Edges define valid transitions out of this node
     edges:
       - target: string        # Target node ID
-        label: string         # Human-readable edge name (used in graph_advance)
+        label: string         # Human-readable edge name (used in freelance_advance)
         condition: string     # Optional: boolean expression against context
         description: string   # Optional: why you'd take this edge
       
@@ -119,7 +119,7 @@ nodes:
 
 **Added `strictContext` flag.** Defaults to `false` (open mode — any context key allowed). Set to `true` for graphs that need strict schema enforcement. Open mode is better for exploratory workflows where the agent needs ad-hoc context keys. Strict mode is better for well-defined pipelines with known state shapes.
 
-**Added `maxTurns` on nodes.** Optional turn budget that counts `graph_context_set` calls per node. After the limit, responses include a `turnWarning` field. Not hard enforcement — the agent can continue — but provides a checkpoint signal for long-running nodes like `implement` that could otherwise run unbounded until compaction. Hard enforcement of turn limits (blocking advance after maxTurns exceeded) can be added later if soft warnings prove insufficient.
+**Added `maxTurns` on nodes.** Optional turn budget that counts `freelance_context_set` calls per node. After the limit, responses include a `turnWarning` field. Not hard enforcement — the agent can continue — but provides a checkpoint signal for long-running nodes like `implement` that could otherwise run unbounded until compaction. Hard enforcement of turn limits (blocking advance after maxTurns exceeded) can be added later if soft warnings prove insufficient.
 
 ### Node types
 
@@ -378,7 +378,7 @@ nodes:
 
 Six tools. Static registration. All enforcement at call time.
 
-### `graph_list`
+### `freelance_list`
 
 Discover available graphs. Can be called at any time, including before starting a traversal.
 
@@ -394,7 +394,7 @@ Discover available graphs. Can be called at any time, including before starting 
 }
 ```
 
-### `graph_start`
+### `freelance_start`
 
 Begin graph traversal. Must be called before advance/context_set/inspect.
 
@@ -431,9 +431,9 @@ Note: `conditionMet` is evaluated live on every response, always telling the age
 
 **Errors:**
 - `isError: true` if graphId not found in loaded definitions
-- `isError: true` if a traversal is already in progress (call `graph_reset` first)
+- `isError: true` if a traversal is already in progress (call `freelance_reset` first)
 
-### `graph_advance`
+### `freelance_advance`
 
 Move to the next node by taking a labeled edge. Can optionally include context updates that are applied before edge evaluation.
 
@@ -486,7 +486,7 @@ Move to the next node by taking a labeled edge. Can optionally include context u
 ```
 
 **Errors (context updates still persisted):**
-- `isError: true` if no traversal active (must call `graph_start` first)
+- `isError: true` if no traversal active (must call `freelance_start` first)
 - `isError: true` if edge label doesn't exist on current node
 - `isError: true` if edge has a condition that evaluates to false against current context
 - `isError: true` if current node has validations that fail (gate/action enforcement)
@@ -505,7 +505,7 @@ All error responses include full state for recovery:
 }
 ```
 
-### `graph_context_set`
+### `freelance_context_set`
 
 Update session context without advancing. Used when the agent has done work at a node and needs to record results before choosing an edge.
 
@@ -547,7 +547,7 @@ When `maxTurns` is set and the count reaches the limit:
 - `isError: true` if no traversal active
 - `isError: true` if `strictContext: true` and update keys don't exist in the graph's context schema
 
-### `graph_inspect`
+### `freelance_inspect`
 
 Read-only introspection. Returns graph state without modifying anything. Primary recovery mechanism after context compaction.
 
@@ -596,7 +596,7 @@ Read-only introspection. Returns graph state without modifying anything. Primary
 **Returns (full — complete graph definition, expensive):**
 The complete graph definition including all nodes, edges, and metadata. Use sparingly — primarily for debugging or visualization.
 
-### `graph_reset`
+### `freelance_reset`
 
 Clear the current traversal and return to a clean state. Enables switching graphs mid-session or restarting a workflow.
 
@@ -613,7 +613,7 @@ Clear the current traversal and return to a clean state. Enables switching graph
   "status": "reset",
   "previousGraph": "change-request",
   "previousNode": "implement",
-  "message": "Traversal cleared. Call graph_start to begin a new workflow."
+  "message": "Traversal cleared. Call freelance_start to begin a new workflow."
 }
 ```
 
@@ -631,7 +631,7 @@ Clear the current traversal and return to a clean state. Enables switching graph
 - Conversations ("What should we name this module?")
 - Tasks that don't map to a defined graph
 
-The CLAUDE.md (or equivalent agent instructions) must make this boundary explicit. The agent should only call `graph_start` when the task matches a known workflow. For everything else, the agent works normally without graph constraints.
+The CLAUDE.md (or equivalent agent instructions) must make this boundary explicit. The agent should only call `freelance_start` when the task matches a known workflow. For everything else, the agent works normally without graph constraints.
 
 Recommended CLAUDE.md language:
 
@@ -643,7 +643,7 @@ The graph engine is an MCP server — use its tools to navigate multi-step proce
 
 ### When to use the graph engine
 
-Call `graph_list` to see available workflows.
+Call `freelance_list` to see available workflows.
 Start a graph when the task matches a defined workflow.
 
 ### When NOT to use the graph engine
@@ -659,14 +659,14 @@ Just work normally. The graph engine is for multi-step workflows, not every inte
 ### During a graph traversal
 
 1. Read the instructions at each node and execute them
-2. Update context via `graph_context_set` as you complete work
-3. Advance via `graph_advance` with the appropriate edge label
+2. Update context via `freelance_context_set` as you complete work
+3. Advance via `freelance_advance` with the appropriate edge label
 4. Continue until you reach a terminal node
-5. If `graph_advance` returns an error, read it — it tells you what's wrong
+5. If `freelance_advance` returns an error, read it — it tells you what's wrong
 
 Never skip nodes. Never guess at transitions.
-Call `graph_inspect` if you lose track of where you are.
-Call `graph_reset` if you need to start over or switch workflows.
+Call `freelance_inspect` if you lose track of where you are.
+Call `freelance_reset` if you need to start over or switch workflows.
 ```
 
 ### Post-compaction recovery (Claude Code specific)
@@ -680,7 +680,7 @@ Add a compact-recovery hook:
       "matcher": "compact",
       "hooks": [{
         "type": "command",
-        "command": "echo 'POST-COMPACTION: If you are mid-task, call graph_inspect to re-orient. The graph engine tracks your position — ask it where you are.'"
+        "command": "echo 'POST-COMPACTION: If you are mid-task, call freelance_inspect to re-orient. The graph engine tracks your position — ask it where you are.'"
       }]
     }]
   }
@@ -816,7 +816,7 @@ interface SessionState {
 ### As a Claude Code plugin
 
 ```
-graph-engine/
+freelance/
 ├── plugin.json
 ├── src/
 │   └── server.ts
@@ -829,11 +829,11 @@ graph-engine/
 Plugin manifest:
 ```json
 {
-  "name": "graph-engine",
+  "name": "freelance",
   "version": "1.0.0",
   "description": "Graph-based workflow enforcement for AI coding agents",
   "mcpServers": {
-    "graph-engine": {
+    "freelance": {
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/dist/server.js", "--graphs", "${CLAUDE_PLUGIN_ROOT}/graphs/"]
     }
@@ -848,9 +848,9 @@ For any MCP-compatible client:
 ```json
 {
   "mcpServers": {
-    "graph-engine": {
+    "freelance": {
       "command": "node",
-      "args": ["/path/to/graph-engine/dist/server.js", "--graphs", "/path/to/graphs/"]
+      "args": ["/path/to/freelance/dist/server.js", "--graphs", "/path/to/graphs/"]
     }
   }
 }
@@ -866,8 +866,8 @@ Multiple graph directories can be passed for layered loading (Phase 3):
 ### As an npm package (Phase 4)
 
 ```bash
-npm install -g @graph-engine/mcp
-graph-engine --graphs ./my-graphs/
+npm install -g freelance-mcp
+freelance mcp --graphs ./my-graphs/
 ```
 
 ### For other MCP clients
@@ -896,12 +896,12 @@ Build the engine that loads YAML graphs, exposes the six tools, and enforces tra
 3. Implement graph structural validation using `@dagrejs/graphlib`
 4. Implement custom expression evaluator (recursive descent, ~100 lines)
 5. Implement session state manager (position tracking, context, history, turn counting)
-6. Implement six MCP tools: `graph_list`, `graph_start`, `graph_advance`, `graph_context_set`, `graph_inspect`, `graph_reset`
+6. Implement six MCP tools: `freelance_list`, `freelance_start`, `freelance_advance`, `freelance_context_set`, `freelance_inspect`, `freelance_reset`
 7. Test with a minimal 3-4 node graph definition
 8. Test gate enforcement, conditional edges, cycle behavior, context updates on failed advance
-9. Test compaction recovery (start traversal → simulate compaction → `graph_inspect` → continue)
+9. Test compaction recovery (start traversal → simulate compaction → `freelance_inspect` → continue)
 
-**Exit criteria:** The engine loads arbitrary YAML graph definitions, enforces transitions with `isError` responses, tracks session state, and recovers cleanly from re-orientation via `graph_inspect`.
+**Exit criteria:** The engine loads arbitrary YAML graph definitions, enforces transitions with `isError` responses, tracks session state, and recovers cleanly from re-orientation via `freelance_inspect`.
 
 ### Phase 2: Real-world validation
 Author graph definitions for real workflows and validate the engine against actual agent sessions.
@@ -920,8 +920,8 @@ Enable graph reuse, customization, and operational maturity.
 
 1. Implement graph composition (extends/overrides/additions/rewire)
 2. Add `--graphs` multi-directory support for layered graph loading
-3. Add graph validation CLI (`graph-engine validate ./graphs/`) for CI integration
-4. Add Mermaid diagram export (`graph-engine visualize ./graphs/my-workflow.graph.yaml`)
+3. Add graph validation CLI (`freelance validate ./graphs/`) for CI integration
+4. Add Mermaid diagram export (`freelance visualize ./graphs/my-workflow.graph.yaml`)
 5. Package as Claude Code plugin
 6. Document configuration for other MCP clients (Cursor, Windsurf, Cline)
 
@@ -936,7 +936,7 @@ If the engine proves valuable beyond the team, consider broader distribution.
 
 ## Open questions
 
-1. **Multiple concurrent graphs.** Should the engine support traversing two graphs simultaneously (e.g., a development workflow that triggers a deployment workflow mid-task)? Current spec says one graph at a time. The workaround is `graph_reset` + `graph_start` to switch, but this loses the first graph's state. Subgraph invocation (a node that starts another graph and resumes when it completes) would solve this cleanly but adds significant complexity. Defer until a concrete use case demands it.
+1. **Multiple concurrent graphs.** Should the engine support traversing two graphs simultaneously (e.g., a development workflow that triggers a deployment workflow mid-task)? Current spec says one graph at a time. The workaround is `freelance_reset` + `freelance_start` to switch, but this loses the first graph's state. Subgraph invocation (a node that starts another graph and resumes when it completes) would solve this cleanly but adds significant complexity. Defer until a concrete use case demands it.
 
 2. **Backtracking.** The current spec doesn't support returning to a previous node without following a defined edge. If the agent or user says "actually, go back," the only path is through edges that happen to point back. For now, design graphs with explicit back-edges where backtracking is expected (the `implement` → `quality-gate` → `implement` loop in the example is already this pattern). A `graph_back` tool could be added later if explicit back-edges prove insufficient.
 
@@ -967,7 +967,7 @@ If the engine proves valuable beyond the team, consider broader distribution.
          label: branches-complete
    ```
 
-   The MCP tool `graph_advance` would take an optional `branch` parameter to target a specific branch. `graph_inspect` would show all active branch positions. New statuses: `forked` (entered fork), `branch_advanced` (moved within a branch), `branch_complete` (one branch done, others pending), `fork_complete` (all branches done, fork's outgoing edges available).
+   The MCP tool `freelance_advance` would take an optional `branch` parameter to target a specific branch. `freelance_inspect` would show all active branch positions. New statuses: `forked` (entered fork), `branch_advanced` (moved within a branch), `branch_complete` (one branch done, others pending), `fork_complete` (all branches done, fork's outgoing edges available).
 
    **Why this matters for multi-agent workflows:** When a client can spawn multiple agents per traversal, fork gives the engine the structure to route each agent to a different branch. Each branch has its own sub-stack (supporting nested subgraphs), and context isolation prevents cross-contamination. The join condition is implicit — all branches must reach terminal — so no new expression syntax is needed.
 

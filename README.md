@@ -22,9 +22,9 @@ freelance init
 
 1. Define workflows as directed graphs in YAML (`.graph.yaml` files)
 2. Freelance loads them and exposes 7 MCP tools to the agent
-3. The agent calls `graph_start` to begin a workflow, `graph_advance` to move between nodes
+3. The agent calls `freelance_start` to begin a workflow, `freelance_advance` to move between nodes
 4. Gate nodes block advancement until conditions are met — quality enforcement without documentation
-5. After context compaction, the agent calls `graph_inspect` and re-orients instantly
+5. After context compaction, the agent calls `freelance_inspect` and re-orients instantly
 
 ```yaml
 id: my-workflow
@@ -64,13 +64,13 @@ nodes:
 
 | Tool | Description |
 |------|-------------|
-| `graph_list` | Discover available workflow graphs |
-| `graph_start` | Begin traversing a graph |
-| `graph_advance` | Move to the next node via a labeled edge |
-| `graph_context_set` | Update session context without advancing |
-| `graph_inspect` | Read-only introspection (position, history, or full graph) |
-| `graph_reset` | Clear traversal and start over |
-| `graph_guide` | Get authoring guidance for writing graphs |
+| `freelance_list` | Discover available workflow graphs |
+| `freelance_start` | Begin traversing a graph |
+| `freelance_advance` | Move to the next node via a labeled edge |
+| `freelance_context_set` | Update session context without advancing |
+| `freelance_inspect` | Read-only introspection (position, history, or full graph) |
+| `freelance_reset` | Clear traversal and start over |
+| `freelance_guide` | Get authoring guidance for writing graphs |
 
 ## Graph Directory Resolution
 

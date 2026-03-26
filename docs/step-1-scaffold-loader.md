@@ -6,7 +6,7 @@ You are building the Graph Engine: a domain-agnostic, YAML-defined, graph-traver
 
 Initialize a TypeScript Node.js project:
 
-- Package name: `graph-engine`
+- Package name: `freelance-mcp`
 - TypeScript with strict mode, ES2022 target, NodeNext module resolution
 - Output to `dist/`
 - Dependencies: `@modelcontextprotocol/sdk`, `js-yaml`, `ajv`, `@dagrejs/graphlib`

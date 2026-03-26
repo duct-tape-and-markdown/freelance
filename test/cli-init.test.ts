@@ -79,8 +79,8 @@ describe("CLI init", () => {
     const claudeMd = path.join(workDir, "CLAUDE.md");
     expect(fs.existsSync(claudeMd)).toBe(true);
     const content = fs.readFileSync(claudeMd, "utf-8");
-    expect(content).toContain("graph_list");
-    expect(content).toContain("graph_guide");
+    expect(content).toContain("freelance_list");
+    expect(content).toContain("freelance_guide");
   });
 
   it("appends to existing CLAUDE.md without duplicating", async () => {
@@ -90,12 +90,12 @@ describe("CLI init", () => {
     const content = fs.readFileSync(path.join(workDir, "CLAUDE.md"), "utf-8");
     expect(content).toContain("# My Project");
     expect(content).toContain("Existing content.");
-    expect(content).toContain("graph_list");
+    expect(content).toContain("freelance_list");
 
     // Run again — should not duplicate
     await init(defaults());
     const content2 = fs.readFileSync(path.join(workDir, "CLAUDE.md"), "utf-8");
-    const matches = content2.match(/graph_list/g);
+    const matches = content2.match(/freelance_list/g);
     expect(matches).toHaveLength(1);
   });
 
@@ -278,7 +278,7 @@ describe("CLI init", () => {
     await init(defaults());
     const content = fs.readFileSync(path.join(workDir, "CLAUDE.md"), "utf-8");
     // Should NOT have appended the workflow instructions section
-    expect(content).not.toContain("graph_context_set");
+    expect(content).not.toContain("freelance_context_set");
   });
 
   it("preserves non-mcpServers keys in existing config", async () => {
@@ -326,7 +326,7 @@ describe("CLI init", () => {
     const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
     expect(stderr).toContain("\u2713");
     expect(stderr).toContain("Next steps:");
-    expect(stderr).toContain("graph_list");
+    expect(stderr).toContain("freelance_list");
   });
 
   it("writes SessionStart hook for claude-code client", async () => {

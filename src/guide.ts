@@ -15,7 +15,7 @@ const GUIDE_CONTENT: Record<GuideTopic, string> = {
 
 A Freelance graph is a directed graph defined in YAML. Each graph has:
 
-- **id**: unique identifier used in \`graph_start\`
+- **id**: unique identifier used in \`freelance_start\`
 - **startNode**: where traversal begins
 - **context**: initial key-value state available throughout the traversal
 - **nodes**: the steps of the workflow
@@ -31,22 +31,22 @@ A Freelance graph is a directed graph defined in YAML. Each graph has:
 ## Edges
 
 Every non-terminal node has edges — labeled transitions to other nodes. An edge can have:
-- **label**: the name you pass to \`graph_advance\`
+- **label**: the name you pass to \`freelance_advance\`
 - **target**: the destination node
 - **condition**: an expression evaluated against context (optional)
 - **default**: if true, this edge is taken when no other edge's condition matches
 
 ## Context
 
-Context is a key-value store that persists throughout the traversal. Update it with \`graph_context_set\` or via \`contextUpdates\` in \`graph_advance\`. Edge conditions and gate validations read from context.
+Context is a key-value store that persists throughout the traversal. Update it with \`freelance_context_set\` or via \`contextUpdates\` in \`freelance_advance\`. Edge conditions and gate validations read from context.
 
 ## Typical flow
 
-1. \`graph_list\` — discover available graphs
-2. \`graph_start\` — begin a traversal, get first node's instructions
+1. \`freelance_list\` — discover available graphs
+2. \`freelance_start\` — begin a traversal, get first node's instructions
 3. Do the work described in the node's instructions
-4. \`graph_context_set\` — record results
-5. \`graph_advance\` — move to next node
+4. \`freelance_context_set\` — record results
+5. \`freelance_advance\` — move to next node
 6. Repeat until terminal node`,
 
   gates: `# Gate Nodes
@@ -59,7 +59,7 @@ A gate node has a \`validations\` array. Each validation has:
 - **expr**: an expression evaluated against context (e.g., \`context.testsPass == true\`)
 - **message**: shown to the agent when the validation fails
 
-When the agent calls \`graph_advance\` on a gate node, ALL validations must pass. If any fail, the advance is rejected with the failing messages. The agent must fix the issues and update context before retrying.
+When the agent calls \`freelance_advance\` on a gate node, ALL validations must pass. If any fail, the advance is rejected with the failing messages. The agent must fix the issues and update context before retrying.
 
 ## When to use gates
 
@@ -70,7 +70,7 @@ When the agent calls \`graph_advance\` on a gate node, ALL validations must pass
 ## Tips
 
 - Keep validation expressions simple — they read from context, not external systems
-- The agent should use \`graph_context_set\` to record results before hitting the gate
+- The agent should use \`freelance_context_set\` to record results before hitting the gate
 - Gates with multiple validations enforce ALL conditions simultaneously`,
 
   cycles: `# Cycles
@@ -163,7 +163,7 @@ Wait nodes can have a \`timeout\` field (ISO 8601 duration, e.g., "PT1H" for 1 h
 
 ## Tips
 
-- Use \`graph_context_set\` from outside the agent (or a separate process) to satisfy wait conditions
+- Use \`freelance_context_set\` from outside the agent (or a separate process) to satisfy wait conditions
 - Wait nodes in daemon mode persist across sessions — the traversal resumes when conditions are met`,
 
   "multi-agent": `# Multi-Agent Workflows
@@ -235,7 +235,7 @@ export function getGuideTopics(): string[] {
 export function getGuide(topic?: string): { content: string } | { error: string } {
   if (!topic) {
     const catalog = GUIDE_TOPICS.map((t) => `- ${t}`).join("\n");
-    return { content: `# Freelance Graph Authoring Guide\n\nAvailable topics:\n${catalog}\n\nCall graph_guide with a topic to read it.` };
+    return { content: `# Freelance Graph Authoring Guide\n\nAvailable topics:\n${catalog}\n\nCall freelance_guide with a topic to read it.` };
   }
 
   if (!GUIDE_TOPICS.includes(topic as GuideTopic)) {

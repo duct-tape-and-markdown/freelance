@@ -165,7 +165,7 @@ export class TraversalManager {
     const active = this.listTraversals();
     if (active.length === 0) {
       throw new EngineError(
-        "No active traversals. Call graph_start first.",
+        "No active traversals. Call freelance_start first.",
         "NO_TRAVERSAL"
       );
     }

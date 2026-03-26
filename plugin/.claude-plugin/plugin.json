@@ -1,0 +1,13 @@
+{
+  "name": "freelance",
+  "description": "Graph-based workflow enforcement for AI coding agents. Enforces structured workflows via MCP — state survives context compaction.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Jwcjwc12",
+    "url": "https://github.com/Jwcjwc12"
+  },
+  "homepage": "https://github.com/Jwcjwc12/graph-engine",
+  "repository": "https://github.com/Jwcjwc12/graph-engine",
+  "license": "MIT",
+  "keywords": ["workflow", "graph", "mcp", "automation", "enforcement"]
+}
