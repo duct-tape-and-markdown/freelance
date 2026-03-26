@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { loadSingleGraph, validateCrossGraphRefs } from "../loader.js";
+import { validateGraphSources } from "../sources.js";
+import { extractSection } from "../section-resolver.js";
 import type { ValidatedGraph } from "../types.js";
 import { cli, outputJson, info, error, fatal, EXIT } from "./output.js";
 
@@ -11,13 +13,24 @@ interface GraphResult {
   nodeCount: number;
 }
 
+interface SourceDriftResult {
+  graphId: string;
+  node: string;
+  drifted: Array<{ path: string; section?: string }>;
+}
+
 interface ValidateResult {
   valid: boolean;
   graphs: GraphResult[];
   errors: { file: string; message: string }[];
+  sourceDrift?: SourceDriftResult[];
 }
 
-export function validate(graphsDir: string): void {
+export interface ValidateOptions {
+  checkSources?: boolean;
+}
+
+export function validate(graphsDir: string, options?: ValidateOptions): void {
   const resolvedDir = path.resolve(graphsDir);
 
   if (!fs.existsSync(resolvedDir)) {
@@ -82,6 +95,33 @@ export function validate(graphsDir: string): void {
     }
   }
 
+  // Phase 3: if --sources, check source bindings for drift
+  if (options?.checkSources && result.errors.length === 0) {
+    const sourceDrift: SourceDriftResult[] = [];
+
+    for (const [graphId, { definition }] of parsed) {
+      const sourceResult = validateGraphSources(definition, {
+          resolver: extractSection,
+          basePath: resolvedDir,
+        });
+      for (const warning of sourceResult.warnings) {
+        sourceDrift.push({
+          graphId,
+          node: warning.node,
+          drifted: warning.drifted,
+        });
+        if (!cli.json) {
+          info(`  DRIFT  ${graphId} → ${warning.node}: ${warning.drifted.length} source(s) changed`);
+        }
+      }
+    }
+
+    if (sourceDrift.length > 0) {
+      result.sourceDrift = sourceDrift;
+      result.valid = false;
+    }
+  }
+
   if (cli.json) {
     outputJson(result);
     process.exit(result.valid ? EXIT.SUCCESS : EXIT.GRAPH_ERROR);
@@ -93,6 +133,17 @@ export function validate(graphsDir: string): void {
     error("Errors:");
     for (const e of result.errors) {
       error(`  ${e.file}: ${e.message}`);
+    }
+    process.exit(EXIT.GRAPH_ERROR);
+  }
+
+  if (result.sourceDrift && result.sourceDrift.length > 0) {
+    error("Source drift detected:");
+    for (const d of result.sourceDrift) {
+      error(`  ${d.graphId} → ${d.node}:`);
+      for (const s of d.drifted) {
+        error(`    ${s.path}${s.section ? `#${s.section}` : ""}`);
+      }
     }
     process.exit(EXIT.GRAPH_ERROR);
   }
