@@ -3,9 +3,8 @@
  *
  * Provides content hashing and drift detection for graph nodes that
  * reference documentation sources. This module is self-contained —
- * it operates on file paths and section identifiers, using the Doc LSP
- * for section extraction when available, or falling back to whole-file
- * hashing.
+ * it operates on file paths and section identifiers, using a pluggable
+ * section resolver when available, or falling back to whole-file hashing.
  */
 
 import crypto from "node:crypto";

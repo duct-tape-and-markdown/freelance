@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { loadSingleGraph, validateCrossGraphRefs } from "../loader.js";
 import { validateGraphSources } from "../sources.js";
+import { extractSection } from "../section-resolver.js";
 import type { ValidatedGraph } from "../types.js";
 import { cli, outputJson, info, error, fatal, EXIT } from "./output.js";
 
@@ -99,7 +100,10 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
     const sourceDrift: SourceDriftResult[] = [];
 
     for (const [graphId, { definition }] of parsed) {
-      const sourceResult = validateGraphSources(definition);
+      const sourceResult = validateGraphSources(definition, {
+          resolver: extractSection,
+          basePath: resolvedDir,
+        });
       for (const warning of sourceResult.warnings) {
         sourceDrift.push({
           graphId,
