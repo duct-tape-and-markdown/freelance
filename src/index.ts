@@ -76,8 +76,10 @@ program
   .command("validate <directory>")
   .description("Validate graph definitions")
   .option("--sources", "Also validate source bindings for drift")
+  .option("--fix", "Update drifted source hashes in-place (requires --sources)")
+  .option("--base-path <path>", "Base path for resolving source references (default: cwd)")
   .action((directory, opts) => {
-    validate(directory, { checkSources: opts.sources });
+    validate(directory, { checkSources: opts.sources || opts.fix, fix: opts.fix, basePath: opts.basePath });
   });
 
 // --- visualize ---

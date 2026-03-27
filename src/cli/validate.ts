@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { loadSingleGraph, validateCrossGraphRefs } from "../loader.js";
-import { validateGraphSources } from "../sources.js";
+import { findGraphFiles, loadSingleGraph, validateCrossGraphRefs } from "../loader.js";
+import { validateGraphSources, hashSource } from "../sources.js";
 import { extractSection } from "../section-resolver.js";
 import type { ValidatedGraph } from "../types.js";
+import type { SourceOptions } from "../sources.js";
 import { cli, outputJson, info, error, fatal, EXIT } from "./output.js";
 
 interface GraphResult {
@@ -16,7 +17,7 @@ interface GraphResult {
 interface SourceDriftResult {
   graphId: string;
   node: string;
-  drifted: Array<{ path: string; section?: string }>;
+  drifted: Array<{ path: string; section?: string; expected: string; actual: string }>;
 }
 
 interface ValidateResult {
@@ -24,10 +25,14 @@ interface ValidateResult {
   graphs: GraphResult[];
   errors: { file: string; message: string }[];
   sourceDrift?: SourceDriftResult[];
+  fixed?: number;
 }
 
 export interface ValidateOptions {
   checkSources?: boolean;
+  fix?: boolean;
+  /** Base path for resolving source references. Defaults to cwd. */
+  basePath?: string;
 }
 
 export function validate(graphsDir: string, options?: ValidateOptions): void {
@@ -41,9 +46,7 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
     fatal(`Graph directory does not exist: ${resolvedDir}`, EXIT.GRAPH_ERROR);
   }
 
-  const files = fs
-    .readdirSync(resolvedDir)
-    .filter((f) => f.endsWith(".workflow.yaml"));
+  const files = findGraphFiles(resolvedDir);
 
   if (files.length === 0) {
     if (cli.json) {
@@ -55,13 +58,15 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
 
   const result: ValidateResult = { valid: true, graphs: [], errors: [] };
   const parsed = new Map<string, ValidatedGraph>();
+  const graphFilePaths = new Map<string, string>();
 
   // Phase 1: validate each file independently so one broken file doesn't block the rest
-  for (const file of files) {
-    const filePath = path.join(resolvedDir, file);
+  for (const filePath of files) {
+    const relFile = path.relative(resolvedDir, filePath);
     try {
       const { id, definition, graph } = loadSingleGraph(filePath);
       parsed.set(id, { definition, graph });
+      graphFilePaths.set(id, filePath);
       result.graphs.push({
         id,
         name: definition.name,
@@ -73,10 +78,10 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      result.errors.push({ file, message: msg });
+      result.errors.push({ file: relFile, message: msg });
       result.valid = false;
       if (!cli.json) {
-        info(`  FAIL  ${file}: ${msg}`);
+        info(`  FAIL  ${relFile}: ${msg}`);
       }
     }
   }
@@ -98,20 +103,40 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
   // Phase 3: if --sources, check source bindings for drift
   if (options?.checkSources && result.errors.length === 0) {
     const sourceDrift: SourceDriftResult[] = [];
+    // Track files that need hash updates: filePath → Array<{section, oldHash, newHash}>
+    const fixMap = new Map<string, Array<{ section?: string; oldHash: string; newHash: string }>>();
+
+    const resolvedBasePath = options.basePath ? path.resolve(options.basePath) : process.cwd();
 
     for (const [graphId, { definition }] of parsed) {
-      const sourceResult = validateGraphSources(definition, {
-          resolver: extractSection,
-          basePath: resolvedDir,
-        });
+      const sourceOpts: SourceOptions = { resolver: extractSection, basePath: resolvedBasePath };
+      const sourceResult = validateGraphSources(definition, sourceOpts);
+
       for (const warning of sourceResult.warnings) {
+        // Get detailed drift with expected/actual hashes
+        const detailedDrift = getDetailedDrift(definition, warning.node, sourceOpts);
         sourceDrift.push({
           graphId,
           node: warning.node,
-          drifted: warning.drifted,
+          drifted: detailedDrift,
         });
+
         if (!cli.json) {
-          info(`  DRIFT  ${graphId} → ${warning.node}: ${warning.drifted.length} source(s) changed`);
+          info(`  DRIFT  ${graphId} → ${warning.node}: ${detailedDrift.length} source(s) changed`);
+        }
+
+        // Collect hash replacements for --fix
+        if (options.fix) {
+          const gFile = graphFilePaths.get(graphId)!;
+          if (!fixMap.has(gFile)) {
+            fixMap.set(gFile, []);
+          }
+          const fileFixList = fixMap.get(gFile)!;
+          for (const d of detailedDrift) {
+            if (d.actual !== "FILE_NOT_FOUND") {
+              fileFixList.push({ section: d.section, oldHash: d.expected, newHash: d.actual });
+            }
+          }
         }
       }
     }
@@ -119,6 +144,51 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
     if (sourceDrift.length > 0) {
       result.sourceDrift = sourceDrift;
       result.valid = false;
+    }
+
+    // Phase 4: if --fix, rewrite YAML files with updated hashes
+    if (options.fix && fixMap.size > 0) {
+      let totalFixed = 0;
+
+      for (const [filePath, fixes] of fixMap) {
+        let content = fs.readFileSync(filePath, "utf-8");
+        let fileFixed = 0;
+
+        for (const { section, oldHash, newHash } of fixes) {
+          let replaced: string;
+
+          if (section) {
+            // Match section line followed by hash line — replace only the hash for this specific section
+            const pattern = new RegExp(
+              `(section:\\s*"${escapeRegex(section)}"\\s*\\n\\s*hash:\\s*")${escapeRegex(oldHash)}"`,
+            );
+            replaced = content.replace(pattern, `$1${newHash}"`);
+          } else {
+            // No section — match hash alone (whole-file source)
+            const pattern = new RegExp(`(hash:\\s*")${escapeRegex(oldHash)}"`,);
+            replaced = content.replace(pattern, `$1${newHash}"`);
+          }
+
+          if (replaced !== content) {
+            content = replaced;
+            fileFixed++;
+          }
+        }
+
+        if (fileFixed > 0) {
+          fs.writeFileSync(filePath, content, "utf-8");
+          totalFixed += fileFixed;
+          const relFile = path.relative(resolvedDir, filePath);
+          if (!cli.json) {
+            info(`  FIXED  ${relFile}: ${fileFixed} hash(es) updated`);
+          }
+        }
+      }
+
+      result.fixed = totalFixed;
+      if (totalFixed > 0) {
+        result.valid = true; // Drift was fixed
+      }
     }
   }
 
@@ -137,14 +207,61 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
     process.exit(EXIT.GRAPH_ERROR);
   }
 
+  if (result.fixed && result.fixed > 0) {
+    info(`Fixed ${result.fixed} drifted hash(es). Re-run without --fix to verify.`);
+    return;
+  }
+
   if (result.sourceDrift && result.sourceDrift.length > 0) {
     error("Source drift detected:");
     for (const d of result.sourceDrift) {
       error(`  ${d.graphId} → ${d.node}:`);
       for (const s of d.drifted) {
-        error(`    ${s.path}${s.section ? `#${s.section}` : ""}`);
+        error(`    ${s.path}${s.section ? `#${s.section}` : ""} (${s.expected} → ${s.actual})`);
       }
     }
     process.exit(EXIT.GRAPH_ERROR);
   }
+}
+
+// --- Helpers ---
+
+function getDetailedDrift(
+  definition: ValidatedGraph["definition"],
+  nodeId: string,
+  opts: SourceOptions
+): Array<{ path: string; section?: string; expected: string; actual: string }> {
+  const sources = nodeId === "(graph)"
+    ? definition.sources ?? []
+    : definition.nodes[nodeId]?.sources ?? [];
+
+  const results: Array<{ path: string; section?: string; expected: string; actual: string }> = [];
+
+  for (const source of sources) {
+    try {
+      const current = hashSource({ path: source.path, section: source.section }, opts);
+
+      if (current.hash !== source.hash) {
+        results.push({
+          path: source.path,
+          section: source.section,
+          expected: source.hash,
+          actual: current.hash,
+        });
+      }
+    } catch {
+      results.push({
+        path: source.path,
+        section: source.section,
+        expected: source.hash,
+        actual: "FILE_NOT_FOUND",
+      });
+    }
+  }
+
+  return results;
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

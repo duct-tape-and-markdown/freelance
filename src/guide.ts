@@ -106,7 +106,13 @@ Organize graphs into subdirectories by domain. File convention: \`{name}.workflo
 
 ## Provenance
 
-Every source binding includes a content hash. Use \`freelance_sources_check\` to detect drift. When KB content changes, update affected hashes.`,
+Every source binding includes a content hash. Drift detection is built in at three levels:
+
+- **CLI**: \`freelance validate <dir> --sources\` checks all graphs. Add \`--fix\` to restamp drifted hashes in-place.
+- **MCP**: \`freelance_sources_validate\` checks a single graph or all loaded graphs by ID.
+- **MCP**: \`freelance_sources_check\` checks an explicit list of source bindings.
+
+When KB content changes, run validation to surface drift. Review drifted sections for instruction implications before restamping.`,
 
   gates: `# Gate Nodes
 

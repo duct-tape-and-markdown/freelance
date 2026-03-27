@@ -1,3 +1,4 @@
+import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -6,7 +7,8 @@ import { EngineError } from "./errors.js";
 import { VERSION } from "./version.js";
 import { getGuide } from "./guide.js";
 import { watchGraphs } from "./watcher.js";
-import { hashSources, checkSourcesDetailed, validateGraphSources } from "./sources.js";
+import { findGraphFiles, loadSingleGraph } from "./loader.js";
+import { hashSource, hashSources, checkSourcesDetailed, validateGraphSources } from "./sources.js";
 import type { SourceRef, SectionResolver, SourceOptions } from "./sources.js";
 import type { ValidatedGraph } from "./types.js";
 
@@ -40,6 +42,47 @@ export interface ServerOptions {
   sectionResolver?: SectionResolver;
   /** Check source bindings at freelance_start (default: false). Provenance is a build concern. */
   validateSourcesOnStart?: boolean;
+}
+
+import type { GraphDefinition } from "./schema/graph-schema.js";
+
+/**
+ * Get detailed drift info (expected + actual hashes) for a specific node's sources.
+ */
+function getDetailedDrift(
+  definition: GraphDefinition,
+  nodeId: string,
+  opts: SourceOptions
+): Array<{ path: string; section?: string; expected: string; actual: string }> {
+  const sources = nodeId === "(graph)"
+    ? definition.sources ?? []
+    : definition.nodes[nodeId]?.sources ?? [];
+
+  const results: Array<{ path: string; section?: string; expected: string; actual: string }> = [];
+
+  for (const source of sources) {
+    try {
+      const current = hashSource({ path: source.path, section: source.section }, opts);
+
+      if (current.hash !== source.hash) {
+        results.push({
+          path: source.path,
+          section: source.section,
+          expected: source.hash,
+          actual: current.hash,
+        });
+      }
+    } catch {
+      results.push({
+        path: source.path,
+        section: source.section,
+        expected: source.hash,
+        actual: "FILE_NOT_FOUND",
+      });
+    }
+  }
+
+  return results;
 }
 
 export function createServer(
@@ -245,6 +288,82 @@ export function createServer(
         const sourceOpts: SourceOptions = { resolver: options?.sectionResolver };
         const result = checkSourcesDetailed(sources, sourceOpts);
         return jsonResponse(result);
+      } catch (e) {
+        return handleError(e);
+      }
+    }
+  );
+
+  // freelance_sources_validate
+  server.tool(
+    "freelance_sources_validate",
+    "Validate source hashes across all loaded graphs (or a single graph). Walks every source binding in every node and reports drift. Pass graphId to check one graph, or omit to check all.",
+    {
+      graphId: z.string().optional(),
+    },
+    ({ graphId }) => {
+      try {
+        if (!options?.graphsDirs?.length) {
+          return errorResponse("No graphsDirs configured — cannot resolve source paths");
+        }
+
+        // Collect workflow files and their definitions, keyed by graph ID
+        const fileMap = new Map<string, { definition: ValidatedGraph["definition"]; filePath: string }>();
+        for (const dir of options.graphsDirs) {
+          for (const filePath of findGraphFiles(dir)) {
+            try {
+              const loaded = loadSingleGraph(filePath);
+              fileMap.set(loaded.id, { definition: loaded.definition, filePath });
+            } catch {
+              // Skip files that fail to load — validate command handles those
+            }
+          }
+        }
+
+        const targets = graphId
+          ? fileMap.has(graphId) ? [graphId] : []
+          : [...fileMap.keys()];
+
+        if (targets.length === 0) {
+          return errorResponse(graphId ? `Graph not found: ${graphId}` : "No graphs loaded");
+        }
+
+        const drift: Array<{
+          graphId: string;
+          node: string;
+          drifted: Array<{ path: string; section?: string; expected: string; actual: string }>;
+        }> = [];
+
+        for (const id of targets) {
+          const entry = fileMap.get(id)!;
+          const basePath = path.dirname(entry.filePath);
+          const sourceResult = validateGraphSources(entry.definition, {
+            resolver: options?.sectionResolver,
+            basePath,
+          });
+
+          for (const warning of sourceResult.warnings) {
+            // Re-check to get expected/actual hashes for the report
+            const detailedSources = id === graphId || targets.length <= 5
+              ? getDetailedDrift(entry.definition, warning.node, {
+                  resolver: options?.sectionResolver,
+                  basePath,
+                })
+              : warning.drifted.map((d) => ({ ...d, expected: "?", actual: "?" }));
+
+            drift.push({
+              graphId: id,
+              node: warning.node,
+              drifted: detailedSources,
+            });
+          }
+        }
+
+        return jsonResponse({
+          valid: drift.length === 0,
+          graphsChecked: targets.length,
+          drift,
+        });
       } catch (e) {
         return handleError(e);
       }
