@@ -20,7 +20,7 @@ freelance init
 
 ## How It Works
 
-1. Define workflows as directed graphs in YAML (`.graph.yaml` files)
+1. Define workflows as directed graphs in YAML (`.workflow.yaml` files)
 2. Freelance loads them and exposes 7 MCP tools to the agent
 3. The agent calls `freelance_start` to begin a workflow, `freelance_advance` to move between nodes
 4. Gate nodes block advancement until conditions are met — quality enforcement without documentation

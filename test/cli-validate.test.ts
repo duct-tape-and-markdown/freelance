@@ -37,7 +37,7 @@ describe("CLI validate", () => {
 
   it("succeeds with valid graph files", () => {
     const dir = tmpDir();
-    copyFixtures(dir, "valid-simple.graph.yaml", "valid-branching.graph.yaml");
+    copyFixtures(dir, "valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
     validate(dir);
     expect(exitSpy).not.toHaveBeenCalled();
   });
@@ -55,14 +55,14 @@ describe("CLI validate", () => {
 
   it("exits with GRAPH_ERROR for invalid graph", () => {
     const dir = tmpDir();
-    copyFixtures(dir, "invalid-orphan.graph.yaml");
+    copyFixtures(dir, "invalid-orphan.workflow.yaml");
     expect(() => validate(dir)).toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(3);
   });
 
   it("reports per-file errors in human output", () => {
     const dir = tmpDir();
-    copyFixtures(dir, "valid-simple.graph.yaml", "invalid-orphan.graph.yaml");
+    copyFixtures(dir, "valid-simple.workflow.yaml", "invalid-orphan.workflow.yaml");
     expect(() => validate(dir)).toThrow("process.exit");
 
     const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
@@ -72,7 +72,7 @@ describe("CLI validate", () => {
 
   it("produces JSON output when --json is set", () => {
     const dir = tmpDir();
-    copyFixtures(dir, "valid-simple.graph.yaml");
+    copyFixtures(dir, "valid-simple.workflow.yaml");
     setCli({ json: true });
 
     expect(() => validate(dir)).toThrow("process.exit");
@@ -87,7 +87,7 @@ describe("CLI validate", () => {
 
   it("JSON output includes errors for invalid graphs", () => {
     const dir = tmpDir();
-    copyFixtures(dir, "invalid-orphan.graph.yaml");
+    copyFixtures(dir, "invalid-orphan.workflow.yaml");
     setCli({ json: true });
 
     expect(() => validate(dir)).toThrow("process.exit");
@@ -101,7 +101,7 @@ describe("CLI validate", () => {
 
   it("human output includes summary line", () => {
     const dir = tmpDir();
-    copyFixtures(dir, "valid-simple.graph.yaml", "valid-branching.graph.yaml");
+    copyFixtures(dir, "valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
     validate(dir);
     const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
     expect(stderr).toContain("Validated 2 graph(s), 0 error(s)");
@@ -125,12 +125,12 @@ describe("CLI validate", () => {
     const stdout = stdoutSpy.mock.calls.map((c) => c[0]).join("");
     const result = JSON.parse(stdout);
     expect(result.valid).toBe(false);
-    expect(result.errors[0].message).toContain("No *.graph.yaml");
+    expect(result.errors[0].message).toContain("No *.workflow.yaml");
   });
 
   it("validates cross-graph subgraph references", () => {
     const dir = tmpDir();
-    copyFixtures(dir, "parent-with-subgraph.graph.yaml", "child-review.graph.yaml");
+    copyFixtures(dir, "parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
     validate(dir);
     expect(exitSpy).not.toHaveBeenCalled();
   });
@@ -138,7 +138,7 @@ describe("CLI validate", () => {
   it("fails on broken cross-graph subgraph reference", () => {
     const dir = tmpDir();
     // Load parent without child — subgraph ref to child-review will dangle
-    copyFixtures(dir, "parent-with-subgraph.graph.yaml");
+    copyFixtures(dir, "parent-with-subgraph.workflow.yaml");
     expect(() => validate(dir)).toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(3);
   });
@@ -153,7 +153,7 @@ describe("CLI validate", () => {
 
   it("--quiet suppresses info output", () => {
     const dir = tmpDir();
-    copyFixtures(dir, "valid-simple.graph.yaml");
+    copyFixtures(dir, "valid-simple.workflow.yaml");
     setCli({ quiet: true });
     validate(dir);
     const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
@@ -162,7 +162,7 @@ describe("CLI validate", () => {
 
   it("JSON output includes graph metadata fields", () => {
     const dir = tmpDir();
-    copyFixtures(dir, "valid-simple.graph.yaml");
+    copyFixtures(dir, "valid-simple.workflow.yaml");
     setCli({ json: true });
 
     expect(() => validate(dir)).toThrow("process.exit");

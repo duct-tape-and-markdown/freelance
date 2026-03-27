@@ -60,8 +60,8 @@ describe("program commands", () => {
 
   it("visualize command calls visualize function", async () => {
     const { visualize } = await import("../src/cli/visualize.js");
-    await program.parseAsync(["node", "freelance", "visualize", "/tmp/test.graph.yaml", "--format", "dot"]);
-    expect(visualize).toHaveBeenCalledWith("/tmp/test.graph.yaml", expect.objectContaining({ format: "dot" }));
+    await program.parseAsync(["node", "freelance", "visualize", "/tmp/test.workflow.yaml", "--format", "dot"]);
+    expect(visualize).toHaveBeenCalledWith("/tmp/test.workflow.yaml", expect.objectContaining({ format: "dot" }));
   });
 
   it("inspect command calls inspect function", async () => {

@@ -10,8 +10,8 @@ function tmpGraphDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "watcher-test-"));
   // Copy a valid graph to start with
   fs.copyFileSync(
-    path.join(FIXTURES_DIR, "valid-simple.graph.yaml"),
-    path.join(dir, "valid-simple.graph.yaml")
+    path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+    path.join(dir, "valid-simple.workflow.yaml")
   );
   return dir;
 }
@@ -53,7 +53,7 @@ describe("Graph watcher", () => {
     cleanups.push(stop);
 
     // Modify the file
-    const graphFile = path.join(dir, "valid-simple.graph.yaml");
+    const graphFile = path.join(dir, "valid-simple.workflow.yaml");
     const content = fs.readFileSync(graphFile, "utf-8");
     fs.writeFileSync(graphFile, content); // touch
 
@@ -75,9 +75,9 @@ describe("Graph watcher", () => {
     cleanups.push(stop);
 
     // Remove valid graph and write only an invalid one so all graphs fail
-    fs.unlinkSync(path.join(dir, "valid-simple.graph.yaml"));
+    fs.unlinkSync(path.join(dir, "valid-simple.workflow.yaml"));
     fs.writeFileSync(
-      path.join(dir, "broken.graph.yaml"),
+      path.join(dir, "broken.workflow.yaml"),
       "id: broken\nnot_valid: true\n"
     );
 
@@ -119,7 +119,7 @@ describe("Graph watcher", () => {
     cleanups.push(stop);
 
     // Rapid-fire modifications
-    const graphFile = path.join(dir, "valid-simple.graph.yaml");
+    const graphFile = path.join(dir, "valid-simple.workflow.yaml");
     const content = fs.readFileSync(graphFile, "utf-8");
     for (let i = 0; i < 5; i++) {
       fs.writeFileSync(graphFile, content);
@@ -145,7 +145,7 @@ describe("Graph watcher", () => {
     stop();
 
     // Modify file
-    const graphFile = path.join(dir, "valid-simple.graph.yaml");
+    const graphFile = path.join(dir, "valid-simple.workflow.yaml");
     const content = fs.readFileSync(graphFile, "utf-8");
     fs.writeFileSync(graphFile, content);
 

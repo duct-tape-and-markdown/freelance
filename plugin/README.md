@@ -35,7 +35,7 @@ After installing the plugin, run `/freelance:freelance-init` to create the graph
 mkdir -p .freelance/graphs
 ```
 
-Then add `.graph.yaml` files to define your workflows. See [the spec](https://github.com/Jwcjwc12/graph-engine/blob/main/docs/SPEC.md) for the full graph definition format.
+Then add `.workflow.yaml` files to define your workflows. See [the spec](https://github.com/Jwcjwc12/graph-engine/blob/main/docs/SPEC.md) for the full graph definition format.
 
 ## Non-Claude-Code Clients
 

@@ -32,7 +32,7 @@ describe("MCP server integration", () => {
   let cleanup: () => Promise<void>;
 
   beforeEach(async () => {
-    const graphs = loadFixtures("valid-simple.graph.yaml", "valid-branching.graph.yaml");
+    const graphs = loadFixtures("valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
     const { server } = createServer(graphs);
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -278,7 +278,7 @@ describe("MCP server integration", () => {
 describe("MCP server hot-reload", () => {
   it("picks up new graph files via watcher", async () => {
     const graphsDir = fs.mkdtempSync(path.join(os.tmpdir(), "server-reload-"));
-    copyFixtures(graphsDir, "valid-simple.graph.yaml");
+    copyFixtures(graphsDir, "valid-simple.workflow.yaml");
     const graphs = loadGraphs(graphsDir);
 
     const { server, stopWatcher } = createServer(graphs, { graphsDirs: [graphsDir] });
@@ -298,7 +298,7 @@ describe("MCP server hot-reload", () => {
       expect(before.graphs[0].id).toBe("valid-simple");
 
       // Copy a second graph file into the watched dir
-      copyFixtures(graphsDir, "valid-branching.graph.yaml");
+      copyFixtures(graphsDir, "valid-branching.workflow.yaml");
 
       // Wait for debounce (200ms default) + buffer
       await new Promise((r) => setTimeout(r, 500));
@@ -321,7 +321,7 @@ describe("MCP server hot-reload", () => {
   it("logs to stderr on reload failure", async () => {
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const graphsDir = fs.mkdtempSync(path.join(os.tmpdir(), "server-reload-err-"));
-    copyFixtures(graphsDir, "valid-simple.graph.yaml");
+    copyFixtures(graphsDir, "valid-simple.workflow.yaml");
     const graphs = loadGraphs(graphsDir);
 
     const { server, stopWatcher } = createServer(graphs, { graphsDirs: [graphsDir] });
@@ -333,7 +333,7 @@ describe("MCP server hot-reload", () => {
 
     try {
       // Break the graph file
-      fs.writeFileSync(path.join(graphsDir, "valid-simple.graph.yaml"), "not: valid: yaml: [[[");
+      fs.writeFileSync(path.join(graphsDir, "valid-simple.workflow.yaml"), "not: valid: yaml: [[[");
 
       await new Promise((r) => setTimeout(r, 500));
 
@@ -359,7 +359,7 @@ describe("MCP server hot-reload", () => {
   });
 
   it("does not start watcher when graphsDirs is not provided", () => {
-    const graphs = loadFixtures("valid-simple.graph.yaml");
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
     const { stopWatcher } = createServer(graphs);
     expect(stopWatcher).toBeUndefined();
   });

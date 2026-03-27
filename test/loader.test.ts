@@ -27,7 +27,7 @@ function loadValidFixtures() {
   const fs = require("node:fs");
   const os = require("node:os");
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "graph-test-"));
-  for (const f of ["valid-simple.graph.yaml", "valid-branching.graph.yaml"]) {
+  for (const f of ["valid-simple.workflow.yaml", "valid-branching.workflow.yaml"]) {
     fs.copyFileSync(path.join(FIXTURES_DIR, f), path.join(tmpDir, f));
   }
   return tmpDir;
@@ -43,7 +43,7 @@ describe("loadGraphs — valid fixtures", () => {
   });
 
   it("valid-simple has correct structure", () => {
-    const dir = loadSingleFixture("valid-simple.graph.yaml");
+    const dir = loadSingleFixture("valid-simple.workflow.yaml");
     const graphs = loadGraphs(dir);
     const g = graphs.get("valid-simple")!;
 
@@ -54,7 +54,7 @@ describe("loadGraphs — valid fixtures", () => {
   });
 
   it("valid-branching has correct structure", () => {
-    const dir = loadSingleFixture("valid-branching.graph.yaml");
+    const dir = loadSingleFixture("valid-branching.workflow.yaml");
     const graphs = loadGraphs(dir);
     const g = graphs.get("valid-branching")!;
 
@@ -69,72 +69,72 @@ describe("loadGraphs — valid fixtures", () => {
 
 describe("loadGraphs — invalid fixtures", () => {
   it("rejects orphan node", () => {
-    const dir = loadSingleFixture("invalid-orphan.graph.yaml");
+    const dir = loadSingleFixture("invalid-orphan.workflow.yaml");
     expect(() => loadGraphs(dir)).toThrow(/orphan/i);
   });
 
   it("rejects missing edge target", () => {
-    const dir = loadSingleFixture("invalid-missing-target.graph.yaml");
+    const dir = loadSingleFixture("invalid-missing-target.workflow.yaml");
     expect(() => loadGraphs(dir)).toThrow(/nonexistent/i);
   });
 
   it("rejects terminal node with edges", () => {
-    const dir = loadSingleFixture("invalid-terminal-with-edges.graph.yaml");
+    const dir = loadSingleFixture("invalid-terminal-with-edges.workflow.yaml");
     expect(() => loadGraphs(dir)).toThrow(/terminal/i);
   });
 
   it("rejects gate node without validations", () => {
-    const dir = loadSingleFixture("invalid-gate-no-validations.graph.yaml");
+    const dir = loadSingleFixture("invalid-gate-no-validations.workflow.yaml");
     expect(() => loadGraphs(dir)).toThrow(/gate/i);
   });
 
   it("rejects action-only cycle", () => {
-    const dir = loadSingleFixture("invalid-action-loop.graph.yaml");
+    const dir = loadSingleFixture("invalid-action-loop.workflow.yaml");
     expect(() => loadGraphs(dir)).toThrow(/cycle/i);
   });
 
   it("rejects invalid validation expression", () => {
-    const dir = loadSingleFixture("invalid-bad-expression.graph.yaml");
+    const dir = loadSingleFixture("invalid-bad-expression.workflow.yaml");
     expect(() => loadGraphs(dir)).toThrow(/invalid validation expression/i);
   });
 
   it("rejects invalid edge condition expression", () => {
-    const dir = loadSingleFixture("invalid-bad-edge-condition.graph.yaml");
+    const dir = loadSingleFixture("invalid-bad-edge-condition.workflow.yaml");
     expect(() => loadGraphs(dir)).toThrow(/invalid condition/i);
   });
 
   it("rejects invalid subgraph condition expression", () => {
-    const dir = loadSingleFixture("invalid-bad-subgraph-condition.graph.yaml");
+    const dir = loadSingleFixture("invalid-bad-subgraph-condition.workflow.yaml");
     expect(() => loadGraphs(dir)).toThrow(/invalid subgraph condition/i);
   });
 
   it("rejects terminal node with subgraph", () => {
-    const dir = loadSingleFixture("invalid-terminal-subgraph.graph.yaml");
+    const dir = loadSingleFixture("invalid-terminal-subgraph.workflow.yaml");
     expect(() => loadGraphs(dir)).toThrow(/terminal node must not have a subgraph/i);
   });
 
   it("rejects non-terminal node without edges", () => {
-    const dir = loadSingleFixture("invalid-no-edges.graph.yaml");
+    const dir = loadSingleFixture("invalid-no-edges.workflow.yaml");
     expect(() => loadGraphs(dir)).toThrow(/must have at least one outgoing edge/i);
   });
 
   it("rejects invalid startNode reference", () => {
-    const dir = loadSingleFixture("invalid-bad-startnode.graph.yaml");
+    const dir = loadSingleFixture("invalid-bad-startnode.workflow.yaml");
     expect(() => loadGraphs(dir)).toThrow(/startNode.*not defined/i);
   });
 
   it("rejects terminal node with returns", () => {
-    const dir = loadSingleFixture("invalid-terminal-returns.graph.yaml");
+    const dir = loadSingleFixture("invalid-terminal-returns.workflow.yaml");
     expect(() => loadGraphs(dir)).toThrow(/terminal node must not have a returns/i);
   });
 
   it("rejects overlapping required/optional returns keys", () => {
-    const dir = loadSingleFixture("invalid-returns-overlap.graph.yaml");
+    const dir = loadSingleFixture("invalid-returns-overlap.workflow.yaml");
     expect(() => loadGraphs(dir)).toThrow(/appears in both required and optional/i);
   });
 
   it("rejects items on non-array returns type", () => {
-    const dir = loadSingleFixture("invalid-returns-items-non-array.graph.yaml");
+    const dir = loadSingleFixture("invalid-returns-items-non-array.workflow.yaml");
     expect(() => loadGraphs(dir)).toThrow(/items.*only valid on array/i);
   });
 });
@@ -146,7 +146,7 @@ describe("loadGraphs — edge cases", () => {
 
   it("throws when directory has no graph files", () => {
     const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "empty-graphs-"));
-    expect(() => loadGraphs(emptyDir)).toThrow(/No \*\.graph\.yaml files/i);
+    expect(() => loadGraphs(emptyDir)).toThrow(/No \*\.workflow\.yaml files/i);
     fs.rmSync(emptyDir, { recursive: true, force: true });
   });
 
@@ -155,12 +155,12 @@ describe("loadGraphs — edge cases", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "partial-fail-"));
     // Copy one valid and one invalid
     fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.graph.yaml"),
-      path.join(tmpDir, "valid-simple.graph.yaml")
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(tmpDir, "valid-simple.workflow.yaml")
     );
     fs.copyFileSync(
-      path.join(FIXTURES_DIR, "invalid-orphan.graph.yaml"),
-      path.join(tmpDir, "invalid-orphan.graph.yaml")
+      path.join(FIXTURES_DIR, "invalid-orphan.workflow.yaml"),
+      path.join(tmpDir, "invalid-orphan.workflow.yaml")
     );
     const graphs = loadGraphs(tmpDir);
     expect(graphs.size).toBe(1);
@@ -179,8 +179,8 @@ describe("loadGraphsLayered", () => {
   it("loads graphs from a single directory", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-single-"));
     fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.graph.yaml"),
-      path.join(tmpDir, "valid-simple.graph.yaml")
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(tmpDir, "valid-simple.workflow.yaml")
     );
     const graphs = loadGraphsLayered([tmpDir]);
     expect(graphs.size).toBe(1);
@@ -194,12 +194,12 @@ describe("loadGraphsLayered", () => {
     const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "layered-2-"));
     // Both have valid-simple — dir2 should shadow dir1
     fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.graph.yaml"),
-      path.join(dir1, "valid-simple.graph.yaml")
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(dir1, "valid-simple.workflow.yaml")
     );
     fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.graph.yaml"),
-      path.join(dir2, "valid-simple.graph.yaml")
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(dir2, "valid-simple.workflow.yaml")
     );
     const graphs = loadGraphsLayered([dir1, dir2]);
     expect(graphs.size).toBe(1);
@@ -213,8 +213,8 @@ describe("loadGraphsLayered", () => {
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const dir1 = fs.mkdtempSync(path.join(os.tmpdir(), "layered-real-"));
     fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.graph.yaml"),
-      path.join(dir1, "valid-simple.graph.yaml")
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(dir1, "valid-simple.workflow.yaml")
     );
     const graphs = loadGraphsLayered(["/tmp/nonexistent-xyz", dir1]);
     expect(graphs.size).toBe(1);
@@ -228,12 +228,12 @@ describe("loadGraphsLayered", () => {
     const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-empty-"));
     const validDir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-valid-"));
     fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.graph.yaml"),
-      path.join(validDir, "valid-simple.graph.yaml")
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(validDir, "valid-simple.workflow.yaml")
     );
     const graphs = loadGraphsLayered([emptyDir, validDir]);
     expect(graphs.size).toBe(1);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("no *.graph.yaml"));
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("no *.workflow.yaml"));
     stderrSpy.mockRestore();
     fs.rmSync(emptyDir, { recursive: true, force: true });
     fs.rmSync(validDir, { recursive: true, force: true });
@@ -242,8 +242,8 @@ describe("loadGraphsLayered", () => {
   it("throws when no valid graphs found in any directory", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-allfail-"));
     fs.copyFileSync(
-      path.join(FIXTURES_DIR, "invalid-orphan.graph.yaml"),
-      path.join(dir, "invalid-orphan.graph.yaml")
+      path.join(FIXTURES_DIR, "invalid-orphan.workflow.yaml"),
+      path.join(dir, "invalid-orphan.workflow.yaml")
     );
     expect(() => loadGraphsLayered([dir])).toThrow(/No valid graphs found/i);
     fs.rmSync(dir, { recursive: true, force: true });
@@ -253,12 +253,12 @@ describe("loadGraphsLayered", () => {
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-mixed-"));
     fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.graph.yaml"),
-      path.join(dir, "valid-simple.graph.yaml")
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(dir, "valid-simple.workflow.yaml")
     );
     fs.copyFileSync(
-      path.join(FIXTURES_DIR, "invalid-orphan.graph.yaml"),
-      path.join(dir, "invalid-orphan.graph.yaml")
+      path.join(FIXTURES_DIR, "invalid-orphan.workflow.yaml"),
+      path.join(dir, "invalid-orphan.workflow.yaml")
     );
     const graphs = loadGraphsLayered([dir]);
     expect(graphs.size).toBe(1);

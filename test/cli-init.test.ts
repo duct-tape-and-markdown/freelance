@@ -51,7 +51,7 @@ describe("CLI init", () => {
 
   it("copies starter template", async () => {
     await init(defaults());
-    const graphFile = path.join(workDir, ".freelance", "graphs", "blank.graph.yaml");
+    const graphFile = path.join(workDir, ".freelance", "graphs", "blank.workflow.yaml");
     expect(fs.existsSync(graphFile)).toBe(true);
     const content = fs.readFileSync(graphFile, "utf-8");
     expect(content).toContain("my-workflow");
@@ -164,7 +164,7 @@ describe("CLI init", () => {
       const dir = tmpDir();
       process.chdir(dir);
       await init(defaults({ starter, client: "manual" }));
-      const graphFile = path.join(dir, ".freelance", "graphs", `${starter}.graph.yaml`);
+      const graphFile = path.join(dir, ".freelance", "graphs", `${starter}.workflow.yaml`);
       expect(fs.existsSync(graphFile), `${starter} template missing`).toBe(true);
     }
   });
@@ -173,13 +173,13 @@ describe("CLI init", () => {
     const customDir = path.join(workDir, "custom", "workflows");
     await init(defaults({ graphs: customDir, client: "manual" }));
     expect(fs.existsSync(customDir)).toBe(true);
-    expect(fs.existsSync(path.join(customDir, "blank.graph.yaml"))).toBe(true);
+    expect(fs.existsSync(path.join(customDir, "blank.workflow.yaml"))).toBe(true);
   });
 
   it("does not overwrite existing graph file", async () => {
     const graphsDir = path.join(workDir, ".freelance", "graphs");
     fs.mkdirSync(graphsDir, { recursive: true });
-    const graphFile = path.join(graphsDir, "blank.graph.yaml");
+    const graphFile = path.join(graphsDir, "blank.workflow.yaml");
     fs.writeFileSync(graphFile, "# custom content\nid: blank\n");
 
     await init(defaults({ client: "manual" }));
@@ -315,7 +315,7 @@ describe("CLI init", () => {
   it("dry-run with existing graph shows 'Would skip'", async () => {
     const graphsDir = path.join(workDir, ".freelance", "graphs");
     fs.mkdirSync(graphsDir, { recursive: true });
-    fs.writeFileSync(path.join(graphsDir, "blank.graph.yaml"), "id: cr\n");
+    fs.writeFileSync(path.join(graphsDir, "blank.workflow.yaml"), "id: cr\n");
     await init(defaults({ dryRun: true }));
     const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
     expect(stderr).toContain("Would skip:");
@@ -383,7 +383,7 @@ describe("CLI init", () => {
     // Since we can't control template names through the public API (it's a union type),
     // we verify the template resolution path works for "blank" (which exists).
     await init(defaults({ starter: "blank", client: "manual" }));
-    const graphFile = path.join(workDir, ".freelance", "graphs", "blank.graph.yaml");
+    const graphFile = path.join(workDir, ".freelance", "graphs", "blank.workflow.yaml");
     expect(fs.existsSync(graphFile)).toBe(true);
   });
 });
@@ -428,7 +428,7 @@ describe("initInteractive", () => {
     const { initInteractive } = await import("../src/cli/init.js");
     await initInteractive();
 
-    expect(fs.existsSync(path.join(workDir, ".freelance", "graphs", "blank.graph.yaml"))).toBe(true);
+    expect(fs.existsSync(path.join(workDir, ".freelance", "graphs", "blank.workflow.yaml"))).toBe(true);
   });
 
   it("runs with detected single client (shows detected label)", async () => {

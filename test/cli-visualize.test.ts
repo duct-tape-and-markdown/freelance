@@ -36,7 +36,7 @@ describe("CLI visualize", () => {
   });
 
   it("outputs Mermaid diagram to stdout", () => {
-    visualize(fixturePath("valid-simple.graph.yaml"), { format: "mermaid" });
+    visualize(fixturePath("valid-simple.workflow.yaml"), { format: "mermaid" });
     const output = stdoutSpy.mock.calls.map((c) => c[0]).join("");
     expect(output).toContain("graph TD");
     expect(output).toContain("start");
@@ -44,7 +44,7 @@ describe("CLI visualize", () => {
   });
 
   it("outputs DOT diagram to stdout", () => {
-    visualize(fixturePath("valid-simple.graph.yaml"), { format: "dot" });
+    visualize(fixturePath("valid-simple.workflow.yaml"), { format: "dot" });
     const output = stdoutSpy.mock.calls.map((c) => c[0]).join("");
     expect(output).toContain("digraph");
     expect(output).toContain("rankdir=TD");
@@ -52,7 +52,7 @@ describe("CLI visualize", () => {
   });
 
   it("Mermaid uses correct node shapes", () => {
-    visualize(fixturePath("valid-branching.graph.yaml"), { format: "mermaid" });
+    visualize(fixturePath("valid-branching.workflow.yaml"), { format: "mermaid" });
     const output = stdoutSpy.mock.calls.map((c) => c[0]).join("");
     // decision nodes get diamond braces
     expect(output).toMatch(/choose-path\{choose-path\}/);
@@ -63,7 +63,7 @@ describe("CLI visualize", () => {
   });
 
   it("DOT uses correct node shapes", () => {
-    visualize(fixturePath("valid-branching.graph.yaml"), { format: "dot" });
+    visualize(fixturePath("valid-branching.workflow.yaml"), { format: "dot" });
     const output = stdoutSpy.mock.calls.map((c) => c[0]).join("");
     expect(output).toContain("shape=diamond");
     expect(output).toContain("shape=doublecircle");
@@ -75,7 +75,7 @@ describe("CLI visualize", () => {
       fs.mkdtempSync(path.join(os.tmpdir(), "viz-test-")),
       "out.mmd"
     );
-    visualize(fixturePath("valid-simple.graph.yaml"), {
+    visualize(fixturePath("valid-simple.workflow.yaml"), {
       format: "mermaid",
       output: outFile,
     });
@@ -86,7 +86,7 @@ describe("CLI visualize", () => {
 
   it("exits with GRAPH_ERROR for nonexistent file", () => {
     expect(() =>
-      visualize("/nonexistent/file.graph.yaml", { format: "mermaid" })
+      visualize("/nonexistent/file.workflow.yaml", { format: "mermaid" })
     ).toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(3);
   });
@@ -105,7 +105,7 @@ describe("CLI visualize", () => {
 
   it("produces JSON output when --json is set", () => {
     setCli({ json: true });
-    visualize(fixturePath("valid-simple.graph.yaml"), { format: "mermaid" });
+    visualize(fixturePath("valid-simple.workflow.yaml"), { format: "mermaid" });
     const output = stdoutSpy.mock.calls.map((c) => c[0]).join("");
     const result = JSON.parse(output);
     expect(result.graphId).toBe("valid-simple");
@@ -114,39 +114,39 @@ describe("CLI visualize", () => {
 
   it("JSON output for DOT includes dot key", () => {
     setCli({ json: true });
-    visualize(fixturePath("valid-simple.graph.yaml"), { format: "dot" });
+    visualize(fixturePath("valid-simple.workflow.yaml"), { format: "dot" });
     const output = stdoutSpy.mock.calls.map((c) => c[0]).join("");
     const result = JSON.parse(output);
     expect(result.dot).toContain("digraph");
   });
 
   it("Mermaid includes edge labels", () => {
-    visualize(fixturePath("valid-simple.graph.yaml"), { format: "mermaid" });
+    visualize(fixturePath("valid-simple.workflow.yaml"), { format: "mermaid" });
     const output = stdoutSpy.mock.calls.map((c) => c[0]).join("");
     expect(output).toMatch(/-->\|.+\|/);
   });
 
   it("DOT includes edge labels", () => {
-    visualize(fixturePath("valid-simple.graph.yaml"), { format: "dot" });
+    visualize(fixturePath("valid-simple.workflow.yaml"), { format: "dot" });
     const output = stdoutSpy.mock.calls.map((c) => c[0]).join("");
     expect(output).toMatch(/label="/);
   });
 
   it("Mermaid renders wait nodes with stadium shape", () => {
-    visualize(fixturePath("valid-wait-simple.graph.yaml"), { format: "mermaid" });
+    visualize(fixturePath("valid-wait-simple.workflow.yaml"), { format: "mermaid" });
     const output = stdoutSpy.mock.calls.map((c) => c[0]).join("");
     // wait nodes use ([...]) stadium shape
     expect(output).toMatch(/wait-approval\(\[wait-approval\]\)/);
   });
 
   it("DOT renders wait nodes with dashed style", () => {
-    visualize(fixturePath("valid-wait-simple.graph.yaml"), { format: "dot" });
+    visualize(fixturePath("valid-wait-simple.workflow.yaml"), { format: "dot" });
     const output = stdoutSpy.mock.calls.map((c) => c[0]).join("");
     expect(output).toContain('style="dashed"');
   });
 
   it("DOT renders gate nodes with bold style", () => {
-    visualize(fixturePath("valid-branching.graph.yaml"), { format: "dot" });
+    visualize(fixturePath("valid-branching.workflow.yaml"), { format: "dot" });
     const output = stdoutSpy.mock.calls.map((c) => c[0]).join("");
     // quality-check is a gate node — should have style="bold"
     expect(output).toContain('style="bold"');
@@ -155,7 +155,7 @@ describe("CLI visualize", () => {
   it("exits with GRAPH_ERROR for valid extension but invalid content", () => {
     const tmpFile = path.join(
       fs.mkdtempSync(path.join(os.tmpdir(), "viz-test-")),
-      "broken.graph.yaml"
+      "broken.workflow.yaml"
     );
     fs.writeFileSync(tmpFile, "this is not valid graph yaml at all");
     expect(() =>
@@ -169,7 +169,7 @@ describe("CLI visualize", () => {
       fs.mkdtempSync(path.join(os.tmpdir(), "viz-test-")),
       "out.dot"
     );
-    visualize(fixturePath("valid-simple.graph.yaml"), {
+    visualize(fixturePath("valid-simple.workflow.yaml"), {
       format: "dot",
       output: outFile,
     });
@@ -181,7 +181,7 @@ describe("CLI visualize", () => {
   it("--open generates HTML file with mermaid content", () => {
     vi.mocked(execFileSync).mockReturnValue(Buffer.from(""));
 
-    visualize(fixturePath("valid-simple.graph.yaml"), {
+    visualize(fixturePath("valid-simple.workflow.yaml"), {
       format: "mermaid",
       open: true,
     });
@@ -202,7 +202,7 @@ describe("CLI visualize", () => {
   it("--open with DOT format converts to mermaid for HTML", () => {
     vi.mocked(execFileSync).mockReturnValue(Buffer.from(""));
 
-    visualize(fixturePath("valid-simple.graph.yaml"), {
+    visualize(fixturePath("valid-simple.workflow.yaml"), {
       format: "dot",
       open: true,
     });
@@ -220,7 +220,7 @@ describe("CLI visualize", () => {
       throw new Error("no browser");
     });
 
-    visualize(fixturePath("valid-simple.graph.yaml"), {
+    visualize(fixturePath("valid-simple.workflow.yaml"), {
       format: "mermaid",
       open: true,
     });

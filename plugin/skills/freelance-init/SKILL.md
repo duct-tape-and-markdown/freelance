@@ -12,7 +12,7 @@ Set up the `.freelance/graphs/` directory for graph workflow definitions.
 
 1. Create the `.freelance/graphs/` directory in the current project root if it doesn't exist
 2. Ask the user if they want a starter template:
-   - **Blank template**: Create `.freelance/graphs/blank.graph.yaml` with this content:
+   - **Blank template**: Create `.freelance/graphs/blank.workflow.yaml` with this content:
 
 ```yaml
 id: my-workflow
@@ -43,6 +43,6 @@ nodes:
    - **No template**: Just create the empty directory
 
 3. Confirm to the user that setup is complete and they can:
-   - Add `.graph.yaml` files to `.freelance/graphs/`
+   - Add `.workflow.yaml` files to `.freelance/graphs/`
    - Run `freelance_list` to verify workflows load
    - Run `freelance_guide` for authoring help

@@ -22,7 +22,7 @@ function makeEngine(...files: string[]): GraphEngine {
 
 describe("wait nodes — arriving at wait node", () => {
   it("returns status 'waiting' when advancing to a wait node", () => {
-    const engine = makeEngine("valid-wait-simple.graph.yaml");
+    const engine = makeEngine("valid-wait-simple.workflow.yaml");
     engine.start("valid-wait-simple");
 
     const result = engine.advance("done");
@@ -35,7 +35,7 @@ describe("wait nodes — arriving at wait node", () => {
   });
 
   it("includes waitingOn conditions in result", () => {
-    const engine = makeEngine("valid-wait-simple.graph.yaml");
+    const engine = makeEngine("valid-wait-simple.workflow.yaml");
     engine.start("valid-wait-simple");
 
     const result = engine.advance("done") as AdvanceSuccessResult;
@@ -47,7 +47,7 @@ describe("wait nodes — arriving at wait node", () => {
   });
 
   it("includes timeout and timeoutAt when timeout is specified", () => {
-    const engine = makeEngine("valid-wait.graph.yaml");
+    const engine = makeEngine("valid-wait.workflow.yaml");
     engine.start("valid-wait");
 
     const result = engine.advance("submitted") as AdvanceSuccessResult;
@@ -64,7 +64,7 @@ describe("wait nodes — arriving at wait node", () => {
 
 describe("wait nodes — blocking advance", () => {
   it("blocks advance when conditions are not satisfied", () => {
-    const engine = makeEngine("valid-wait-simple.graph.yaml");
+    const engine = makeEngine("valid-wait-simple.workflow.yaml");
     engine.start("valid-wait-simple");
     engine.advance("done"); // now at wait-approval
 
@@ -77,7 +77,7 @@ describe("wait nodes — blocking advance", () => {
   });
 
   it("blocks when only some conditions are satisfied", () => {
-    const engine = makeEngine("valid-wait.graph.yaml");
+    const engine = makeEngine("valid-wait.workflow.yaml");
     engine.start("valid-wait");
     engine.advance("submitted"); // now at await-ci
 
@@ -92,7 +92,7 @@ describe("wait nodes — blocking advance", () => {
   });
 
   it("context updates persist even when advance is blocked", () => {
-    const engine = makeEngine("valid-wait-simple.graph.yaml");
+    const engine = makeEngine("valid-wait-simple.workflow.yaml");
     engine.start("valid-wait-simple");
     engine.advance("done");
 
@@ -106,7 +106,7 @@ describe("wait nodes — blocking advance", () => {
 
 describe("wait nodes — signal delivery and unblocking", () => {
   it("allows advance after all conditions are satisfied via contextSet", () => {
-    const engine = makeEngine("valid-wait-simple.graph.yaml");
+    const engine = makeEngine("valid-wait-simple.workflow.yaml");
     engine.start("valid-wait-simple");
     engine.advance("done"); // at wait-approval
 
@@ -122,7 +122,7 @@ describe("wait nodes — signal delivery and unblocking", () => {
   });
 
   it("allows advance after all conditions satisfied (multi-key)", () => {
-    const engine = makeEngine("valid-wait.graph.yaml");
+    const engine = makeEngine("valid-wait.workflow.yaml");
     engine.start("valid-wait");
     engine.advance("submitted");
 
@@ -138,7 +138,7 @@ describe("wait nodes — signal delivery and unblocking", () => {
   });
 
   it("allows taking failure edge when wait conditions are met", () => {
-    const engine = makeEngine("valid-wait.graph.yaml");
+    const engine = makeEngine("valid-wait.workflow.yaml");
     engine.start("valid-wait");
     engine.advance("submitted");
 
@@ -153,7 +153,7 @@ describe("wait nodes — signal delivery and unblocking", () => {
   });
 
   it("contextSet is allowed at wait nodes", () => {
-    const engine = makeEngine("valid-wait-simple.graph.yaml");
+    const engine = makeEngine("valid-wait-simple.workflow.yaml");
     engine.start("valid-wait-simple");
     engine.advance("done");
 
@@ -164,7 +164,7 @@ describe("wait nodes — signal delivery and unblocking", () => {
   });
 
   it("incremental signal delivery works", () => {
-    const engine = makeEngine("valid-wait.graph.yaml");
+    const engine = makeEngine("valid-wait.workflow.yaml");
     engine.start("valid-wait");
     engine.advance("submitted");
 
@@ -184,7 +184,7 @@ describe("wait nodes — signal delivery and unblocking", () => {
 
 describe("wait nodes — inspect", () => {
   it("inspect shows waiting status when conditions not met", () => {
-    const engine = makeEngine("valid-wait-simple.graph.yaml");
+    const engine = makeEngine("valid-wait-simple.workflow.yaml");
     engine.start("valid-wait-simple");
     engine.advance("done");
 
@@ -196,7 +196,7 @@ describe("wait nodes — inspect", () => {
   });
 
   it("inspect shows ready status when conditions are met", () => {
-    const engine = makeEngine("valid-wait-simple.graph.yaml");
+    const engine = makeEngine("valid-wait-simple.workflow.yaml");
     engine.start("valid-wait-simple");
     engine.advance("done");
     engine.contextSet({ approved: true });
@@ -207,7 +207,7 @@ describe("wait nodes — inspect", () => {
   });
 
   it("inspect shows timeout info for wait nodes with timeout", () => {
-    const engine = makeEngine("valid-wait.graph.yaml");
+    const engine = makeEngine("valid-wait.workflow.yaml");
     engine.start("valid-wait");
     engine.advance("submitted");
 
@@ -218,7 +218,7 @@ describe("wait nodes — inspect", () => {
   });
 
   it("inspect at non-wait node has no wait fields", () => {
-    const engine = makeEngine("valid-wait.graph.yaml");
+    const engine = makeEngine("valid-wait.workflow.yaml");
     engine.start("valid-wait");
 
     const result = engine.inspect("position") as InspectPositionResult;
@@ -229,7 +229,7 @@ describe("wait nodes — inspect", () => {
 
 describe("wait nodes — timeout", () => {
   it("timed_out status when timeout has elapsed", () => {
-    const engine = makeEngine("valid-wait.graph.yaml");
+    const engine = makeEngine("valid-wait.workflow.yaml");
     engine.start("valid-wait");
     engine.advance("submitted");
 
@@ -245,7 +245,7 @@ describe("wait nodes — timeout", () => {
   });
 
   it("advance is unblocked after timeout", () => {
-    const engine = makeEngine("valid-wait.graph.yaml");
+    const engine = makeEngine("valid-wait.workflow.yaml");
     engine.start("valid-wait");
     engine.advance("submitted");
 
@@ -265,7 +265,7 @@ describe("wait nodes — timeout", () => {
   });
 
   it("sets _waitTimedOut in context on timeout", () => {
-    const engine = makeEngine("valid-wait.graph.yaml");
+    const engine = makeEngine("valid-wait.workflow.yaml");
     engine.start("valid-wait");
     engine.advance("submitted");
 
@@ -285,7 +285,7 @@ describe("wait nodes — timeout", () => {
   });
 
   it("does not timeout before duration elapses", () => {
-    const engine = makeEngine("valid-wait.graph.yaml");
+    const engine = makeEngine("valid-wait.workflow.yaml");
     engine.start("valid-wait");
     engine.advance("submitted");
 
@@ -298,13 +298,13 @@ describe("wait nodes — timeout", () => {
 
 describe("wait nodes — cycle support", () => {
   it("wait node in cycle is valid (fix-ci → await-ci cycle)", () => {
-    // valid-wait.graph.yaml has fix-ci → await-ci cycle, which includes a wait node
-    const graphs = loadFixtures("valid-wait.graph.yaml");
+    // valid-wait.workflow.yaml has fix-ci → await-ci cycle, which includes a wait node
+    const graphs = loadFixtures("valid-wait.workflow.yaml");
     expect(graphs.has("valid-wait")).toBe(true);
   });
 
   it("can re-enter wait node after fixing", () => {
-    const engine = makeEngine("valid-wait.graph.yaml");
+    const engine = makeEngine("valid-wait.workflow.yaml");
     engine.start("valid-wait");
     engine.advance("submitted"); // at await-ci
 
@@ -322,7 +322,7 @@ describe("wait nodes — cycle support", () => {
 describe("wait nodes — loader validation", () => {
   function writeGraph(content: string): string {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wait-loader-test-"));
-    fs.writeFileSync(path.join(tmpDir, "test.graph.yaml"), content);
+    fs.writeFileSync(path.join(tmpDir, "test.workflow.yaml"), content);
     return tmpDir;
   }
 
@@ -370,14 +370,14 @@ nodes:
   });
 
   it("accepts valid wait node", () => {
-    const graphs = loadFixtures("valid-wait-simple.graph.yaml");
+    const graphs = loadFixtures("valid-wait-simple.workflow.yaml");
     expect(graphs.has("valid-wait-simple")).toBe(true);
   });
 });
 
 describe("wait vs gate distinction", () => {
   it("gate can be satisfied by agent (contextSet + advance)", () => {
-    const engine = makeEngine("valid-simple.graph.yaml");
+    const engine = makeEngine("valid-simple.workflow.yaml");
     engine.start("valid-simple");
     engine.advance("work-done"); // at gate
 
@@ -388,7 +388,7 @@ describe("wait vs gate distinction", () => {
   });
 
   it("wait blocks advance until external signal", () => {
-    const engine = makeEngine("valid-wait-simple.graph.yaml");
+    const engine = makeEngine("valid-wait-simple.workflow.yaml");
     engine.start("valid-wait-simple");
     engine.advance("done"); // at wait
 

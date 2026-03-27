@@ -34,7 +34,7 @@ jobs:
       - name: CLI smoke test
         run: |
           node dist/index.js --help
-          node dist/index.js visualize ./test/fixtures-valid/valid-simple.graph.yaml --format mermaid
+          node dist/index.js visualize ./test/fixtures-valid/valid-simple.workflow.yaml --format mermaid
 
       - name: Package dry-run
         run: npm pack --dry-run

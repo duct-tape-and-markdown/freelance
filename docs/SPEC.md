@@ -46,7 +46,7 @@ The pattern emerged from constraining an AI agent to a phase-based state machine
 │  └──────────┘  └──────────┘  └───────────┘  │
 │                                              │
 │  Loaded at startup:                          │
-│  *.graph.yaml from --graphs directory        │
+│  *.workflow.yaml from --graphs directory        │
 └──────────────────────────────────────────────┘
 ```
 
@@ -725,10 +725,10 @@ This is tiny, auditable, and has zero dependencies. The expression language is d
 ### Graph loader
 
 ```
-Input: Directory path containing *.graph.yaml files
+Input: Directory path containing *.workflow.yaml files
 Output: Map<graphId, ValidatedGraph>
 
-1. Glob *.graph.yaml from the directory
+1. Glob *.workflow.yaml from the directory
 2. Parse each via js-yaml
 3. Validate each against JSON Schema (ajv) — structural correctness
 4. Build graph representation via @dagrejs/graphlib
@@ -921,7 +921,7 @@ Enable graph reuse, customization, and operational maturity.
 1. Implement graph composition (extends/overrides/additions/rewire)
 2. Add `--graphs` multi-directory support for layered graph loading
 3. Add graph validation CLI (`freelance validate ./graphs/`) for CI integration
-4. Add Mermaid diagram export (`freelance visualize ./graphs/my-workflow.graph.yaml`)
+4. Add Mermaid diagram export (`freelance visualize ./graphs/my-workflow.workflow.yaml`)
 5. Package as Claude Code plugin
 6. Document configuration for other MCP clients (Cursor, Windsurf, Cline)
 

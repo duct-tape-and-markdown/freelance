@@ -25,7 +25,7 @@ describe("TraversalManager — multi-traversal", () => {
   let graphs: Map<string, ValidatedGraph>;
 
   beforeEach(() => {
-    graphs = loadFixtures("valid-simple.graph.yaml", "valid-branching.graph.yaml");
+    graphs = loadFixtures("valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
   });
 
   it("creates traversals with unique IDs", () => {
@@ -114,7 +114,7 @@ describe("TraversalManager — resolveTraversalId", () => {
   let graphs: Map<string, ValidatedGraph>;
 
   beforeEach(() => {
-    graphs = loadFixtures("valid-simple.graph.yaml", "valid-branching.graph.yaml");
+    graphs = loadFixtures("valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
   });
 
   it("auto-resolves when single traversal active", () => {
@@ -158,7 +158,7 @@ describe("TraversalManager — persistence", () => {
   let graphs: Map<string, ValidatedGraph>;
 
   beforeEach(() => {
-    graphs = loadFixtures("valid-simple.graph.yaml", "valid-branching.graph.yaml");
+    graphs = loadFixtures("valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
   });
 
   it("persists traversal to disk on create", () => {
@@ -253,7 +253,7 @@ describe("TraversalManager — persistence", () => {
 
 describe("TraversalManager — full traversal with traversalId", () => {
   it("completes a full traversal lifecycle", () => {
-    const graphs = loadFixtures("valid-simple.graph.yaml");
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
     const tm = new TraversalManager(graphs);
 
     // Start

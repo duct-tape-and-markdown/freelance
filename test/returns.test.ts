@@ -22,7 +22,7 @@ function makeEngine(...files: string[]): GraphEngine {
 
 describe("return schema — engine validation", () => {
   it("blocks advance when required key is missing", () => {
-    const engine = makeEngine("valid-returns.graph.yaml");
+    const engine = makeEngine("valid-returns.workflow.yaml");
     engine.start("valid-returns");
 
     // Try to advance without setting any required keys
@@ -35,7 +35,7 @@ describe("return schema — engine validation", () => {
   });
 
   it("blocks advance when required key has wrong type", () => {
-    const engine = makeEngine("valid-returns.graph.yaml");
+    const engine = makeEngine("valid-returns.workflow.yaml");
     engine.start("valid-returns");
     engine.contextSet({
       filesChanged: "not-an-array",  // should be array
@@ -52,7 +52,7 @@ describe("return schema — engine validation", () => {
   });
 
   it("blocks advance when array items have wrong type", () => {
-    const engine = makeEngine("valid-returns.graph.yaml");
+    const engine = makeEngine("valid-returns.workflow.yaml");
     engine.start("valid-returns");
     engine.contextSet({
       filesChanged: ["valid.ts", 42],  // 42 is not a string
@@ -69,7 +69,7 @@ describe("return schema — engine validation", () => {
   });
 
   it("blocks advance when optional key has wrong type", () => {
-    const engine = makeEngine("valid-returns.graph.yaml");
+    const engine = makeEngine("valid-returns.workflow.yaml");
     engine.start("valid-returns");
     engine.contextSet({
       filesChanged: ["file.ts"],
@@ -86,7 +86,7 @@ describe("return schema — engine validation", () => {
   });
 
   it("allows advance when all required keys are present and typed correctly", () => {
-    const engine = makeEngine("valid-returns.graph.yaml");
+    const engine = makeEngine("valid-returns.workflow.yaml");
     engine.start("valid-returns");
     engine.contextSet({
       filesChanged: ["src/main.ts", "src/utils.ts"],
@@ -101,7 +101,7 @@ describe("return schema — engine validation", () => {
   });
 
   it("allows advance with valid optional keys", () => {
-    const engine = makeEngine("valid-returns.graph.yaml");
+    const engine = makeEngine("valid-returns.workflow.yaml");
     engine.start("valid-returns");
     engine.contextSet({
       filesChanged: ["src/main.ts"],
@@ -115,7 +115,7 @@ describe("return schema — engine validation", () => {
   });
 
   it("ignores optional keys that are not set", () => {
-    const engine = makeEngine("valid-returns.graph.yaml");
+    const engine = makeEngine("valid-returns.workflow.yaml");
     engine.start("valid-returns");
     engine.contextSet({
       filesChanged: ["file.ts"],
@@ -128,7 +128,7 @@ describe("return schema — engine validation", () => {
   });
 
   it("return schema validates before expression validations", () => {
-    const engine = makeEngine("valid-returns.graph.yaml");
+    const engine = makeEngine("valid-returns.workflow.yaml");
     engine.start("valid-returns");
     engine.contextSet({
       filesChanged: ["file.ts"],
@@ -150,7 +150,7 @@ describe("return schema — engine validation", () => {
   });
 
   it("context updates persist even when return schema validation fails", () => {
-    const engine = makeEngine("valid-returns.graph.yaml");
+    const engine = makeEngine("valid-returns.workflow.yaml");
     engine.start("valid-returns");
 
     const result = engine.advance("done", { newKey: "persisted" });
@@ -161,7 +161,7 @@ describe("return schema — engine validation", () => {
   });
 
   it("validates object type correctly", () => {
-    const engine = makeEngine("valid-returns.graph.yaml");
+    const engine = makeEngine("valid-returns.workflow.yaml");
     engine.start("valid-returns");
     engine.contextSet({
       filesChanged: ["file.ts"],
@@ -178,7 +178,7 @@ describe("return schema — engine validation", () => {
   });
 
   it("rejects null for required keys", () => {
-    const engine = makeEngine("valid-returns.graph.yaml");
+    const engine = makeEngine("valid-returns.workflow.yaml");
     engine.start("valid-returns");
     engine.contextSet({
       filesChanged: null,
@@ -193,7 +193,7 @@ describe("return schema — engine validation", () => {
   });
 
   it("validates optional array items type", () => {
-    const engine = makeEngine("valid-returns.graph.yaml");
+    const engine = makeEngine("valid-returns.workflow.yaml");
     engine.start("valid-returns");
     engine.contextSet({
       filesChanged: ["file.ts"],
@@ -217,7 +217,7 @@ describe("return schema — engine validation", () => {
 
 describe("return schema — NodeInfo includes returns", () => {
   it("start result includes returns field", () => {
-    const engine = makeEngine("valid-returns.graph.yaml");
+    const engine = makeEngine("valid-returns.workflow.yaml");
     const result = engine.start("valid-returns");
     expect(result.node.returns).toBeDefined();
     expect(result.node.returns!.required).toBeDefined();
@@ -227,7 +227,7 @@ describe("return schema — NodeInfo includes returns", () => {
   });
 
   it("inspect result includes returns field", () => {
-    const engine = makeEngine("valid-returns.graph.yaml");
+    const engine = makeEngine("valid-returns.workflow.yaml");
     engine.start("valid-returns");
     const result = engine.inspect("position");
     if ("node" in result) {
@@ -236,7 +236,7 @@ describe("return schema — NodeInfo includes returns", () => {
   });
 
   it("nodes without returns don't include the field", () => {
-    const engine = makeEngine("valid-simple.graph.yaml");
+    const engine = makeEngine("valid-simple.workflow.yaml");
     const result = engine.start("valid-simple");
     expect(result.node.returns).toBeUndefined();
   });
@@ -245,7 +245,7 @@ describe("return schema — NodeInfo includes returns", () => {
 describe("return schema — loader validation", () => {
   function writeGraph(content: string): string {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "returns-loader-test-"));
-    fs.writeFileSync(path.join(tmpDir, "test.graph.yaml"), content);
+    fs.writeFileSync(path.join(tmpDir, "test.workflow.yaml"), content);
     return tmpDir;
   }
 
@@ -329,7 +329,7 @@ nodes:
   });
 
   it("accepts valid return schema", () => {
-    const graphs = loadFixtures("valid-returns.graph.yaml");
+    const graphs = loadFixtures("valid-returns.workflow.yaml");
     expect(graphs.has("valid-returns")).toBe(true);
     const def = graphs.get("valid-returns")!.definition;
     const implementNode = def.nodes["implement"];

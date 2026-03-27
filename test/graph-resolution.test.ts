@@ -58,8 +58,8 @@ describe("loadGraphsOrFatal", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gr-load-"));
     const fixturesDir = path.resolve(import.meta.dirname, "fixtures");
     fs.copyFileSync(
-      path.join(fixturesDir, "valid-simple.graph.yaml"),
-      path.join(tmpDir, "valid-simple.graph.yaml")
+      path.join(fixturesDir, "valid-simple.workflow.yaml"),
+      path.join(tmpDir, "valid-simple.workflow.yaml")
     );
     const graphs = loadGraphsOrFatal(tmpDir);
     expect(graphs.size).toBe(1);

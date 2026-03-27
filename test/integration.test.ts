@@ -27,8 +27,8 @@ function parse(result: Awaited<ReturnType<Client["callTool"]>>): any {
 // Helper to set up client+server pair for spec example graphs
 async function setup() {
   const graphs = loadFixtures(
-    "data-pipeline.graph.yaml",
-    "change-request.graph.yaml"
+    "data-pipeline.workflow.yaml",
+    "change-request.workflow.yaml"
   );
   const { server } = createServer(graphs);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

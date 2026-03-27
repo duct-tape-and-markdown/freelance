@@ -8,7 +8,7 @@ import type { ValidatedGraph } from "./types.js";
 import { validateExpression } from "./evaluator.js";
 
 /**
- * Load and validate a single *.graph.yaml file.
+ * Load and validate a single *.workflow.yaml file.
  * Returns the graph id, definition, and graphlib graph.
  * Throws on any validation failure with descriptive errors.
  */
@@ -36,7 +36,23 @@ export function loadSingleGraph(filePath: string): { id: string } & ValidatedGra
 }
 
 /**
- * Load and validate all *.graph.yaml files from a directory.
+ * Recursively find all *.workflow.yaml files under a directory.
+ */
+function findGraphFiles(dir: string): string[] {
+  const results: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...findGraphFiles(full));
+    } else if (entry.name.endsWith(".workflow.yaml")) {
+      results.push(full);
+    }
+  }
+  return results;
+}
+
+/**
+ * Load and validate all *.workflow.yaml files from a directory (recursively).
  * Returns a Map of graphId → ValidatedGraph.
  * Throws on any validation failure with descriptive errors.
  */
@@ -47,13 +63,10 @@ export function loadGraphs(directory: string): Map<string, ValidatedGraph> {
     throw new Error(`Graph directory does not exist: ${resolvedDir}`);
   }
 
-  const files = fs
-    .readdirSync(resolvedDir)
-    .filter((f) => f.endsWith(".graph.yaml"))
-    .map((f) => path.join(resolvedDir, f));
+  const files = findGraphFiles(resolvedDir);
 
   if (files.length === 0) {
-    throw new Error(`No *.graph.yaml files found in: ${resolvedDir}`);
+    throw new Error(`No *.workflow.yaml files found in or under: ${resolvedDir}`);
   }
 
   const results = new Map<string, ValidatedGraph>();
@@ -109,13 +122,10 @@ export function loadGraphsLayered(directories: string[]): Map<string, ValidatedG
       continue;
     }
 
-    const files = fs
-      .readdirSync(resolvedDir)
-      .filter((f) => f.endsWith(".graph.yaml"))
-      .map((f) => path.join(resolvedDir, f));
+    const files = findGraphFiles(resolvedDir);
 
     if (files.length === 0) {
-      warnings.push(`Skipped ${resolvedDir}: no *.graph.yaml files found`);
+      warnings.push(`Skipped ${resolvedDir}: no *.workflow.yaml files found in or under directory`);
       continue;
     }
 

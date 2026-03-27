@@ -43,14 +43,14 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
 
   const files = fs
     .readdirSync(resolvedDir)
-    .filter((f) => f.endsWith(".graph.yaml"));
+    .filter((f) => f.endsWith(".workflow.yaml"));
 
   if (files.length === 0) {
     if (cli.json) {
-      outputJson({ valid: false, graphs: [], errors: [{ file: resolvedDir, message: "No *.graph.yaml files found" }] });
+      outputJson({ valid: false, graphs: [], errors: [{ file: resolvedDir, message: "No *.workflow.yaml files found" }] });
       process.exit(EXIT.GRAPH_ERROR);
     }
-    fatal(`No *.graph.yaml files found in: ${resolvedDir}`, EXIT.GRAPH_ERROR);
+    fatal(`No *.workflow.yaml files found in: ${resolvedDir}`, EXIT.GRAPH_ERROR);
   }
 
   const result: ValidateResult = { valid: true, graphs: [], errors: [] };

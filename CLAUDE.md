@@ -31,7 +31,7 @@ freelance mcp --graphs ./.freelance/graphs --graphs ~/.freelance/graphs
 freelance validate ./path/to/graphs/
 
 # Visualize a graph
-freelance visualize ./graphs/my.graph.yaml --format mermaid
+freelance visualize ./graphs/my.workflow.yaml --format mermaid
 
 # Start standalone MCP server (auto-loads from ./graphs + ~/.freelance/graphs)
 freelance mcp
@@ -84,5 +84,5 @@ freelance init
 
 ## Graph definitions
 
-Graph files use `.graph.yaml` extension. See `test/fixtures/` for examples.
+Graph files use `.workflow.yaml` extension. See `test/fixtures/` for examples.
 See `docs/SPEC.md` for the full specification.

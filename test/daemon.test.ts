@@ -58,7 +58,7 @@ describe("Daemon HTTP API", () => {
   let port: number;
 
   beforeAll(async () => {
-    const graphs = loadFixtures("valid-simple.graph.yaml", "valid-branching.graph.yaml");
+    const graphs = loadFixtures("valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
     const persistDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-persist-"));
     const daemon = createDaemon(graphs, {
       port: 0,

@@ -31,8 +31,8 @@ function makeEngine(...files: string[]): GraphEngine {
 describe("subgraph — push mechanics", () => {
   it("pushes child graph when advancing to a subgraph node", () => {
     const engine = makeEngine(
-      "parent-with-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-with-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
@@ -53,8 +53,8 @@ describe("subgraph — push mechanics", () => {
 
   it("contextMap copies parent context to child initial context", () => {
     const engine = makeEngine(
-      "parent-with-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-with-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
@@ -70,8 +70,8 @@ describe("subgraph — push mechanics", () => {
 
   it("after push, contextSet operates on child session", () => {
     const engine = makeEngine(
-      "parent-with-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-with-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
@@ -86,8 +86,8 @@ describe("subgraph — push mechanics", () => {
 
   it("after push, advance operates on child graph edges", () => {
     const engine = makeEngine(
-      "parent-with-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-with-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
@@ -104,8 +104,8 @@ describe("subgraph — push mechanics", () => {
 describe("subgraph — pop mechanics", () => {
   it("pops back to parent when child reaches terminal", () => {
     const engine = makeEngine(
-      "parent-with-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-with-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
@@ -130,8 +130,8 @@ describe("subgraph — pop mechanics", () => {
 
   it("returnMap copies child context to parent context on pop", () => {
     const engine = makeEngine(
-      "parent-with-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-with-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
@@ -154,8 +154,8 @@ describe("subgraph — pop mechanics", () => {
 
   it("after pop, parent edges are available and parent can advance", () => {
     const engine = makeEngine(
-      "parent-with-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-with-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
@@ -181,8 +181,8 @@ describe("subgraph — pop mechanics", () => {
 describe("subgraph — inspect shows stack", () => {
   it("inspect shows stack depth and entries during subgraph", () => {
     const engine = makeEngine(
-      "parent-with-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-with-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
@@ -201,8 +201,8 @@ describe("subgraph — inspect shows stack", () => {
 
   it("inspect shows stack depth 1 for single graph", () => {
     const engine = makeEngine(
-      "parent-with-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-with-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     engine.start("parent-workflow");
 
@@ -219,8 +219,8 @@ describe("subgraph — inspect shows stack", () => {
 describe("subgraph — reset clears full stack", () => {
   it("reset during subgraph clears entire stack", () => {
     const engine = makeEngine(
-      "parent-with-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-with-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
@@ -242,8 +242,8 @@ describe("subgraph — reset clears full stack", () => {
 
   it("reset with single graph does not include clearedStack", () => {
     const engine = makeEngine(
-      "parent-with-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-with-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     engine.start("parent-workflow");
 
@@ -257,8 +257,8 @@ describe("subgraph — reset clears full stack", () => {
 describe("subgraph — stack depth enforcement", () => {
   it("throws STACK_DEPTH_EXCEEDED when maxDepth reached", () => {
     const graphs = loadFixtures(
-      "parent-with-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-with-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     // Set maxDepth to 1 — no nesting allowed
     const engine = new GraphEngine(graphs, { maxDepth: 1 });
@@ -277,8 +277,8 @@ describe("subgraph — stack depth enforcement", () => {
 describe("subgraph — conditional subgraph", () => {
   it("skips subgraph when condition is false", () => {
     const engine = makeEngine(
-      "parent-conditional-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-conditional-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     engine.start("parent-conditional", { skipReview: true });
 
@@ -293,8 +293,8 @@ describe("subgraph — conditional subgraph", () => {
 
   it("pushes subgraph when condition is true", () => {
     const engine = makeEngine(
-      "parent-conditional-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-conditional-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     engine.start("parent-conditional"); // skipReview defaults to false
 
@@ -309,7 +309,7 @@ describe("subgraph — conditional subgraph", () => {
 
 describe("subgraph — child works identically standalone vs as subgraph", () => {
   it("child graph traverses the same way standalone", () => {
-    const engine = makeEngine("child-review.graph.yaml");
+    const engine = makeEngine("child-review.workflow.yaml");
     const startResult = engine.start("child-review");
     expect(startResult.currentNode).toBe("check-security");
 
@@ -340,23 +340,23 @@ describe("subgraph — loader validation", () => {
   it("rejects circular subgraph references", () => {
     expect(() =>
       loadFixtures(
-        "invalid-circular-subgraph-a.graph.yaml",
-        "invalid-circular-subgraph-b.graph.yaml"
+        "invalid-circular-subgraph-a.workflow.yaml",
+        "invalid-circular-subgraph-b.workflow.yaml"
       )
     ).toThrow(/circular/i);
   });
 
   it("rejects subgraph referencing unknown graph", () => {
     // parent-with-subgraph references child-review, which we don't load
-    expect(() => loadFixtures("parent-with-subgraph.graph.yaml")).toThrow(
+    expect(() => loadFixtures("parent-with-subgraph.workflow.yaml")).toThrow(
       /unknown graph/i
     );
   });
 
   it("accepts valid subgraph references", () => {
     const graphs = loadFixtures(
-      "parent-with-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-with-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     expect(graphs.size).toBe(2);
   });
@@ -398,8 +398,8 @@ describe("subgraph — MCP integration: full parent→child→parent traversal",
 
   beforeEach(async () => {
     const s = await setupMcp(
-      "parent-with-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-with-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     client = s.client;
     cleanup = s.cleanup;
@@ -455,8 +455,8 @@ describe("subgraph — MCP integration: reset during subgraph", () => {
 
   beforeEach(async () => {
     const s = await setupMcp(
-      "parent-with-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-with-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     client = s.client;
     cleanup = s.cleanup;
@@ -485,8 +485,8 @@ describe("subgraph — MCP integration: conditional skip", () => {
 
   beforeEach(async () => {
     const s = await setupMcp(
-      "parent-conditional-subgraph.graph.yaml",
-      "child-review.graph.yaml"
+      "parent-conditional-subgraph.workflow.yaml",
+      "child-review.workflow.yaml"
     );
     client = s.client;
     cleanup = s.cleanup;

@@ -248,11 +248,11 @@ export async function init(options: InitOptions): Promise<void> {
 
   // 2. Starter graph
   if (starter !== "none") {
-    const destFile = path.join(graphsDir, `${starter}.graph.yaml`);
+    const destFile = path.join(graphsDir, `${starter}.workflow.yaml`);
     if (!fs.existsSync(destFile)) {
-      actions.push({ verb: "create", target: `${graphsDisplayPath}/${starter}.graph.yaml` });
+      actions.push({ verb: "create", target: `${graphsDisplayPath}/${starter}.workflow.yaml` });
     } else {
-      actions.push({ verb: "skip", target: `${starter}.graph.yaml`, detail: "already exists" });
+      actions.push({ verb: "skip", target: `${starter}.workflow.yaml`, detail: "already exists" });
     }
   }
 
@@ -325,19 +325,19 @@ export async function init(options: InitOptions): Promise<void> {
   // 2. Copy starter graph
   if (starter !== "none") {
     const templatesDir = getTemplatesDir();
-    const templateFile = path.join(templatesDir, `${starter}.graph.yaml`);
+    const templateFile = path.join(templatesDir, `${starter}.workflow.yaml`);
 
     if (!fs.existsSync(templateFile)) {
-      fatal(`Template not found: ${starter}.graph.yaml`, EXIT.GENERAL_ERROR);
+      fatal(`Template not found: ${starter}.workflow.yaml`, EXIT.GENERAL_ERROR);
     }
 
-    const destFile = path.join(graphsDir, `${starter}.graph.yaml`);
+    const destFile = path.join(graphsDir, `${starter}.workflow.yaml`);
     if (!fs.existsSync(destFile)) {
       fs.copyFileSync(templateFile, destFile);
-      results.push(`Created ${graphsDisplayPath}/${starter}.graph.yaml`);
+      results.push(`Created ${graphsDisplayPath}/${starter}.workflow.yaml`);
       filesCreated.push(destFile);
     } else {
-      results.push(`Skipped ${starter}.graph.yaml (already exists)`);
+      results.push(`Skipped ${starter}.workflow.yaml (already exists)`);
     }
   }
 

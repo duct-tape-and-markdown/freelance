@@ -38,7 +38,7 @@ Also create TypeScript types that mirror this schema: `GraphDefinition`, `NodeDe
 Export a function: `loadGraphs(directory: string): Map<string, ValidatedGraph>`
 
 It should:
-1. Glob all `*.graph.yaml` files from the directory
+1. Glob all `*.workflow.yaml` files from the directory
 2. Parse each with `js-yaml`
 3. Validate each against the JSON Schema using `ajv`
 4. For each valid graph, build a `@dagrejs/graphlib` Graph and run structural validation:
@@ -68,19 +68,19 @@ This will become the MCP server entry point later. For now it's just a validatio
 
 Create these test fixture files:
 
-**`valid-simple.graph.yaml`** — A minimal valid graph: 3 nodes (start → work → done), one action, one gate with a validation, one terminal. Include a context with one key.
+**`valid-simple.workflow.yaml`** — A minimal valid graph: 3 nodes (start → work → done), one action, one gate with a validation, one terminal. Include a context with one key.
 
-**`valid-branching.graph.yaml`** — A graph with a decision node that branches into two paths that reconverge at a gate. Include conditional edges. Include a cycle (the gate can send back to an action node on failure).
+**`valid-branching.workflow.yaml`** — A graph with a decision node that branches into two paths that reconverge at a gate. Include conditional edges. Include a cycle (the gate can send back to an action node on failure).
 
-**`invalid-orphan.graph.yaml`** — A graph with an unreachable node. Should fail validation.
+**`invalid-orphan.workflow.yaml`** — A graph with an unreachable node. Should fail validation.
 
-**`invalid-missing-target.graph.yaml`** — A graph where an edge targets a node that doesn't exist. Should fail validation.
+**`invalid-missing-target.workflow.yaml`** — A graph where an edge targets a node that doesn't exist. Should fail validation.
 
-**`invalid-terminal-with-edges.graph.yaml`** — A terminal node that has outgoing edges. Should fail validation.
+**`invalid-terminal-with-edges.workflow.yaml`** — A terminal node that has outgoing edges. Should fail validation.
 
-**`invalid-gate-no-validations.graph.yaml`** — A gate node with no validations array. Should fail validation.
+**`invalid-gate-no-validations.workflow.yaml`** — A gate node with no validations array. Should fail validation.
 
-**`invalid-action-loop.graph.yaml`** — A cycle of only action nodes (no decision/gate in the loop). Should fail validation.
+**`invalid-action-loop.workflow.yaml`** — A cycle of only action nodes (no decision/gate in the loop). Should fail validation.
 
 ### 5. Tests (`test/loader.test.ts`)
 
