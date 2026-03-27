@@ -6,14 +6,19 @@ State lives server-side — it can't be compacted away, forgotten, or bypassed. 
 
 ## Quick Start
 
-```bash
-# Clone and install
-git clone https://github.com/Jwcjwc12/freelance.git
-cd freelance
-npm install && npm run build
-npm link
+### Claude Code (plugin — recommended)
 
-# Set up Freelance in your project
+```
+/plugin marketplace add Jwcjwc12/freelance --path plugin
+/plugin install freelance@freelance-plugins
+```
+
+This installs the MCP server, hooks, and skills automatically. Run `/freelance:freelance-init` to scaffold your first workflow.
+
+### Other clients (Cursor, Windsurf, Cline)
+
+```bash
+npm install -g freelance-mcp
 cd /path/to/your/project
 freelance init
 ```
@@ -72,19 +77,19 @@ nodes:
 | `freelance_reset` | Clear traversal and start over |
 | `freelance_guide` | Get authoring guidance for writing graphs |
 
-## Graph Directory Resolution
+## Workflow Directory Resolution
 
-Graphs load automatically from these directories (no flags needed):
+Workflows load automatically from these directories (no flags needed):
 
-1. `./.freelance/` — project-level graphs
-2. `~/.freelance/` — user-level graphs (shared across projects)
+1. `./.freelance/` — project-level workflows
+2. `~/.freelance/` — user-level workflows (shared across projects)
 
-Later directories shadow earlier ones by graph ID, so user-level graphs can override project defaults.
+Subdirectories are scanned recursively, so you can organize however you like (e.g., `.freelance/reviews/`, `.freelance/releases/`). Later directories shadow earlier ones by graph ID.
 
 You can also specify directories explicitly:
 
 ```bash
-freelance mcp --workflows ./my-graphs/
+freelance mcp --workflows ./my-workflows/
 ```
 
 ## Running Modes

@@ -37,13 +37,18 @@ export function loadSingleGraph(filePath: string): { id: string } & ValidatedGra
 
 /**
  * Recursively find all *.workflow.yaml files under a directory.
+ * Skips unreadable subdirectories (permission errors, broken symlinks).
  */
-function findGraphFiles(dir: string): string[] {
+export function findGraphFiles(dir: string): string[] {
   const results: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      results.push(...findGraphFiles(full));
+      try {
+        results.push(...findGraphFiles(full));
+      } catch {
+        // Skip unreadable directories (permission denied, broken symlinks, etc.)
+      }
     } else if (entry.name.endsWith(".workflow.yaml")) {
       results.push(full);
     }

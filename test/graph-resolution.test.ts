@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { resolveDefaultGraphsDirs, resolveGraphsDirs, loadGraphsOrFatal } from "../src/graph-resolution.js";
+import { resolveDefaultGraphsDirs, resolveGraphsDirs, loadGraphsOrFatal, loadGraphsGraceful } from "../src/graph-resolution.js";
 
 let exitSpy: any;
 
@@ -80,5 +80,49 @@ describe("loadGraphsOrFatal", () => {
     process.chdir(origCwd);
     process.env.HOME = origHome;
     fs.rmSync(emptyDir, { recursive: true, force: true });
+  });
+});
+
+describe("loadGraphsGraceful", () => {
+  it("returns empty map when no dirs found", () => {
+    delete process.env.FREELANCE_WORKFLOWS_DIR;
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "graceful-"));
+    const origCwd = process.cwd();
+    const origHome = process.env.HOME;
+    process.chdir(emptyDir);
+    process.env.HOME = emptyDir;
+
+    const graphs = loadGraphsGraceful(null);
+    expect(graphs).toBeInstanceOf(Map);
+    expect(graphs.size).toBe(0);
+
+    process.chdir(origCwd);
+    process.env.HOME = origHome;
+    fs.rmSync(emptyDir, { recursive: true, force: true });
+  });
+
+  it("returns empty map when all graphs fail validation", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "graceful-bad-"));
+    fs.writeFileSync(path.join(tmpDir, "bad.workflow.yaml"), "not: valid: yaml: graph");
+
+    const graphs = loadGraphsGraceful(tmpDir);
+    expect(graphs).toBeInstanceOf(Map);
+    expect(graphs.size).toBe(0);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("loads valid graphs successfully", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "graceful-ok-"));
+    const fixturesDir = path.resolve(import.meta.dirname, "fixtures");
+    fs.copyFileSync(
+      path.join(fixturesDir, "valid-simple.workflow.yaml"),
+      path.join(tmpDir, "valid-simple.workflow.yaml")
+    );
+
+    const graphs = loadGraphsGraceful(tmpDir);
+    expect(graphs.size).toBe(1);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });

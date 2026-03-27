@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadGraphs, loadGraphsLayered } from "../src/loader.js";
+import { loadGraphs, loadGraphsLayered, findGraphFiles } from "../src/loader.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
@@ -167,6 +167,88 @@ describe("loadGraphs — edge cases", () => {
     expect(graphs.has("valid-simple")).toBe(true);
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("failed validation"));
     stderrSpy.mockRestore();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+describe("findGraphFiles — recursive scanning", () => {
+  it("finds workflow files in subdirectories", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "recursive-scan-"));
+    const subDir = path.join(tmpDir, "reviews");
+    fs.mkdirSync(subDir);
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(tmpDir, "top-level.workflow.yaml")
+    );
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-branching.workflow.yaml"),
+      path.join(subDir, "nested.workflow.yaml")
+    );
+
+    const files = findGraphFiles(tmpDir);
+    expect(files).toHaveLength(2);
+    expect(files.some((f) => f.includes("top-level.workflow.yaml"))).toBe(true);
+    expect(files.some((f) => f.includes("nested.workflow.yaml"))).toBe(true);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("finds files in deeply nested directories", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "deep-scan-"));
+    const deepDir = path.join(tmpDir, "a", "b", "c");
+    fs.mkdirSync(deepDir, { recursive: true });
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(deepDir, "deep.workflow.yaml")
+    );
+
+    const files = findGraphFiles(tmpDir);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toContain(path.join("a", "b", "c", "deep.workflow.yaml"));
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("ignores non-workflow files in subdirectories", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "filter-scan-"));
+    fs.writeFileSync(path.join(tmpDir, "readme.md"), "# hi");
+    fs.writeFileSync(path.join(tmpDir, "config.yaml"), "key: value");
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(tmpDir, "valid.workflow.yaml")
+    );
+
+    const files = findGraphFiles(tmpDir);
+    expect(files).toHaveLength(1);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns empty array for directory with no workflow files", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "empty-scan-"));
+    fs.writeFileSync(path.join(tmpDir, "readme.md"), "# hi");
+
+    const files = findGraphFiles(tmpDir);
+    expect(files).toHaveLength(0);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+describe("loadGraphs — recursive loading", () => {
+  it("loads graphs from subdirectories", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "recursive-load-"));
+    const subDir = path.join(tmpDir, "nested");
+    fs.mkdirSync(subDir);
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(subDir, "valid-simple.workflow.yaml")
+    );
+
+    const graphs = loadGraphs(tmpDir);
+    expect(graphs.size).toBe(1);
+    expect(graphs.has("valid-simple")).toBe(true);
+
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });
