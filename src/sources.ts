@@ -223,6 +223,47 @@ export function validateGraphSources(
   return { valid: warnings.length === 0, warnings };
 }
 
+/**
+ * Get detailed drift info (expected + actual hashes) for a specific node's sources.
+ * Returns only sources that have actually drifted (hash mismatch or file not found).
+ */
+export function getDetailedDrift(
+  definition: GraphDefinition,
+  nodeId: string,
+  opts?: SectionResolver | SourceOptions
+): DriftedSource[] {
+  const normalizedOpts = normalizeOptions(opts);
+  const sources = nodeId === "(graph)"
+    ? definition.sources ?? []
+    : definition.nodes[nodeId]?.sources ?? [];
+
+  const results: DriftedSource[] = [];
+
+  for (const source of sources) {
+    try {
+      const current = hashSource({ path: source.path, section: source.section }, normalizedOpts);
+
+      if (current.hash !== source.hash) {
+        results.push({
+          path: source.path,
+          section: source.section,
+          expected: source.hash,
+          actual: current.hash,
+        });
+      }
+    } catch {
+      results.push({
+        path: source.path,
+        section: source.section,
+        expected: source.hash,
+        actual: "FILE_NOT_FOUND",
+      });
+    }
+  }
+
+  return results;
+}
+
 // --- Private ---
 
 function normalizeOptions(resolverOrOptions?: SectionResolver | SourceOptions): SourceOptions {

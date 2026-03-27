@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { findGraphFiles, loadSingleGraph, validateCrossGraphRefs } from "../loader.js";
-import { validateGraphSources, hashSource } from "../sources.js";
+import { validateGraphSources, getDetailedDrift } from "../sources.js";
 import { extractSection } from "../section-resolver.js";
 import type { ValidatedGraph } from "../types.js";
 import type { SourceOptions } from "../sources.js";
@@ -172,6 +172,9 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
           if (replaced !== content) {
             content = replaced;
             fileFixed++;
+          } else if (!cli.json) {
+            const loc = section ? `${section}:${oldHash}` : oldHash;
+            info(`  WARN  Could not match hash pattern for ${loc} in ${path.relative(resolvedDir, filePath)} — YAML formatting may differ from expected`);
           }
         }
 
@@ -225,42 +228,6 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
 }
 
 // --- Helpers ---
-
-function getDetailedDrift(
-  definition: ValidatedGraph["definition"],
-  nodeId: string,
-  opts: SourceOptions
-): Array<{ path: string; section?: string; expected: string; actual: string }> {
-  const sources = nodeId === "(graph)"
-    ? definition.sources ?? []
-    : definition.nodes[nodeId]?.sources ?? [];
-
-  const results: Array<{ path: string; section?: string; expected: string; actual: string }> = [];
-
-  for (const source of sources) {
-    try {
-      const current = hashSource({ path: source.path, section: source.section }, opts);
-
-      if (current.hash !== source.hash) {
-        results.push({
-          path: source.path,
-          section: source.section,
-          expected: source.hash,
-          actual: current.hash,
-        });
-      }
-    } catch {
-      results.push({
-        path: source.path,
-        section: source.section,
-        expected: source.hash,
-        actual: "FILE_NOT_FOUND",
-      });
-    }
-  }
-
-  return results;
-}
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

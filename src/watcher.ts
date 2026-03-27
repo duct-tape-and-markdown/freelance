@@ -43,7 +43,7 @@ export function watchGraphs(options: WatcherOptions): () => void {
   }
 
   const watchers = dirs.map((dir) =>
-    fs.watch(dir, (_eventType, filename) => {
+    fs.watch(dir, { recursive: true }, (_eventType, filename) => {
       if (!filename?.endsWith(".workflow.yaml")) return;
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(reload, debounceMs);

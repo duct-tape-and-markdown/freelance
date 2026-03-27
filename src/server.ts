@@ -8,9 +8,10 @@ import { VERSION } from "./version.js";
 import { getGuide } from "./guide.js";
 import { watchGraphs } from "./watcher.js";
 import { findGraphFiles, loadSingleGraph } from "./loader.js";
-import { hashSource, hashSources, checkSourcesDetailed, validateGraphSources } from "./sources.js";
+import { hashSources, checkSourcesDetailed, validateGraphSources, getDetailedDrift } from "./sources.js";
 import type { SourceRef, SectionResolver, SourceOptions } from "./sources.js";
 import type { ValidatedGraph } from "./types.js";
+import type { GraphDefinition } from "./schema/graph-schema.js";
 
 function jsonResponse(result: unknown) {
   return {
@@ -42,47 +43,6 @@ export interface ServerOptions {
   sectionResolver?: SectionResolver;
   /** Check source bindings at freelance_start (default: false). Provenance is a build concern. */
   validateSourcesOnStart?: boolean;
-}
-
-import type { GraphDefinition } from "./schema/graph-schema.js";
-
-/**
- * Get detailed drift info (expected + actual hashes) for a specific node's sources.
- */
-function getDetailedDrift(
-  definition: GraphDefinition,
-  nodeId: string,
-  opts: SourceOptions
-): Array<{ path: string; section?: string; expected: string; actual: string }> {
-  const sources = nodeId === "(graph)"
-    ? definition.sources ?? []
-    : definition.nodes[nodeId]?.sources ?? [];
-
-  const results: Array<{ path: string; section?: string; expected: string; actual: string }> = [];
-
-  for (const source of sources) {
-    try {
-      const current = hashSource({ path: source.path, section: source.section }, opts);
-
-      if (current.hash !== source.hash) {
-        results.push({
-          path: source.path,
-          section: source.section,
-          expected: source.hash,
-          actual: current.hash,
-        });
-      }
-    } catch {
-      results.push({
-        path: source.path,
-        section: source.section,
-        expected: source.hash,
-        actual: "FILE_NOT_FOUND",
-      });
-    }
-  }
-
-  return results;
 }
 
 export function createServer(
@@ -343,18 +303,13 @@ export function createServer(
           });
 
           for (const warning of sourceResult.warnings) {
-            // Re-check to get expected/actual hashes for the report
-            const detailedSources = id === graphId || targets.length <= 5
-              ? getDetailedDrift(entry.definition, warning.node, {
-                  resolver: options?.sectionResolver,
-                  basePath,
-                })
-              : warning.drifted.map((d) => ({ ...d, expected: "?", actual: "?" }));
-
             drift.push({
               graphId: id,
               node: warning.node,
-              drifted: detailedSources,
+              drifted: getDetailedDrift(entry.definition, warning.node, {
+                resolver: options?.sectionResolver,
+                basePath,
+              }),
             });
           }
         }
