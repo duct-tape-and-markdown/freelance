@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { validate } from "../src/cli/validate.js";
 import { setCli } from "../src/cli/output.js";
+import { hashContent } from "../src/sources.js";
 
 function tmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "cli-validate-test-"));
@@ -174,5 +175,98 @@ describe("CLI validate", () => {
     expect(graph.name).toBe("Simple Workflow");
     expect(graph.version).toBe("1.0.0");
     expect(graph.nodeCount).toBe(3);
+  });
+
+  describe("--sources option", () => {
+    function writeGraphWithSources(dir: string, docHash: string): void {
+      const graphContent = `id: source-test
+version: "1.0.0"
+name: "Source Test"
+description: "Graph with source bindings"
+startNode: start
+nodes:
+  start:
+    type: action
+    description: "Start"
+    sources:
+      - path: "doc.md"
+        hash: "${docHash}"
+    edges:
+      - target: done
+        label: done
+  done:
+    type: terminal
+    description: "Done"
+`;
+      fs.writeFileSync(path.join(dir, "source-test.workflow.yaml"), graphContent);
+    }
+
+    it("passes when source hashes match", () => {
+      const dir = tmpDir();
+      const docContent = "# Doc\n\nContent here.\n";
+      fs.writeFileSync(path.join(dir, "doc.md"), docContent);
+      const correctHash = hashContent(docContent);
+      writeGraphWithSources(dir, correctHash);
+
+      validate(dir, { checkSources: true, basePath: dir });
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+
+    it("detects drift when source hash is wrong", () => {
+      const dir = tmpDir();
+      fs.writeFileSync(path.join(dir, "doc.md"), "# Doc\n");
+      writeGraphWithSources(dir, "0000000000000000");
+
+      expect(() => validate(dir, { checkSources: true, basePath: dir })).toThrow("process.exit");
+      expect(exitSpy).toHaveBeenCalledWith(3);
+      const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
+      expect(stderr).toContain("DRIFT");
+    });
+
+    it("--fix updates drifted hashes in-place", () => {
+      const dir = tmpDir();
+      const docContent = "# Doc\n\nFixed content.\n";
+      fs.writeFileSync(path.join(dir, "doc.md"), docContent);
+      const wrongHash = "0000000000000000";
+      writeGraphWithSources(dir, wrongHash);
+
+      validate(dir, { checkSources: true, fix: true, basePath: dir });
+
+      // File should have been updated
+      const updatedContent = fs.readFileSync(path.join(dir, "source-test.workflow.yaml"), "utf-8");
+      const correctHash = hashContent(docContent);
+      expect(updatedContent).toContain(correctHash);
+      expect(updatedContent).not.toContain(wrongHash);
+
+      const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
+      expect(stderr).toContain("FIXED");
+    });
+
+    it("--fix skips FILE_NOT_FOUND sources", () => {
+      const dir = tmpDir();
+      // No doc.md file exists
+      writeGraphWithSources(dir, "0000000000000000");
+
+      expect(() => validate(dir, { checkSources: true, fix: true, basePath: dir })).toThrow("process.exit");
+      // Should still report drift since it couldn't fix
+      const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
+      expect(stderr).toContain("DRIFT");
+    });
+
+    it("reports drift in JSON mode", () => {
+      const dir = tmpDir();
+      fs.writeFileSync(path.join(dir, "doc.md"), "# Doc\n");
+      writeGraphWithSources(dir, "0000000000000000");
+      setCli({ json: true });
+
+      expect(() => validate(dir, { checkSources: true, basePath: dir })).toThrow("process.exit");
+      const stdout = stdoutSpy.mock.calls.map((c) => c[0]).join("");
+      const result = JSON.parse(stdout);
+      expect(result.valid).toBe(false);
+      expect(result.sourceDrift).toBeDefined();
+      expect(result.sourceDrift.length).toBeGreaterThan(0);
+      expect(result.sourceDrift[0].drifted[0].expected).toBe("0000000000000000");
+      expect(result.sourceDrift[0].drifted[0].actual).toBeTruthy();
+    });
   });
 });

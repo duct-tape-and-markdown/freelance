@@ -275,6 +275,126 @@ describe("MCP server integration", () => {
   });
 });
 
+describe("MCP server source tools", () => {
+  let client: Client;
+  let cleanup: () => Promise<void>;
+  let graphsDir: string;
+
+  beforeEach(async () => {
+    graphsDir = fs.mkdtempSync(path.join(os.tmpdir(), "server-sources-"));
+    // Create a doc file for hashing
+    fs.writeFileSync(path.join(graphsDir, "doc.md"), "# Test Document\n\nSome content.\n");
+    copyFixtures(graphsDir, "valid-simple.workflow.yaml");
+    const graphs = loadGraphs(graphsDir);
+    const { server } = createServer(graphs, { graphsDirs: [graphsDir] });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    cleanup = async () => {
+      await client.close();
+      await server.close();
+      fs.rmSync(graphsDir, { recursive: true, force: true });
+    };
+  });
+
+  afterEach(async () => {
+    await cleanup();
+  });
+
+  it("freelance_sources_hash returns hashes for files", async () => {
+    const result = await client.callTool({
+      name: "freelance_sources_hash",
+      arguments: { sources: [{ path: path.join(graphsDir, "doc.md") }] },
+    });
+    expect(result.isError).toBeFalsy();
+    const data = parseContent(result) as { hash: string; sources: Array<{ hash: string }> };
+    expect(data.hash).toBeTruthy();
+    expect(data.sources).toHaveLength(1);
+    expect(data.sources[0].hash).toMatch(/^[a-f0-9]{16}$/);
+  });
+
+  it("freelance_sources_hash errors on missing file", async () => {
+    const result = await client.callTool({
+      name: "freelance_sources_hash",
+      arguments: { sources: [{ path: "/nonexistent/file.md" }] },
+    });
+    expect(result.isError).toBe(true);
+  });
+
+  it("freelance_sources_check detects matching hashes", async () => {
+    // First hash it
+    const hashResult = await client.callTool({
+      name: "freelance_sources_hash",
+      arguments: { sources: [{ path: path.join(graphsDir, "doc.md") }] },
+    });
+    const hashData = parseContent(hashResult) as { sources: Array<{ path: string; hash: string }> };
+
+    // Then check it
+    const checkResult = await client.callTool({
+      name: "freelance_sources_check",
+      arguments: { sources: hashData.sources },
+    });
+    expect(checkResult.isError).toBeFalsy();
+    const checkData = parseContent(checkResult) as { valid: boolean; drifted: unknown[] };
+    expect(checkData.valid).toBe(true);
+    expect(checkData.drifted).toHaveLength(0);
+  });
+
+  it("freelance_sources_check detects drift", async () => {
+    const result = await client.callTool({
+      name: "freelance_sources_check",
+      arguments: {
+        sources: [{ path: path.join(graphsDir, "doc.md"), hash: "0000000000000000" }],
+      },
+    });
+    expect(result.isError).toBeFalsy();
+    const data = parseContent(result) as { valid: boolean; drifted: Array<{ actual: string }> };
+    expect(data.valid).toBe(false);
+    expect(data.drifted).toHaveLength(1);
+  });
+
+  it("freelance_sources_validate with no graphsDirs returns error", async () => {
+    // Create server without graphsDirs
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
+    const { server: s2 } = createServer(graphs);
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const c2 = new Client({ name: "test", version: "1.0.0" });
+    await s2.connect(st);
+    await c2.connect(ct);
+
+    const result = await c2.callTool({
+      name: "freelance_sources_validate",
+      arguments: {},
+    });
+    expect(result.isError).toBe(true);
+
+    await c2.close();
+    await s2.close();
+  });
+
+  it("freelance_sources_validate checks loaded graphs", async () => {
+    const result = await client.callTool({
+      name: "freelance_sources_validate",
+      arguments: {},
+    });
+    expect(result.isError).toBeFalsy();
+    const data = parseContent(result) as { valid: boolean; graphsChecked: number };
+    expect(data.graphsChecked).toBe(1);
+    // valid-simple has no sources, so no drift
+    expect(data.valid).toBe(true);
+  });
+
+  it("freelance_sources_validate with unknown graphId returns error", async () => {
+    const result = await client.callTool({
+      name: "freelance_sources_validate",
+      arguments: { graphId: "nonexistent-graph" },
+    });
+    expect(result.isError).toBe(true);
+  });
+});
+
 describe("MCP server hot-reload", () => {
   it("picks up new graph files via watcher", async () => {
     const graphsDir = fs.mkdtempSync(path.join(os.tmpdir(), "server-reload-"));
