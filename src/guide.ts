@@ -1,5 +1,6 @@
 export const GUIDE_TOPICS = [
   "basics",
+  "conventions",
   "gates",
   "cycles",
   "subgraphs",
@@ -48,6 +49,64 @@ Context is a key-value store that persists throughout the traversal. Update it w
 4. \`freelance_context_set\` — record results
 5. \`freelance_advance\` — move to next node
 6. Repeat until terminal node`,
+
+  conventions: `# Authoring Conventions
+
+Best practices for writing clear, maintainable workflow graphs.
+
+## Instructions: Say What To Do, Not Where To Look
+
+Node instructions describe the action. Source bindings say where to find information. Don't mix them.
+
+**Wrong:** "Read this node's source sections before executing. Check the KB for movement rules."
+**Right:** "Check cross-project movement rules." (with source bindings attached)
+
+The agent reads sources automatically. Instructions that say "read the source" or "per KB §X" are redundant noise.
+
+## Context: Gates Enforce, Instructions Don't
+
+Don't put \`Set context.X = value\` in instructions. Context is enforced structurally:
+
+- **Edge conditions** route based on context — the agent sees the conditions and knows what to set
+- **Gate validations** block advancement until conditions are met — the agent sees validation messages at node arrival
+- **ReturnMaps** define the output contract for subgraphs
+
+If a value matters, enforce it with a gate. If it controls routing, put it in an edge condition. Don't rely on instruction text that the agent might ignore.
+
+### When to add a gate
+
+Add a gate when a context value:
+- Controls whether a downstream subgraph or critical node executes
+- Is returned to a parent graph via returnMap
+- Represents a completion condition for a phase of work
+
+Skip gates for informational context that nothing validates downstream.
+
+## Ambient Sources: Graph-Level Knowledge
+
+Use graph-level \`sources\` for foundational knowledge that applies throughout the workflow (quality standards, scope principles, release model). Use node-level sources for step-specific procedural content.
+
+A section should not appear at both levels.
+
+## Dependency Direction
+
+Graphs reference skills as tool providers. Skills never reference graphs. This is a one-way dependency — graph renames don't break skills.
+
+## Atomic Subgraphs: Small But Not Single-Node
+
+Reusable subgraphs should decompose their procedure into distinct steps. One action node + one terminal means the procedure was compressed. If an instruction contains multiple sequential steps with decision points, those should be separate nodes.
+
+## Cycle Requirements
+
+Every cycle must include at least one decision, gate, or wait node. The engine rejects pure action-node cycles to prevent infinite loops.
+
+## Namespace Organization
+
+Organize graphs into subdirectories by domain. File convention: \`{name}.workflow.yaml\`.
+
+## Provenance
+
+Every source binding includes a content hash. Use \`freelance_sources_check\` to detect drift. When KB content changes, update affected hashes.`,
 
   gates: `# Gate Nodes
 
