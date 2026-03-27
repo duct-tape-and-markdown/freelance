@@ -82,6 +82,7 @@ export class GraphEngine {
       node: toNodeInfo(node),
       validTransitions: evaluateTransitions(node, context),
       context: cloneContext(context),
+      ...(def.sources && def.sources.length > 0 ? { graphSources: def.sources } : {}),
     } satisfies StartResult;
   }
 

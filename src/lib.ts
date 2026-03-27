@@ -7,6 +7,6 @@
 
 export { startServer, createServer } from "./server.js";
 export type { ServerOptions } from "./server.js";
-export { resolveGraphsDirs, loadGraphsOrFatal } from "./graph-resolution.js";
+export { resolveGraphsDirs, loadGraphsOrFatal, loadGraphsGraceful } from "./graph-resolution.js";
 export { hashSources, checkSourcesDetailed, validateGraphSources } from "./sources.js";
 export type { SectionResolver, SourceRef, HashedSource, SourceCheckResult } from "./sources.js";

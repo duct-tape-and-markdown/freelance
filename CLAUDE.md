@@ -15,13 +15,13 @@ Graph-based workflow enforcement for AI coding agents.
 Graphs can be loaded from multiple directories in cascading order (later directories shadow earlier ones):
 
 **Automatic resolution** (no flags needed):
-1. `./.freelance/graphs` (project-level, if exists)
-2. `~/.freelance/graphs` (user-level, if exists)
+1. `./.freelance` (project-level, if exists)
+2. `~/.freelance` (user-level, if exists)
 
 **Explicit directories** (CLI):
 ```bash
 # Load from multiple directories (repeatable)
-freelance mcp --graphs ./.freelance/graphs --graphs ~/.freelance/graphs
+freelance mcp --workflows ./.freelance --workflows ~/.freelance
 ```
 
 ### Commands
@@ -33,14 +33,14 @@ freelance validate ./path/to/graphs/
 # Visualize a graph
 freelance visualize ./graphs/my.workflow.yaml --format mermaid
 
-# Start standalone MCP server (auto-loads from ./graphs + ~/.freelance/graphs)
+# Start standalone MCP server (auto-loads from ./graphs + ~/.freelance)
 freelance mcp
 
 # Start standalone with explicit directories
-freelance mcp --graphs ./graphs --graphs ~/.freelance/graphs
+freelance mcp --workflows ./graphs --workflows ~/.freelance
 
 # Start daemon (long-running, multi-traversal, persisted)
-freelance daemon start --graphs ./graphs/ --port 7433
+freelance daemon start --workflows ./graphs/ --port 7433
 
 # Start MCP proxy connecting to daemon
 freelance mcp --connect localhost:7433

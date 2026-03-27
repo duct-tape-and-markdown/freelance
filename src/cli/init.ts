@@ -15,7 +15,7 @@ export type Starter = "blank" | "none";
 export interface InitOptions {
   scope: Scope;
   client: Client;
-  graphs?: string;
+  workflows?: string;
   starter: Starter;
   dryRun: boolean;
 }
@@ -219,12 +219,12 @@ export async function init(options: InitOptions): Promise<void> {
 
   // Determine graphs directory
   let graphsDir: string;
-  if (options.graphs) {
-    graphsDir = path.resolve(options.graphs);
+  if (options.workflows) {
+    graphsDir = path.resolve(options.workflows);
   } else if (scope === "user") {
-    graphsDir = path.join(home, ".freelance", "graphs");
+    graphsDir = path.join(home, ".freelance");
   } else {
-    graphsDir = path.resolve(".freelance", "graphs");
+    graphsDir = path.resolve(".freelance");
   }
 
   // Display-friendly path (relative for project scope, absolute for user scope)

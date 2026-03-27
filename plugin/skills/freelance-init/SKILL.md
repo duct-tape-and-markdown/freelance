@@ -1,18 +1,18 @@
 ---
 name: freelance-init
-description: Scaffold the .freelance/graphs/ directory and a starter graph template in the current project.
+description: Scaffold the .freelance/ directory and a starter graph template in the current project.
 disable-model-invocation: true
 ---
 
 # Initialize Freelance in This Project
 
-Set up the `.freelance/graphs/` directory for graph workflow definitions.
+Set up the `.freelance/` directory for graph workflow definitions.
 
 ## Steps
 
-1. Create the `.freelance/graphs/` directory in the current project root if it doesn't exist
+1. Create the `.freelance/` directory in the current project root if it doesn't exist
 2. Ask the user if they want a starter template:
-   - **Blank template**: Create `.freelance/graphs/blank.workflow.yaml` with this content:
+   - **Blank template**: Create `.freelance/blank.workflow.yaml` with this content:
 
 ```yaml
 id: my-workflow
@@ -43,6 +43,6 @@ nodes:
    - **No template**: Just create the empty directory
 
 3. Confirm to the user that setup is complete and they can:
-   - Add `.workflow.yaml` files to `.freelance/graphs/`
+   - Add `.workflow.yaml` files to `.freelance/`
    - Run `freelance_list` to verify workflows load
    - Run `freelance_guide` for authoring help

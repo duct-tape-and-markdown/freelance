@@ -12,7 +12,7 @@ export type {
   NodeDefinition,
   GraphDefinition,
 } from "./schema/graph-schema.js";
-import type { GraphDefinition, NodeDefinition, ReturnSchema } from "./schema/graph-schema.js";
+import type { GraphDefinition, NodeDefinition, ReturnSchema, SourceBinding } from "./schema/graph-schema.js";
 
 export interface ValidatedGraph {
   readonly definition: GraphDefinition;
@@ -57,6 +57,7 @@ export interface StartResult {
   readonly node: NodeInfo;
   readonly validTransitions: readonly TransitionInfo[];
   readonly context: Readonly<Record<string, unknown>>;
+  readonly graphSources?: readonly SourceBinding[];
 }
 
 export interface SubgraphPushedInfo {
@@ -130,6 +131,7 @@ export interface InspectPositionResult {
   readonly turnWarning: string | null;
   readonly stackDepth: number;
   readonly stack: readonly StackEntry[];
+  readonly graphSources?: readonly SourceBinding[];
   readonly waitStatus?: "waiting" | "ready" | "timed_out";
   readonly waitingOn?: readonly WaitCondition[];
   readonly timeout?: string;

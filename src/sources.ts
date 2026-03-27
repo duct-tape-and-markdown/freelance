@@ -190,6 +190,21 @@ export function validateGraphSources(
   const opts = normalizeOptions(resolverOrOptions);
   const warnings: NodeSourceWarning[] = [];
 
+  // Check graph-level sources
+  if (definition.sources && definition.sources.length > 0) {
+    const result = checkSourcesDetailed(definition.sources, opts);
+    if (!result.valid) {
+      warnings.push({
+        node: "(graph)",
+        drifted: result.drifted.map((d) => ({
+          path: d.path,
+          section: d.section,
+        })),
+      });
+    }
+  }
+
+  // Check node-level sources
   for (const [nodeId, node] of Object.entries(definition.nodes)) {
     if (!node.sources || node.sources.length === 0) continue;
 

@@ -76,15 +76,15 @@ nodes:
 
 Graphs load automatically from these directories (no flags needed):
 
-1. `./.freelance/graphs/` — project-level graphs
-2. `~/.freelance/graphs/` — user-level graphs (shared across projects)
+1. `./.freelance/` — project-level graphs
+2. `~/.freelance/` — user-level graphs (shared across projects)
 
 Later directories shadow earlier ones by graph ID, so user-level graphs can override project defaults.
 
 You can also specify directories explicitly:
 
 ```bash
-freelance mcp --graphs ./my-graphs/
+freelance mcp --workflows ./my-graphs/
 ```
 
 ## Running Modes

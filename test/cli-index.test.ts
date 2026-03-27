@@ -122,7 +122,7 @@ describe("program commands", () => {
 
   it("mcp standalone loads graphs and starts server", async () => {
     const { startServer } = await import("../src/server.js");
-    await program.parseAsync(["node", "freelance", "mcp", "--graphs", "/tmp/fake"]);
+    await program.parseAsync(["node", "freelance", "mcp", "--workflows", "/tmp/fake"]);
     expect(startServer).toHaveBeenCalled();
   });
 
@@ -134,7 +134,7 @@ describe("program commands", () => {
 
   it("daemon start loads graphs and starts daemon", async () => {
     const { startDaemon } = await import("../src/daemon.js");
-    await program.parseAsync(["node", "freelance", "daemon", "start", "--graphs", "/tmp/fake", "--port", "9999"]);
+    await program.parseAsync(["node", "freelance", "daemon", "start", "--workflows", "/tmp/fake", "--port", "9999"]);
     expect(startDaemon).toHaveBeenCalled();
   });
 
@@ -142,13 +142,13 @@ describe("program commands", () => {
     const { checkRunningDaemon } = await import("../src/cli/daemon.js");
     (checkRunningDaemon as ReturnType<typeof vi.fn>).mockReturnValueOnce({ pid: 1234, port: 7433 });
     await expect(
-      program.parseAsync(["node", "freelance", "daemon", "start", "--graphs", "/tmp/fake"])
+      program.parseAsync(["node", "freelance", "daemon", "start", "--workflows", "/tmp/fake"])
     ).rejects.toThrow("process.exit");
   });
 
   it("daemon start with invalid port calls fatal", async () => {
     await expect(
-      program.parseAsync(["node", "freelance", "daemon", "start", "--graphs", "/tmp/fake", "--port", "99999"])
+      program.parseAsync(["node", "freelance", "daemon", "start", "--workflows", "/tmp/fake", "--port", "99999"])
     ).rejects.toThrow("process.exit");
   });
 

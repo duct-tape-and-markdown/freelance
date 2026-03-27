@@ -25,14 +25,14 @@ claude --plugin-dir ./plugin
 | **SessionStart hook** | Reminds the agent about active workflows on session start |
 | **UserPromptSubmit hook** | Checks for active workflows before each prompt |
 | **`/freelance:freelance-guide`** | Workflow usage instructions (auto-invoked by Claude) |
-| **`/freelance:freelance-init`** | Scaffold `.freelance/graphs/` and starter templates |
+| **`/freelance:freelance-init`** | Scaffold `.freelance/` and starter templates |
 
 ## Project Setup
 
 After installing the plugin, run `/freelance:freelance-init` to create the graphs directory in your project, or manually:
 
 ```bash
-mkdir -p .freelance/graphs
+mkdir -p .freelance
 ```
 
 Then add `.workflow.yaml` files to define your workflows. See [the spec](https://github.com/Jwcjwc12/graph-engine/blob/main/docs/SPEC.md) for the full graph definition format.

@@ -46,12 +46,12 @@ describe("CLI init", () => {
 
   it("creates graphs directory", async () => {
     await init(defaults());
-    expect(fs.existsSync(path.join(workDir, ".freelance", "graphs"))).toBe(true);
+    expect(fs.existsSync(path.join(workDir, ".freelance"))).toBe(true);
   });
 
   it("copies starter template", async () => {
     await init(defaults());
-    const graphFile = path.join(workDir, ".freelance", "graphs", "blank.workflow.yaml");
+    const graphFile = path.join(workDir, ".freelance", "blank.workflow.yaml");
     expect(fs.existsSync(graphFile)).toBe(true);
     const content = fs.readFileSync(graphFile, "utf-8");
     expect(content).toContain("my-workflow");
@@ -115,7 +115,7 @@ describe("CLI init", () => {
 
   it("skips starter when starter=none", async () => {
     await init(defaults({ starter: "none" }));
-    const graphs = fs.readdirSync(path.join(workDir, ".freelance", "graphs"));
+    const graphs = fs.readdirSync(path.join(workDir, ".freelance"));
     expect(graphs).toHaveLength(0);
   });
 
@@ -126,7 +126,7 @@ describe("CLI init", () => {
 
   it("dry-run creates no files", async () => {
     await init(defaults({ dryRun: true }));
-    expect(fs.existsSync(path.join(workDir, ".freelance", "graphs"))).toBe(false);
+    expect(fs.existsSync(path.join(workDir, ".freelance"))).toBe(false);
     expect(fs.existsSync(path.join(workDir, ".mcp.json"))).toBe(false);
     expect(fs.existsSync(path.join(workDir, "CLAUDE.md"))).toBe(false);
   });
@@ -164,20 +164,20 @@ describe("CLI init", () => {
       const dir = tmpDir();
       process.chdir(dir);
       await init(defaults({ starter, client: "manual" }));
-      const graphFile = path.join(dir, ".freelance", "graphs", `${starter}.workflow.yaml`);
+      const graphFile = path.join(dir, ".freelance", `${starter}.workflow.yaml`);
       expect(fs.existsSync(graphFile), `${starter} template missing`).toBe(true);
     }
   });
 
-  it("custom --graphs path creates directory at specified location", async () => {
+  it("custom --workflows path creates directory at specified location", async () => {
     const customDir = path.join(workDir, "custom", "workflows");
-    await init(defaults({ graphs: customDir, client: "manual" }));
+    await init(defaults({ workflows: customDir, client: "manual" }));
     expect(fs.existsSync(customDir)).toBe(true);
     expect(fs.existsSync(path.join(customDir, "blank.workflow.yaml"))).toBe(true);
   });
 
   it("does not overwrite existing graph file", async () => {
-    const graphsDir = path.join(workDir, ".freelance", "graphs");
+    const graphsDir = path.join(workDir, ".freelance");
     fs.mkdirSync(graphsDir, { recursive: true });
     const graphFile = path.join(graphsDir, "blank.workflow.yaml");
     fs.writeFileSync(graphFile, "# custom content\nid: blank\n");
@@ -194,12 +194,12 @@ describe("CLI init", () => {
     await expect(init(defaults())).rejects.toThrow(/invalid JSON/);
   });
 
-  it("MCP config omits --graphs (relies on auto-resolution)", async () => {
+  it("MCP config omits --workflows (relies on auto-resolution)", async () => {
     await init(defaults());
     const mcpJson = path.join(workDir, ".mcp.json");
     const config = JSON.parse(fs.readFileSync(mcpJson, "utf-8"));
     const args = config.mcpServers.freelance.args as string[];
-    expect(args).not.toContain("--graphs");
+    expect(args).not.toContain("--workflows");
     expect(args).toEqual(["-y", "freelance-mcp@latest", "mcp"]);
   });
 
@@ -218,7 +218,7 @@ describe("CLI init", () => {
     }
   });
 
-  it("user scope MCP config omits --graphs (relies on auto-resolution)", async () => {
+  it("user scope MCP config omits --workflows (relies on auto-resolution)", async () => {
     const fakeHome = tmpDir();
     const origHome = process.env.HOME;
     process.env.HOME = fakeHome;
@@ -227,20 +227,20 @@ describe("CLI init", () => {
       const claudeJson = path.join(fakeHome, ".claude.json");
       const config = JSON.parse(fs.readFileSync(claudeJson, "utf-8"));
       const args = config.mcpServers.freelance.args as string[];
-      expect(args).not.toContain("--graphs");
+      expect(args).not.toContain("--workflows");
       expect(args).toEqual(["-y", "freelance-mcp@latest", "mcp"]);
     } finally {
       process.env.HOME = origHome;
     }
   });
 
-  it("user scope default graphs dir is ~/.freelance/graphs", async () => {
+  it("user scope default graphs dir is ~/.freelance", async () => {
     const fakeHome = tmpDir();
     const origHome = process.env.HOME;
     process.env.HOME = fakeHome;
     try {
       await init(defaults({ scope: "user", client: "claude-code", starter: "none" }));
-      const expectedGraphsDir = path.join(fakeHome, ".freelance", "graphs");
+      const expectedGraphsDir = path.join(fakeHome, ".freelance");
       expect(fs.existsSync(expectedGraphsDir)).toBe(true);
     } finally {
       process.env.HOME = origHome;
@@ -313,7 +313,7 @@ describe("CLI init", () => {
   });
 
   it("dry-run with existing graph shows 'Would skip'", async () => {
-    const graphsDir = path.join(workDir, ".freelance", "graphs");
+    const graphsDir = path.join(workDir, ".freelance");
     fs.mkdirSync(graphsDir, { recursive: true });
     fs.writeFileSync(path.join(graphsDir, "blank.workflow.yaml"), "id: cr\n");
     await init(defaults({ dryRun: true }));
@@ -383,7 +383,7 @@ describe("CLI init", () => {
     // Since we can't control template names through the public API (it's a union type),
     // we verify the template resolution path works for "blank" (which exists).
     await init(defaults({ starter: "blank", client: "manual" }));
-    const graphFile = path.join(workDir, ".freelance", "graphs", "blank.workflow.yaml");
+    const graphFile = path.join(workDir, ".freelance", "blank.workflow.yaml");
     expect(fs.existsSync(graphFile)).toBe(true);
   });
 });
@@ -428,7 +428,7 @@ describe("initInteractive", () => {
     const { initInteractive } = await import("../src/cli/init.js");
     await initInteractive();
 
-    expect(fs.existsSync(path.join(workDir, ".freelance", "graphs", "blank.workflow.yaml"))).toBe(true);
+    expect(fs.existsSync(path.join(workDir, ".freelance", "blank.workflow.yaml"))).toBe(true);
   });
 
   it("runs with detected single client (shows detected label)", async () => {

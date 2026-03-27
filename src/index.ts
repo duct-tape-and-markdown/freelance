@@ -12,7 +12,7 @@ import { daemonStop, daemonStatus, checkRunningDaemon } from "./cli/daemon.js";
 import { parseDaemonConnect, traversalsList, traversalsInspect, traversalsReset } from "./cli/traversals.js";
 import { VERSION } from "./version.js";
 import { TRAVERSALS_DIR, DEFAULT_PORT } from "./paths.js";
-import { resolveGraphsDirs, loadGraphsOrFatal } from "./graph-resolution.js";
+import { resolveGraphsDirs, loadGraphsOrFatal, loadGraphsGraceful } from "./graph-resolution.js";
 import { extractSection } from "./section-resolver.js";
 
 // --- Program setup ---
@@ -50,7 +50,7 @@ program
   .description("Set up Freelance for a project or user")
   .addOption(new Option("--scope <scope>", "Where to install").choices(["project", "user"]).default("project"))
   .addOption(new Option("--client <client>", "MCP client to configure").choices(["claude-code", "cursor", "windsurf", "cline", "manual"]))
-  .option("--graphs <path>", "Where to put graph definitions")
+  .option("--workflows <path>", "Where to put workflow definitions")
   .addOption(new Option("--starter <template>", "Starter graph to scaffold").choices(["blank", "none"]))
   .option("--yes", "Skip all prompts, use defaults")
   .option("--dry-run", "Show what would be created without writing anything")
@@ -61,7 +61,7 @@ program
       await init({
         scope: opts.scope,
         client: opts.client ?? "claude-code",
-        graphs: opts.graphs,
+        workflows: opts.workflows,
         starter: opts.starter ?? INIT_DEFAULTS.starter,
         dryRun: opts.dryRun ?? INIT_DEFAULTS.dryRun,
       });
@@ -102,8 +102,8 @@ program
   .command("mcp")
   .description("Start MCP server (standalone or proxy to daemon)")
   .option(
-    "--graphs <directory>",
-    "Graph definitions directory (repeatable for layering)",
+    "--workflows <directory>",
+    "Workflow definitions directory (repeatable for layering)",
     (value: string, previous?: string[]) => (previous ? [...previous, value] : [value])
   )
   .option("--connect <host:port>", "Connect to daemon instead of standalone")
@@ -115,8 +115,8 @@ program
       await startProxy(host, port);
     } else {
       const maxDepth = parseInt(opts.maxDepth, 10);
-      const graphs = loadGraphsOrFatal(opts.graphs);
-      const dirs = resolveGraphsDirs(opts.graphs);
+      const graphs = loadGraphsGraceful(opts.workflows);
+      const dirs = resolveGraphsDirs(opts.workflows);
       const sectionResolver = (filePath: string, section: string) => extractSection(filePath, section);
       info(`Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}, section resolver active`);
       await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver });
@@ -133,8 +133,8 @@ daemonCmd
   .command("start", { isDefault: true })
   .description("Start the daemon")
   .option(
-    "--graphs <directory>",
-    "Graph definitions directory (repeatable for layering)",
+    "--workflows <directory>",
+    "Workflow definitions directory (repeatable for layering)",
     (value: string, previous?: string[]) => (previous ? [...previous, value] : [value])
   )
   .option("--port <port>", `Port to listen on (default: ${DEFAULT_PORT})`, String(DEFAULT_PORT))
@@ -154,8 +154,8 @@ daemonCmd
     const maxDepth = parseInt(opts.maxDepth, 10);
     const persistDir = path.resolve(TRAVERSALS_DIR);
 
-    const graphs = loadGraphsOrFatal(opts.graphs);
-    const graphsDirs = resolveGraphsDirs(opts.graphs);
+    const graphs = loadGraphsOrFatal(opts.workflows);
+    const graphsDirs = resolveGraphsDirs(opts.workflows);
     info(`Freelance daemon: loaded ${graphs.size} graph(s) from ${graphsDirs.length} directory(ies)`);
     await startDaemon(graphs, { port, host: "127.0.0.1", persistDir, maxDepth, graphsDirs });
   });

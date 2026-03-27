@@ -74,6 +74,7 @@ export const graphDefinitionSchema = z.object({
   context: z.record(z.string(), z.unknown()).optional(),
   strictContext: z.boolean().optional().default(false),
   nodes: z.record(z.string(), nodeDefinitionSchema),
+  sources: z.array(sourceBindingSchema).optional(),
 });
 
 // Derive TypeScript types from zod schemas — single source of truth

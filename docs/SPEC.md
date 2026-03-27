@@ -46,7 +46,7 @@ The pattern emerged from constraining an AI agent to a phase-based state machine
 │  └──────────┘  └──────────┘  └───────────┘  │
 │                                              │
 │  Loaded at startup:                          │
-│  *.workflow.yaml from --graphs directory        │
+│  *.workflow.yaml from --workflows directory        │
 └──────────────────────────────────────────────┘
 ```
 
@@ -835,7 +835,7 @@ Plugin manifest:
   "mcpServers": {
     "freelance": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/server.js", "--graphs", "${CLAUDE_PLUGIN_ROOT}/graphs/"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/server.js", "--workflows", "${CLAUDE_PLUGIN_ROOT}/graphs/"]
     }
   }
 }
@@ -850,7 +850,7 @@ For any MCP-compatible client:
   "mcpServers": {
     "freelance": {
       "command": "node",
-      "args": ["/path/to/freelance/dist/server.js", "--graphs", "/path/to/graphs/"]
+      "args": ["/path/to/freelance/dist/server.js", "--workflows", "/path/to/graphs/"]
     }
   }
 }
@@ -859,7 +859,7 @@ For any MCP-compatible client:
 Multiple graph directories can be passed for layered loading (Phase 3):
 ```json
 {
-  "args": ["dist/server.js", "--graphs", "/shared/graphs/", "--graphs", "./local/graphs/"]
+  "args": ["dist/server.js", "--workflows", "/shared/graphs/", "--workflows", "./local/graphs/"]
 }
 ```
 
@@ -867,7 +867,7 @@ Multiple graph directories can be passed for layered loading (Phase 3):
 
 ```bash
 npm install -g freelance-mcp
-freelance mcp --graphs ./my-graphs/
+freelance mcp --workflows ./my-graphs/
 ```
 
 ### For other MCP clients
@@ -919,7 +919,7 @@ Author graph definitions for real workflows and validate the engine against actu
 Enable graph reuse, customization, and operational maturity.
 
 1. Implement graph composition (extends/overrides/additions/rewire)
-2. Add `--graphs` multi-directory support for layered graph loading
+2. Add `--workflows` multi-directory support for layered graph loading
 3. Add graph validation CLI (`freelance validate ./graphs/`) for CI integration
 4. Add Mermaid diagram export (`freelance visualize ./graphs/my-workflow.workflow.yaml`)
 5. Package as Claude Code plugin

@@ -57,7 +57,7 @@ It should:
 ### 3. Entry point (`src/index.ts`)
 
 For now, just a CLI that:
-1. Accepts a `--graphs` argument (directory path)
+1. Accepts a `--workflows` argument (directory path)
 2. Calls `loadGraphs` on that directory
 3. Logs the loaded graphs (id, name, node count) on success
 4. Exits with error code 1 on validation failure, printing the error
@@ -101,4 +101,4 @@ Write vitest tests:
 After building everything:
 1. Run `npm run build` — must compile cleanly with zero errors
 2. Run `npm test` — all tests must pass
-3. Run `node dist/index.js --graphs test/fixtures/` — should load the 2 valid graphs and report them, ignoring the invalid ones (or: load all and report errors for invalids — your call on UX, but it should be clear what happened)
+3. Run `node dist/index.js --workflows test/fixtures/` — should load the 2 valid graphs and report them, ignoring the invalid ones (or: load all and report errors for invalids — your call on UX, but it should be clear what happened)

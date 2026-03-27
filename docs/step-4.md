@@ -97,7 +97,7 @@ For structured engine errors (advance validation/condition failures where `resul
 
 Replace the CLI validation harness with the actual MCP server:
 
-1. Parse `--graphs` argument
+1. Parse `--workflows` argument
 2. Call `loadGraphs()` to load and validate graphs
 3. If loading fails, print the error to stderr and exit with code 1
 4. If loading succeeds, log to stderr: `"Graph Engine: loaded N graphs (id1, id2, ...)"` — log to stderr because stdout is the MCP transport
@@ -110,7 +110,7 @@ The server should handle graceful shutdown on SIGINT/SIGTERM.
 Add a `--validate` flag that runs the old behavior: load graphs, report results, exit. This is useful for CI and debugging without starting the MCP server.
 
 ```
-freelance mcp --graphs ./graphs/                  # Start MCP server
+freelance mcp --workflows ./graphs/                  # Start MCP server
 freelance validate ./graphs/                      # Validate and exit
 ```
 
@@ -154,5 +154,5 @@ Write tests for:
 
 1. `npm run build` — compiles cleanly
 2. `npm test` — all 98 previous tests still pass, new server tests pass
-3. `node dist/index.js --graphs test/fixtures/ --validate` — validates and exits
-4. `node dist/index.js --graphs test/fixtures/` — starts MCP server (blocks waiting for stdio input, ctrl+c to exit) — verify it logs the loaded graph count to stderr
+3. `node dist/index.js --workflows test/fixtures/ --validate` — validates and exits
+4. `node dist/index.js --workflows test/fixtures/` — starts MCP server (blocks waiting for stdio input, ctrl+c to exit) — verify it logs the loaded graph count to stderr

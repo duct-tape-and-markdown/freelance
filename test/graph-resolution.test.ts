@@ -15,19 +15,19 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  delete process.env.FREELANCE_GRAPHS_DIR;
+  delete process.env.FREELANCE_WORKFLOWS_DIR;
 });
 
 describe("resolveDefaultGraphsDirs", () => {
-  it("parses FREELANCE_GRAPHS_DIR env var", () => {
-    process.env.FREELANCE_GRAPHS_DIR = `/a${path.delimiter}/b`;
+  it("parses FREELANCE_WORKFLOWS_DIR env var", () => {
+    process.env.FREELANCE_WORKFLOWS_DIR = `/a${path.delimiter}/b`;
     expect(resolveDefaultGraphsDirs()).toEqual(["/a", "/b"]);
   });
 
-  it("finds project-level .freelance/graphs", () => {
-    delete process.env.FREELANCE_GRAPHS_DIR;
+  it("finds project-level .freelance", () => {
+    delete process.env.FREELANCE_WORKFLOWS_DIR;
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gr-test-"));
-    fs.mkdirSync(path.join(tmpDir, ".freelance", "graphs"), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, ".freelance"), { recursive: true });
     const origCwd = process.cwd();
     const origHome = process.env.HOME;
     process.chdir(tmpDir);
@@ -67,7 +67,7 @@ describe("loadGraphsOrFatal", () => {
   });
 
   it("exits when no dirs found", () => {
-    delete process.env.FREELANCE_GRAPHS_DIR;
+    delete process.env.FREELANCE_WORKFLOWS_DIR;
     const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "no-graphs-"));
     const origCwd = process.cwd();
     const origHome = process.env.HOME;
