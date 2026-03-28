@@ -15,7 +15,7 @@ _freelance_completions() {
       return 0
       ;;
     init)
-      COMPREPLY=( $(compgen -W "--scope --client --graphs --starter --daemon --yes --dry-run --json" -- "$cur") )
+      COMPREPLY=( $(compgen -W "--scope --client --workflows --starter --daemon --yes --dry-run --json" -- "$cur") )
       return 0
       ;;
     validate|visualize)

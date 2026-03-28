@@ -1,0 +1,28 @@
+id: valid-graph-sources
+version: "1.0.0"
+name: "Graph Sources Workflow"
+description: "A graph with graph-level source bindings"
+startNode: start
+
+sources:
+  - path: "docs/ambient-guide.md"
+    hash: "a1b2c3d4e5f60011"
+  - path: "docs/style-rules.md"
+    section: "formatting"
+    hash: "f0e1d2c3b4a59988"
+
+context:
+  taskStarted: false
+
+nodes:
+  start:
+    type: action
+    description: "Begin the task"
+    instructions: "Read the ambient sources and begin work."
+    edges:
+      - target: done
+        label: work-done
+
+  done:
+    type: terminal
+    description: "Task complete"

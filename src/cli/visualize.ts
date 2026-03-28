@@ -122,8 +122,8 @@ function loadDefinition(filePath: string): GraphDefinition {
     fatal(`File not found: ${resolved}`, EXIT.GRAPH_ERROR);
   }
 
-  if (!resolved.endsWith(".graph.yaml")) {
-    fatal(`File must have .graph.yaml extension: ${path.basename(resolved)}`, EXIT.INVALID_USAGE);
+  if (!resolved.endsWith(".workflow.yaml")) {
+    fatal(`File must have .workflow.yaml extension: ${path.basename(resolved)}`, EXIT.INVALID_USAGE);
   }
 
   try {

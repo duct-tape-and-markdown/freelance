@@ -82,6 +82,7 @@ export class GraphEngine {
       node: toNodeInfo(node),
       validTransitions: evaluateTransitions(node, context),
       context: cloneContext(context),
+      ...(def.sources && def.sources.length > 0 ? { graphSources: def.sources } : {}),
     } satisfies StartResult;
   }
 
@@ -238,7 +239,7 @@ export class GraphEngine {
         status: "reset",
         previousGraph: prev.graphId,
         previousNode: prev.node,
-        message: `Traversal stack cleared (${clearedStack.length} graphs). Call graph_start to begin a new workflow.`,
+        message: `Traversal stack cleared (${clearedStack.length} graphs). Call freelance_start to begin a new workflow.`,
         clearedStack,
       } satisfies ResetResult;
     }
@@ -248,7 +249,7 @@ export class GraphEngine {
       previousGraph: prev.graphId,
       previousNode: prev.node,
       message:
-        "Traversal cleared. Call graph_start to begin a new workflow.",
+        "Traversal cleared. Call freelance_start to begin a new workflow.",
     } satisfies ResetResult;
   }
 

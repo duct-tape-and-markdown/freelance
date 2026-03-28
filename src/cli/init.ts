@@ -15,7 +15,7 @@ export type Starter = "blank" | "none";
 export interface InitOptions {
   scope: Scope;
   client: Client;
-  graphs?: string;
+  workflows?: string;
   starter: Starter;
   dryRun: boolean;
 }
@@ -126,7 +126,7 @@ function writeClientConfig(
 
 const CLAUDE_MD_SECTION = `## Freelance
 
-This project uses Freelance for workflow enforcement. Call \`graph_list\` to see available workflows and \`graph_guide\` for authoring help.`;
+This project uses Freelance for workflow enforcement. Call \`freelance_list\` to see available workflows and \`freelance_guide\` for authoring help.`;
 
 // --- SessionStart hook ---
 
@@ -182,7 +182,7 @@ function appendClaudeMd(): boolean {
 
   if (fs.existsSync(claudeMdPath)) {
     const content = fs.readFileSync(claudeMdPath, "utf-8");
-    if (content.includes("graph_list") || content.includes("Freelance")) {
+    if (content.includes("freelance_list") || content.includes("Freelance")) {
       return false;
     }
     fs.writeFileSync(claudeMdPath, content.trimEnd() + "\n\n" + CLAUDE_MD_SECTION + "\n");
@@ -196,7 +196,7 @@ function wouldAppendClaudeMd(): boolean {
   const claudeMdPath = path.join(process.cwd(), "CLAUDE.md");
   if (fs.existsSync(claudeMdPath)) {
     const content = fs.readFileSync(claudeMdPath, "utf-8");
-    return !content.includes("graph_list") && !content.includes("Freelance");
+    return !content.includes("freelance_list") && !content.includes("Freelance");
   }
   return true;
 }
@@ -219,12 +219,12 @@ export async function init(options: InitOptions): Promise<void> {
 
   // Determine graphs directory
   let graphsDir: string;
-  if (options.graphs) {
-    graphsDir = path.resolve(options.graphs);
+  if (options.workflows) {
+    graphsDir = path.resolve(options.workflows);
   } else if (scope === "user") {
-    graphsDir = path.join(home, ".freelance", "graphs");
+    graphsDir = path.join(home, ".freelance");
   } else {
-    graphsDir = path.resolve(".freelance", "graphs");
+    graphsDir = path.resolve(".freelance");
   }
 
   // Display-friendly path (relative for project scope, absolute for user scope)
@@ -248,11 +248,11 @@ export async function init(options: InitOptions): Promise<void> {
 
   // 2. Starter graph
   if (starter !== "none") {
-    const destFile = path.join(graphsDir, `${starter}.graph.yaml`);
+    const destFile = path.join(graphsDir, `${starter}.workflow.yaml`);
     if (!fs.existsSync(destFile)) {
-      actions.push({ verb: "create", target: `${graphsDisplayPath}/${starter}.graph.yaml` });
+      actions.push({ verb: "create", target: `${graphsDisplayPath}/${starter}.workflow.yaml` });
     } else {
-      actions.push({ verb: "skip", target: `${starter}.graph.yaml`, detail: "already exists" });
+      actions.push({ verb: "skip", target: `${starter}.workflow.yaml`, detail: "already exists" });
     }
   }
 
@@ -325,19 +325,19 @@ export async function init(options: InitOptions): Promise<void> {
   // 2. Copy starter graph
   if (starter !== "none") {
     const templatesDir = getTemplatesDir();
-    const templateFile = path.join(templatesDir, `${starter}.graph.yaml`);
+    const templateFile = path.join(templatesDir, `${starter}.workflow.yaml`);
 
     if (!fs.existsSync(templateFile)) {
-      fatal(`Template not found: ${starter}.graph.yaml`, EXIT.GENERAL_ERROR);
+      fatal(`Template not found: ${starter}.workflow.yaml`, EXIT.GENERAL_ERROR);
     }
 
-    const destFile = path.join(graphsDir, `${starter}.graph.yaml`);
+    const destFile = path.join(graphsDir, `${starter}.workflow.yaml`);
     if (!fs.existsSync(destFile)) {
       fs.copyFileSync(templateFile, destFile);
-      results.push(`Created ${graphsDisplayPath}/${starter}.graph.yaml`);
+      results.push(`Created ${graphsDisplayPath}/${starter}.workflow.yaml`);
       filesCreated.push(destFile);
     } else {
-      results.push(`Skipped ${starter}.graph.yaml (already exists)`);
+      results.push(`Skipped ${starter}.workflow.yaml (already exists)`);
     }
   }
 
@@ -390,8 +390,8 @@ export async function init(options: InitOptions): Promise<void> {
 Next steps:
   1. Start your AI coding agent in this directory
   2. The agent will see Freelance's tools automatically
-  3. Call graph_list to see available workflows
-  4. Call graph_start to begin a workflow
+  3. Call freelance_list to see available workflows
+  4. Call freelance_start to begin a workflow
 
   Run 'freelance validate ${graphsDisplayPath}/' to check your graph definitions.
 

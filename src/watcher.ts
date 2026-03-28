@@ -3,7 +3,7 @@ import { loadGraphs, loadGraphsLayered } from "./loader.js";
 import type { ValidatedGraph } from "./types.js";
 
 export interface WatcherOptions {
-  /** Directory or directories containing *.graph.yaml files */
+  /** Directory or directories containing *.workflow.yaml files */
   graphsDir: string | string[];
   /** Called with new validated graphs on successful reload */
   onUpdate: (graphs: Map<string, ValidatedGraph>) => void;
@@ -16,7 +16,7 @@ export interface WatcherOptions {
 /**
  * Watch directory(ies) for graph file changes and reload on modification.
  *
- * Uses fs.watch with debounce. On any change to *.graph.yaml files,
+ * Uses fs.watch with debounce. On any change to *.workflow.yaml files,
  * re-reads all directories, validates, and calls onUpdate.
  *
  * Note: fs.watch behavior varies by platform. On Linux (inotify) it is
@@ -43,8 +43,8 @@ export function watchGraphs(options: WatcherOptions): () => void {
   }
 
   const watchers = dirs.map((dir) =>
-    fs.watch(dir, (_eventType, filename) => {
-      if (!filename?.endsWith(".graph.yaml")) return;
+    fs.watch(dir, { recursive: true }, (_eventType, filename) => {
+      if (!filename?.endsWith(".workflow.yaml")) return;
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(reload, debounceMs);
     })
