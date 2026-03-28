@@ -6,25 +6,30 @@ State lives server-side — it can't be compacted away, forgotten, or bypassed. 
 
 ## Quick Start
 
-```bash
-# Clone and install
-git clone https://github.com/Jwcjwc12/freelance.git
-cd freelance
-npm install && npm run build
-npm link
+### Claude Code (plugin — recommended)
 
-# Set up Freelance in your project
+```
+/plugin marketplace add Jwcjwc12/freelance --path plugin
+/plugin install freelance@freelance-plugins
+```
+
+This installs the MCP server, hooks, and skills automatically. Run `/freelance:freelance-init` to scaffold your first workflow.
+
+### Other clients (Cursor, Windsurf, Cline)
+
+```bash
+npm install -g freelance-mcp
 cd /path/to/your/project
 freelance init
 ```
 
 ## How It Works
 
-1. Define workflows as directed graphs in YAML (`.graph.yaml` files)
+1. Define workflows as directed graphs in YAML (`.workflow.yaml` files)
 2. Freelance loads them and exposes 7 MCP tools to the agent
-3. The agent calls `graph_start` to begin a workflow, `graph_advance` to move between nodes
+3. The agent calls `freelance_start` to begin a workflow, `freelance_advance` to move between nodes
 4. Gate nodes block advancement until conditions are met — quality enforcement without documentation
-5. After context compaction, the agent calls `graph_inspect` and re-orients instantly
+5. After context compaction, the agent calls `freelance_inspect` and re-orients instantly
 
 ```yaml
 id: my-workflow
@@ -64,27 +69,27 @@ nodes:
 
 | Tool | Description |
 |------|-------------|
-| `graph_list` | Discover available workflow graphs |
-| `graph_start` | Begin traversing a graph |
-| `graph_advance` | Move to the next node via a labeled edge |
-| `graph_context_set` | Update session context without advancing |
-| `graph_inspect` | Read-only introspection (position, history, or full graph) |
-| `graph_reset` | Clear traversal and start over |
-| `graph_guide` | Get authoring guidance for writing graphs |
+| `freelance_list` | Discover available workflow graphs |
+| `freelance_start` | Begin traversing a graph |
+| `freelance_advance` | Move to the next node via a labeled edge |
+| `freelance_context_set` | Update session context without advancing |
+| `freelance_inspect` | Read-only introspection (position, history, or full graph) |
+| `freelance_reset` | Clear traversal and start over |
+| `freelance_guide` | Get authoring guidance for writing graphs |
 
-## Graph Directory Resolution
+## Workflow Directory Resolution
 
-Graphs load automatically from these directories (no flags needed):
+Workflows load automatically from these directories (no flags needed):
 
-1. `./.freelance/graphs/` — project-level graphs
-2. `~/.freelance/graphs/` — user-level graphs (shared across projects)
+1. `./.freelance/` — project-level workflows
+2. `~/.freelance/` — user-level workflows (shared across projects)
 
-Later directories shadow earlier ones by graph ID, so user-level graphs can override project defaults.
+Subdirectories are scanned recursively, so you can organize however you like (e.g., `.freelance/reviews/`, `.freelance/releases/`). Later directories shadow earlier ones by graph ID.
 
 You can also specify directories explicitly:
 
 ```bash
-freelance mcp --graphs ./my-graphs/
+freelance mcp --workflows ./my-workflows/
 ```
 
 ## Running Modes

@@ -114,6 +114,7 @@ export function buildInspectResult(
         turnWarning: computeTurnWarning(currentNodeDef, session.turnCount),
         stackDepth: stack.length,
         stack: buildStackView(stack),
+        ...(def.sources && def.sources.length > 0 ? { graphSources: def.sources } : {}),
         ...waitInfo,
       } satisfies InspectPositionResult;
     }

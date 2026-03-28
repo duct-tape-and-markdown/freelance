@@ -39,7 +39,7 @@ _freelance() {
           _files -/
           ;;
         visualize)
-          _files -g '*.graph.yaml'
+          _files -g '*.workflow.yaml'
           ;;
       esac
       ;;

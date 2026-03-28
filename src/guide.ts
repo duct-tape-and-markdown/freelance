@@ -1,5 +1,6 @@
 export const GUIDE_TOPICS = [
   "basics",
+  "conventions",
   "gates",
   "cycles",
   "subgraphs",
@@ -15,7 +16,7 @@ const GUIDE_CONTENT: Record<GuideTopic, string> = {
 
 A Freelance graph is a directed graph defined in YAML. Each graph has:
 
-- **id**: unique identifier used in \`graph_start\`
+- **id**: unique identifier used in \`freelance_start\`
 - **startNode**: where traversal begins
 - **context**: initial key-value state available throughout the traversal
 - **nodes**: the steps of the workflow
@@ -31,23 +32,87 @@ A Freelance graph is a directed graph defined in YAML. Each graph has:
 ## Edges
 
 Every non-terminal node has edges — labeled transitions to other nodes. An edge can have:
-- **label**: the name you pass to \`graph_advance\`
+- **label**: the name you pass to \`freelance_advance\`
 - **target**: the destination node
 - **condition**: an expression evaluated against context (optional)
 - **default**: if true, this edge is taken when no other edge's condition matches
 
 ## Context
 
-Context is a key-value store that persists throughout the traversal. Update it with \`graph_context_set\` or via \`contextUpdates\` in \`graph_advance\`. Edge conditions and gate validations read from context.
+Context is a key-value store that persists throughout the traversal. Update it with \`freelance_context_set\` or via \`contextUpdates\` in \`freelance_advance\`. Edge conditions and gate validations read from context.
 
 ## Typical flow
 
-1. \`graph_list\` — discover available graphs
-2. \`graph_start\` — begin a traversal, get first node's instructions
+1. \`freelance_list\` — discover available graphs
+2. \`freelance_start\` — begin a traversal, get first node's instructions
 3. Do the work described in the node's instructions
-4. \`graph_context_set\` — record results
-5. \`graph_advance\` — move to next node
+4. \`freelance_context_set\` — record results
+5. \`freelance_advance\` — move to next node
 6. Repeat until terminal node`,
+
+  conventions: `# Authoring Conventions
+
+Best practices for writing clear, maintainable workflow graphs.
+
+## Instructions: Say What To Do, Not Where To Look
+
+Node instructions describe the action. Source bindings say where to find information. Don't mix them.
+
+**Wrong:** "Read this node's source sections before executing. Check the KB for movement rules."
+**Right:** "Check cross-project movement rules." (with source bindings attached)
+
+The agent reads sources automatically. Instructions that say "read the source" or "per KB §X" are redundant noise.
+
+## Context: Gates Enforce, Instructions Don't
+
+Don't put \`Set context.X = value\` in instructions. Context is enforced structurally:
+
+- **Edge conditions** route based on context — the agent sees the conditions and knows what to set
+- **Gate validations** block advancement until conditions are met — the agent sees validation messages at node arrival
+- **ReturnMaps** define the output contract for subgraphs
+
+If a value matters, enforce it with a gate. If it controls routing, put it in an edge condition. Don't rely on instruction text that the agent might ignore.
+
+### When to add a gate
+
+Add a gate when a context value:
+- Controls whether a downstream subgraph or critical node executes
+- Is returned to a parent graph via returnMap
+- Represents a completion condition for a phase of work
+
+Skip gates for informational context that nothing validates downstream.
+
+## Ambient Sources: Graph-Level Knowledge
+
+Use graph-level \`sources\` for foundational knowledge that applies throughout the workflow (quality standards, scope principles, release model). Use node-level sources for step-specific procedural content.
+
+A section should not appear at both levels.
+
+## Dependency Direction
+
+Graphs reference skills as tool providers. Skills never reference graphs. This is a one-way dependency — graph renames don't break skills.
+
+## Atomic Subgraphs: Small But Not Single-Node
+
+Reusable subgraphs should decompose their procedure into distinct steps. One action node + one terminal means the procedure was compressed. If an instruction contains multiple sequential steps with decision points, those should be separate nodes.
+
+## Cycle Requirements
+
+Every cycle must include at least one decision, gate, or wait node. The engine rejects pure action-node cycles to prevent infinite loops.
+
+## Namespace Organization
+
+Organize graphs into subdirectories by domain. File convention: \`{name}.workflow.yaml\`.
+
+## Provenance
+
+Every source binding includes a content hash. Drift detection is built in at three levels:
+
+- **CLI**: \`freelance validate <dir> --sources\` checks all graphs. Add \`--fix\` to restamp drifted hashes in-place.
+- **MCP**: \`freelance_sources_validate\` checks a single graph or all loaded graphs by ID.
+- **MCP**: \`freelance_sources_check\` checks an explicit list of source bindings.
+
+When KB content changes, run validation to surface drift. Review drifted sections for instruction implications before restamping.`,
 
   gates: `# Gate Nodes
 
@@ -59,7 +124,7 @@ A gate node has a \`validations\` array. Each validation has:
 - **expr**: an expression evaluated against context (e.g., \`context.testsPass == true\`)
 - **message**: shown to the agent when the validation fails
 
-When the agent calls \`graph_advance\` on a gate node, ALL validations must pass. If any fail, the advance is rejected with the failing messages. The agent must fix the issues and update context before retrying.
+When the agent calls \`freelance_advance\` on a gate node, ALL validations must pass. If any fail, the advance is rejected with the failing messages. The agent must fix the issues and update context before retrying.
 
 ## When to use gates
 
@@ -70,7 +135,7 @@ When the agent calls \`graph_advance\` on a gate node, ALL validations must pass
 ## Tips
 
 - Keep validation expressions simple — they read from context, not external systems
-- The agent should use \`graph_context_set\` to record results before hitting the gate
+- The agent should use \`freelance_context_set\` to record results before hitting the gate
 - Gates with multiple validations enforce ALL conditions simultaneously`,
 
   cycles: `# Cycles
@@ -163,7 +228,7 @@ Wait nodes can have a \`timeout\` field (ISO 8601 duration, e.g., "PT1H" for 1 h
 
 ## Tips
 
-- Use \`graph_context_set\` from outside the agent (or a separate process) to satisfy wait conditions
+- Use \`freelance_context_set\` from outside the agent (or a separate process) to satisfy wait conditions
 - Wait nodes in daemon mode persist across sessions — the traversal resumes when conditions are met`,
 
   "multi-agent": `# Multi-Agent Workflows
@@ -235,7 +300,7 @@ export function getGuideTopics(): string[] {
 export function getGuide(topic?: string): { content: string } | { error: string } {
   if (!topic) {
     const catalog = GUIDE_TOPICS.map((t) => `- ${t}`).join("\n");
-    return { content: `# Freelance Graph Authoring Guide\n\nAvailable topics:\n${catalog}\n\nCall graph_guide with a topic to read it.` };
+    return { content: `# Freelance Graph Authoring Guide\n\nAvailable topics:\n${catalog}\n\nCall freelance_guide with a topic to read it.` };
   }
 
   if (!GUIDE_TOPICS.includes(topic as GuideTopic)) {

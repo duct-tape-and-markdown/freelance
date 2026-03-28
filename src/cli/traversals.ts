@@ -42,7 +42,7 @@ export async function daemonFetch(
     return await res.json();
   } catch (e) {
     fatal(
-      `Failed to connect to daemon at ${host}:${port}: ${(e as Error).message}\n\n  Is the daemon running? Start with: freelance daemon start --graphs <dir>`,
+      `Failed to connect to daemon at ${host}:${port}: ${(e as Error).message}\n\n  Is the daemon running? Start with: freelance daemon start --workflows <dir>`,
       EXIT.DAEMON_ERROR
     );
   }

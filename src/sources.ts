@@ -190,6 +190,21 @@ export function validateGraphSources(
   const opts = normalizeOptions(resolverOrOptions);
   const warnings: NodeSourceWarning[] = [];
 
+  // Check graph-level sources
+  if (definition.sources && definition.sources.length > 0) {
+    const result = checkSourcesDetailed(definition.sources, opts);
+    if (!result.valid) {
+      warnings.push({
+        node: "(graph)",
+        drifted: result.drifted.map((d) => ({
+          path: d.path,
+          section: d.section,
+        })),
+      });
+    }
+  }
+
+  // Check node-level sources
   for (const [nodeId, node] of Object.entries(definition.nodes)) {
     if (!node.sources || node.sources.length === 0) continue;
 
@@ -206,6 +221,47 @@ export function validateGraphSources(
   }
 
   return { valid: warnings.length === 0, warnings };
+}
+
+/**
+ * Get detailed drift info (expected + actual hashes) for a specific node's sources.
+ * Returns only sources that have actually drifted (hash mismatch or file not found).
+ */
+export function getDetailedDrift(
+  definition: GraphDefinition,
+  nodeId: string,
+  opts?: SectionResolver | SourceOptions
+): DriftedSource[] {
+  const normalizedOpts = normalizeOptions(opts);
+  const sources = nodeId === "(graph)"
+    ? definition.sources ?? []
+    : definition.nodes[nodeId]?.sources ?? [];
+
+  const results: DriftedSource[] = [];
+
+  for (const source of sources) {
+    try {
+      const current = hashSource({ path: source.path, section: source.section }, normalizedOpts);
+
+      if (current.hash !== source.hash) {
+        results.push({
+          path: source.path,
+          section: source.section,
+          expected: source.hash,
+          actual: current.hash,
+        });
+      }
+    } catch {
+      results.push({
+        path: source.path,
+        section: source.section,
+        expected: source.hash,
+        actual: "FILE_NOT_FOUND",
+      });
+    }
+  }
+
+  return results;
 }
 
 // --- Private ---

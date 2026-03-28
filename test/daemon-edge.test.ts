@@ -85,7 +85,7 @@ describe("Daemon edge cases", () => {
   });
 
   it("persists traversals across restart", async () => {
-    const graphs = loadFixtures("valid-simple.graph.yaml");
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
     const persistDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-persist-restart-"));
 
     // Start daemon 1, create a traversal, advance once
@@ -127,7 +127,7 @@ describe("Daemon edge cases", () => {
   });
 
   it("handles concurrent traversals on different graphs", async () => {
-    const graphs = loadFixtures("valid-simple.graph.yaml", "valid-branching.graph.yaml");
+    const graphs = loadFixtures("valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
     const persistDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-concurrent-"));
     const d = await startDaemonOnRandomPort(graphs, persistDir);
     servers.push(d.server);
@@ -161,7 +161,7 @@ describe("Daemon edge cases", () => {
   });
 
   it("corrupted persistence file is skipped on restore", async () => {
-    const graphs = loadFixtures("valid-simple.graph.yaml");
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
     const persistDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-corrupt-"));
 
     // Write a corrupted JSON file
@@ -184,7 +184,7 @@ describe("Daemon edge cases", () => {
   });
 
   it("reset deletes persistence file", async () => {
-    const graphs = loadFixtures("valid-simple.graph.yaml");
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
     const persistDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-reset-persist-"));
     const d = await startDaemonOnRandomPort(graphs, persistDir);
     servers.push(d.server);
@@ -208,7 +208,7 @@ describe("Daemon edge cases", () => {
   });
 
   it("returns EngineError as 400 for invalid graph ID", async () => {
-    const graphs = loadFixtures("valid-simple.graph.yaml");
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
     const persistDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-badgraph-"));
     const d = await startDaemonOnRandomPort(graphs, persistDir);
     servers.push(d.server);
@@ -221,7 +221,7 @@ describe("Daemon edge cases", () => {
   });
 
   it("advance on unknown traversal returns 400", async () => {
-    const graphs = loadFixtures("valid-simple.graph.yaml");
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
     const persistDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-unknown-"));
     const d = await startDaemonOnRandomPort(graphs, persistDir);
     servers.push(d.server);
@@ -234,7 +234,7 @@ describe("Daemon edge cases", () => {
   });
 
   it("context set on unknown traversal returns 400", async () => {
-    const graphs = loadFixtures("valid-simple.graph.yaml");
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
     const persistDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-unknown-ctx-"));
     const d = await startDaemonOnRandomPort(graphs, persistDir);
     servers.push(d.server);
@@ -247,7 +247,7 @@ describe("Daemon edge cases", () => {
   });
 
   it("inspect with full detail returns graph definition", async () => {
-    const graphs = loadFixtures("valid-simple.graph.yaml");
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
     const persistDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-full-"));
     const d = await startDaemonOnRandomPort(graphs, persistDir);
     servers.push(d.server);
@@ -265,7 +265,7 @@ describe("Daemon edge cases", () => {
   });
 
   it("returns 404 for unknown routes", async () => {
-    const graphs = loadFixtures("valid-simple.graph.yaml");
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
     const persistDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-404-"));
     const d = await startDaemonOnRandomPort(graphs, persistDir);
     servers.push(d.server);
@@ -276,7 +276,7 @@ describe("Daemon edge cases", () => {
   });
 
   it("returns 400 for invalid JSON body", async () => {
-    const graphs = loadFixtures("valid-simple.graph.yaml");
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
     const persistDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-badjson-"));
     const d = await startDaemonOnRandomPort(graphs, persistDir);
     servers.push(d.server);
@@ -307,8 +307,8 @@ describe("Daemon edge cases", () => {
     // Create a temp graphs dir with a valid graph
     const graphsDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-watcher-"));
     fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.graph.yaml"),
-      path.join(graphsDir, "valid-simple.graph.yaml")
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(graphsDir, "valid-simple.workflow.yaml")
     );
     const graphs = loadGraphs(graphsDir);
     const persistDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-watcher-persist-"));
@@ -328,7 +328,7 @@ describe("Daemon edge cases", () => {
 
     // Trigger a file change by touching the graph file to invoke the watcher's onUpdate
     // Write a slightly modified graph to trigger watcher
-    const graphFile = path.join(graphsDir, "valid-simple.graph.yaml");
+    const graphFile = path.join(graphsDir, "valid-simple.workflow.yaml");
     const content = fs.readFileSync(graphFile, "utf-8");
     fs.writeFileSync(graphFile, content); // Touch to trigger watcher
 
@@ -353,8 +353,8 @@ describe("Daemon edge cases", () => {
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const graphsDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-watcher-err-"));
     fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.graph.yaml"),
-      path.join(graphsDir, "valid-simple.graph.yaml")
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(graphsDir, "valid-simple.workflow.yaml")
     );
     const graphs = loadGraphs(graphsDir);
     const persistDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-watcher-err-persist-"));
@@ -372,7 +372,7 @@ describe("Daemon edge cases", () => {
     servers.push(daemon.server);
 
     // Replace the valid graph with an invalid one so reload fails
-    fs.writeFileSync(path.join(graphsDir, "valid-simple.graph.yaml"), "not: valid: yaml: [[[");
+    fs.writeFileSync(path.join(graphsDir, "valid-simple.workflow.yaml"), "not: valid: yaml: [[[");
 
     // Wait for debounce + reload
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -392,7 +392,7 @@ describe("Daemon edge cases", () => {
 
   it("POST /shutdown responds and closes server", async () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
-    const graphs = loadFixtures("valid-simple.graph.yaml");
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
     const persistDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-shutdown-"));
     const d = await startDaemonOnRandomPort(graphs, persistDir);
     // Don't push to servers[] — server will self-close
@@ -410,7 +410,7 @@ describe("Daemon edge cases", () => {
   it("startDaemon writes PID file and listens", async () => {
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
-    const graphs = loadFixtures("valid-simple.graph.yaml");
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
     const persistDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-start-"));
 
     // startDaemon uses getPidFilePath() which points to .freelance/daemon.pid
