@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (2026-03-28 – 2026-03-29)
+## 1.0.0 (2026-03-29)
 
 ### Added
 - **Claude Code plugin** — self-contained plugin (`plugin/`) with MCP server config, hooks, and skills for one-command installation (#14)
