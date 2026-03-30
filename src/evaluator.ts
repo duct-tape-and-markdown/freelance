@@ -370,10 +370,6 @@ export function validateExpression(expr: string): void {
 }
 
 /**
- * Evaluate a boolean expression against a context object.
- * Throws EvaluatorError on syntax errors.
- */
-/**
  * Extract property-to-string-literal comparisons from an expression.
  * Used for static enum validation at load time.
  * Returns entries for patterns like `context.X == 'value'` or `'value' == context.X`.
@@ -416,6 +412,10 @@ export function extractPropertyComparisons(expr: string): Array<{
   return results;
 }
 
+/**
+ * Evaluate a boolean expression against a context object.
+ * Throws EvaluatorError on syntax errors.
+ */
 export function evaluate(expr: string, context: Record<string, unknown>): boolean {
   const trimmed = expr.trim();
   if (trimmed.length === 0) {
