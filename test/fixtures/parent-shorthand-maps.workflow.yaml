@@ -1,0 +1,33 @@
+id: parent-shorthand
+version: "1.0.0"
+name: "Parent with Shorthand Maps"
+description: "Tests array shorthand for contextMap and returnMap"
+startNode: start
+context:
+  securityPass: false
+  approved: false
+
+nodes:
+  start:
+    type: action
+    description: "Begin parent workflow"
+    instructions: "Do the initial work."
+    edges:
+      - target: review
+        label: work-done
+
+  review:
+    type: action
+    description: "Run review via subgraph"
+    instructions: "Review subgraph runs."
+    subgraph:
+      graphId: child-review
+      contextMap: [securityPass]
+      returnMap: [approved]
+    edges:
+      - target: finalize
+        label: reviewed
+
+  finalize:
+    type: terminal
+    description: "Workflow complete"

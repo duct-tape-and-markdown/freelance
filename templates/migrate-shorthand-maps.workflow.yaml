@@ -1,0 +1,107 @@
+id: migrate-shorthand-maps
+version: "1.0.0"
+name: "Migrate to Shorthand contextMap/returnMap"
+description: "Scan workflows for same-name contextMap/returnMap entries and convert them to array shorthand syntax."
+startNode: scan
+
+context:
+  workflowsDir: null
+  candidates: null
+  previewApproved: false
+  migrationComplete: false
+
+nodes:
+  scan:
+    type: action
+    description: "Find workflows with same-name contextMap/returnMap entries"
+    instructions: |
+      Scan all .workflow.yaml files in context.workflowsDir (or ./.freelance/ if null).
+
+      For each file, find subgraph nodes where contextMap or returnMap has entries
+      where the key equals the value (e.g., `athlete: athlete`). These are candidates
+      for array shorthand conversion.
+
+      Set context.candidates to an array of objects:
+        { file: string, node: string, field: "contextMap" | "returnMap", keys: string[] }
+
+      If no candidates found, set context.candidates to an empty array.
+    edges:
+      - target: preview
+        label: scanned
+        condition: "context.candidates != null && context.candidates.length > 0"
+        description: "Candidates found, preview changes"
+      - target: done-no-changes
+        label: none-found
+        condition: "context.candidates != null && context.candidates.length == 0"
+        description: "No same-name mappings to convert"
+        default: true
+
+  preview:
+    type: action
+    description: "Preview the proposed changes"
+    instructions: |
+      For each candidate in context.candidates, show the before/after:
+
+      Before:
+        contextMap:
+          athlete: athlete
+          date: date
+
+      After:
+        contextMap: [athlete, date]
+
+      If a map has a mix of same-name and different-name entries, only convert the
+      same-name entries to shorthand. If ALL entries are same-name, convert the
+      entire map to array form.
+
+      Present the full list and ask the user to approve.
+      Set context.previewApproved = true if approved.
+    edges:
+      - target: apply
+        label: approved
+        condition: "context.previewApproved == true"
+      - target: done-no-changes
+        label: rejected
+        description: "User declined the migration"
+
+  apply:
+    type: action
+    description: "Apply the shorthand conversion"
+    instructions: |
+      For each candidate in context.candidates, rewrite the YAML file:
+
+      1. Read the workflow file
+      2. Replace same-name contextMap/returnMap entries with array shorthand
+      3. Write the file back
+      4. Run `freelance validate` on the modified file to confirm it still loads
+
+      If any file fails validation after modification, revert that file and report the error.
+
+      Set context.migrationComplete = true when done.
+    edges:
+      - target: validate
+        label: applied
+        condition: "context.migrationComplete == true"
+
+  validate:
+    type: gate
+    description: "Verify all modified workflows still load correctly"
+    instructions: |
+      Run `freelance validate <workflowsDir>` to confirm all graphs still load.
+      If validation passes, the migration is complete.
+    validations:
+      - expr: "context.migrationComplete == true"
+        message: "Migration must be complete before final validation."
+    edges:
+      - target: done
+        label: validated
+
+  done-no-changes:
+    type: terminal
+    description: "No changes needed"
+    instructions: "No same-name contextMap/returnMap entries found. Nothing to migrate."
+
+  done:
+    type: terminal
+    description: "Migration complete"
+    instructions: "All same-name contextMap/returnMap entries have been converted to array shorthand."

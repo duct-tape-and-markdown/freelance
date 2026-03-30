@@ -209,6 +209,20 @@ A node with a \`subgraph\` field will push a new graph onto the traversal stack 
 - **returnMap**: maps child context keys back to parent context on completion
 - **condition**: optional expression — if false, the subgraph is skipped
 
+When field names are the same on both sides, use array shorthand:
+
+\`\`\`yaml
+# Shorthand — same name both sides
+contextMap: [athlete, date]
+returnMap: [approved]
+
+# Object form — names differ
+contextMap:
+  taskDone: parentTaskDone
+returnMap:
+  approved: reviewPassed
+\`\`\`
+
 ## When to use subgraphs
 
 - Reusable workflows (e.g., a "code review" subgraph called from multiple parent graphs)
