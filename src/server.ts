@@ -41,6 +41,8 @@ export interface ServerOptions {
   sectionResolver?: SectionResolver;
   /** Check source bindings at freelance_start (default: false). Provenance is a build concern. */
   validateSourcesOnStart?: boolean;
+  /** Base path for resolving relative source paths. Defaults to parent of first graphsDir. */
+  sourceRoot?: string;
 }
 
 export function createServer(
@@ -48,6 +50,12 @@ export function createServer(
   options?: ServerOptions
 ): { server: McpServer; stopWatcher?: () => void } {
   const manager = new TraversalManager(graphs, options);
+
+  // Shared source options — sourceRoot is the basePath for all source resolution
+  const sourceOpts: SourceOptions = {
+    resolver: options?.sectionResolver,
+    basePath: options?.sourceRoot,
+  };
 
   let stopWatcher: (() => void) | undefined;
   if (options?.graphsDirs?.length) {
@@ -92,7 +100,6 @@ export function createServer(
         if (options?.validateSourcesOnStart) {
           const graph = graphs.get(graphId);
           if (graph) {
-            const sourceOpts: SourceOptions = { resolver: options.sectionResolver };
             const sourceCheck = validateGraphSources(
               graph.definition,
               sourceOpts
@@ -221,7 +228,6 @@ export function createServer(
     },
     ({ sources }) => {
       try {
-        const sourceOpts: SourceOptions = { resolver: options?.sectionResolver };
         const result = hashSources(sources as SourceRef[], sourceOpts);
         return jsonResponse(result);
       } catch (e) {
@@ -243,7 +249,6 @@ export function createServer(
     },
     ({ sources }) => {
       try {
-        const sourceOpts: SourceOptions = { resolver: options?.sectionResolver };
         const result = checkSourcesDetailed(sources, sourceOpts);
         return jsonResponse(result);
       } catch (e) {
@@ -291,9 +296,6 @@ export function createServer(
           node: string;
           drifted: Array<{ path: string; section?: string; expected: string; actual: string }>;
         }> = [];
-
-        // Resolve source paths from CWD — consistent with freelance_sources_hash authoring flow
-        const sourceOpts: SourceOptions = { resolver: options?.sectionResolver };
 
         for (const id of targets) {
           const def = fileMap.get(id)!;

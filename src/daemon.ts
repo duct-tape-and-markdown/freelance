@@ -15,6 +15,7 @@ interface DaemonOptions {
   persistDir: string;
   maxDepth?: number;
   graphsDirs?: string[];
+  sourceRoot?: string;
 }
 
 async function readBody(req: http.IncomingMessage): Promise<string> {

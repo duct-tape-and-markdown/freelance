@@ -73,7 +73,7 @@ export interface SourceValidationResult {
 export interface SourceOptions {
   /** Resolver for extracting section content (typically from Doc LSP). */
   resolver?: SectionResolver;
-  /** Base directory for resolving relative source paths. [O-4] */
+  /** Base directory for resolving relative source paths. Defaults to parent of graphsDir. [O-4] */
   basePath?: string;
 }
 
@@ -181,7 +181,7 @@ export function checkSourcesDetailed(
 /**
  * Validate all source bindings across a graph definition.
  * Returns warnings for any nodes with drifted sources.
- * Source paths resolve relative to basePath if provided, otherwise CWD. [O-4]
+ * Source paths resolve relative to basePath (typically parent of graphsDir), otherwise CWD. [O-4]
  */
 export function validateGraphSources(
   definition: GraphDefinition,
