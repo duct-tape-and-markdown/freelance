@@ -1,0 +1,38 @@
+id: valid-node-sources
+version: "1.0.0"
+name: "Node Sources Workflow"
+description: "A graph with both graph-level and node-level source bindings"
+startNode: start
+
+sources:
+  - path: "docs/ambient-guide.md"
+    hash: "a1b2c3d4e5f60011"
+
+context:
+  taskStarted: false
+
+nodes:
+  start:
+    type: action
+    description: "Begin the task"
+    instructions: "Read the node sources and begin work."
+    sources:
+      - path: "docs/node-guide.md"
+        hash: "1122334455667788"
+      - path: "docs/node-rules.md"
+        section: "validation"
+        hash: "aabbccddeeff0011"
+    edges:
+      - target: middle
+        label: next
+
+  middle:
+    type: action
+    description: "Middle step"
+    edges:
+      - target: done
+        label: finish
+
+  done:
+    type: terminal
+    description: "Task complete"

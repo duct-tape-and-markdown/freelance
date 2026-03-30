@@ -1,4 +1,3 @@
-import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -11,7 +10,6 @@ import { findGraphFiles, loadSingleGraph } from "./loader.js";
 import { hashSources, checkSourcesDetailed, validateGraphSources, getDetailedDrift } from "./sources.js";
 import type { SourceRef, SectionResolver, SourceOptions } from "./sources.js";
 import type { ValidatedGraph } from "./types.js";
-import type { GraphDefinition } from "./schema/graph-schema.js";
 
 function jsonResponse(result: unknown) {
   return {
@@ -268,12 +266,12 @@ export function createServer(
         }
 
         // Collect workflow files and their definitions, keyed by graph ID
-        const fileMap = new Map<string, { definition: ValidatedGraph["definition"]; filePath: string }>();
+        const fileMap = new Map<string, ValidatedGraph["definition"]>();
         for (const dir of options.graphsDirs) {
           for (const filePath of findGraphFiles(dir)) {
             try {
               const loaded = loadSingleGraph(filePath);
-              fileMap.set(loaded.id, { definition: loaded.definition, filePath });
+              fileMap.set(loaded.id, loaded.definition);
             } catch {
               // Skip files that fail to load — validate command handles those
             }
@@ -294,22 +292,18 @@ export function createServer(
           drifted: Array<{ path: string; section?: string; expected: string; actual: string }>;
         }> = [];
 
+        // Resolve source paths from CWD — consistent with freelance_sources_hash authoring flow
+        const sourceOpts: SourceOptions = { resolver: options?.sectionResolver };
+
         for (const id of targets) {
-          const entry = fileMap.get(id)!;
-          const basePath = path.dirname(entry.filePath);
-          const sourceResult = validateGraphSources(entry.definition, {
-            resolver: options?.sectionResolver,
-            basePath,
-          });
+          const def = fileMap.get(id)!;
+          const sourceResult = validateGraphSources(def, sourceOpts);
 
           for (const warning of sourceResult.warnings) {
             drift.push({
               graphId: id,
               node: warning.node,
-              drifted: getDetailedDrift(entry.definition, warning.node, {
-                resolver: options?.sectionResolver,
-                basePath,
-              }),
+              drifted: getDetailedDrift(def, warning.node, sourceOpts),
             });
           }
         }

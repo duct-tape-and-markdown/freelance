@@ -38,6 +38,7 @@ export interface NodeInfo {
   readonly suggestedTools: readonly string[];
   readonly returns?: ReturnSchema;
   readonly readOnly?: boolean;
+  readonly sources?: readonly SourceBinding[];
 }
 
 export interface GraphListResult {
@@ -91,6 +92,7 @@ export interface AdvanceSuccessResult {
   readonly waitingOn?: readonly WaitCondition[];
   readonly timeout?: string;
   readonly timeoutAt?: string;
+  readonly graphSources?: readonly SourceBinding[];
 }
 
 export interface AdvanceErrorResult {

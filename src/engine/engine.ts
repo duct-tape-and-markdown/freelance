@@ -171,6 +171,7 @@ export class GraphEngine {
         waitingOn: waitConditions,
         ...(newNodeDef.timeout ? { timeout: newNodeDef.timeout } : {}),
         ...(timeoutAt ? { timeoutAt } : {}),
+        ...(def.sources?.length ? { graphSources: def.sources } : {}),
       } satisfies AdvanceSuccessResult;
     }
 
@@ -192,6 +193,7 @@ export class GraphEngine {
             ],
           }
         : {}),
+      ...(def.sources?.length ? { graphSources: def.sources } : {}),
     } satisfies AdvanceSuccessResult;
   }
 
