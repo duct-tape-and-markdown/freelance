@@ -1,8 +1,6 @@
 {
-  "mcpServers": {
-    "freelance": {
-      "command": "npx",
-      "args": ["-y", "freelance-mcp@latest", "mcp"]
-    }
+  "freelance": {
+    "command": "npx",
+    "args": ["-y", "freelance-mcp@latest", "mcp"]
   }
 }
