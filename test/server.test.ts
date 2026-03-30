@@ -386,6 +386,76 @@ describe("MCP server source tools", () => {
     expect(data.valid).toBe(true);
   });
 
+  it("freelance_sources_validate resolves paths from CWD, not graph file directory", async () => {
+    // Reproduce issue #16: graphs live in a subdirectory, source paths are CWD-relative.
+    // Before the fix, validate resolved relative to the graph file dir (graphs/),
+    // so "doc.md" became "graphs/doc.md" → FILE_NOT_FOUND.
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "server-sources-cwd-"));
+    const graphSubDir = path.join(projectRoot, "graphs");
+    fs.mkdirSync(graphSubDir);
+
+    // Create a doc file at the project root (not inside graphs/)
+    const docPath = path.join(projectRoot, "doc.md");
+    fs.writeFileSync(docPath, "# Guide\n\nContent here.\n");
+
+    // Hash using CWD-relative path — this is what freelance_sources_hash returns
+    const hashResult = await client.callTool({
+      name: "freelance_sources_hash",
+      arguments: { sources: [{ path: docPath }] },
+    });
+    const hashData = parseContent(hashResult) as { sources: Array<{ hash: string }> };
+    const docHash = hashData.sources[0].hash;
+
+    // Write a graph in the subdirectory that references the doc via CWD-relative path.
+    // The key: "doc.md" resolves from CWD but NOT from graphs/.
+    const relativeDocPath = path.relative(process.cwd(), docPath);
+    const graphYaml = `
+id: cwd-sources-test
+version: "1.0"
+name: "CWD Sources Test"
+description: "Tests CWD-relative source resolution"
+startNode: start
+sources:
+  - path: "${relativeDocPath}"
+    hash: "${docHash}"
+nodes:
+  start:
+    type: action
+    description: "Start"
+    edges:
+      - target: end
+        label: done
+  end:
+    type: terminal
+    description: "End"
+`;
+    fs.writeFileSync(path.join(graphSubDir, "cwd-test.workflow.yaml"), graphYaml);
+
+    // Create server with graphsDirs pointing to the subdirectory
+    const graphs = loadGraphs(graphSubDir);
+    const { server: s2 } = createServer(graphs, { graphsDirs: [graphSubDir] });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const c2 = new Client({ name: "test", version: "1.0.0" });
+    await s2.connect(st);
+    await c2.connect(ct);
+
+    try {
+      const result = await c2.callTool({
+        name: "freelance_sources_validate",
+        arguments: { graphId: "cwd-sources-test" },
+      });
+      expect(result.isError).toBeFalsy();
+      const data = parseContent(result) as { valid: boolean; drift: unknown[] };
+      // Should be valid — not FILE_NOT_FOUND
+      expect(data.valid).toBe(true);
+      expect(data.drift).toHaveLength(0);
+    } finally {
+      await c2.close();
+      await s2.close();
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
   it("freelance_sources_validate with unknown graphId returns error", async () => {
     const result = await client.callTool({
       name: "freelance_sources_validate",

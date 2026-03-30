@@ -12,5 +12,6 @@ export function toNodeInfo(node: NodeDefinition): NodeInfo {
     suggestedTools: node.suggestedTools ?? [],
     ...(node.returns ? { returns: node.returns } : {}),
     ...(node.readOnly ? { readOnly: node.readOnly } : {}),
+    ...(node.sources?.length ? { sources: node.sources } : {}),
   };
 }

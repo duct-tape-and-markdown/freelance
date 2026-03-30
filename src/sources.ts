@@ -181,7 +181,7 @@ export function checkSourcesDetailed(
 /**
  * Validate all source bindings across a graph definition.
  * Returns warnings for any nodes with drifted sources.
- * Source paths resolve relative to basePath (typically the graph file's directory). [O-4]
+ * Source paths resolve relative to basePath if provided, otherwise CWD. [O-4]
  */
 export function validateGraphSources(
   definition: GraphDefinition,

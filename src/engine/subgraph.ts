@@ -28,6 +28,7 @@ export function maybePushSubgraph(
       condMet = false;
     }
     if (!condMet) {
+      const parentDef = graphs.get(parentSession.graphId)!.definition;
       return {
         status: "advanced",
         isError: false,
@@ -37,6 +38,7 @@ export function maybePushSubgraph(
         node: toNodeInfo(newNodeDef),
         validTransitions: evaluateTransitions(newNodeDef, parentSession.context),
         context: cloneContext(parentSession.context),
+        ...(parentDef.sources?.length ? { graphSources: parentDef.sources } : {}),
       };
     }
   }
@@ -97,6 +99,7 @@ export function maybePushSubgraph(
     node: toNodeInfo(childStartNode),
     validTransitions: evaluateTransitions(childStartNode, activeSession.context),
     context: cloneContext(activeSession.context),
+    ...(childDef.sources?.length ? { graphSources: childDef.sources } : {}),
   };
 }
 
@@ -153,5 +156,6 @@ export function popSubgraph(
     node: toNodeInfo(parentNodeDef),
     validTransitions: evaluateTransitions(parentNodeDef, parentSession.context),
     context: cloneContext(parentSession.context),
+    ...(parentDef.sources?.length ? { graphSources: parentDef.sources } : {}),
   };
 }

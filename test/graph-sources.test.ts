@@ -6,7 +6,7 @@ import { loadGraphs } from "../src/loader.js";
 import { GraphEngine } from "../src/engine/index.js";
 import { graphDefinitionSchema } from "../src/schema/graph-schema.js";
 import { hashSource, validateGraphSources } from "../src/sources.js";
-import type { ValidatedGraph, InspectPositionResult } from "../src/types.js";
+import type { ValidatedGraph, InspectPositionResult, AdvanceSuccessResult } from "../src/types.js";
 import type { GraphDefinition } from "../src/schema/graph-schema.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
@@ -119,6 +119,70 @@ describe("inspect() with graph-level sources", () => {
 
     const result = engine.inspect("position") as InspectPositionResult;
     expect(result.graphSources).toBeUndefined();
+  });
+});
+
+describe("node-level sources in responses", () => {
+  it("start() returns node sources when start node has sources", () => {
+    const engine = makeEngine("valid-node-sources.workflow.yaml");
+    const result = engine.start("valid-node-sources");
+
+    expect(result.node.sources).toBeDefined();
+    expect(result.node.sources).toHaveLength(2);
+    expect(result.node.sources![0].path).toBe("docs/node-guide.md");
+    expect(result.node.sources![1].section).toBe("validation");
+  });
+
+  it("omits node sources when node has none", () => {
+    const engine = makeEngine("valid-simple.workflow.yaml");
+    const result = engine.start("valid-simple");
+
+    expect(result.node.sources).toBeUndefined();
+  });
+
+  it("advance() returns node sources on target node", () => {
+    const engine = makeEngine("valid-node-sources.workflow.yaml");
+    engine.start("valid-node-sources");
+    const result = engine.advance("next") as AdvanceSuccessResult;
+
+    // middle node has no sources
+    expect(result.node.sources).toBeUndefined();
+  });
+
+});
+
+describe("graphSources on advance responses", () => {
+  it("advance() returns graphSources when graph has sources", () => {
+    const engine = makeEngine("valid-graph-sources.workflow.yaml");
+    engine.start("valid-graph-sources");
+    const result = engine.advance("work-done") as AdvanceSuccessResult;
+
+    expect(result.graphSources).toBeDefined();
+    expect(result.graphSources).toHaveLength(2);
+    expect(result.graphSources![0].path).toBe("docs/ambient-guide.md");
+  });
+
+  it("advance() omits graphSources when graph has no sources", () => {
+    const engine = makeEngine("valid-simple.workflow.yaml");
+    engine.start("valid-simple");
+    const result = engine.advance("work-done") as AdvanceSuccessResult;
+
+    expect(result.graphSources).toBeUndefined();
+  });
+
+  it("advance() returns both graphSources and node sources together", () => {
+    const engine = makeEngine("valid-node-sources.workflow.yaml");
+    const startResult = engine.start("valid-node-sources");
+
+    // Start should have both graph-level and node-level sources
+    expect(startResult.graphSources).toHaveLength(1);
+    expect(startResult.node.sources).toHaveLength(2);
+
+    // Advance to middle (no node sources, but graph sources persist)
+    const advResult = engine.advance("next") as AdvanceSuccessResult;
+    expect(advResult.graphSources).toHaveLength(1);
+    expect(advResult.graphSources![0].path).toBe("docs/ambient-guide.md");
+    expect(advResult.node.sources).toBeUndefined();
   });
 });
 
