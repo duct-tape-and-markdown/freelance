@@ -46,6 +46,29 @@ export function resolveGraphsDirs(cliGraphs?: string | string[] | null): string[
 }
 
 /**
+ * Derive the source root for resolving relative source paths in graph definitions.
+ *
+ * Convention: `.freelance/` is a child of the environment whose sources it references.
+ * So the parent of the graphsDir is the natural base for source resolution.
+ *
+ * Examples:
+ *   graphsDir = ./codebase/.freelance   → sourceRoot = ./codebase/
+ *   graphsDir = ../dev-docs/.freelance  → sourceRoot = ../dev-docs/
+ *   graphsDir = ~/.freelance            → sourceRoot = ~/
+ *   explicit = /custom/root             → sourceRoot = /custom/root
+ *
+ * Falls back to undefined (= CWD) when no graphsDirs are available.
+ */
+export function resolveSourceRoot(
+  graphsDirs: string[],
+  explicit?: string | null
+): string | undefined {
+  if (explicit) return path.resolve(explicit);
+  if (graphsDirs.length > 0) return path.dirname(graphsDirs[0]);
+  return undefined;
+}
+
+/**
  * Resolve graph directories, load all graphs, and exit on failure.
  */
 export function loadGraphsOrFatal(graphsDirs?: string | string[] | null) {

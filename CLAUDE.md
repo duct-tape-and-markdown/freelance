@@ -58,6 +58,16 @@ freelance traversals reset tr_a1b2c3d4
 freelance init
 ```
 
+### Source Path Resolution
+
+Source bindings in graphs use relative paths (e.g. `docs/topics/training.md`). These resolve relative to the **source root**, which defaults to the parent of the first graphsDir:
+
+- `./.freelance/` → source root is `./` (project root)
+- `../dev-docs/.freelance/` → source root is `../dev-docs/`
+- `~/.freelance/` → source root is `~/`
+
+Override with `--source-root <path>` (CLI) or `sourceRoot` (ServerOptions).
+
 ## Project structure
 
 - `src/schema/` — Zod schemas for graph definitions (single source of truth for types + validation)

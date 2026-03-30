@@ -31,7 +31,7 @@ interface ValidateResult {
 export interface ValidateOptions {
   checkSources?: boolean;
   fix?: boolean;
-  /** Base path for resolving source references. Defaults to cwd. */
+  /** Base path for resolving source references. Defaults to parent of graph directory. */
   basePath?: string;
 }
 
@@ -106,7 +106,7 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
     // Track files that need hash updates: filePath → Array<{section, oldHash, newHash}>
     const fixMap = new Map<string, Array<{ section?: string; oldHash: string; newHash: string }>>();
 
-    const resolvedBasePath = options.basePath ? path.resolve(options.basePath) : process.cwd();
+    const resolvedBasePath = options.basePath ? path.resolve(options.basePath) : path.dirname(resolvedDir);
 
     for (const [graphId, { definition }] of parsed) {
       const sourceOpts: SourceOptions = { resolver: extractSection, basePath: resolvedBasePath };

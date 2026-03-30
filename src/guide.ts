@@ -82,6 +82,24 @@ Add a gate when a context value:
 
 Skip gates for informational context that nothing validates downstream.
 
+## Source Paths
+
+Source paths are relative to the **source root**, which defaults to the parent of your \`.freelance/\` directory. If your layout is:
+
+\`\`\`
+project/
+  .freelance/
+    my.workflow.yaml
+  docs/
+    guide.md
+\`\`\`
+
+Then in your graph, reference it as \`path: "docs/guide.md"\` — relative to \`project/\`, not to \`.freelance/\`.
+
+For sibling layouts (workflows separate from codebase), the same rule applies — paths resolve from the parent of the workflows directory. Override with \`--source-root\` if needed.
+
+Use \`freelance_sources_hash\` to generate hashes. Paths you pass to it are also resolved from the source root.
+
 ## Ambient Sources: Graph-Level Knowledge
 
 Use graph-level \`sources\` for foundational knowledge that applies throughout the workflow (quality standards, scope principles, release model). Use node-level sources for step-specific procedural content.

@@ -12,7 +12,7 @@ import { daemonStop, daemonStatus, checkRunningDaemon } from "./cli/daemon.js";
 import { parseDaemonConnect, traversalsList, traversalsInspect, traversalsReset } from "./cli/traversals.js";
 import { VERSION } from "./version.js";
 import { TRAVERSALS_DIR, DEFAULT_PORT } from "./paths.js";
-import { resolveGraphsDirs, loadGraphsOrFatal, loadGraphsGraceful } from "./graph-resolution.js";
+import { resolveGraphsDirs, resolveSourceRoot, loadGraphsOrFatal, loadGraphsGraceful } from "./graph-resolution.js";
 import { extractSection } from "./section-resolver.js";
 
 // --- Program setup ---
@@ -77,7 +77,7 @@ program
   .description("Validate graph definitions")
   .option("--sources", "Also validate source bindings for drift")
   .option("--fix", "Update drifted source hashes in-place (requires --sources)")
-  .option("--base-path <path>", "Base path for resolving source references (default: cwd)")
+  .option("--base-path <path>", "Base path for resolving source references (default: parent of graph directory)")
   .action((directory, opts) => {
     validate(directory, { checkSources: opts.sources || opts.fix, fix: opts.fix, basePath: opts.basePath });
   });
@@ -110,6 +110,7 @@ program
   )
   .option("--connect <host:port>", "Connect to daemon instead of standalone")
   .option("--max-depth <n>", "Maximum subgraph nesting depth", "5")
+  .option("--source-root <path>", "Base path for resolving source references (default: parent of first workflows dir)")
   .action(async (opts) => {
     if (opts.connect) {
       const { host, port } = parseDaemonConnect(opts);
@@ -119,9 +120,10 @@ program
       const maxDepth = parseInt(opts.maxDepth, 10);
       const graphs = loadGraphsGraceful(opts.workflows);
       const dirs = resolveGraphsDirs(opts.workflows);
+      const sourceRoot = resolveSourceRoot(dirs, opts.sourceRoot);
       const sectionResolver = (filePath: string, section: string) => extractSection(filePath, section);
       info(`Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}, section resolver active`);
-      await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver });
+      await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver, sourceRoot });
     }
   });
 
@@ -141,6 +143,7 @@ daemonCmd
   )
   .option("--port <port>", `Port to listen on (default: ${DEFAULT_PORT})`, String(DEFAULT_PORT))
   .option("--max-depth <n>", "Maximum subgraph nesting depth", "5")
+  .option("--source-root <path>", "Base path for resolving source references (default: parent of first workflows dir)")
   .action(async (opts) => {
     // Idempotent: if daemon is already running, report and exit
     const running = checkRunningDaemon();
@@ -158,8 +161,9 @@ daemonCmd
 
     const graphs = loadGraphsOrFatal(opts.workflows);
     const graphsDirs = resolveGraphsDirs(opts.workflows);
+    const sourceRoot = resolveSourceRoot(graphsDirs, opts.sourceRoot);
     info(`Freelance daemon: loaded ${graphs.size} graph(s) from ${graphsDirs.length} directory(ies)`);
-    await startDaemon(graphs, { port, host: "127.0.0.1", persistDir, maxDepth, graphsDirs });
+    await startDaemon(graphs, { port, host: "127.0.0.1", persistDir, maxDepth, graphsDirs, sourceRoot });
   });
 
 daemonCmd
