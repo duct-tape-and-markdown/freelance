@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadGraphs, loadGraphsLayered, findGraphFiles } from "../src/loader.js";
+import { loadGraphs, loadGraphsLayered, findGraphFiles, resolveContextDefaults } from "../src/loader.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
@@ -347,5 +347,63 @@ describe("loadGraphsLayered", () => {
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("failed validation"));
     stderrSpy.mockRestore();
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("context enums — static validation", () => {
+  it("loads graph with valid enum context and matching conditions", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "enum-valid-"));
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-enum.workflow.yaml"),
+      path.join(dir, "valid-enum.workflow.yaml")
+    );
+    const graphs = loadGraphs(dir);
+    expect(graphs.has("valid-enum")).toBe(true);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("rejects graph with enum mismatch in edge condition", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "enum-invalid-"));
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "invalid-enum-mismatch.workflow.yaml"),
+      path.join(dir, "invalid-enum-mismatch.workflow.yaml")
+    );
+    expect(() => loadGraphs(dir)).toThrow("raceSpecific");
+    expect(() => loadGraphs(dir)).toThrow("not in the declared enum");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("plain scalar context values still work (backward compat)", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "enum-compat-"));
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(dir, "valid-simple.workflow.yaml")
+    );
+    const graphs = loadGraphs(dir);
+    expect(graphs.has("valid-simple")).toBe(true);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("resolveContextDefaults", () => {
+  it("passes plain scalars through unchanged", () => {
+    const result = resolveContextDefaults({ x: null, y: 0, z: false, w: "hello" });
+    expect(result).toEqual({ x: null, y: 0, z: false, w: "hello" });
+  });
+
+  it("extracts default from descriptor objects", () => {
+    const result = resolveContextDefaults({
+      phase: { type: "string", enum: ["a", "b"], default: null },
+      count: { type: "number", default: 5 },
+      plain: "value",
+    });
+    expect(result).toEqual({ phase: null, count: 5, plain: "value" });
+  });
+
+  it("defaults to null when descriptor has no default", () => {
+    const result = resolveContextDefaults({
+      phase: { type: "string", enum: ["a", "b"] },
+    });
+    expect(result.phase).toBeNull();
   });
 });

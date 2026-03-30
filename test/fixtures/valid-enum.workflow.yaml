@@ -1,0 +1,57 @@
+id: valid-enum
+version: "1.0.0"
+name: "Enum Validation Test"
+description: "Graph with context enum declarations and valid edge conditions"
+startNode: start
+
+context:
+  phase:
+    type: string
+    enum: [base, quality, taper, recovery]
+    default: null
+  score: 0
+  done: false
+
+nodes:
+  start:
+    type: action
+    description: "Set the phase"
+    edges:
+      - target: route
+        label: ready
+
+  route:
+    type: decision
+    description: "Route based on phase"
+    edges:
+      - target: base-work
+        label: go-base
+        condition: "context.phase == 'base'"
+      - target: quality-work
+        label: go-quality
+        condition: "context.phase == 'quality'"
+      - target: done
+        label: go-taper
+        condition: "context.phase == 'taper'"
+      - target: done
+        label: go-recovery
+        condition: "context.phase == 'recovery'"
+        default: true
+
+  base-work:
+    type: action
+    description: "Do base phase work"
+    edges:
+      - target: done
+        label: finished
+
+  quality-work:
+    type: action
+    description: "Do quality phase work"
+    edges:
+      - target: done
+        label: finished
+
+  done:
+    type: terminal
+    description: "Complete"

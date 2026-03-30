@@ -1,0 +1,27 @@
+id: invalid-enum-mismatch
+version: "1.0.0"
+name: "Enum Mismatch Test"
+description: "Graph with a condition value not in the declared enum"
+startNode: start
+
+context:
+  phase:
+    type: string
+    enum: [base, quality, taper, recovery]
+    default: null
+
+nodes:
+  start:
+    type: decision
+    description: "Route based on phase"
+    edges:
+      - target: done
+        label: go
+        condition: "context.phase == 'raceSpecific'"
+      - target: done
+        label: fallback
+        default: true
+
+  done:
+    type: terminal
+    description: "Complete"
