@@ -8,6 +8,7 @@ import { loadGraphs } from "../src/loader.js";
 import { GraphEngine } from "../src/engine/index.js";
 import { createServer } from "../src/server.js";
 import { EngineError } from "../src/errors.js";
+import { graphDefinitionSchema } from "../src/schema/graph-schema.js";
 import type { ValidatedGraph } from "../src/types.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
@@ -508,5 +509,116 @@ describe("subgraph — MCP integration: conditional skip", () => {
     // skipReview == true satisfies the validation
     const a2 = await callTool(client, "freelance_advance", { edge: "continue" });
     expect(a2.data.status).toBe("complete");
+  });
+});
+
+// =============================================================================
+// SHORTHAND contextMap / returnMap — Array Syntax (#21)
+// =============================================================================
+
+describe("subgraph — shorthand array syntax for contextMap/returnMap", () => {
+  it("loads graph with array shorthand contextMap and returnMap", () => {
+    const graphs = loadFixtures(
+      "parent-shorthand-maps.workflow.yaml",
+      "child-review.workflow.yaml"
+    );
+    expect(graphs.has("parent-shorthand")).toBe(true);
+
+    // Verify normalization: arrays expanded to {key: key} objects
+    const def = graphs.get("parent-shorthand")!.definition;
+    const reviewNode = def.nodes["review"];
+    expect(reviewNode.subgraph).toBeDefined();
+    expect(reviewNode.subgraph!.contextMap).toEqual({ securityPass: "securityPass" });
+    expect(reviewNode.subgraph!.returnMap).toEqual({ approved: "approved" });
+  });
+
+  it("shorthand contextMap copies context correctly at push", () => {
+    const engine = makeEngine(
+      "parent-shorthand-maps.workflow.yaml",
+      "child-review.workflow.yaml"
+    );
+    engine.start("parent-shorthand");
+    engine.contextSet({ securityPass: true });
+
+    const result = engine.advance("work-done");
+    expect(result.isError).toBe(false);
+    if (!result.isError) {
+      expect(result.subgraphPushed).toBeDefined();
+      // securityPass should be copied to child's securityPass (same name)
+      expect(result.context.securityPass).toBe(true);
+    }
+  });
+
+  it("shorthand returnMap copies context correctly at pop", () => {
+    const engine = makeEngine(
+      "parent-shorthand-maps.workflow.yaml",
+      "child-review.workflow.yaml"
+    );
+    engine.start("parent-shorthand");
+    engine.contextSet({ securityPass: true });
+    engine.advance("work-done"); // pushes child
+
+    // Complete child graph
+    engine.advance("done"); // check-security → check-tests
+    engine.contextSet({ testsPass: true, approved: true });
+    engine.advance("done"); // → review-gate
+    const result = engine.advance("approved"); // → complete (terminal) → pop
+
+    expect(result.isError).toBe(false);
+    if (!result.isError) {
+      expect(result.status).toBe("subgraph_complete");
+      // approved should be copied back to parent's approved (same name)
+      expect(result.context.approved).toBe(true);
+    }
+  });
+});
+
+describe("subgraph — shorthand schema validation", () => {
+  it("rejects mixed array elements (non-string)", () => {
+    // graphDefinitionSchema imported at top of file
+    const graph = {
+      id: "test", version: "1.0", name: "Test", description: "Test",
+      startNode: "start",
+      nodes: {
+        start: {
+          type: "action", description: "Start",
+          subgraph: {
+            graphId: "child",
+            contextMap: ["valid", 123],
+          },
+          edges: [{ target: "end", label: "done" }],
+        },
+        end: { type: "terminal", description: "End" },
+      },
+    };
+    const result = graphDefinitionSchema.safeParse(graph);
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts object syntax alongside shorthand (backward compat)", () => {
+    // graphDefinitionSchema imported at top of file
+    const graph = {
+      id: "test", version: "1.0", name: "Test", description: "Test",
+      startNode: "start",
+      nodes: {
+        start: {
+          type: "action", description: "Start",
+          subgraph: {
+            graphId: "child",
+            contextMap: { parentKey: "childKey" },
+            returnMap: ["sameNameField"],
+          },
+          edges: [{ target: "end", label: "done" }],
+        },
+        end: { type: "terminal", description: "End" },
+      },
+    };
+    const result = graphDefinitionSchema.safeParse(graph);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const sub = result.data.nodes["start"].subgraph!;
+      expect(sub.contextMap).toEqual({ parentKey: "childKey" });
+      expect(sub.returnMap).toEqual({ sameNameField: "sameNameField" });
+    }
   });
 });

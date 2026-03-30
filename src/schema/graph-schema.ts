@@ -27,12 +27,20 @@ export const validationRuleSchema = z.object({
   message: z.string(),
 });
 
+/** Accepts Record<string, string> or string[] shorthand (["a","b"] → {a:"a", b:"b"}) */
+const stringMapOrShorthand = z.union([
+  z.record(z.string(), z.string()),
+  z.array(z.string()).transform((arr) =>
+    Object.fromEntries(arr.map((key) => [key, key]))
+  ),
+]);
+
 export const subgraphDefinitionSchema = z.object({
   graphId: z.string(),
   condition: z.string().optional(),
   initialContext: z.record(z.string(), z.unknown()).optional(),
-  contextMap: z.record(z.string(), z.string()).optional(),
-  returnMap: z.record(z.string(), z.string()).optional(),
+  contextMap: stringMapOrShorthand.optional(),
+  returnMap: stringMapOrShorthand.optional(),
 });
 
 export const waitOnEntrySchema = z.object({
