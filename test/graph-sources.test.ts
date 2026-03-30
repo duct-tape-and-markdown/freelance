@@ -6,7 +6,7 @@ import { loadGraphs } from "../src/loader.js";
 import { GraphEngine } from "../src/engine/index.js";
 import { graphDefinitionSchema } from "../src/schema/graph-schema.js";
 import { hashSource, validateGraphSources } from "../src/sources.js";
-import type { ValidatedGraph, InspectPositionResult, AdvanceSuccessResult } from "../src/types.js";
+import type { ValidatedGraph, InspectPositionResult, AdvanceSuccessResult, AdvanceErrorResult } from "../src/types.js";
 import type { GraphDefinition } from "../src/schema/graph-schema.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
@@ -183,6 +183,20 @@ describe("graphSources on advance responses", () => {
     expect(advResult.graphSources).toHaveLength(1);
     expect(advResult.graphSources![0].path).toBe("docs/ambient-guide.md");
     expect(advResult.node.sources).toBeUndefined();
+  });
+});
+
+describe("graphSources on error responses", () => {
+  it("advance error includes graphSources when graph has sources", () => {
+    const engine = makeEngine("valid-sources-with-gate.workflow.yaml");
+    engine.start("valid-sources-with-gate");
+
+    // Attempt to advance without setting approved=true — validation fails
+    const result = engine.advance("proceed") as AdvanceErrorResult;
+    expect(result.isError).toBe(true);
+    expect(result.graphSources).toBeDefined();
+    expect(result.graphSources).toHaveLength(1);
+    expect(result.graphSources![0].path).toBe("docs/ambient-guide.md");
   });
 });
 

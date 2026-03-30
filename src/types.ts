@@ -102,6 +102,7 @@ export interface AdvanceErrorResult {
   readonly reason: string;
   readonly validTransitions: readonly TransitionInfo[];
   readonly context: Readonly<Record<string, unknown>>;
+  readonly graphSources?: readonly SourceBinding[];
 }
 
 export type AdvanceResult = AdvanceSuccessResult | AdvanceErrorResult;

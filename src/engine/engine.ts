@@ -100,13 +100,14 @@ export class GraphEngine {
     }
 
     // Pre-advance gate checks
-    const waitBlock = checkWaitBlocking(session, currentNodeDef);
+    const sources = def.sources;
+    const waitBlock = checkWaitBlocking(session, currentNodeDef, sources);
     if (waitBlock) return waitBlock;
 
-    const returnBlock = checkReturnSchema(session, currentNodeDef);
+    const returnBlock = checkReturnSchema(session, currentNodeDef, sources);
     if (returnBlock) return returnBlock;
 
-    const validationBlock = checkValidations(session, currentNodeDef);
+    const validationBlock = checkValidations(session, currentNodeDef, sources);
     if (validationBlock) return validationBlock;
 
     // Find and validate edge
@@ -126,7 +127,7 @@ export class GraphEngine {
     }
 
     if (edgeDef.condition) {
-      const condBlock = checkEdgeCondition(session, currentNodeDef, edgeDef.condition, edge);
+      const condBlock = checkEdgeCondition(session, currentNodeDef, edgeDef.condition, edge, sources);
       if (condBlock) return condBlock;
     }
 
