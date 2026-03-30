@@ -82,6 +82,22 @@ Add a gate when a context value:
 
 Skip gates for informational context that nothing validates downstream.
 
+## Context Enums
+
+Routing-critical context fields can declare allowed values:
+
+\`\`\`yaml
+context:
+  trainingPhase:
+    type: string
+    enum: [base, early-quality, race-specific, taper, recovery]
+    default: null
+\`\`\`
+
+At load time, \`freelance validate\` checks that edge conditions only compare enum fields against declared values. A condition like \`context.trainingPhase == 'raceSpecific'\` (typo) will be caught statically.
+
+Plain scalar context values (\`count: 0\`, \`done: false\`) continue to work unchanged. Only fields with \`enum\` declarations get static checking.
+
 ## Source Paths
 
 Source paths are relative to the **source root**, which defaults to the parent of your \`.freelance/\` directory. If your layout is:

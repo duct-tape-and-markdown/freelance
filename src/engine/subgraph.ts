@@ -1,5 +1,6 @@
 import { EngineError } from "../errors.js";
 import { evaluate } from "../evaluator.js";
+import { resolveContextDefaults } from "../loader.js";
 import { cloneContext, toNodeInfo } from "./helpers.js";
 import { evaluateTransitions } from "./transitions.js";
 import type {
@@ -60,7 +61,7 @@ export function maybePushSubgraph(
 
   const childDef = childGraph.definition;
   const childContext: Record<string, unknown> = {
-    ...(childDef.context ?? {}),
+    ...resolveContextDefaults(childDef.context ?? {}),
     ...(subgraph.initialContext ?? {}),
   };
 

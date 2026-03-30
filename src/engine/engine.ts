@@ -1,4 +1,5 @@
 import { EngineError } from "../errors.js";
+import { resolveContextDefaults } from "../loader.js";
 import { cloneContext, toNodeInfo } from "./helpers.js";
 import { evaluateTransitions } from "./transitions.js";
 import { checkWaitBlocking, checkReturnSchema, checkValidations, checkEdgeCondition } from "./gates.js";
@@ -59,7 +60,7 @@ export class GraphEngine {
 
     const def = graph.definition;
     const context: Record<string, unknown> = {
-      ...(def.context ?? {}),
+      ...resolveContextDefaults(def.context ?? {}),
       ...(initialContext ?? {}),
     };
 

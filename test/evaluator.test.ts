@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { evaluate, EvaluatorError } from "../src/evaluator.js";
+import { evaluate, EvaluatorError, extractPropertyComparisons } from "../src/evaluator.js";
 
 describe("evaluate — basic equality", () => {
   it("context.value == true with true", () => {
@@ -204,5 +204,49 @@ describe("evaluate — expressions from spec examples", () => {
   });
   it("reviewApproved || !touchesSensitiveArea", () => {
     expect(evaluate("context.reviewApproved == true || context.touchesSensitiveArea == false", { reviewApproved: false, touchesSensitiveArea: false })).toBe(true);
+  });
+});
+
+describe("extractPropertyComparisons", () => {
+  it("extracts simple context.X == 'value'", () => {
+    const result = extractPropertyComparisons("context.phase == 'base'");
+    expect(result).toEqual([{ property: "phase", operator: "==", literal: "base" }]);
+  });
+
+  it("extracts reversed 'value' == context.X", () => {
+    const result = extractPropertyComparisons("'base' == context.phase");
+    expect(result).toEqual([{ property: "phase", operator: "==", literal: "base" }]);
+  });
+
+  it("extracts != comparisons", () => {
+    const result = extractPropertyComparisons("context.status != 'draft'");
+    expect(result).toEqual([{ property: "status", operator: "!=", literal: "draft" }]);
+  });
+
+  it("extracts multiple comparisons from compound expression", () => {
+    const result = extractPropertyComparisons("context.x == 'a' && context.y == 'b'");
+    expect(result).toHaveLength(2);
+    expect(result[0].property).toBe("x");
+    expect(result[1].property).toBe("y");
+  });
+
+  it("ignores non-string comparisons (numbers)", () => {
+    const result = extractPropertyComparisons("context.count == 5");
+    expect(result).toHaveLength(0);
+  });
+
+  it("ignores boolean comparisons", () => {
+    const result = extractPropertyComparisons("context.done == true");
+    expect(result).toHaveLength(0);
+  });
+
+  it("ignores null comparisons", () => {
+    const result = extractPropertyComparisons("context.phase != null");
+    expect(result).toHaveLength(0);
+  });
+
+  it("returns empty for invalid expressions", () => {
+    const result = extractPropertyComparisons("not valid {{}}");
+    expect(result).toHaveLength(0);
   });
 });

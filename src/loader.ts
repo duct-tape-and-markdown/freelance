@@ -2,10 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import { Graph, alg } from "@dagrejs/graphlib";
-import { graphDefinitionSchema } from "./schema/graph-schema.js";
+import { graphDefinitionSchema, isContextFieldDescriptor } from "./schema/graph-schema.js";
 import type { GraphDefinition } from "./schema/graph-schema.js";
 import type { ValidatedGraph } from "./types.js";
-import { validateExpression } from "./evaluator.js";
+import { validateExpression, extractPropertyComparisons } from "./evaluator.js";
 
 /**
  * Load and validate a single *.workflow.yaml file.
@@ -218,15 +218,70 @@ function validateReturnSchemas(def: GraphDefinition, filePath: string): void {
 }
 
 /**
+ * Extract enum constraints from context field descriptors.
+ * Returns a map of field name → set of allowed string values.
+ */
+function extractContextEnums(def: GraphDefinition): Map<string, Set<string>> {
+  const enums = new Map<string, Set<string>>();
+  if (!def.context) return enums;
+  for (const [key, value] of Object.entries(def.context)) {
+    if (isContextFieldDescriptor(value) && value.enum) {
+      enums.set(key, new Set(value.enum.map(String)));
+    }
+  }
+  return enums;
+}
+
+/**
+ * Resolve context field descriptors to their default values.
+ * Plain scalars pass through unchanged; descriptors are replaced by their default.
+ */
+export function resolveContextDefaults(
+  context: Record<string, unknown>
+): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(context)) {
+    resolved[key] = isContextFieldDescriptor(value) ? value.default ?? null : value;
+  }
+  return resolved;
+}
+
+/**
+ * Check an expression's string literals against declared context enums.
+ * Throws if a literal is not in the declared enum for that field.
+ */
+function checkEnumCompliance(
+  expr: string,
+  enumMap: Map<string, Set<string>>,
+  location: string
+): void {
+  if (enumMap.size === 0) return;
+  const comparisons = extractPropertyComparisons(expr);
+  for (const { property, literal } of comparisons) {
+    const allowed = enumMap.get(property);
+    if (allowed && !allowed.has(literal)) {
+      throw new Error(
+        `${location} references context.${property} with value '${literal}' ` +
+        `which is not in the declared enum [${[...allowed].join(", ")}]`
+      );
+    }
+  }
+}
+
+/**
  * Parse-check all expressions in edge conditions and validation rules.
  * Catches malformed expressions at load time, not at traversal time.
+ * Also checks string literals against declared context enums.
  */
 function validateExpressions(def: GraphDefinition, filePath: string): void {
+  const enumMap = extractContextEnums(def);
+
   for (const [nodeId, node] of Object.entries(def.nodes)) {
     if (node.validations) {
       for (const v of node.validations) {
         try {
           validateExpression(v.expr);
+          checkEnumCompliance(v.expr, enumMap, `[${filePath}] Node "${nodeId}": validation`);
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           throw new Error(
@@ -240,6 +295,7 @@ function validateExpressions(def: GraphDefinition, filePath: string): void {
         if (edge.condition) {
           try {
             validateExpression(edge.condition);
+            checkEnumCompliance(edge.condition, enumMap, `[${filePath}] Node "${nodeId}": edge "${edge.label}"`);
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             throw new Error(
@@ -253,6 +309,7 @@ function validateExpressions(def: GraphDefinition, filePath: string): void {
     if (node.subgraph?.condition) {
       try {
         validateExpression(node.subgraph.condition);
+        checkEnumCompliance(node.subgraph.condition, enumMap, `[${filePath}] Node "${nodeId}": subgraph condition`);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         throw new Error(

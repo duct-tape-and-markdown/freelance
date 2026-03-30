@@ -73,13 +73,30 @@ export const nodeDefinitionSchema = z.object({
   sources: z.array(sourceBindingSchema).optional(),
 });
 
+/** Typed context field with optional enum constraint for static validation */
+export const contextFieldDescriptorSchema = z.object({
+  type: z.enum(["string", "number", "boolean"]),
+  enum: z.array(z.union([z.string(), z.number()])).optional(),
+  default: z.unknown().default(null),
+});
+
+export type ContextFieldDescriptor = z.infer<typeof contextFieldDescriptorSchema>;
+
+/** Check if a context value is a typed descriptor (vs a plain scalar) */
+export function isContextFieldDescriptor(v: unknown): v is ContextFieldDescriptor {
+  return (
+    typeof v === "object" && v !== null && "type" in v &&
+    contextFieldDescriptorSchema.safeParse(v).success
+  );
+}
+
 export const graphDefinitionSchema = z.object({
   id: z.string(),
   version: z.string(),
   name: z.string(),
   description: z.string(),
   startNode: z.string(),
-  context: z.record(z.string(), z.unknown()).optional(),
+  context: z.record(z.string(), z.union([contextFieldDescriptorSchema, z.unknown()])).optional(),
   strictContext: z.boolean().optional().default(false),
   nodes: z.record(z.string(), nodeDefinitionSchema),
   sources: z.array(sourceBindingSchema).optional(),

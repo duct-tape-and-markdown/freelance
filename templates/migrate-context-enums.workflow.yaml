@@ -1,0 +1,118 @@
+id: migrate-context-enums
+version: "1.0.0"
+name: "Migrate to Context Enums"
+description: "Scan workflows for stringly-typed routing fields and convert them to enum declarations."
+startNode: scan
+
+context:
+  workflowsDir: null
+  candidates: null
+  previewApproved: false
+  migrationComplete: false
+
+nodes:
+  scan:
+    type: action
+    description: "Find stringly-typed routing fields"
+    instructions: |
+      Scan all .workflow.yaml files in context.workflowsDir (or ./.freelance/ if null).
+
+      For each file, find context fields that are used in edge conditions with string
+      literal comparisons (e.g., `context.phase == 'base'`). Collect all unique string
+      values compared against each field across all edges in the graph.
+
+      Set context.candidates to an array of objects:
+        {
+          file: string,
+          field: string,
+          currentValue: unknown,
+          discoveredValues: string[]
+        }
+
+      Only include fields where 2+ distinct string values are used — single-value
+      comparisons are likely boolean-style checks, not routing enums.
+
+      If no candidates found, set context.candidates to an empty array.
+    edges:
+      - target: preview
+        label: scanned
+        condition: "context.candidates != null && context.candidates.length > 0"
+        description: "Enum candidates found"
+      - target: done-no-changes
+        label: none-found
+        condition: "context.candidates != null && context.candidates.length == 0"
+        default: true
+
+  preview:
+    type: action
+    description: "Preview the proposed enum declarations"
+    instructions: |
+      For each candidate in context.candidates, show the before/after:
+
+      Before:
+        context:
+          trainingPhase: null
+
+      After:
+        context:
+          trainingPhase:
+            type: string
+            enum: [base, early-quality, race-specific, taper, recovery]
+            default: null
+
+      The enum values are the union of all string literals discovered in edge
+      conditions for that field. Ask the user to:
+      1. Confirm the discovered values are complete (they may want to add values
+         that don't appear in conditions yet)
+      2. Approve the migration
+
+      Set context.previewApproved = true if approved.
+    edges:
+      - target: apply
+        label: approved
+        condition: "context.previewApproved == true"
+      - target: done-no-changes
+        label: rejected
+
+  apply:
+    type: action
+    description: "Apply the enum declarations"
+    instructions: |
+      For each candidate in context.candidates, rewrite the YAML file:
+
+      1. Read the workflow file
+      2. Replace the plain scalar context declaration with the enum descriptor
+      3. Write the file back
+      4. Run `freelance validate` on the modified file to confirm it still loads
+         and no enum mismatches are detected
+
+      If any file fails validation after modification, revert that file and report.
+
+      Set context.migrationComplete = true when done.
+    edges:
+      - target: validate
+        label: applied
+        condition: "context.migrationComplete == true"
+
+  validate:
+    type: gate
+    description: "Verify all modified workflows pass validation"
+    instructions: |
+      Run `freelance validate <workflowsDir>` to confirm all graphs load
+      and no enum mismatches are detected.
+    validations:
+      - expr: "context.migrationComplete == true"
+        message: "Migration must be complete before final validation."
+    edges:
+      - target: done
+        label: validated
+
+  done-no-changes:
+    type: terminal
+    description: "No changes needed"
+    instructions: "No stringly-typed routing fields found, or migration was declined."
+
+  done:
+    type: terminal
+    description: "Migration complete"
+    instructions: "Context enum declarations have been added. Edge conditions will now be statically validated against declared enums."

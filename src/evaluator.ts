@@ -373,6 +373,49 @@ export function validateExpression(expr: string): void {
  * Evaluate a boolean expression against a context object.
  * Throws EvaluatorError on syntax errors.
  */
+/**
+ * Extract property-to-string-literal comparisons from an expression.
+ * Used for static enum validation at load time.
+ * Returns entries for patterns like `context.X == 'value'` or `'value' == context.X`.
+ */
+export function extractPropertyComparisons(expr: string): Array<{
+  property: string;
+  operator: string;
+  literal: string;
+}> {
+  const trimmed = expr.trim();
+  if (trimmed.length === 0) return [];
+
+  let tokens: Token[];
+  try {
+    tokens = tokenize(trimmed);
+  } catch {
+    return []; // syntax errors are caught by validateExpression
+  }
+
+  const results: Array<{ property: string; operator: string; literal: string }> = [];
+
+  for (let i = 0; i < tokens.length - 2; i++) {
+    const a = tokens[i];
+    const op = tokens[i + 1];
+    const b = tokens[i + 2];
+    if (op.type !== "OP" || (op.value !== "==" && op.value !== "!=")) continue;
+
+    // context.X == 'value'
+    if (a.type === "PROPERTY" && b.type === "STRING") {
+      const prop = (a.value as string).replace(/^context\./, "");
+      results.push({ property: prop, operator: op.value as string, literal: b.value as string });
+    }
+    // 'value' == context.X
+    if (a.type === "STRING" && b.type === "PROPERTY") {
+      const prop = (b.value as string).replace(/^context\./, "");
+      results.push({ property: prop, operator: op.value as string, literal: a.value as string });
+    }
+  }
+
+  return results;
+}
+
 export function evaluate(expr: string, context: Record<string, unknown>): boolean {
   const trimmed = expr.trim();
   if (trimmed.length === 0) {
