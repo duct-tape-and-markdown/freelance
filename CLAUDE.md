@@ -39,20 +39,8 @@ freelance mcp
 # Start standalone with explicit directories
 freelance mcp --workflows ./graphs --workflows ~/.freelance
 
-# Start daemon (long-running, multi-traversal, persisted)
-freelance daemon start --workflows ./graphs/ --port 7433
-
-# Start MCP proxy connecting to daemon
-freelance mcp --connect localhost:7433
-
-# Daemon management
-freelance daemon stop
-freelance daemon status
-
-# Traversal management (requires running daemon)
-freelance traversals list
-freelance traversals inspect tr_a1b2c3d4
-freelance traversals reset tr_a1b2c3d4
+# NOTE: daemon mode exists but is hidden/untested — not yet public
+# Commands: daemon start|stop|status, traversals list|inspect|reset, mcp --connect
 
 # Project setup
 freelance init
