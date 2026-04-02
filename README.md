@@ -140,7 +140,7 @@ freelance completion bash|zsh|fish   # Output shell completion script
 
 ## Documentation
 
-See [docs/SPEC.md](docs/SPEC.md) for the full specification including graph schema, expression language, subgraph composition, return schemas, and architecture.
+The full specification (graph schema, expression language, subgraph composition, return schemas, architecture) is available via `freelance_guide` or by running `freelance --help` on individual commands.
 
 ## License
 
