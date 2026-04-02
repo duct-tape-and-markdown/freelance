@@ -52,6 +52,7 @@ program
   .addOption(new Option("--client <client>", "MCP client to configure").choices(["claude-code", "cursor", "windsurf", "cline", "manual"]))
   .option("--workflows <path>", "Where to put workflow definitions")
   .addOption(new Option("--starter <template>", "Starter graph to scaffold").choices(["blank", "none"]))
+  .option("--hooks", "Enable workflow enforcement hooks (Claude Code only)")
   .option("--yes", "Skip all prompts, use defaults")
   .option("--dry-run", "Show what would be created without writing anything")
   .action(async (opts) => {
@@ -63,6 +64,7 @@ program
         client: opts.client ?? "claude-code",
         workflows: opts.workflows,
         starter: opts.starter ?? INIT_DEFAULTS.starter,
+        hooks: opts.hooks ?? INIT_DEFAULTS.hooks,
         dryRun: opts.dryRun ?? INIT_DEFAULTS.dryRun,
       });
     } else {

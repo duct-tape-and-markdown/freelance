@@ -14,6 +14,7 @@ function defaults(overrides: Partial<InitOptions> = {}): InitOptions {
     scope: "project",
     client: "claude-code",
     starter: "blank",
+    hooks: false,
     dryRun: false,
     ...overrides,
   };
@@ -329,33 +330,40 @@ describe("CLI init", () => {
     expect(stderr).toContain("freelance_list");
   });
 
-  it("writes SessionStart hook for claude-code client", async () => {
-    await init(defaults());
+  it("writes hooks when --hooks is passed", async () => {
+    await init(defaults({ hooks: true }));
     const settingsPath = path.join(workDir, ".claude", "settings.json");
     expect(fs.existsSync(settingsPath)).toBe(true);
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-    expect(settings.hooks?.SessionStart).toBeDefined();
-    expect(settings.hooks.SessionStart).toHaveLength(1);
-    expect(settings.hooks.SessionStart[0].hooks[0].command).toContain("freelance");
+    expect(settings.hooks?.SessionStart).toHaveLength(1);
+    expect(settings.hooks?.UserPromptSubmit).toHaveLength(1);
     expect(settings.hooks.SessionStart[0].hooks[0].command).toContain("inspect");
+    expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toContain("freelance_list");
   });
 
-  it("does not duplicate SessionStart hook on re-init", async () => {
+  it("does not write hooks by default", async () => {
     await init(defaults());
-    await init(defaults());
+    const settingsPath = path.join(workDir, ".claude", "settings.json");
+    expect(fs.existsSync(settingsPath)).toBe(false);
+  });
+
+  it("does not duplicate hooks on re-init", async () => {
+    await init(defaults({ hooks: true }));
+    await init(defaults({ hooks: true }));
     const settingsPath = path.join(workDir, ".claude", "settings.json");
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     expect(settings.hooks.SessionStart).toHaveLength(1);
+    expect(settings.hooks.UserPromptSubmit).toHaveLength(1);
   });
 
-  it("preserves existing settings when adding hook", async () => {
+  it("preserves existing settings when adding hooks", async () => {
     const settingsDir = path.join(workDir, ".claude");
     fs.mkdirSync(settingsDir, { recursive: true });
     fs.writeFileSync(
       path.join(settingsDir, "settings.json"),
       JSON.stringify({ customSetting: true }, null, 2)
     );
-    await init(defaults());
+    await init(defaults({ hooks: true }));
     const settings = JSON.parse(fs.readFileSync(path.join(settingsDir, "settings.json"), "utf-8"));
     expect(settings.customSetting).toBe(true);
     expect(settings.hooks?.SessionStart).toHaveLength(1);
@@ -399,6 +407,7 @@ vi.mock("@inquirer/prompts", () => ({
   select: async () => {
     return mockSelectState.responses[mockSelectState.callCount++] ?? "blank";
   },
+  confirm: async () => false,
 }));
 
 describe("initInteractive", () => {

@@ -17,11 +17,13 @@ export interface InitOptions {
   client: Client;
   workflows?: string;
   starter: Starter;
+  hooks: boolean;
   dryRun: boolean;
 }
 
 export const INIT_DEFAULTS = {
   starter: "blank" as Starter,
+  hooks: false,
   dryRun: false,
 } as const;
 
@@ -128,53 +130,77 @@ const CLAUDE_MD_SECTION = `## Freelance
 
 This project uses Freelance for workflow enforcement. Call \`freelance_list\` to see available workflows and \`freelance_guide\` for authoring help.`;
 
-// --- SessionStart hook ---
+// --- Enforcement hooks ---
 
-const HOOK_COMMAND = "npx -y freelance-mcp@latest inspect --active --oneline";
+const SESSION_START_COMMAND = "npx -y freelance-mcp@latest inspect --active --oneline";
+const PROMPT_SUBMIT_COMMAND = "echo '**IMPORTANT** - Workflows may apply. Call freelance_list, match the user'\"'\"'s task to an available graph, and start it before doing other work.'";
+
+interface HookEntry {
+  matcher: string;
+  hooks: Array<{ type: string; command: string; timeout?: number }>;
+}
 
 interface ClaudeSettings {
   hooks?: {
-    SessionStart?: Array<{
-      matcher: string;
-      hooks: Array<{ type: string; command: string }>;
-    }>;
+    SessionStart?: HookEntry[];
+    UserPromptSubmit?: HookEntry[];
     [key: string]: unknown;
   };
   [key: string]: unknown;
 }
 
-function writeSessionStartHook(): string | null {
-  const settingsDir = path.join(process.cwd(), ".claude");
-  const settingsPath = path.join(settingsDir, "settings.json");
-
-  const settings: ClaudeSettings = readJsonFile(settingsPath) as ClaudeSettings;
-
-  // Check if hook already exists
-  if (settings.hooks?.SessionStart) {
-    const existing = JSON.stringify(settings.hooks.SessionStart);
-    if (existing.includes("freelance-mcp@latest inspect")) {
-      return null; // Already configured
-    }
-  }
-
-  if (!settings.hooks) settings.hooks = {};
-  if (!settings.hooks.SessionStart) settings.hooks.SessionStart = [];
-
-  settings.hooks.SessionStart.push({
-    matcher: "",
-    hooks: [{ type: "command", command: HOOK_COMMAND }],
-  });
-
-  writeJsonFile(settingsPath, settings as McpConfig);
-  return settingsPath;
+function hasFreelanceHook(entries: HookEntry[] | undefined, marker: string): boolean {
+  if (!entries) return false;
+  return JSON.stringify(entries).includes(marker);
 }
 
-function wouldWriteSessionStartHook(): boolean {
+function writeHooks(includeEnforcement: boolean): { path: string; wrote: string[] } | null {
   const settingsPath = path.join(process.cwd(), ".claude", "settings.json");
-  if (!fs.existsSync(settingsPath)) return true;
+  const settings: ClaudeSettings = readJsonFile(settingsPath) as ClaudeSettings;
+  if (!settings.hooks) settings.hooks = {};
 
-  const raw = fs.readFileSync(settingsPath, "utf-8");
-  return !raw.includes("freelance-mcp@latest inspect");
+  const wrote: string[] = [];
+
+  // SessionStart hook — always written (lightweight, shows active traversals)
+  if (!hasFreelanceHook(settings.hooks.SessionStart, "freelance-mcp@latest inspect")) {
+    if (!settings.hooks.SessionStart) settings.hooks.SessionStart = [];
+    settings.hooks.SessionStart.push({
+      matcher: "",
+      hooks: [{ type: "command", command: SESSION_START_COMMAND, timeout: 10 }],
+    });
+    wrote.push("SessionStart");
+  }
+
+  // UserPromptSubmit hook — only with enforcement opt-in
+  if (includeEnforcement && !hasFreelanceHook(settings.hooks.UserPromptSubmit, "freelance_list")) {
+    if (!settings.hooks.UserPromptSubmit) settings.hooks.UserPromptSubmit = [];
+    settings.hooks.UserPromptSubmit.push({
+      matcher: "",
+      hooks: [{ type: "command", command: PROMPT_SUBMIT_COMMAND, timeout: 5 }],
+    });
+    wrote.push("UserPromptSubmit");
+  }
+
+  if (wrote.length === 0) return null;
+
+  writeJsonFile(settingsPath, settings as McpConfig);
+  return { path: settingsPath, wrote };
+}
+
+function wouldWriteHooks(includeEnforcement: boolean): string[] {
+  const settingsPath = path.join(process.cwd(), ".claude", "settings.json");
+  const settings: ClaudeSettings = fs.existsSync(settingsPath)
+    ? readJsonFile(settingsPath) as ClaudeSettings
+    : {};
+
+  const would: string[] = [];
+  if (!hasFreelanceHook(settings.hooks?.SessionStart, "freelance-mcp@latest inspect")) {
+    would.push("SessionStart");
+  }
+  if (includeEnforcement && !hasFreelanceHook(settings.hooks?.UserPromptSubmit, "freelance_list")) {
+    would.push("UserPromptSubmit");
+  }
+  return would;
 }
 
 function appendClaudeMd(): boolean {
@@ -280,12 +306,13 @@ export async function init(options: InitOptions): Promise<void> {
     }
   }
 
-  // 5. SessionStart hook for claude-code
-  if (client === "claude-code") {
-    if (wouldWriteSessionStartHook()) {
-      actions.push({ verb: "configure", target: ".claude/settings.json", detail: "SessionStart hook" });
+  // 5. Enforcement hooks for claude-code (opt-in)
+  if (client === "claude-code" && options.hooks) {
+    const wouldWrite = wouldWriteHooks(true);
+    if (wouldWrite.length > 0) {
+      actions.push({ verb: "configure", target: ".claude/settings.json", detail: `hooks: ${wouldWrite.join(", ")}` });
     } else {
-      actions.push({ verb: "skip", target: ".claude/settings.json", detail: "hook already configured" });
+      actions.push({ verb: "skip", target: ".claude/settings.json", detail: "hooks already configured" });
     }
   }
 
@@ -363,14 +390,14 @@ export async function init(options: InitOptions): Promise<void> {
     }
   }
 
-  // 5. Write SessionStart hook for Claude Code
-  if (client === "claude-code") {
-    const hookPath = writeSessionStartHook();
-    if (hookPath) {
-      results.push(`Configured SessionStart hook in ${displayPath(hookPath)}`);
-      filesCreated.push(hookPath);
+  // 5. Write enforcement hooks for Claude Code (opt-in)
+  if (client === "claude-code" && options.hooks) {
+    const hookResult = writeHooks(true);
+    if (hookResult) {
+      results.push(`Configured hooks in ${displayPath(hookResult.path)}: ${hookResult.wrote.join(", ")}`);
+      filesCreated.push(hookResult.path);
     } else {
-      results.push("SessionStart hook already configured");
+      results.push("Hooks already configured");
     }
   }
 
@@ -441,6 +468,15 @@ export async function initInteractive(opts?: { dryRun?: boolean }): Promise<void
     ],
   });
 
-  await init({ scope, client, starter, dryRun: opts?.dryRun ?? INIT_DEFAULTS.dryRun });
+  let hooks = false;
+  if (client === "claude-code") {
+    const { confirm } = await import("@inquirer/prompts");
+    hooks = await confirm({
+      message: "Enable workflow enforcement hooks? (reminds the agent to follow workflows)",
+      default: false,
+    });
+  }
+
+  await init({ scope, client, starter, hooks, dryRun: opts?.dryRun ?? INIT_DEFAULTS.dryRun });
 }
 

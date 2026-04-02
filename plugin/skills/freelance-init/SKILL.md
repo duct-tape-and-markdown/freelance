@@ -1,48 +1,38 @@
 ---
 name: freelance-init
-description: Scaffold the .freelance/ directory and a starter graph template in the current project.
+description: Set up Freelance in the current project via the CLI. Scaffolds .freelance/, starter templates, MCP config, and optional enforcement hooks.
 disable-model-invocation: true
 ---
 
 # Initialize Freelance in This Project
 
-Set up the `.freelance/` directory for graph workflow definitions.
+Run the Freelance CLI to set up this project. The CLI handles directory creation, templates, MCP config, and hook configuration.
 
 ## Steps
 
-1. Create the `.freelance/` directory in the current project root if it doesn't exist
-2. Ask the user if they want a starter template:
-   - **Blank template**: Create `.freelance/blank.workflow.yaml` with this content:
+1. Ask the user two questions:
+   - **Starter template?** Blank template (default) or no template
+   - **Enable enforcement hooks?** These remind the agent to follow workflows on every prompt. Off by default.
 
-```yaml
-id: my-workflow
-version: "1.0.0"
-name: "My Workflow"
-description: "Describe what this workflow enforces"
-startNode: start
+2. Run the appropriate CLI command based on their answers:
 
-context: {}
+   With hooks:
+   ```bash
+   freelance init --client claude-code --scope project --hooks --yes
+   ```
 
-nodes:
-  start:
-    type: action
-    description: "First step"
-    instructions: |
-      What should the agent do here?
-    edges:
-      - target: done
-        label: complete
+   Without hooks (default):
+   ```bash
+   freelance init --client claude-code --scope project --yes
+   ```
 
-  done:
-    type: terminal
-    description: "Workflow complete"
-    instructions: |
-      Summarize what was done.
-```
-
-   - **No template**: Just create the empty directory
+   No starter template — add `--starter none`:
+   ```bash
+   freelance init --client claude-code --scope project --starter none --yes
+   ```
 
 3. Confirm to the user that setup is complete and they can:
    - Add `.workflow.yaml` files to `.freelance/`
    - Run `freelance_list` to verify workflows load
    - Run `freelance_guide` for authoring help
+   - Use `freelance_distill` after completing a task to turn it into a workflow

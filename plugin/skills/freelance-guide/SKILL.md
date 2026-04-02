@@ -16,8 +16,10 @@ Freelance is a graph engine MCP that enforces structured workflows. State is ser
 - `freelance_inspect` — Check current traversal state (node, context, available edges)
 - `freelance_reset` — Reset or abandon a traversal (`{ confirm: true }`)
 - `freelance_guide` — Get graph authoring help
+- `freelance_distill` — Distill a task into a new workflow, or refine an existing one
 - `freelance_sources_hash` — Content provenance stamping
 - `freelance_sources_check` — Validate source bindings
+- `freelance_sources_validate` — Check source hashes across loaded graphs
 
 ## During a Traversal
 
