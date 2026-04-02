@@ -6,5 +6,6 @@ coverage/
 *.tsbuildinfo
 .freelance/
 .claude/settings.local.json
+docs/
 .envrc
 .git-credentials

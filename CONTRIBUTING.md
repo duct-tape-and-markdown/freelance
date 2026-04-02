@@ -28,12 +28,11 @@ Requires Node.js 20+.
 - `src/server/` — MCP server (stdio transport)
 - `src/cli/` — CLI commands (init, validate, visualize, inspect)
 - `templates/` — Starter workflow graphs
-- `docs/SPEC.md` — Full specification
 - `test/` — Test suites mirroring src/ structure
 
 ## Writing Workflow Graphs
 
-Graphs are YAML files with the `.workflow.yaml` extension. See `docs/SPEC.md` for the full schema, or look at the starter templates for examples. Validate your graphs with:
+Graphs are YAML files with the `.workflow.yaml` extension. Look at the starter templates in `templates/` for examples, or run `freelance_guide` for the full schema. Validate your graphs with:
 ```bash
 npx freelance validate path/to/graphs/
 ```
