@@ -102,24 +102,6 @@ For single-session use. Process starts with the agent, dies with the agent. Grap
 freelance mcp
 ```
 
-### Daemon mode (multi-session, persistent)
-
-Long-running server with traversal persistence across agent restarts. An agent that crashes resumes at the exact node it left off.
-
-```bash
-# Start daemon
-freelance daemon start
-
-# Connect via MCP proxy (stdio bridge to daemon HTTP API)
-freelance mcp --connect localhost:7433
-
-# Management
-freelance daemon status
-freelance daemon stop
-freelance traversals list
-freelance traversals inspect tr_a1b2c3d4
-```
-
 ## MCP Configuration
 
 Run `freelance init` to auto-detect your client and generate the config. Supports Claude Code, Cursor, Windsurf, and Cline.
@@ -145,9 +127,6 @@ freelance validate <dir>             # Validate graph definitions
 freelance visualize <file>           # Render graph as Mermaid or DOT
 freelance inspect                    # Show active traversals from persisted state
 freelance mcp                        # Start standalone MCP server
-freelance mcp --connect <host:port>  # Start MCP proxy to daemon
-freelance daemon start|stop|status   # Manage the daemon
-freelance traversals list|inspect|reset  # Manage traversals (requires daemon)
 freelance completion bash|zsh|fish   # Output shell completion script
 ```
 

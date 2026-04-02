@@ -102,13 +102,13 @@ program
 
 program
   .command("mcp")
-  .description("Start MCP server (standalone or proxy to daemon)")
+  .description("Start MCP server")
   .option(
     "--workflows <directory>",
     "Workflow definitions directory (repeatable for layering)",
     (value: string, previous?: string[]) => (previous ? [...previous, value] : [value])
   )
-  .option("--connect <host:port>", "Connect to daemon instead of standalone")
+  .addOption(new Option("--connect <host:port>", "Connect to daemon instead of standalone").hideHelp())
   .option("--max-depth <n>", "Maximum subgraph nesting depth", "5")
   .option("--source-root <path>", "Base path for resolving source references (default: parent of first workflows dir)")
   .action(async (opts) => {
@@ -127,10 +127,10 @@ program
     }
   });
 
-// --- daemon ---
+// --- daemon (hidden — untested, not yet public) ---
 
 const daemonCmd = program
-  .command("daemon")
+  .command("daemon", { hidden: true })
   .description("Manage the Freelance daemon");
 
 daemonCmd
@@ -176,10 +176,10 @@ daemonCmd
   .description("Check daemon status")
   .action(() => daemonStatus());
 
-// --- traversals ---
+// --- traversals (hidden — requires daemon) ---
 
 const traversalsCmd = program
-  .command("traversals")
+  .command("traversals", { hidden: true })
   .description("Manage active traversals (requires running daemon)");
 
 traversalsCmd
