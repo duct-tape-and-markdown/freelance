@@ -7,7 +7,7 @@ Graph-based workflow enforcement for AI coding agents.
 ### From this repo (marketplace)
 
 ```
-/plugin marketplace add Jwcjwc12/freelance --path plugin
+/plugin marketplace add duct-tape-and-markdown/freelance --path plugin
 /plugin install freelance@freelance-plugins
 ```
 
@@ -35,7 +35,7 @@ After installing the plugin, run `/freelance:freelance-init` to create the graph
 mkdir -p .freelance
 ```
 
-Then add `.workflow.yaml` files to define your workflows. See [the spec](https://github.com/Jwcjwc12/freelance/blob/main/docs/SPEC.md) for the full graph definition format.
+Then add `.workflow.yaml` files to define your workflows. Use `/freelance:freelance-guide` for the full graph definition format.
 
 ## Non-Claude-Code Clients
 

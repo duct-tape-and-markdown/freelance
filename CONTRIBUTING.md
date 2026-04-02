@@ -4,7 +4,7 @@ Thanks for your interest in contributing to Freelance! This document covers how 
 
 ## Getting Started
 ```bash
-git clone https://github.com/Jwcjwc12/freelance.git
+git clone https://github.com/duct-tape-and-markdown/freelance.git
 cd freelance
 npm install
 npm run build

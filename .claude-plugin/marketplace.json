@@ -2,7 +2,7 @@
   "name": "freelance-plugins",
   "description": "Official Freelance plugins for Claude Code — workflow enforcement for AI coding agents",
   "owner": {
-    "name": "Jwcjwc12"
+    "name": "duct-tape-and-markdown"
   },
   "plugins": [
     {
@@ -10,7 +10,7 @@
       "source": "./plugin",
       "description": "Graph-based workflow enforcement for AI coding agents. Adds MCP tools, hooks, and skills for structured workflow traversals.",
       "version": "1.0.0",
-      "author": { "name": "Jwcjwc12" }
+      "author": { "name": "duct-tape-and-markdown" }
     }
   ]
 }

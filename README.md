@@ -9,7 +9,7 @@ State lives server-side — it can't be compacted away, forgotten, or bypassed. 
 ### Claude Code (plugin — recommended)
 
 ```
-/plugin marketplace add Jwcjwc12/freelance --path plugin
+/plugin marketplace add duct-tape-and-markdown/freelance --path plugin
 /plugin install freelance@freelance-plugins
 ```
 
