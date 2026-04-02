@@ -248,6 +248,7 @@ export { program };
 // Only parse when run directly (not when imported in tests)
 const isMain = process.argv[1] && (
   import.meta.url.endsWith(process.argv[1].replace(/.*[/\\]/, "")) ||
-  import.meta.url === `file://${process.argv[1]}`
+  import.meta.url === `file://${process.argv[1]}` ||
+  import.meta.url === `file://${fs.realpathSync(process.argv[1])}`
 );
 if (isMain) program.parse();
