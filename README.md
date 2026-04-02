@@ -2,7 +2,9 @@
 
 Graph-based workflow enforcement for AI coding agents.
 
-State lives server-side — it can't be compacted away, forgotten, or bypassed. The agent calls tools, the server tells it where it is and what's valid. Define workflows in YAML, enforce them at tool boundaries via MCP.
+Skills tell an agent *what* to do. Freelance tells it *how* — and holds it accountable. Define structured workflows in YAML, enforce them at tool boundaries via MCP, and take back control of how your agent works through complex, multi-step tasks.
+
+State lives server-side. It can't be compacted away, forgotten, or bypassed. The agent calls tools, the server tells it where it is and what's valid. When context compacts mid-task, the agent calls `freelance_inspect` and picks up exactly where it left off.
 
 ## Quick Start
 
@@ -26,10 +28,10 @@ freelance init
 ## How It Works
 
 1. Define workflows as directed graphs in YAML (`.workflow.yaml` files)
-2. Freelance loads them and exposes 7 MCP tools to the agent
+2. Freelance loads them and exposes MCP tools to the agent
 3. The agent calls `freelance_start` to begin a workflow, `freelance_advance` to move between nodes
-4. Gate nodes block advancement until conditions are met — quality enforcement without documentation
-5. After context compaction, the agent calls `freelance_inspect` and re-orients instantly
+4. Gate nodes block advancement until conditions are met — enforcing quality without relying on the agent's memory
+5. Context fields travel with the traversal, keeping the agent's working state structured and lightweight
 
 ```yaml
 id: my-workflow
@@ -65,6 +67,18 @@ nodes:
     description: "Workflow complete"
 ```
 
+## What You Get
+
+**Workflow enforcement** — Nodes, edges, gates, and validations define exactly what the agent can do and when. No skipping steps, no drifting off-task.
+
+**Surviving context compaction** — Traversal state is server-side. When the agent's context window compacts, `freelance_inspect` restores full orientation instantly.
+
+**Context management** — Structured context fields travel with the traversal, reducing what the agent needs to hold in its own window. The server manages it, the agent reads it.
+
+**Source provenance** — Bind source files to nodes, validate their integrity, and ensure the agent is working from the right material. Sources can be hashed, checked, and enforced at the graph level.
+
+**Composable workflows** — Subgraph composition lets you build complex workflows from reusable pieces, with scoped context and return value mapping.
+
 ## MCP Tools
 
 | Tool | Description |
@@ -75,7 +89,11 @@ nodes:
 | `freelance_context_set` | Update session context without advancing |
 | `freelance_inspect` | Read-only introspection (position, history, or full graph) |
 | `freelance_reset` | Clear traversal and start over |
-| `freelance_guide` | Get authoring guidance for writing graphs |
+| `freelance_guide` | Authoring guidance for writing graphs |
+| `freelance_distill` | Distill a task into a new workflow, or refine an existing one after a guided run |
+| `freelance_sources_check` | Verify source file availability |
+| `freelance_sources_validate` | Validate source integrity against expectations |
+| `freelance_sources_hash` | Compute hashes for source binding |
 
 ## Workflow Directory Resolution
 
@@ -90,16 +108,6 @@ You can also specify directories explicitly:
 
 ```bash
 freelance mcp --workflows ./my-workflows/
-```
-
-## Running Modes
-
-### Standalone MCP server (stdio)
-
-For single-session use. Process starts with the agent, dies with the agent. Graphs auto-reload when files change.
-
-```bash
-freelance mcp
 ```
 
 ## MCP Configuration

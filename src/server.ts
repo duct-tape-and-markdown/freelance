@@ -5,6 +5,7 @@ import { TraversalManager } from "./traversal-manager.js";
 import { EngineError } from "./errors.js";
 import { VERSION } from "./version.js";
 import { getGuide } from "./guide.js";
+import { getDistillPrompt } from "./distill.js";
 import { watchGraphs } from "./watcher.js";
 import { findGraphFiles, loadSingleGraph } from "./loader.js";
 import { hashSources, checkSourcesDetailed, validateGraphSources, getDetailedDrift } from "./sources.js";
@@ -213,6 +214,18 @@ export function createServer(
         return errorResponse(result.error);
       }
       return jsonResponse(result);
+    }
+  );
+
+  // freelance_distill
+  server.tool(
+    "freelance_distill",
+    "Distill a completed task into a workflow graph, or refine an existing workflow after a guided run. Mode 'distill' (default): reconstructs an organic task into a new .workflow.yaml. Mode 'refine': reviews how a workflow-guided task went and improves the graph — smooths friction, adjusts gates, fixes routing.",
+    {
+      mode: z.enum(["distill", "refine"]).default("distill"),
+    },
+    ({ mode }) => {
+      return jsonResponse(getDistillPrompt(mode));
     }
   );
 
