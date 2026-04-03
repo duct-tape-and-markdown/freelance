@@ -1,5 +1,6 @@
 import fs from "node:fs";
-import { loadGraphs, loadGraphsLayered } from "./loader.js";
+import { loadGraphsCollecting } from "./loader.js";
+import type { CollectingLoadResult } from "./loader.js";
 import type { ValidatedGraph } from "./types.js";
 
 export interface WatcherOptions {
@@ -9,6 +10,8 @@ export interface WatcherOptions {
   onUpdate: (graphs: Map<string, ValidatedGraph>) => void;
   /** Called when reload fails (validation error, etc.) */
   onError: (error: Error) => void;
+  /** Called with structured load errors when some graphs fail validation */
+  onLoadErrors?: (errors: CollectingLoadResult["errors"]) => void;
   /** Debounce interval in ms (default: 200) */
   debounceMs?: number;
 }
@@ -26,17 +29,18 @@ export interface WatcherOptions {
  * Returns a cleanup function that stops watching.
  */
 export function watchGraphs(options: WatcherOptions): () => void {
-  const { graphsDir, onUpdate, onError, debounceMs = 200 } = options;
+  const { graphsDir, onUpdate, onError, onLoadErrors, debounceMs = 200 } = options;
   const dirs = Array.isArray(graphsDir) ? graphsDir : [graphsDir];
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   function reload() {
     try {
-      const graphs = dirs.length === 1
-        ? loadGraphs(dirs[0])
-        : loadGraphsLayered(dirs);
+      const { graphs, errors } = loadGraphsCollecting(dirs);
       onUpdate(graphs);
+      if (onLoadErrors) {
+        onLoadErrors(errors);
+      }
     } catch (e) {
       onError(e instanceof Error ? e : new Error(String(e)));
     }

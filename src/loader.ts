@@ -104,6 +104,55 @@ export function loadGraphs(directory: string): Map<string, ValidatedGraph> {
   return results;
 }
 
+export interface CollectingLoadResult {
+  graphs: Map<string, ValidatedGraph>;
+  errors: Array<{ file: string; message: string }>;
+}
+
+/**
+ * Load and validate all *.workflow.yaml files, collecting errors instead of
+ * throwing or writing to stderr. Always returns both graphs and errors.
+ * Suitable for contexts where partial success should be surfaced.
+ */
+export function loadGraphsCollecting(directories: string[]): CollectingLoadResult {
+  const graphs = new Map<string, ValidatedGraph>();
+  const errors: Array<{ file: string; message: string }> = [];
+
+  const resolvedDirs = directories.map((d) => path.resolve(d));
+  const existingDirs = resolvedDirs.filter((d) => fs.existsSync(d));
+
+  if (existingDirs.length === 0) {
+    return { graphs, errors };
+  }
+
+  for (const resolvedDir of existingDirs) {
+    const files = findGraphFiles(resolvedDir);
+
+    for (const filePath of files) {
+      const relFile = path.relative(resolvedDir, filePath);
+      try {
+        const { id, definition, graph } = loadSingleGraph(filePath);
+        graphs.set(id, { definition, graph });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        errors.push({ file: relFile, message: msg });
+      }
+    }
+  }
+
+  // Cross-graph validation (only if we have graphs)
+  if (graphs.size > 0) {
+    try {
+      validateCrossGraphRefs(graphs);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push({ file: "(cross-graph)", message: msg });
+    }
+  }
+
+  return { graphs, errors };
+}
+
 /**
  * Load and validate graphs from multiple directories with cascading resolution.
  * Later directories shadow earlier ones (same graph ID in later dir wins).

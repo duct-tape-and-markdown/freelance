@@ -1,3 +1,4 @@
+import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -7,7 +8,7 @@ import { VERSION } from "./version.js";
 import { getGuide } from "./guide.js";
 import { getDistillPrompt } from "./distill.js";
 import { watchGraphs } from "./watcher.js";
-import { findGraphFiles, loadSingleGraph } from "./loader.js";
+import { findGraphFiles, loadSingleGraph, validateCrossGraphRefs } from "./loader.js";
 import { hashSources, checkSourcesDetailed, validateGraphSources, getDetailedDrift } from "./sources.js";
 import type { SourceRef, SectionResolver, SourceOptions } from "./sources.js";
 import type { ValidatedGraph } from "./types.js";
@@ -44,6 +45,8 @@ export interface ServerOptions {
   validateSourcesOnStart?: boolean;
   /** Base path for resolving relative source paths. Defaults to parent of first graphsDir. */
   sourceRoot?: string;
+  /** Structured errors from graph loading — surfaced in freelance_list */
+  loadErrors?: Array<{ file: string; message: string }>;
 }
 
 export function createServer(
@@ -51,6 +54,9 @@ export function createServer(
   options?: ServerOptions
 ): { server: McpServer; stopWatcher?: () => void } {
   const manager = new TraversalManager(graphs, options);
+
+  // Mutable load errors — updated by watcher on reload
+  let currentLoadErrors: Array<{ file: string; message: string }> = options?.loadErrors ?? [];
 
   // Shared source options — sourceRoot is the basePath for all source resolution
   const sourceOpts: SourceOptions = {
@@ -64,6 +70,7 @@ export function createServer(
       graphsDir: options.graphsDirs,
       onUpdate: (newGraphs) => manager.updateGraphs(newGraphs),
       onError: (err) => { process.stderr.write(`Graph reload failed: ${err.message}\n`); },
+      onLoadErrors: (errors) => { currentLoadErrors = errors; },
     });
   }
 
@@ -74,11 +81,15 @@ export function createServer(
   // freelance_list
   server.tool(
     "freelance_list",
-    "List all available workflow graphs and active traversals. Call this to discover which graphs are loaded and can be started.",
+    "List all available workflow graphs and active traversals. Call this to discover which graphs are loaded and can be started. If any graphs failed to load, loadErrors will be present — use freelance_validate for details.",
     {},
     () => {
       try {
-        return jsonResponse(manager.listGraphs());
+        const result = manager.listGraphs();
+        if (currentLoadErrors.length > 0) {
+          return jsonResponse({ ...result, loadErrors: currentLoadErrors });
+        }
+        return jsonResponse(result);
       } catch (e) {
         return handleError(e);
       }
@@ -327,6 +338,81 @@ export function createServer(
           valid: drift.length === 0,
           graphsChecked: targets.length,
           drift,
+        });
+      } catch (e) {
+        return handleError(e);
+      }
+    }
+  );
+
+  // freelance_validate
+  server.tool(
+    "freelance_validate",
+    "Validate workflow graph definitions for structural errors. Scans configured graph directories and reports schema, expression, and topology errors. Use this to diagnose why a graph isn't appearing in freelance_list.",
+    {
+      graphId: z.string().optional(),
+    },
+    ({ graphId }) => {
+      try {
+        if (!options?.graphsDirs?.length) {
+          return errorResponse("No graphsDirs configured — cannot validate graphs");
+        }
+
+        const validGraphs: Array<{ id: string; name: string; version: string; nodeCount: number }> = [];
+        const errors: Array<{ file: string; message: string }> = [];
+        const parsed = new Map<string, ValidatedGraph>();
+
+        for (const dir of options.graphsDirs) {
+          for (const filePath of findGraphFiles(dir)) {
+            const relFile = path.relative(dir, filePath);
+            try {
+              const { id, definition, graph } = loadSingleGraph(filePath);
+              parsed.set(id, { definition, graph });
+              validGraphs.push({
+                id,
+                name: definition.name,
+                version: definition.version,
+                nodeCount: graph.nodeCount(),
+              });
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e);
+              errors.push({ file: relFile, message: msg });
+            }
+          }
+        }
+
+        // Cross-graph validation (only if individual files passed)
+        if (errors.length === 0 && parsed.size > 0) {
+          try {
+            validateCrossGraphRefs(parsed);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            errors.push({ file: "(cross-graph)", message: msg });
+          }
+        }
+
+        // Filter to specific graph if requested
+        if (graphId) {
+          const matchedGraph = validGraphs.find((g) => g.id === graphId);
+          const matchedErrors = errors.filter((e) =>
+            e.message.includes(graphId) || e.file.includes(graphId)
+          );
+
+          if (!matchedGraph && matchedErrors.length === 0) {
+            return errorResponse(`Graph not found: ${graphId}`);
+          }
+
+          return jsonResponse({
+            valid: matchedErrors.length === 0 && !!matchedGraph,
+            graphs: matchedGraph ? [matchedGraph] : [],
+            errors: matchedErrors,
+          });
+        }
+
+        return jsonResponse({
+          valid: errors.length === 0,
+          graphs: validGraphs,
+          errors,
         });
       } catch (e) {
         return handleError(e);

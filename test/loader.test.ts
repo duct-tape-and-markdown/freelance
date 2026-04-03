@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadGraphs, loadGraphsLayered, findGraphFiles, resolveContextDefaults } from "../src/loader.js";
+import { loadGraphs, loadGraphsLayered, loadGraphsCollecting, findGraphFiles, resolveContextDefaults } from "../src/loader.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
@@ -405,5 +405,48 @@ describe("resolveContextDefaults", () => {
       phase: { type: "string", enum: ["a", "b"] },
     });
     expect(result.phase).toBeNull();
+  });
+});
+
+describe("loadGraphsCollecting", () => {
+  it("returns graphs and empty errors for valid files", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "collecting-test-"));
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(tmpDir, "valid-simple.workflow.yaml")
+    );
+    try {
+      const { graphs, errors } = loadGraphsCollecting([tmpDir]);
+      expect(graphs.size).toBe(1);
+      expect(errors).toHaveLength(0);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns both graphs and errors for mixed valid/invalid files", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "collecting-test-"));
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(tmpDir, "valid-simple.workflow.yaml")
+    );
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "invalid-no-edges.workflow.yaml"),
+      path.join(tmpDir, "invalid-no-edges.workflow.yaml")
+    );
+    try {
+      const { graphs, errors } = loadGraphsCollecting([tmpDir]);
+      expect(graphs.size).toBe(1);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].file).toContain("invalid-no-edges");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns empty results for non-existent directory", () => {
+    const { graphs, errors } = loadGraphsCollecting(["/nonexistent/path"]);
+    expect(graphs.size).toBe(0);
+    expect(errors).toHaveLength(0);
   });
 });
