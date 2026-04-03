@@ -11,7 +11,7 @@ State lives server-side. It can't be compacted away, forgotten, or bypassed. The
 ### Claude Code (plugin — recommended)
 
 ```
-/plugin marketplace add duct-tape-and-markdown/freelance --path plugin
+/plugin marketplace add duct-tape-and-markdown/freelance
 /plugin install freelance@freelance-plugins
 ```
 
