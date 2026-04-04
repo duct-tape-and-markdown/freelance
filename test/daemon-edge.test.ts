@@ -349,7 +349,7 @@ describe("Daemon edge cases", () => {
     fs.rmSync(persistDir, { recursive: true, force: true });
   });
 
-  it("watcher onError callback is invoked on invalid graph reload", async () => {
+  it("watcher reports validation errors on invalid graph reload", async () => {
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const graphsDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-watcher-err-"));
     fs.copyFileSync(
@@ -371,15 +371,15 @@ describe("Daemon edge cases", () => {
     });
     servers.push(daemon.server);
 
-    // Replace the valid graph with an invalid one so reload fails
+    // Replace the valid graph with an invalid one so reload reports errors
     fs.writeFileSync(path.join(graphsDir, "valid-simple.workflow.yaml"), "not: valid: yaml: [[[");
 
     // Wait for debounce + reload
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    // The onError callback should have logged "Graph reload failed"
+    // The onLoadErrors callback should have logged "failed validation"
     const errorLogged = stderrSpy.mock.calls.some(
-      (c: [string]) => typeof c[0] === "string" && c[0].includes("Graph reload failed")
+      (c: [string]) => typeof c[0] === "string" && c[0].includes("failed validation")
     );
     expect(errorLogged).toBe(true);
 

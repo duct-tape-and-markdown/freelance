@@ -8,5 +8,6 @@
 export { startServer, createServer } from "./server.js";
 export type { ServerOptions } from "./server.js";
 export { resolveGraphsDirs, loadGraphsOrFatal, loadGraphsGraceful } from "./graph-resolution.js";
+export type { GracefulLoadResult } from "./graph-resolution.js";
 export { hashSources, checkSourcesDetailed, validateGraphSources, getDetailedDrift } from "./sources.js";
 export type { SectionResolver, SourceRef, HashedSource, DriftedSource, SourceCheckResult } from "./sources.js";

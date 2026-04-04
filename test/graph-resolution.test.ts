@@ -84,7 +84,7 @@ describe("loadGraphsOrFatal", () => {
 });
 
 describe("loadGraphsGraceful", () => {
-  it("returns empty map when no dirs found", () => {
+  it("returns empty result when no dirs found", () => {
     delete process.env.FREELANCE_WORKFLOWS_DIR;
     const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "graceful-"));
     const origCwd = process.cwd();
@@ -92,22 +92,24 @@ describe("loadGraphsGraceful", () => {
     process.chdir(emptyDir);
     process.env.HOME = emptyDir;
 
-    const graphs = loadGraphsGraceful(null);
-    expect(graphs).toBeInstanceOf(Map);
-    expect(graphs.size).toBe(0);
+    const result = loadGraphsGraceful(null);
+    expect(result.graphs).toBeInstanceOf(Map);
+    expect(result.graphs.size).toBe(0);
+    expect(result.errors).toHaveLength(0);
 
     process.chdir(origCwd);
     process.env.HOME = origHome;
     fs.rmSync(emptyDir, { recursive: true, force: true });
   });
 
-  it("returns empty map when all graphs fail validation", () => {
+  it("returns empty graphs with errors when all graphs fail validation", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "graceful-bad-"));
     fs.writeFileSync(path.join(tmpDir, "bad.workflow.yaml"), "not: valid: yaml: graph");
 
-    const graphs = loadGraphsGraceful(tmpDir);
-    expect(graphs).toBeInstanceOf(Map);
-    expect(graphs.size).toBe(0);
+    const result = loadGraphsGraceful(tmpDir);
+    expect(result.graphs).toBeInstanceOf(Map);
+    expect(result.graphs.size).toBe(0);
+    expect(result.errors.length).toBeGreaterThan(0);
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -120,8 +122,9 @@ describe("loadGraphsGraceful", () => {
       path.join(tmpDir, "valid-simple.workflow.yaml")
     );
 
-    const graphs = loadGraphsGraceful(tmpDir);
-    expect(graphs.size).toBe(1);
+    const result = loadGraphsGraceful(tmpDir);
+    expect(result.graphs.size).toBe(1);
+    expect(result.errors).toHaveLength(0);
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });

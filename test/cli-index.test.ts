@@ -29,6 +29,7 @@ vi.mock("../src/cli/traversals.js", () => ({
 vi.mock("../src/loader.js", () => ({
   loadGraphs: vi.fn(() => new Map([["test", {}]])),
   loadGraphsLayered: vi.fn(() => new Map([["test", {}]])),
+  loadGraphsCollecting: vi.fn(() => ({ graphs: new Map([["test", {}]]), errors: [] })),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

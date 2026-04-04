@@ -61,15 +61,16 @@ describe("Graph watcher", () => {
     expect(updateCount).toBeGreaterThan(0);
   });
 
-  it("calls onError when validation fails", async () => {
+  it("calls onLoadErrors when validation fails", async () => {
     const dir = tmpGraphDir();
-    let errorCount = 0;
-    let lastError: Error | null = null;
+    let loadErrorCount = 0;
+    let lastLoadErrors: Array<{ file: string; message: string }> = [];
 
     const stop = watchGraphs({
       graphsDir: dir,
       onUpdate: () => {},
-      onError: (err) => { errorCount++; lastError = err; },
+      onError: () => {},
+      onLoadErrors: (errors) => { loadErrorCount++; lastLoadErrors = errors; },
       debounceMs: 50,
     });
     cleanups.push(stop);
@@ -81,9 +82,9 @@ describe("Graph watcher", () => {
       "id: broken\nnot_valid: true\n"
     );
 
-    await waitFor(() => errorCount > 0);
-    expect(errorCount).toBeGreaterThan(0);
-    expect(lastError).not.toBeNull();
+    await waitFor(() => loadErrorCount > 0);
+    expect(loadErrorCount).toBeGreaterThan(0);
+    expect(lastLoadErrors.length).toBeGreaterThan(0);
   });
 
   it("ignores non-graph files", async () => {

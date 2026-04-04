@@ -58,6 +58,11 @@ export function createDaemon(
       onError: (err) => {
         info(`Graph reload failed: ${err.message}`);
       },
+      onLoadErrors: (errors) => {
+        if (errors.length > 0) {
+          info(`Graph reload: ${errors.length} graph(s) failed validation`);
+        }
+      },
     });
   }
 

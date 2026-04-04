@@ -1,6 +1,7 @@
 import path from "node:path";
 import fs from "node:fs";
-import { loadGraphs, loadGraphsLayered } from "./loader.js";
+import { loadGraphs, loadGraphsLayered, loadGraphsCollecting } from "./loader.js";
+import type { CollectingLoadResult } from "./loader.js";
 import { fatal, EXIT } from "./cli/output.js";
 import type { ValidatedGraph } from "./types.js";
 
@@ -94,29 +95,22 @@ export function loadGraphsOrFatal(graphsDirs?: string | string[] | null) {
   }
 }
 
+export interface GracefulLoadResult {
+  graphs: Map<string, ValidatedGraph>;
+  errors: Array<{ file: string; message: string }>;
+}
+
 /**
- * Load graphs gracefully — returns an empty map on failure instead of exiting.
- * Warnings/errors go to stderr. Suitable for long-running servers that should
- * start even without valid graphs (the watcher can pick them up later).
+ * Load graphs gracefully — returns partial results on failure instead of exiting.
+ * Always returns both graphs and structured errors. Suitable for long-running
+ * servers that should start even without valid graphs (the watcher can pick them up later).
  */
-export function loadGraphsGraceful(graphsDirs?: string | string[] | null): Map<string, ValidatedGraph> {
+export function loadGraphsGraceful(graphsDirs?: string | string[] | null): GracefulLoadResult {
   const dirs = resolveGraphsDirs(graphsDirs);
 
   if (dirs.length === 0) {
-    process.stderr.write(
-      "No graph directories found. The server will start with zero graphs.\n" +
-        "Create ./.freelance/ or ~/.freelance/ and add *.workflow.yaml files.\n"
-    );
-    return new Map();
+    return { graphs: new Map(), errors: [] };
   }
 
-  try {
-    return dirs.length === 1 ? loadGraphs(dirs[0]) : loadGraphsLayered(dirs);
-  } catch (err) {
-    process.stderr.write(
-      `Graph loading failed: ${err instanceof Error ? err.message : err}\n` +
-        "The server will start with zero graphs. Fix the errors and graphs will reload automatically.\n"
-    );
-    return new Map();
-  }
+  return loadGraphsCollecting(dirs);
 }

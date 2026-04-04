@@ -120,12 +120,15 @@ program
       await startProxy(host, port);
     } else {
       const maxDepth = parseInt(opts.maxDepth, 10);
-      const graphs = loadGraphsGraceful(opts.workflows);
+      const { graphs, errors: loadErrors } = loadGraphsGraceful(opts.workflows);
       const dirs = resolveGraphsDirs(opts.workflows);
       const sourceRoot = resolveSourceRoot(dirs, opts.sourceRoot);
       const sectionResolver = (filePath: string, section: string) => extractSection(filePath, section);
+      if (loadErrors.length > 0) {
+        info(`Freelance: ${loadErrors.length} graph(s) failed validation — call freelance_validate for details`);
+      }
       info(`Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}, section resolver active`);
-      await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver, sourceRoot });
+      await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver, sourceRoot, loadErrors });
     }
   });
 

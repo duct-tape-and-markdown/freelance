@@ -559,8 +559,7 @@ describe("MCP server hot-reload", () => {
     }
   });
 
-  it("logs to stderr on reload failure", async () => {
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  it("surfaces load errors via freelance_list after reload failure", async () => {
     const graphsDir = fs.mkdtempSync(path.join(os.tmpdir(), "server-reload-err-"));
     copyFixtures(graphsDir, "valid-simple.workflow.yaml");
     const graphs = loadGraphs(graphsDir);
@@ -578,23 +577,17 @@ describe("MCP server hot-reload", () => {
 
       await new Promise((r) => setTimeout(r, 500));
 
-      // Should have logged the error to stderr
-      const errorLogged = stderrSpy.mock.calls.some(
-        (c) => typeof c[0] === "string" && c[0].includes("Graph reload failed")
-      );
-      expect(errorLogged).toBe(true);
-
-      // Original graph should still be usable
-      const result = await client.callTool({
-        name: "freelance_start",
-        arguments: { graphId: "valid-simple" },
-      });
-      expect(result.isError).toBeFalsy();
+      // freelance_list should now include loadErrors
+      const listResult = parseContent(await client.callTool({ name: "freelance_list", arguments: {} })) as {
+        graphs: unknown[];
+        loadErrors?: Array<{ file: string; message: string }>;
+      };
+      expect(listResult.loadErrors).toBeDefined();
+      expect(listResult.loadErrors!.length).toBeGreaterThan(0);
     } finally {
       if (stopWatcher) stopWatcher();
       await client.close();
       await server.close();
-      stderrSpy.mockRestore();
       fs.rmSync(graphsDir, { recursive: true, force: true });
     }
   });
@@ -603,5 +596,157 @@ describe("MCP server hot-reload", () => {
     const graphs = loadFixtures("valid-simple.workflow.yaml");
     const { stopWatcher } = createServer(graphs);
     expect(stopWatcher).toBeUndefined();
+  });
+});
+
+describe("freelance_list with loadErrors", () => {
+  it("includes loadErrors when graphs failed to load", async () => {
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
+    const loadErrors = [
+      { file: "broken.workflow.yaml", message: "Schema validation failed" },
+    ];
+    const { server } = createServer(graphs, { loadErrors });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    try {
+      const result = await client.callTool({ name: "freelance_list", arguments: {} });
+      const data = parseContent(result) as {
+        graphs: unknown[];
+        loadErrors: Array<{ file: string; message: string }>;
+      };
+      expect(data.loadErrors).toHaveLength(1);
+      expect(data.loadErrors[0].file).toBe("broken.workflow.yaml");
+      expect(data.graphs.length).toBeGreaterThan(0);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("omits loadErrors when there are none", async () => {
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
+    const { server } = createServer(graphs, { loadErrors: [] });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    try {
+      const result = await client.callTool({ name: "freelance_list", arguments: {} });
+      const data = parseContent(result) as Record<string, unknown>;
+      expect(data.loadErrors).toBeUndefined();
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+});
+
+describe("freelance_validate", () => {
+  it("returns valid for correct graphs", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "validate-test-"));
+    copyFixtures(tmpDir, "valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
+    const graphs = loadGraphs(tmpDir);
+    const { server } = createServer(graphs, { graphsDirs: [tmpDir] });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    try {
+      const result = await client.callTool({ name: "freelance_validate", arguments: {} });
+      expect(result.isError).toBeFalsy();
+      const data = parseContent(result) as { valid: boolean; graphs: unknown[]; errors: unknown[] };
+      expect(data.valid).toBe(true);
+      expect(data.graphs).toHaveLength(2);
+      expect(data.errors).toHaveLength(0);
+    } finally {
+      await client.close();
+      await server.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns errors for invalid graphs", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "validate-test-"));
+    copyFixtures(tmpDir, "valid-simple.workflow.yaml", "invalid-no-edges.workflow.yaml");
+    // Load only the valid ones for the server
+    const graphs = new Map<string, ValidatedGraph>();
+    try {
+      const loaded = loadGraphs(tmpDir);
+      for (const [k, v] of loaded) graphs.set(k, v);
+    } catch {
+      // Expected — some are invalid
+    }
+    const { server } = createServer(graphs, { graphsDirs: [tmpDir] });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    try {
+      const result = await client.callTool({ name: "freelance_validate", arguments: {} });
+      expect(result.isError).toBeFalsy();
+      const data = parseContent(result) as { valid: boolean; graphs: unknown[]; errors: Array<{ file: string; message: string }> };
+      expect(data.valid).toBe(false);
+      expect(data.errors.length).toBeGreaterThan(0);
+    } finally {
+      await client.close();
+      await server.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns error when no graphsDirs configured", async () => {
+    const graphs = loadFixtures("valid-simple.workflow.yaml");
+    const { server } = createServer(graphs); // no graphsDirs
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    try {
+      const result = await client.callTool({ name: "freelance_validate", arguments: {} });
+      expect(result.isError).toBeTruthy();
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("filters by graphId when provided", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "validate-test-"));
+    copyFixtures(tmpDir, "valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
+    const graphs = loadGraphs(tmpDir);
+    const { server } = createServer(graphs, { graphsDirs: [tmpDir] });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    try {
+      const result = await client.callTool({
+        name: "freelance_validate",
+        arguments: { graphId: "valid-simple" },
+      });
+      expect(result.isError).toBeFalsy();
+      const data = parseContent(result) as { valid: boolean; graphs: Array<{ id: string }> };
+      expect(data.valid).toBe(true);
+      expect(data.graphs).toHaveLength(1);
+      expect(data.graphs[0].id).toBe("valid-simple");
+    } finally {
+      await client.close();
+      await server.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
