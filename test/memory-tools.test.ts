@@ -58,7 +58,7 @@ describe("Memory MCP tools", () => {
     await cleanup();
   });
 
-  it("registers 7 memory tools (no memory_begin)", async () => {
+  it("registers 8 memory tools (no memory_begin)", async () => {
     const tools = await client.listTools();
     const memTools = tools.tools.filter((t) => t.name.startsWith("memory_"));
     const names = memTools.map((t) => t.name).sort();
@@ -69,6 +69,7 @@ describe("Memory MCP tools", () => {
       "memory_end",
       "memory_inspect",
       "memory_register_source",
+      "memory_search",
       "memory_status",
     ]);
   });

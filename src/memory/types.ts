@@ -30,6 +30,7 @@ export interface PropositionRow {
 export interface EmitProposition {
   content: string;
   entities: string[];
+  sources?: string[];
 }
 
 export interface EmitResult {
@@ -81,6 +82,13 @@ export interface BrowseResult {
 export interface BySourceResult {
   file_path: string;
   propositions: PropositionInfo[];
+}
+
+export interface SearchResult {
+  query: string;
+  propositions: Array<PropositionInfo & {
+    entities: Array<{ id: string; name: string; kind: string | null }>;
+  }>;
 }
 
 export interface StatusResult {

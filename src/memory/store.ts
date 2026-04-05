@@ -23,6 +23,7 @@ import type {
   InspectResult,
   BrowseResult,
   BySourceResult,
+  SearchResult,
   StatusResult,
   EndResult,
   RegisterSourceResult,
@@ -205,6 +206,18 @@ export class MemoryStore {
     const insertAbout = this.db.prepare(
       "INSERT OR IGNORE INTO about (proposition_id, entity_id) VALUES (?, ?)"
     );
+    const insertPropSource = this.db.prepare(
+      "INSERT OR IGNORE INTO proposition_sources (proposition_id, file_path, content_hash) VALUES (?, ?, ?)"
+    );
+
+    // Build a lookup of registered files in this session for source attribution
+    const sessionFiles = new Map<string, string>();
+    const sfRows = this.db.prepare(
+      "SELECT file_path, content_hash FROM session_files WHERE session_id = ?"
+    ).all(sessionId) as Array<{ file_path: string; content_hash: string }>;
+    for (const sf of sfRows) {
+      sessionFiles.set(sf.file_path, sf.content_hash);
+    }
 
     const emitAll = this.db.transaction(() => {
       for (const prop of propositions) {
@@ -231,6 +244,16 @@ export class MemoryStore {
           insertProp.run(propId, prop.content, contentHash, sessionId, now());
           propResult.id = propId;
           result.created++;
+        }
+
+        // Per-proposition source attribution
+        if (prop.sources) {
+          for (const sourcePath of prop.sources) {
+            const hash = sessionFiles.get(sourcePath);
+            if (hash) {
+              insertPropSource.run(propId, sourcePath, hash);
+            }
+          }
         }
 
         for (const entityName of prop.entities) {
@@ -393,6 +416,31 @@ export class MemoryStore {
     };
   }
 
+  search(query: string, options?: { limit?: number }): SearchResult {
+    this.fileHashCache.clear();
+    const limit = options?.limit ?? 20;
+
+    const rows = this.db.prepare(
+      `SELECT p.* FROM propositions p
+       JOIN propositions_fts fts ON p.rowid = fts.rowid
+       WHERE propositions_fts MATCH ?
+       ORDER BY fts.rank
+       LIMIT ?`
+    ).all(query, limit) as PropositionRow[];
+
+    const propositions = rows.map((p) => {
+      const enriched = this.enrichProposition(p);
+      const entityRows = this.db.prepare(
+        `SELECT e.id, e.name, e.kind FROM entities e
+         JOIN about a ON e.id = a.entity_id
+         WHERE a.proposition_id = ?`
+      ).all(p.id) as Array<{ id: string; name: string; kind: string | null }>;
+      return { ...enriched, entities: entityRows };
+    });
+
+    return { query, propositions };
+  }
+
   status(): StatusResult {
     this.fileHashCache.clear();
     return this.computeStatus();
@@ -470,11 +518,18 @@ export class MemoryStore {
   }
 
   private enrichProposition(row: PropositionRow): PropositionInfo {
-    const sessionFiles = this.db.prepare(
-      "SELECT file_path, content_hash FROM session_files WHERE session_id = ?"
-    ).all(row.session_id) as SessionFileRow[];
+    // Prefer per-proposition sources when available, fall back to session-level
+    const propSources = this.db.prepare(
+      "SELECT file_path, content_hash FROM proposition_sources WHERE proposition_id = ?"
+    ).all(row.id) as Array<{ file_path: string; content_hash: string }>;
 
-    const sourceFiles = sessionFiles.map((sf) => {
+    const filesToCheck = propSources.length > 0
+      ? propSources
+      : this.db.prepare(
+          "SELECT file_path, content_hash FROM session_files WHERE session_id = ?"
+        ).all(row.session_id) as SessionFileRow[];
+
+    const sourceFiles = filesToCheck.map((sf) => {
       const currentHash = this.getCurrentFileHash(sf.file_path);
       return {
         path: sf.file_path,

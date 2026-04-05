@@ -16,6 +16,7 @@ import type { ValidatedGraph } from "./types.js";
 import { MemoryStore, registerMemoryTools } from "./memory/index.js";
 import type { MemoryConfig } from "./memory/index.js";
 import { buildCompileKnowledgeWorkflow, COMPILE_KNOWLEDGE_ID } from "./memory/workflow.js";
+import { buildRecollectionWorkflow, RECOLLECTION_ID } from "./memory/recollection.js";
 import { jsonResponse, errorResponse } from "./mcp-helpers.js";
 
 function handleError(e: unknown) {
@@ -421,10 +422,17 @@ export function createServer(
     memoryStore = new MemoryStore(options.memory.db, options.sourceRoot, options.memory.ignore);
     registerMemoryTools(server, memoryStore);
 
-    // Inject sealed compile-knowledge workflow
+    // Inject sealed memory workflows
+    let injected = false;
     if (!graphs.has(COMPILE_KNOWLEDGE_ID)) {
-      const workflow = buildCompileKnowledgeWorkflow();
-      graphs.set(COMPILE_KNOWLEDGE_ID, workflow);
+      graphs.set(COMPILE_KNOWLEDGE_ID, buildCompileKnowledgeWorkflow());
+      injected = true;
+    }
+    if (!graphs.has(RECOLLECTION_ID)) {
+      graphs.set(RECOLLECTION_ID, buildRecollectionWorkflow());
+      injected = true;
+    }
+    if (injected) {
       manager.updateGraphs(graphs);
     }
   }

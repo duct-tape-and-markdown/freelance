@@ -39,6 +39,7 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
       propositions: z.array(z.object({
         content: z.string().min(1).describe("The proposition — a self-contained claim in natural prose"),
         entities: z.array(z.string().min(1)).min(1).max(2).describe("Entity names this proposition is about (1-2)"),
+        sources: z.array(z.string().min(1)).optional().describe("Source file paths this proposition was derived from (relative to source root). When provided, provenance is tracked per-proposition instead of per-session."),
       })).min(1),
     },
     ({ propositions }) => {
@@ -107,6 +108,22 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
     ({ file_path }) => {
       try {
         return jsonResponse(store.bySource(file_path));
+      } catch (e) {
+        return handleError(e);
+      }
+    }
+  );
+
+  server.tool(
+    "memory_search",
+    "Full-text search across proposition content. Returns matching propositions with their entities and validity status. Use FTS5 query syntax: plain words for OR, double-quoted phrases for exact match, prefix* for prefix search.",
+    {
+      query: z.string().min(1).describe("FTS5 search query (e.g. 'subgraph context', '\"return values\"', 'wait*')"),
+      limit: z.number().int().min(1).max(100).default(20).optional(),
+    },
+    ({ query, limit }) => {
+      try {
+        return jsonResponse(store.search(query, { limit }));
       } catch (e) {
         return handleError(e);
       }

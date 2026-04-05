@@ -45,6 +45,20 @@ CREATE TABLE IF NOT EXISTS about (
   PRIMARY KEY (proposition_id, entity_id)
 );
 CREATE INDEX IF NOT EXISTS idx_about_entity ON about(entity_id);
+
+CREATE TABLE IF NOT EXISTS proposition_sources (
+  proposition_id TEXT NOT NULL REFERENCES propositions(id) ON DELETE CASCADE,
+  file_path TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  PRIMARY KEY (proposition_id, file_path)
+);
+CREATE INDEX IF NOT EXISTS idx_ps_file ON proposition_sources(file_path);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS propositions_fts USING fts5(
+  content,
+  content='propositions',
+  content_rowid='rowid'
+);
 `;
 
 export function openDatabase(dbPath: string): Database.Database {
@@ -53,5 +67,10 @@ export function openDatabase(dbPath: string): Database.Database {
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
   db.exec(SCHEMA_SQL);
+
+  // Rebuild FTS index on every open — external content tables don't persist
+  // their index across connections, so we rebuild to ensure search works.
+  db.exec("INSERT INTO propositions_fts(propositions_fts) VALUES ('rebuild')");
+
   return db;
 }
