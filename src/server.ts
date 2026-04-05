@@ -418,7 +418,7 @@ export function createServer(
   // --- Memory ---
   let memoryStore: MemoryStore | undefined;
   if (options?.memory?.enabled && options.memory.db) {
-    memoryStore = new MemoryStore(options.memory.db, options.sourceRoot);
+    memoryStore = new MemoryStore(options.memory.db, options.sourceRoot, options.memory.ignore);
     registerMemoryTools(server, memoryStore);
 
     // Inject sealed compile-knowledge workflow

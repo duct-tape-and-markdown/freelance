@@ -130,6 +130,77 @@ describe("MemoryStore", () => {
     });
   });
 
+  describe("ignore filtering", () => {
+    let ignoredStore: MemoryStore;
+
+    beforeEach(() => {
+      ignoredStore = new MemoryStore(
+        path.join(tmpDir, "memory-ignored.db"),
+        tmpDir,
+        ["node_modules", "dist", ".git", "*.lock"]
+      );
+    });
+
+    afterEach(() => {
+      ignoredStore.close();
+    });
+
+    it("skips files in ignored directories", () => {
+      fs.mkdirSync(path.join(tmpDir, "node_modules", "lodash"), { recursive: true });
+      writeFile(path.join(tmpDir, "node_modules", "lodash"), "index.js", "module.exports = {}");
+
+      const result = ignoredStore.registerSource("node_modules/lodash/index.js");
+      expect(result.status).toBe("skipped");
+      expect(result.content_hash).toBe("");
+    });
+
+    it("skips files matching extension patterns", () => {
+      writeFile(tmpDir, "package-lock.lock", "{}");
+      const result = ignoredStore.registerSource("package-lock.lock");
+      expect(result.status).toBe("skipped");
+    });
+
+    it("skips nested ignored directories", () => {
+      fs.mkdirSync(path.join(tmpDir, "packages", "api", "dist"), { recursive: true });
+      writeFile(path.join(tmpDir, "packages", "api", "dist"), "index.js", "compiled");
+
+      const result = ignoredStore.registerSource("packages/api/dist/index.js");
+      expect(result.status).toBe("skipped");
+    });
+
+    it("allows files not matching any pattern", () => {
+      fs.mkdirSync(path.join(tmpDir, "src"), { recursive: true });
+      writeFile(path.join(tmpDir, "src"), "auth.ts", "class Auth {}");
+
+      const result = ignoredStore.registerSource("src/auth.ts");
+      expect(result.status).toBe("registered");
+    });
+
+    it("skipped files don't create a session", () => {
+      fs.mkdirSync(path.join(tmpDir, "node_modules"), { recursive: true });
+      writeFile(path.join(tmpDir, "node_modules"), "index.js", "x");
+
+      ignoredStore.registerSource("node_modules/index.js");
+      expect(ignoredStore.status().active_session).toBeNull();
+    });
+
+    it("skipped files don't affect provenance", () => {
+      // Register a real source and emit
+      writeFile(tmpDir, "auth.ts", "class Auth {}");
+      ignoredStore.registerSource("auth.ts");
+      ignoredStore.emit([{ content: "Auth exists.", entities: ["Auth"] }]);
+      ignoredStore.end();
+
+      // Register an ignored file — shouldn't affect anything
+      fs.mkdirSync(path.join(tmpDir, "node_modules"), { recursive: true });
+      writeFile(path.join(tmpDir, "node_modules"), "lodash.js", "x");
+      ignoredStore.registerSource("node_modules/lodash.js");
+
+      const status = ignoredStore.status();
+      expect(status.total_sessions).toBe(1);
+    });
+  });
+
   describe("proposition emission", () => {
     it("requires at least one registered source", () => {
       expect(() => store.emit([{ content: "Foo exists.", entities: ["Foo"] }]))

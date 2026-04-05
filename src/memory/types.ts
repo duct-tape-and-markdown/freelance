@@ -103,15 +103,11 @@ export interface EndResult {
 export interface RegisterSourceResult {
   file_path: string;
   content_hash: string;
-  status: "registered" | "updated";
+  status: "registered" | "updated" | "skipped";
 }
 
 export interface MemoryConfig {
   enabled: boolean;
   db: string;
-  source?: {
-    roots?: string[];
-    patterns?: string[];
-    ignore?: string[];
-  };
+  ignore?: string[];
 }

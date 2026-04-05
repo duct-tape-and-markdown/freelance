@@ -53,11 +53,8 @@ function loadMemoryConfig(graphsDirs: string[]): MemoryConfig | null {
             const dbPath = typeof mem.db === "string"
               ? (path.isAbsolute(mem.db) ? mem.db : path.resolve(dir, mem.db))
               : path.join(dir, "memory.db");
-            return {
-              enabled: true,
-              db: dbPath,
-              source: mem.source as MemoryConfig["source"],
-            };
+            const ignore = Array.isArray(mem.ignore) ? mem.ignore as string[] : undefined;
+            return { enabled: true, db: dbPath, ignore };
           }
         }
       } catch {
@@ -293,8 +290,11 @@ program
     }
 
     const sourceRoot = opts.sourceRoot ?? process.cwd();
+    const dirs = resolveGraphsDirs();
+    const memConfig = loadMemoryConfig(dirs);
+    const ignore = memConfig?.ignore;
     try {
-      const store = new MemoryStore(dbPath, sourceRoot);
+      const store = new MemoryStore(dbPath, sourceRoot, ignore);
       const result = store.registerSource(file);
       store.close();
       if (!program.opts().quiet) {

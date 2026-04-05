@@ -37,6 +37,33 @@ function now(): string {
   return new Date().toISOString();
 }
 
+/**
+ * Check if a file path matches any ignore pattern.
+ * Patterns can be:
+ *   - Directory names: "node_modules", "dist" — matches any path segment
+ *   - Extensions: "*.lock", "*.min.js" — matches file suffix
+ *   - Paths: "build/output" — matches as substring of the path
+ */
+function isIgnored(filePath: string, patterns: string[]): boolean {
+  if (patterns.length === 0) return false;
+  const normalized = filePath.replace(/\\/g, "/");
+  const segments = normalized.split("/");
+
+  for (const pattern of patterns) {
+    if (pattern.startsWith("*.")) {
+      // Extension match
+      if (normalized.endsWith(pattern.substring(1))) return true;
+    } else if (pattern.includes("/")) {
+      // Path substring match
+      if (normalized.includes(pattern)) return true;
+    } else {
+      // Segment match — any directory or filename component
+      if (segments.includes(pattern)) return true;
+    }
+  }
+  return false;
+}
+
 function hashFile(filePath: string): string | null {
   try {
     return hashContent(fs.readFileSync(filePath, "utf-8"));
@@ -48,11 +75,13 @@ function hashFile(filePath: string): string | null {
 export class MemoryStore {
   private db: Database.Database;
   private sourceRoot: string;
+  private ignore: string[];
   private fileHashCache: Map<string, string | null> = new Map();
 
-  constructor(dbPath: string, sourceRoot?: string) {
+  constructor(dbPath: string, sourceRoot?: string, ignore?: string[]) {
     this.db = openDatabase(dbPath);
     this.sourceRoot = sourceRoot ?? process.cwd();
+    this.ignore = ignore ?? [];
   }
 
   close(): void {
@@ -124,8 +153,6 @@ export class MemoryStore {
   // --- Source registration ---
 
   registerSource(filePath: string): RegisterSourceResult {
-    const sessionId = this.ensureActiveSession();
-
     const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(this.sourceRoot, filePath);
 
     // Reject paths outside the source root
@@ -135,14 +162,21 @@ export class MemoryStore {
       throw new Error(`Source file is outside the source root: ${filePath}`);
     }
 
+    // Check ignore patterns against the relative path
+    const storedPath = path.isAbsolute(filePath)
+      ? path.relative(this.sourceRoot, filePath)
+      : filePath;
+
+    if (isIgnored(storedPath, this.ignore)) {
+      return { file_path: storedPath, content_hash: "", status: "skipped" };
+    }
+
+    const sessionId = this.ensureActiveSession();
+
     const hash = hashFile(resolvedPath);
     if (hash === null) {
       throw new Error(`Cannot read file: ${filePath}`);
     }
-
-    const storedPath = path.isAbsolute(filePath)
-      ? path.relative(this.sourceRoot, filePath)
-      : filePath;
 
     const existing = this.db.prepare(
       "SELECT content_hash FROM session_files WHERE session_id = ? AND file_path = ?"
