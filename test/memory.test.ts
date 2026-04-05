@@ -137,7 +137,7 @@ describe("MemoryStore", () => {
       ignoredStore = new MemoryStore(
         path.join(tmpDir, "memory-ignored.db"),
         tmpDir,
-        ["node_modules", "dist", ".git", "*.lock"]
+        ["**/node_modules/**", "**/dist/**", "**/.git/**", "**/*.lock"]
       );
     });
 

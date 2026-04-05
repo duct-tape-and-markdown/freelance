@@ -37,31 +37,12 @@ function now(): string {
   return new Date().toISOString();
 }
 
-/**
- * Check if a file path matches any ignore pattern.
- * Patterns can be:
- *   - Directory names: "node_modules", "dist" — matches any path segment
- *   - Extensions: "*.lock", "*.min.js" — matches file suffix
- *   - Paths: "build/output" — matches as substring of the path
- */
+import picomatch from "picomatch";
+
 function isIgnored(filePath: string, patterns: string[]): boolean {
   if (patterns.length === 0) return false;
-  const normalized = filePath.replace(/\\/g, "/");
-  const segments = normalized.split("/");
-
-  for (const pattern of patterns) {
-    if (pattern.startsWith("*.")) {
-      // Extension match
-      if (normalized.endsWith(pattern.substring(1))) return true;
-    } else if (pattern.includes("/")) {
-      // Path substring match
-      if (normalized.includes(pattern)) return true;
-    } else {
-      // Segment match — any directory or filename component
-      if (segments.includes(pattern)) return true;
-    }
-  }
-  return false;
+  const match = picomatch(patterns, { dot: true });
+  return match(filePath.replace(/\\/g, "/"));
 }
 
 function hashFile(filePath: string): string | null {
