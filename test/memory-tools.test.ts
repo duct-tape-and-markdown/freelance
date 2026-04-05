@@ -27,13 +27,11 @@ describe("Memory MCP tools", () => {
   let client: Client;
   let cleanup: () => Promise<void>;
   let tmpDir: string;
-  let sourceFile: string;
 
   beforeEach(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mem-mcp-test-"));
     const dbPath = path.join(tmpDir, "memory.db");
-    sourceFile = path.join(tmpDir, "auth.ts");
-    fs.writeFileSync(sourceFile, "export class Auth { validate() {} }");
+    fs.writeFileSync(path.join(tmpDir, "auth.ts"), "export class Auth { validate() {} }");
 
     const graphs = loadFixtures("valid-simple.workflow.yaml");
     const { server, memoryStore } = createServer(graphs, {
@@ -58,10 +56,9 @@ describe("Memory MCP tools", () => {
     await cleanup();
   });
 
-  it("memory tools are registered", async () => {
+  it("registers 8 memory tools", async () => {
     const tools = await client.listTools();
     const memTools = tools.tools.filter((t) => t.name.startsWith("memory_"));
-    expect(memTools.length).toBe(10);
     const names = memTools.map((t) => t.name).sort();
     expect(names).toEqual([
       "memory_begin",
@@ -69,21 +66,19 @@ describe("Memory MCP tools", () => {
       "memory_by_source",
       "memory_emit",
       "memory_end",
-      "memory_gaps",
       "memory_inspect",
       "memory_register_source",
-      "memory_relationships",
       "memory_status",
     ]);
   });
 
   it("full compilation flow via MCP tools", async () => {
-    // Begin session
+    // Begin
     const beginResult = await client.callTool({ name: "memory_begin", arguments: {} });
     expect(beginResult.isError).toBeFalsy();
-    const begin = parseContent(beginResult) as { session_id: string; total_propositions: number };
+    const begin = parseContent(beginResult) as { session_id: string; valid_propositions: number };
     expect(begin.session_id).toBeTruthy();
-    expect(begin.total_propositions).toBe(0);
+    expect(begin.valid_propositions).toBe(0);
 
     // Register source
     const regResult = await client.callTool({
@@ -91,15 +86,15 @@ describe("Memory MCP tools", () => {
       arguments: { file_path: "auth.ts" },
     });
     expect(regResult.isError).toBeFalsy();
-    const reg = parseContent(regResult) as { content_hash: string; status: string };
+    const reg = parseContent(regResult) as { status: string };
     expect(reg.status).toBe("registered");
 
-    // Emit propositions
+    // Emit
     const emitResult = await client.callTool({
       name: "memory_emit",
       arguments: {
         propositions: [
-          { content: "Auth validates JWT tokens.", entities: ["Auth"] },
+          { content: "Auth validates JWT tokens using RS256.", entities: ["Auth"] },
           { content: "Auth returns 401 for expired tokens.", entities: ["Auth"] },
         ],
       },
@@ -108,27 +103,32 @@ describe("Memory MCP tools", () => {
     const emit = parseContent(emitResult) as { created: number };
     expect(emit.created).toBe(2);
 
-    // End session
+    // End
     const endResult = await client.callTool({ name: "memory_end", arguments: {} });
     expect(endResult.isError).toBeFalsy();
     const end = parseContent(endResult) as { propositions_emitted: number; files_registered: number };
     expect(end.propositions_emitted).toBe(2);
     expect(end.files_registered).toBe(1);
 
-    // Browse entities
+    // Browse
     const browseResult = await client.callTool({ name: "memory_browse", arguments: {} });
     const browse = parseContent(browseResult) as { entities: Array<{ name: string }> };
     expect(browse.entities).toHaveLength(1);
     expect(browse.entities[0].name).toBe("Auth");
 
-    // Inspect entity
+    // Inspect
     const inspectResult = await client.callTool({
       name: "memory_inspect",
       arguments: { entity: "Auth" },
     });
-    const inspect = parseContent(inspectResult) as { propositions: Array<{ valid: boolean }> };
+    const inspect = parseContent(inspectResult) as {
+      propositions: Array<{ valid: boolean }>;
+      source_sessions: Array<{ files: string[] }>;
+    };
     expect(inspect.propositions).toHaveLength(2);
     expect(inspect.propositions[0].valid).toBe(true);
+    expect(inspect.source_sessions).toHaveLength(1);
+    expect(inspect.source_sessions[0].files).toEqual(["auth.ts"]);
 
     // Status
     const statusResult = await client.callTool({ name: "memory_status", arguments: {} });
@@ -137,8 +137,18 @@ describe("Memory MCP tools", () => {
     expect(status.valid_propositions).toBe(2);
   });
 
+  it("emit rejected without registered source", async () => {
+    await client.callTool({ name: "memory_begin", arguments: {} });
+    const emitResult = await client.callTool({
+      name: "memory_emit",
+      arguments: { propositions: [{ content: "test", entities: ["Foo"] }] },
+    });
+    expect(emitResult.isError).toBeTruthy();
+    const err = parseContent(emitResult) as { error: string };
+    expect(err.error).toContain("No source files registered");
+  });
+
   it("memory tools not registered when memory disabled", async () => {
-    // Create a server without memory
     const graphs = loadFixtures("valid-simple.workflow.yaml");
     const { server: noMemServer } = createServer(graphs);
     const [ct, st] = InMemoryTransport.createLinkedPair();

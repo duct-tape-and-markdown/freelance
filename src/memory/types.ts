@@ -1,7 +1,5 @@
 /**
  * Types for the Freelance Memory system.
- *
- * Persistent, provenance-aware knowledge graph backed by SQLite.
  */
 
 // --- Database row types ---
@@ -10,16 +8,7 @@ export interface EntityRow {
   id: string;
   name: string;
   kind: string | null;
-  scope: string | null;
-  summary: string | null;
   created_at: string;
-  updated_at: string;
-}
-
-export interface SessionRow {
-  id: string;
-  started_at: string;
-  ended_at: string | null;
 }
 
 export interface SessionFileRow {
@@ -28,36 +17,19 @@ export interface SessionFileRow {
   content_hash: string;
 }
 
-export type PropositionKind = "intent" | "observation";
-
 export interface PropositionRow {
   id: string;
   content: string;
   content_hash: string;
-  kind: PropositionKind;
   session_id: string;
   created_at: string;
 }
 
-export interface AboutRow {
-  proposition_id: string;
-  entity_id: string;
-  role: string | null;
-}
-
-export interface RelatesToRow {
-  from_id: string;
-  to_id: string;
-  relationship_type: string | null;
-}
-
-// --- API types (tool inputs/outputs) ---
+// --- API types ---
 
 export interface EmitProposition {
   content: string;
   entities: string[];
-  kind?: PropositionKind;
-  relatesTo?: string[];
 }
 
 export interface EmitResult {
@@ -77,16 +49,18 @@ export interface EntityInfo {
   id: string;
   name: string;
   kind: string | null;
-  scope: string | null;
-  summary: string | null;
   proposition_count: number;
   valid_proposition_count: number;
+}
+
+export interface SourceSession {
+  id: string;
+  files: string[];
 }
 
 export interface PropositionInfo {
   id: string;
   content: string;
-  kind: PropositionKind;
   session_id: string;
   created_at: string;
   valid: boolean;
@@ -96,18 +70,12 @@ export interface PropositionInfo {
 export interface InspectResult {
   entity: EntityInfo;
   propositions: PropositionInfo[];
-  related_entities: Array<{ id: string; name: string; shared_propositions: number }>;
+  source_sessions: SourceSession[];
 }
 
 export interface BrowseResult {
   entities: EntityInfo[];
   total: number;
-}
-
-export interface RelationshipsResult {
-  entity_a: { id: string; name: string };
-  entity_b: { id: string; name: string };
-  shared_propositions: PropositionInfo[];
 }
 
 export interface BySourceResult {
@@ -124,35 +92,11 @@ export interface StatusResult {
   active_session: string | null;
 }
 
-export interface GapEntry {
-  proposition_id: string;
-  content: string;
-}
-
-export interface MatchEntry {
-  content: string;
-  intent_id: string;
-  observation_id: string;
-}
-
-export interface GapsResult {
-  unimplemented: GapEntry[];
-  unplanned: GapEntry[];
-  matched: MatchEntry[];
-}
-
-export interface SessionInfo {
-  id: string;
-  started_at: string;
-  ended_at: string | null;
-  file_count: number;
-  proposition_count: number;
-}
-
 export interface BeginResult {
   session_id: string;
   entities: number;
-  total_propositions: number;
+  valid_propositions: number;
+  stale: number;
 }
 
 export interface EndResult {

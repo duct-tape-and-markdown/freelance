@@ -1,7 +1,7 @@
 /**
  * MCP tool registration for Freelance Memory.
  *
- * Registers memory_* tools on the MCP server instance.
+ * 8 tools: 4 write (begin, register_source, emit, end), 4 read (browse, inspect, by_source, status).
  */
 
 import { z } from "zod";
@@ -15,11 +15,11 @@ function handleError(e: unknown) {
 }
 
 export function registerMemoryTools(server: McpServer, store: MemoryStore): void {
-  // --- Write tools ---
+  // --- Write ---
 
   server.tool(
     "memory_begin",
-    "Start a memory compilation session. Returns current entity and proposition counts. Must be called before memory_emit or memory_register_source.",
+    "Start a compilation session. Returns current graph state — entity count, valid and stale proposition counts. Must be called before memory_register_source or memory_emit.",
     {},
     () => {
       try {
@@ -32,7 +32,7 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_register_source",
-    "Register a file as a provenance source for the active session. Freelance hashes the file and records it. Call this for every file read during compilation. Requires an active session (call memory_begin first).",
+    "Register a file as a provenance source for the active session. Memory hashes the file and records it. Must be called for every file read during compilation — memory_emit requires at least one registered source.",
     {
       file_path: z.string().min(1).describe("Path to the source file (relative to source root or absolute)"),
     },
@@ -47,13 +47,11 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_emit",
-    "Write atomic propositions to memory. Each proposition is a single, self-contained claim with 1-2 entity references. Deduplicates by content hash within the same kind. Use kind 'intent' for what code should do (from specs, plans, requirements). Use kind 'observation' (default) for what code actually does. Requires an active session (call memory_begin first).",
+    "Write propositions to memory. Each proposition is a self-contained claim about 1-2 entities, written in natural prose. Deduplicates by content hash. Requires an active session with at least one registered source file.",
     {
       propositions: z.array(z.object({
-        content: z.string().min(1).describe("The atomic proposition — one self-contained claim"),
+        content: z.string().min(1).describe("The proposition — a self-contained claim in natural prose"),
         entities: z.array(z.string().min(1)).min(1).max(2).describe("Entity names this proposition is about (1-2)"),
-        kind: z.enum(["intent", "observation"]).default("observation").optional().describe("'intent' = what code should do, 'observation' = what code actually does"),
-        relatesTo: z.array(z.string()).optional().describe("IDs of related propositions"),
       })).min(1),
     },
     ({ propositions }) => {
@@ -78,11 +76,11 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
     }
   );
 
-  // --- Read tools ---
+  // --- Read ---
 
   server.tool(
     "memory_browse",
-    "Find entities by name, kind, or partial match. Returns entities with valid proposition counts. Use this to discover what knowledge exists.",
+    "Find entities by name, kind, or partial match. Returns entities with valid proposition counts.",
     {
       name: z.string().optional().describe("Partial name match (case-insensitive)"),
       kind: z.string().optional().describe("Filter by entity kind"),
@@ -100,7 +98,7 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_inspect",
-    "Full entity details — valid propositions, related entities, source files. Pass an entity ID or name.",
+    "Full entity details — valid propositions and source sessions.",
     {
       entity: z.string().min(1).describe("Entity ID or name"),
     },
@@ -114,24 +112,8 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
   );
 
   server.tool(
-    "memory_relationships",
-    "Find propositions connecting two entities. Shows shared knowledge between two concepts.",
-    {
-      entity_a: z.string().min(1).describe("First entity (ID or name)"),
-      entity_b: z.string().min(1).describe("Second entity (ID or name)"),
-    },
-    ({ entity_a, entity_b }) => {
-      try {
-        return jsonResponse(store.relationships(entity_a, entity_b));
-      } catch (e) {
-        return handleError(e);
-      }
-    }
-  );
-
-  server.tool(
     "memory_by_source",
-    "All propositions from sessions that included a file. Shows both valid and stale propositions with provenance details.",
+    "All propositions from sessions that included a file. Shows valid and stale.",
     {
       file_path: z.string().min(1).describe("File path (relative to source root or absolute)"),
     },
@@ -146,24 +128,11 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_status",
-    "Overview of memory state — total propositions, valid/stale counts, entity count, active session.",
+    "Total propositions, valid count, stale count, entity count.",
     {},
     () => {
       try {
         return jsonResponse(store.status());
-      } catch (e) {
-        return handleError(e);
-      }
-    }
-  );
-
-  server.tool(
-    "memory_gaps",
-    "Compare intent propositions (what code should do) against observation propositions (what code actually does). Returns unimplemented intents, unplanned observations, and matches where intent and observation agree.",
-    {},
-    () => {
-      try {
-        return jsonResponse(store.gaps());
       } catch (e) {
         return handleError(e);
       }
