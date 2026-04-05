@@ -88,6 +88,19 @@ describe("MemoryStore", () => {
       store.begin();
       expect(() => store.registerSource("nonexistent.ts")).toThrow("Cannot read file");
     });
+
+    it("rejects paths outside source root", () => {
+      store.begin();
+      expect(() => store.registerSource("/etc/passwd")).toThrow("outside the source root");
+      expect(() => store.registerSource("../../etc/passwd")).toThrow("outside the source root");
+    });
+
+    it("accepts absolute paths within source root", () => {
+      const filePath = writeFile(tmpDir, "inner.ts", "const x = 1;");
+      store.begin();
+      const result = store.registerSource(filePath);
+      expect(result.status).toBe("registered");
+    });
   });
 
   describe("proposition emission", () => {
@@ -395,6 +408,54 @@ describe("MemoryStore", () => {
       // Auth propositions stale
       const authResult = store.inspect("Auth");
       expect(authResult.propositions[0].valid).toBe(false);
+    });
+
+    it("multiple sessions referencing same file — only matching hash is valid", () => {
+      writeFile(tmpDir, "auth.ts", "version 1");
+      store.begin();
+      store.registerSource("auth.ts");
+      store.emit([{ content: "Auth v1.", entities: ["Auth"] }]);
+      store.end();
+
+      // Change file, compile again
+      writeFile(tmpDir, "auth.ts", "version 2");
+      store.begin();
+      store.registerSource("auth.ts");
+      store.emit([{ content: "Auth v2.", entities: ["Auth"] }]);
+      store.end();
+
+      // File is at "version 2" — session 2 valid, session 1 stale
+      const result = store.inspect("Auth");
+      const v1 = result.propositions.find((p) => p.content === "Auth v1.");
+      const v2 = result.propositions.find((p) => p.content === "Auth v2.");
+      expect(v1!.valid).toBe(false);
+      expect(v2!.valid).toBe(true);
+
+      // Revert file — session 1 becomes valid, session 2 stale
+      writeFile(tmpDir, "auth.ts", "version 1");
+      const result2 = store.inspect("Auth");
+      const v1b = result2.propositions.find((p) => p.content === "Auth v1.");
+      const v2b = result2.propositions.find((p) => p.content === "Auth v2.");
+      expect(v1b!.valid).toBe(true);
+      expect(v2b!.valid).toBe(false);
+    });
+
+    it("session with multiple files — all must match for valid", () => {
+      writeFile(tmpDir, "a.ts", "a1");
+      writeFile(tmpDir, "b.ts", "b1");
+
+      store.begin();
+      store.registerSource("a.ts");
+      store.registerSource("b.ts");
+      store.emit([{ content: "Uses both.", entities: ["Multi"] }]);
+      store.end();
+
+      // Both unchanged — valid
+      expect(store.inspect("Multi").propositions[0].valid).toBe(true);
+
+      // Change one — stale
+      writeFile(tmpDir, "b.ts", "b2");
+      expect(store.inspect("Multi").propositions[0].valid).toBe(false);
     });
   });
 

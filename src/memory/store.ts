@@ -130,6 +130,13 @@ export class MemoryStore {
     }
 
     const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(this.sourceRoot, filePath);
+
+    // Reject paths outside the source root
+    const normalizedRoot = path.resolve(this.sourceRoot) + path.sep;
+    const normalizedPath = path.resolve(resolvedPath);
+    if (!normalizedPath.startsWith(normalizedRoot) && normalizedPath !== path.resolve(this.sourceRoot)) {
+      throw new Error(`Source file is outside the source root: ${filePath}`);
+    }
     const hash = hashFile(resolvedPath);
     if (hash === null) {
       throw new Error(`Cannot read file: ${filePath}`);

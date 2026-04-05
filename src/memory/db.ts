@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 CREATE TABLE IF NOT EXISTS session_files (
-  session_id TEXT NOT NULL REFERENCES sessions(id),
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   file_path TEXT NOT NULL,
   content_hash TEXT NOT NULL,
   PRIMARY KEY (session_id, file_path)
@@ -34,14 +34,14 @@ CREATE TABLE IF NOT EXISTS propositions (
   id TEXT PRIMARY KEY,
   content TEXT NOT NULL,
   content_hash TEXT NOT NULL,
-  session_id TEXT NOT NULL REFERENCES sessions(id),
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_prop_hash ON propositions(content_hash);
 
 CREATE TABLE IF NOT EXISTS about (
-  proposition_id TEXT NOT NULL REFERENCES propositions(id),
-  entity_id TEXT NOT NULL REFERENCES entities(id),
+  proposition_id TEXT NOT NULL REFERENCES propositions(id) ON DELETE CASCADE,
+  entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
   PRIMARY KEY (proposition_id, entity_id)
 );
 CREATE INDEX IF NOT EXISTS idx_about_entity ON about(entity_id);
