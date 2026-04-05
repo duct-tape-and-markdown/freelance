@@ -92,13 +92,6 @@ export interface StatusResult {
   active_session: string | null;
 }
 
-export interface BeginResult {
-  session_id: string;
-  entities: number;
-  valid_propositions: number;
-  stale: number;
-}
-
 export interface EndResult {
   session_id: string;
   propositions_emitted: number;

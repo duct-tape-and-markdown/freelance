@@ -10,7 +10,6 @@ import crypto from "node:crypto";
 import type Database from "better-sqlite3";
 import { GraphEngine } from "../engine/index.js";
 import { EngineError } from "../errors.js";
-import { openStateDatabase } from "./db.js";
 import type {
   ValidatedGraph,
   StartResult,

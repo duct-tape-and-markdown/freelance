@@ -1,7 +1,7 @@
 /**
  * MCP tool registration for Freelance Memory.
  *
- * 8 tools: 4 write (begin, register_source, emit, end), 4 read (browse, inspect, by_source, status).
+ * 7 tools: 3 write (register_source, emit, end), 4 read (browse, inspect, by_source, status).
  */
 
 import { z } from "zod";

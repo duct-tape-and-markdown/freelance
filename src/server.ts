@@ -29,7 +29,6 @@ function handleError(e: unknown) {
 
 export interface ServerOptions {
   maxDepth?: number;
-  persistDir?: string;
   graphsDirs?: string[];
   sectionResolver?: SectionResolver;
   /** Check source bindings at freelance_start (default: false). Provenance is a build concern. */
@@ -40,8 +39,8 @@ export interface ServerOptions {
   loadErrors?: Array<{ file: string; message: string }>;
   /** Memory configuration — enables persistent knowledge graph */
   memory?: MemoryConfig;
-  /** Path to SQLite database for traversal state. Required. */
-  stateDb: string;
+  /** Path to SQLite database for traversal state. Falls back to :memory: if not set. */
+  stateDb?: string;
 }
 
 export function createServer(
