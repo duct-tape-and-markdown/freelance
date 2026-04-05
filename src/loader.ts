@@ -28,11 +28,24 @@ export function loadSingleGraph(filePath: string): { id: string } & ValidatedGra
   }
 
   const def = parseResult.data;
-  validateReturnSchemas(def, resolved);
-  validateExpressions(def, resolved);
-  const graph = buildAndValidateGraph(def, resolved);
+  const graph = validateAndBuild(def, resolved);
 
   return { id: def.id, definition: def, graph };
+}
+
+/**
+ * Validate a GraphDefinition and build its graphlib graph.
+ * This is the shared validation pipeline used by both YAML loading and
+ * programmatic graph construction (GraphBuilder).
+ *
+ * @param def - A valid GraphDefinition (already schema-parsed)
+ * @param source - Label for error messages (file path or builder id)
+ * @returns The validated graphlib Graph
+ */
+export function validateAndBuild(def: GraphDefinition, source: string): Graph {
+  validateReturnSchemas(def, source);
+  validateExpressions(def, source);
+  return buildAndValidateGraph(def, source);
 }
 
 /**

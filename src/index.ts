@@ -249,6 +249,32 @@ traversalsCmd
     await traversalsReset(host, port, id);
   });
 
+// --- memory-register (for Claude Code PreToolUse hook) ---
+
+program
+  .command("memory-register <file>")
+  .description("Register a file as a provenance source (used by Claude Code hooks)")
+  .action(async (file) => {
+    // This is called by the PreToolUse hook on Read.
+    // It needs to talk to a running memory session. For now, this is a
+    // passthrough to the MCP tool — the hook invokes the CLI, which
+    // registers the source with the active memory session via the daemon.
+    // In standalone MCP mode, the hook calls the tool directly.
+    //
+    // For the initial implementation, this validates the file exists
+    // and prints the hash — the actual registration happens via MCP.
+    const { hashContent } = await import("./sources.js");
+    try {
+      const content = fs.readFileSync(path.resolve(file), "utf-8");
+      const hash = hashContent(content);
+      if (!program.opts().quiet) {
+        process.stdout.write(JSON.stringify({ file_path: file, content_hash: hash }) + "\n");
+      }
+    } catch {
+      fatal(`Cannot read file: ${file}`, EXIT.GENERAL_ERROR);
+    }
+  });
+
 // --- inspect ---
 
 program
@@ -284,6 +310,12 @@ program
   });
 
 export { program };
+
+// Public API for embedding
+export { GraphBuilder } from "./builder.js";
+export { createServer } from "./server.js";
+export type { ServerOptions } from "./server.js";
+export type { ValidatedGraph } from "./types.js";
 
 // Only parse when run directly (not when imported in tests)
 const isMain = process.argv[1] && (

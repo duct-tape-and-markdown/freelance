@@ -14,6 +14,7 @@ import type { SourceRef, SectionResolver, SourceOptions } from "./sources.js";
 import type { ValidatedGraph } from "./types.js";
 import { MemoryStore, registerMemoryTools } from "./memory/index.js";
 import type { MemoryConfig } from "./memory/index.js";
+import { buildCompileKnowledgeWorkflow, COMPILE_KNOWLEDGE_ID } from "./memory/workflow.js";
 import { jsonResponse, errorResponse } from "./mcp-helpers.js";
 
 function handleError(e: unknown) {
@@ -411,11 +412,18 @@ export function createServer(
     }
   );
 
-  // --- Memory tools ---
+  // --- Memory ---
   let memoryStore: MemoryStore | undefined;
   if (options?.memory?.enabled && options.memory.db) {
     memoryStore = new MemoryStore(options.memory.db, options.sourceRoot);
     registerMemoryTools(server, memoryStore);
+
+    // Inject sealed compile-knowledge workflow
+    if (!graphs.has(COMPILE_KNOWLEDGE_ID)) {
+      const workflow = buildCompileKnowledgeWorkflow();
+      graphs.set(COMPILE_KNOWLEDGE_ID, workflow);
+      manager.updateGraphs(graphs);
+    }
   }
 
   return { server, stopWatcher, memoryStore };

@@ -148,6 +148,24 @@ describe("Memory MCP tools", () => {
     expect(err.error).toContain("No source files registered");
   });
 
+  it("sealed compile-knowledge workflow is available", async () => {
+    const result = await client.callTool({ name: "freelance_list", arguments: {} });
+    const data = parseContent(result) as { graphs: Array<{ id: string }> };
+    const ids = data.graphs.map((g) => g.id);
+    expect(ids).toContain("compile-knowledge");
+  });
+
+  it("sealed workflow is traversable", async () => {
+    const startResult = await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "compile-knowledge" },
+    });
+    expect(startResult.isError).toBeFalsy();
+    const start = parseContent(startResult) as { status: string; currentNode: string };
+    expect(start.status).toBe("started");
+    expect(start.currentNode).toBe("exploring");
+  });
+
   it("memory tools not registered when memory disabled", async () => {
     const graphs = loadFixtures("valid-simple.workflow.yaml");
     const { server: noMemServer } = createServer(graphs);
