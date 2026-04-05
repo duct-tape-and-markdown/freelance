@@ -18,21 +18,8 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
   // --- Write ---
 
   server.tool(
-    "memory_begin",
-    "Start a compilation session. Returns current graph state — entity count, valid and stale proposition counts. Must be called before memory_register_source or memory_emit.",
-    {},
-    () => {
-      try {
-        return jsonResponse(store.begin());
-      } catch (e) {
-        return handleError(e);
-      }
-    }
-  );
-
-  server.tool(
     "memory_register_source",
-    "Register a file as a provenance source for the active session. Memory hashes the file and records it. Must be called for every file read during compilation — memory_emit requires at least one registered source.",
+    "Register a file as a provenance source. Memory hashes the file and records it in the active session (creating one if needed). Must be called for every file read during compilation — memory_emit requires at least one registered source.",
     {
       file_path: z.string().min(1).describe("Path to the source file (relative to source root or absolute)"),
     },

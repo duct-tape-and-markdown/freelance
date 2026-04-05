@@ -3,7 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { loadGraphs } from "../src/loader.js";
-import { TraversalStore } from "../src/state/index.js";
+import { TraversalStore, openStateDatabase } from "../src/state/index.js";
 import { EngineError } from "../src/errors.js";
 import type { ValidatedGraph } from "../src/types.js";
 
@@ -25,7 +25,7 @@ describe("TraversalStore — stateless SQLite", () => {
   beforeEach(() => {
     graphs = loadFixtures("valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ts-db-test-"));
-    store = new TraversalStore(path.join(tmpDir, "state.db"), graphs);
+    store = new TraversalStore(openStateDatabase(path.join(tmpDir, "state.db")), graphs);
   });
 
   afterEach(() => {
@@ -129,7 +129,7 @@ describe("TraversalStore — stateless SQLite", () => {
   describe("multi-process access", () => {
     it("second store instance sees traversals from first", () => {
       const dbPath = path.join(tmpDir, "state.db");
-      const store2 = new TraversalStore(dbPath, graphs);
+      const store2 = new TraversalStore(openStateDatabase(dbPath), graphs);
 
       const t = store.createTraversal("valid-simple");
 
@@ -159,7 +159,7 @@ describe("TraversalStore — stateless SQLite", () => {
       store.close();
 
       // "Restart" — new store from same database
-      const store2 = new TraversalStore(dbPath, graphs);
+      const store2 = new TraversalStore(openStateDatabase(dbPath), graphs);
       const list = store2.listTraversals();
       expect(list).toHaveLength(1);
       expect(list[0].currentNode).toBe("review");
@@ -174,7 +174,7 @@ describe("TraversalStore — stateless SQLite", () => {
       store2.close();
 
       // Reassign so afterEach doesn't double-close
-      store = new TraversalStore(path.join(tmpDir, "state.db"), graphs);
+      store = new TraversalStore(openStateDatabase(path.join(tmpDir, "state.db")), graphs);
     });
   });
 });

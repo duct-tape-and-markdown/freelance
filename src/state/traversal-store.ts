@@ -60,11 +60,11 @@ export class TraversalStore {
   private maxDepth: number;
 
   constructor(
-    dbPath: string,
+    db: Database.Database,
     graphs: Map<string, ValidatedGraph>,
     options?: { maxDepth?: number }
   ) {
-    this.db = openStateDatabase(dbPath);
+    this.db = db;
     this.graphs = graphs;
     this.maxDepth = options?.maxDepth ?? 5;
   }

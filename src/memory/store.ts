@@ -24,7 +24,6 @@ import type {
   BrowseResult,
   BySourceResult,
   StatusResult,
-  BeginResult,
   EndResult,
   RegisterSourceResult,
   SourceSession,
@@ -68,33 +67,25 @@ export class MemoryStore {
     ).get() as { id: string; started_at: string } | undefined ?? null;
   }
 
+  /**
+   * Get or create the active session. Sessions are created lazily
+   * on first registerSource call and closed explicitly via end().
+   */
+  private ensureActiveSession(): string {
+    const session = this.getActiveSession();
+    if (session) return session.id;
+
+    const sessionId = generateId();
+    this.db.prepare("INSERT INTO sessions (id, started_at) VALUES (?, ?)").run(sessionId, now());
+    return sessionId;
+  }
+
   private requireActiveSession(): string {
     const session = this.getActiveSession();
     if (!session) {
-      throw new Error("No active session. Call memory_begin first.");
+      throw new Error("No active session. Register a source file first.");
     }
     return session.id;
-  }
-
-  // --- Session lifecycle ---
-
-  begin(): BeginResult {
-    const existing = this.getActiveSession();
-    if (existing) {
-      throw new Error(`Session already active: ${existing.id}. Call memory_end first.`);
-    }
-
-    const sessionId = generateId();
-
-    this.db.prepare("INSERT INTO sessions (id, started_at) VALUES (?, ?)").run(sessionId, now());
-
-    const status = this.computeStatus();
-    return {
-      session_id: sessionId,
-      entities: status.total_entities,
-      valid_propositions: status.valid_propositions,
-      stale: status.stale_propositions,
-    };
   }
 
   end(): EndResult {
@@ -133,7 +124,7 @@ export class MemoryStore {
   // --- Source registration ---
 
   registerSource(filePath: string): RegisterSourceResult {
-    const sessionId = this.requireActiveSession();
+    const sessionId = this.ensureActiveSession();
 
     const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(this.sourceRoot, filePath);
 

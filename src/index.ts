@@ -11,7 +11,7 @@ import { setCli, info, fatal, EXIT } from "./cli/output.js";
 import { daemonStop, daemonStatus, checkRunningDaemon } from "./cli/daemon.js";
 import { parseDaemonConnect, traversalsList, traversalsInspect, traversalsReset } from "./cli/traversals.js";
 import { VERSION } from "./version.js";
-import { TRAVERSALS_DIR, DEFAULT_PORT } from "./paths.js";
+import { DEFAULT_PORT } from "./paths.js";
 import { resolveGraphsDirs, resolveSourceRoot, loadGraphsOrFatal, loadGraphsGraceful } from "./graph-resolution.js";
 import { extractSection } from "./section-resolver.js";
 import yaml from "js-yaml";
@@ -222,13 +222,13 @@ daemonCmd
       fatal("--port must be a valid port number (1-65535)", EXIT.INVALID_USAGE);
     }
     const maxDepth = parseInt(opts.maxDepth, 10);
-    const persistDir = path.resolve(TRAVERSALS_DIR);
 
     const graphs = loadGraphsOrFatal(opts.workflows);
     const graphsDirs = resolveGraphsDirs(opts.workflows);
     const sourceRoot = resolveSourceRoot(graphsDirs, opts.sourceRoot);
+    const stateDb = resolveStateDb(graphsDirs);
     info(`Freelance daemon: loaded ${graphs.size} graph(s) from ${graphsDirs.length} directory(ies)`);
-    await startDaemon(graphs, { port, host: "127.0.0.1", persistDir, maxDepth, graphsDirs, sourceRoot });
+    await startDaemon(graphs, { port, host: "127.0.0.1", stateDb, maxDepth, graphsDirs, sourceRoot });
   });
 
 daemonCmd

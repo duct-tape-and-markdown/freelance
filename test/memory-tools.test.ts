@@ -34,9 +34,10 @@ describe("Memory MCP tools", () => {
     fs.writeFileSync(path.join(tmpDir, "auth.ts"), "export class Auth { validate() {} }");
 
     const graphs = loadFixtures("valid-simple.workflow.yaml");
-    const { server, memoryStore } = createServer(graphs, {
+    const { server, memoryStore, manager } = createServer(graphs, {
       memory: { enabled: true, db: dbPath },
       sourceRoot: tmpDir,
+      stateDb: path.join(tmpDir, "state.db"),
     });
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -47,6 +48,7 @@ describe("Memory MCP tools", () => {
     cleanup = async () => {
       await client.close();
       if (memoryStore) memoryStore.close();
+      manager.close();
       await server.close();
       fs.rmSync(tmpDir, { recursive: true, force: true });
     };
@@ -56,12 +58,11 @@ describe("Memory MCP tools", () => {
     await cleanup();
   });
 
-  it("registers 8 memory tools", async () => {
+  it("registers 7 memory tools (no memory_begin)", async () => {
     const tools = await client.listTools();
     const memTools = tools.tools.filter((t) => t.name.startsWith("memory_"));
     const names = memTools.map((t) => t.name).sort();
     expect(names).toEqual([
-      "memory_begin",
       "memory_browse",
       "memory_by_source",
       "memory_emit",
@@ -73,14 +74,7 @@ describe("Memory MCP tools", () => {
   });
 
   it("full compilation flow via MCP tools", async () => {
-    // Begin
-    const beginResult = await client.callTool({ name: "memory_begin", arguments: {} });
-    expect(beginResult.isError).toBeFalsy();
-    const begin = parseContent(beginResult) as { session_id: string; valid_propositions: number };
-    expect(begin.session_id).toBeTruthy();
-    expect(begin.valid_propositions).toBe(0);
-
-    // Register source
+    // Register source — session created lazily
     const regResult = await client.callTool({
       name: "memory_register_source",
       arguments: { file_path: "auth.ts" },
@@ -138,14 +132,13 @@ describe("Memory MCP tools", () => {
   });
 
   it("emit rejected without registered source", async () => {
-    await client.callTool({ name: "memory_begin", arguments: {} });
     const emitResult = await client.callTool({
       name: "memory_emit",
       arguments: { propositions: [{ content: "test", entities: ["Foo"] }] },
     });
     expect(emitResult.isError).toBeTruthy();
     const err = parseContent(emitResult) as { error: string };
-    expect(err.error).toContain("No source files registered");
+    expect(err.error).toContain("Register a source file first");
   });
 
   it("sealed compile-knowledge workflow is available", async () => {
@@ -168,7 +161,7 @@ describe("Memory MCP tools", () => {
 
   it("memory tools not registered when memory disabled", async () => {
     const graphs = loadFixtures("valid-simple.workflow.yaml");
-    const { server: noMemServer } = createServer(graphs);
+    const { server: noMemServer, manager: noMemManager } = createServer(graphs);
     const [ct, st] = InMemoryTransport.createLinkedPair();
     const noMemClient = new Client({ name: "test-client", version: "1.0.0" });
     await noMemServer.connect(st);
@@ -179,6 +172,7 @@ describe("Memory MCP tools", () => {
     expect(memTools.length).toBe(0);
 
     await noMemClient.close();
+    noMemManager.close();
     await noMemServer.close();
   });
 });

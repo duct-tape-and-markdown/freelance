@@ -59,11 +59,11 @@ describe("Daemon HTTP API", () => {
 
   beforeAll(async () => {
     const graphs = loadFixtures("valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
-    const persistDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-persist-"));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-state-"));
     const daemon = createDaemon(graphs, {
       port: 0,
       host: "127.0.0.1",
-      persistDir,
+      stateDb: path.join(tmpDir, "state.db"),
     });
     server = daemon.server;
 

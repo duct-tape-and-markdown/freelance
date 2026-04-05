@@ -2,8 +2,8 @@ import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { TraversalManager } from "./traversal-manager.js";
 import { TraversalStore } from "./state/index.js";
+import { openStateDatabase } from "./state/index.js";
 import { EngineError } from "./errors.js";
 import { VERSION } from "./version.js";
 import { getGuide } from "./guide.js";
@@ -40,17 +40,16 @@ export interface ServerOptions {
   loadErrors?: Array<{ file: string; message: string }>;
   /** Memory configuration — enables persistent knowledge graph */
   memory?: MemoryConfig;
-  /** Path to SQLite database for stateless traversal state. When set, uses TraversalStore instead of in-memory TraversalManager. */
-  stateDb?: string;
+  /** Path to SQLite database for traversal state. Required. */
+  stateDb: string;
 }
 
 export function createServer(
   graphs: Map<string, ValidatedGraph>,
   options?: ServerOptions
-): { server: McpServer; stopWatcher?: () => void; memoryStore?: MemoryStore; manager: TraversalManager | TraversalStore } {
-  const manager = options?.stateDb
-    ? new TraversalStore(options.stateDb, graphs, options)
-    : new TraversalManager(graphs, options);
+): { server: McpServer; stopWatcher?: () => void; memoryStore?: MemoryStore; manager: TraversalStore } {
+  const db = openStateDatabase(options?.stateDb ?? ":memory:");
+  const manager = new TraversalStore(db, graphs, options);
 
   // Mutable load errors — updated by watcher on reload
   let currentLoadErrors: Array<{ file: string; message: string }> = options?.loadErrors ?? [];
@@ -445,7 +444,7 @@ export async function startServer(
   const shutdown = async () => {
     if (stopWatcher) stopWatcher();
     if (memoryStore) memoryStore.close();
-    if ("close" in manager) (manager as TraversalStore).close();
+    manager.close();
     await server.close();
     process.exit(0);
   };
