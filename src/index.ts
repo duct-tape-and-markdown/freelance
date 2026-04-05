@@ -17,6 +17,19 @@ import { extractSection } from "./section-resolver.js";
 import yaml from "js-yaml";
 import type { MemoryConfig } from "./memory/index.js";
 
+function resolveMemoryDbPath(): string | null {
+  // Check config in default graph directories
+  const dirs = resolveGraphsDirs();
+  const config = loadMemoryConfig(dirs);
+  if (config?.enabled && config.db) return config.db;
+
+  // Check if memory.db exists in .freelance/
+  const defaultPath = path.join(".freelance", "memory.db");
+  if (fs.existsSync(defaultPath)) return defaultPath;
+
+  return null;
+}
+
 function resolveStateDb(graphsDirs: string[]): string {
   // Use the first graphsDir as the location for state.db
   for (const dir of graphsDirs) {
@@ -266,24 +279,34 @@ traversalsCmd
 program
   .command("memory-register <file>")
   .description("Register a file as a provenance source (used by Claude Code hooks)")
-  .action(async (file) => {
-    // This is called by the PreToolUse hook on Read.
-    // It needs to talk to a running memory session. For now, this is a
-    // passthrough to the MCP tool — the hook invokes the CLI, which
-    // registers the source with the active memory session via the daemon.
-    // In standalone MCP mode, the hook calls the tool directly.
-    //
-    // For the initial implementation, this validates the file exists
-    // and prints the hash — the actual registration happens via MCP.
-    const { hashContent } = await import("./sources.js");
+  .option("--db <path>", "Path to memory database")
+  .option("--source-root <path>", "Source root for relative path storage")
+  .action(async (file, opts) => {
+    const { MemoryStore } = await import("./memory/index.js");
+
+    // Resolve the database path
+    const dbPath = opts.db ?? resolveMemoryDbPath();
+    if (!dbPath) {
+      // No memory database configured — silently exit.
+      // The hook fires on every Read; if memory isn't enabled, that's fine.
+      process.exit(0);
+    }
+
+    const sourceRoot = opts.sourceRoot ?? process.cwd();
     try {
-      const content = fs.readFileSync(path.resolve(file), "utf-8");
-      const hash = hashContent(content);
+      const store = new MemoryStore(dbPath, sourceRoot);
+      const result = store.registerSource(file);
+      store.close();
       if (!program.opts().quiet) {
-        process.stdout.write(JSON.stringify({ file_path: file, content_hash: hash }) + "\n");
+        process.stdout.write(JSON.stringify(result) + "\n");
       }
-    } catch {
-      fatal(`Cannot read file: ${file}`, EXIT.GENERAL_ERROR);
+    } catch (e) {
+      // No active session or file unreadable — silently exit.
+      // The hook shouldn't block the agent's Read tool.
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!program.opts().quiet) {
+        process.stderr.write(`memory-register: ${msg}\n`);
+      }
     }
   });
 
