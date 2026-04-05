@@ -81,8 +81,9 @@ describe("Memory MCP tools", () => {
     // Begin session
     const beginResult = await client.callTool({ name: "memory_begin", arguments: {} });
     expect(beginResult.isError).toBeFalsy();
-    const begin = parseContent(beginResult) as { session_id: string };
+    const begin = parseContent(beginResult) as { session_id: string; total_propositions: number };
     expect(begin.session_id).toBeTruthy();
+    expect(begin.total_propositions).toBe(0);
 
     // Register source
     const regResult = await client.callTool({

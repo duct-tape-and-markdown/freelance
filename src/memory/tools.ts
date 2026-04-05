@@ -6,20 +6,8 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { jsonResponse, errorResponse } from "../mcp-helpers.js";
 import type { MemoryStore } from "./store.js";
-
-function jsonResponse(result: unknown) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-  };
-}
-
-function errorResponse(message: string) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify({ error: message }, null, 2) }],
-    isError: true as const,
-  };
-}
 
 function handleError(e: unknown) {
   const message = e instanceof Error ? e.message : String(e);
@@ -31,7 +19,7 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_begin",
-    "Start a memory compilation session. Returns current entity count, valid/stale proposition counts. Must be called before memory_emit or memory_register_source.",
+    "Start a memory compilation session. Returns current entity and proposition counts. Must be called before memory_emit or memory_register_source.",
     {},
     () => {
       try {
@@ -172,8 +160,8 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
     "memory_gaps",
     "Find planned behavior without matching implementation. Compares propositions sourced from spec/plan files against those sourced from code files. Returns unimplemented plans, unplanned implementations, and matches.",
     {
-      specPatterns: z.array(z.string()).optional().describe("File patterns for spec/plan files (SQL LIKE syntax, default: %.md, %.txt, etc.)"),
-      implPatterns: z.array(z.string()).optional().describe("File patterns for implementation files (SQL LIKE syntax, default: %.ts, %.js, etc.)"),
+      specPatterns: z.array(z.string()).optional().describe("File extensions for spec/plan files (e.g. [\".md\", \".txt\"]). Default: .md, .txt, .rst"),
+      implPatterns: z.array(z.string()).optional().describe("File extensions for implementation files (e.g. [\".ts\", \".py\"]). Default: .ts, .js, .tsx, .jsx, .py, .go, .rs"),
     },
     ({ specPatterns, implPatterns }) => {
       try {

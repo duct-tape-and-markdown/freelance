@@ -9,6 +9,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type Database from "better-sqlite3";
+import { hashContent } from "../sources.js";
 import { openDatabase } from "./db.js";
 import type {
   EntityRow,
@@ -35,14 +36,6 @@ function generateId(): string {
 
 function now(): string {
   return new Date().toISOString();
-}
-
-function hashContent(content: string): string {
-  return crypto
-    .createHash("sha256")
-    .update(content.replace(/\r\n/g, "\n").trimEnd())
-    .digest("hex")
-    .substring(0, 16);
 }
 
 function hashFile(filePath: string): string | null {
@@ -85,12 +78,14 @@ export class MemoryStore {
 
     this.db.prepare("INSERT INTO sessions (id, started_at) VALUES (?, ?)").run(sessionId, timestamp);
 
-    const status = this.getStatusInternal();
+    // Cheap counts — no provenance validation on begin
+    const totalEntities = (this.db.prepare("SELECT COUNT(*) as count FROM entities").get() as { count: number }).count;
+    const totalProps = (this.db.prepare("SELECT COUNT(*) as count FROM propositions").get() as { count: number }).count;
+
     return {
       session_id: sessionId,
-      entities: status.total_entities,
-      valid_propositions: status.valid_propositions,
-      stale: status.stale_propositions,
+      entities: totalEntities,
+      total_propositions: totalProps,
     };
   }
 
@@ -109,12 +104,16 @@ export class MemoryStore {
       "SELECT COUNT(*) as count FROM session_files WHERE session_id = ?"
     ).get(sessionId) as { count: number }).count;
 
+    // Count via proposition_sessions — includes both new and deduplicated
     const propCount = (this.db.prepare(
-      "SELECT COUNT(*) as count FROM propositions WHERE session_id = ?"
+      "SELECT COUNT(*) as count FROM proposition_sessions WHERE session_id = ?"
     ).get(sessionId) as { count: number }).count;
 
     const entityCount = (this.db.prepare(
-      "SELECT COUNT(DISTINCT entity_id) as count FROM about WHERE proposition_id IN (SELECT id FROM propositions WHERE session_id = ?)"
+      `SELECT COUNT(DISTINCT a.entity_id) as count
+       FROM about a
+       JOIN proposition_sessions ps ON a.proposition_id = ps.proposition_id
+       WHERE ps.session_id = ?`
     ).get(sessionId) as { count: number }).count;
 
     this.activeSessionId = null;
@@ -320,18 +319,19 @@ export class MemoryStore {
        LIMIT ? OFFSET ?`
     ).all(...params, limit, offset) as Array<EntityRow & { proposition_count: number }>;
 
-    const entities: EntityInfo[] = rows.map((row) => {
-      const validCount = this.countValidPropositionsForEntity(row.id);
-      return {
-        id: row.id,
-        name: row.name,
-        kind: row.kind,
-        scope: row.scope,
-        summary: row.summary,
-        proposition_count: row.proposition_count,
-        valid_proposition_count: validCount,
-      };
-    });
+    // Batch-validate: collect all unique (file_path, content_hash) pairs
+    // across all propositions for all returned entities in one pass
+    const validityMap = this.batchValidateForEntities(rows.map((r) => r.id));
+
+    const entities: EntityInfo[] = rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      kind: row.kind,
+      scope: row.scope,
+      summary: row.summary,
+      proposition_count: row.proposition_count,
+      valid_proposition_count: validityMap.get(row.id) ?? 0,
+    }));
 
     return { entities, total: countRow.total };
   }
@@ -414,9 +414,11 @@ export class MemoryStore {
       ? path.relative(this.sourceRoot, filePath)
       : filePath;
 
+    // Propositions from any session that included this file
     const propRows = this.db.prepare(
       `SELECT DISTINCT p.* FROM propositions p
-       JOIN session_files sf ON p.session_id = sf.session_id
+       JOIN proposition_sessions ps ON p.id = ps.proposition_id
+       JOIN session_files sf ON ps.session_id = sf.session_id
        WHERE sf.file_path = ?
        ORDER BY p.created_at DESC`
     ).all(storedPath) as PropositionRow[];
@@ -429,14 +431,35 @@ export class MemoryStore {
 
   status(): StatusResult {
     this.fileHashCache.clear();
-    return this.getStatusInternal();
+
+    const totalProps = (this.db.prepare("SELECT COUNT(*) as count FROM propositions").get() as { count: number }).count;
+    const totalEntities = (this.db.prepare("SELECT COUNT(*) as count FROM entities").get() as { count: number }).count;
+    const totalSessions = (this.db.prepare("SELECT COUNT(*) as count FROM sessions").get() as { count: number }).count;
+
+    // Batch validation: get all unique (file_path, content_hash) pairs,
+    // hash each file once, then count valid propositions via SQL
+    const validCount = this.batchCountValidPropositions();
+
+    return {
+      total_propositions: totalProps,
+      valid_propositions: validCount,
+      stale_propositions: totalProps - validCount,
+      total_entities: totalEntities,
+      total_sessions: totalSessions,
+      active_session: this.activeSessionId,
+    };
   }
 
   gaps(options?: { specPatterns?: string[]; implPatterns?: string[] }): GapsResult {
     this.fileHashCache.clear();
 
-    const specPatterns = options?.specPatterns ?? ["%.md", "%.txt", "%spec%", "%plan%", "%req%", "%doc%"];
-    const implPatterns = options?.implPatterns ?? ["%.ts", "%.js", "%.tsx", "%.jsx", "%.py", "%.go", "%.rs"];
+    // Default patterns: spec = documentation, impl = code
+    const specExts = options?.specPatterns ?? [".md", ".txt", ".rst"];
+    const implExts = options?.implPatterns ?? [".ts", ".js", ".tsx", ".jsx", ".py", ".go", ".rs"];
+
+    // Convert extensions to SQL LIKE patterns
+    const specLike = specExts.map((ext) => `%${ext}`);
+    const implLike = implExts.map((ext) => `%${ext}`);
 
     // Find spec-sourced propositions (from sessions that included spec-like files)
     const specProps = this.db.prepare(
@@ -444,8 +467,8 @@ export class MemoryStore {
        FROM propositions p
        JOIN proposition_sessions ps ON p.id = ps.proposition_id
        JOIN session_files sf ON ps.session_id = sf.session_id
-       WHERE ${specPatterns.map(() => "sf.file_path LIKE ?").join(" OR ")}`
-    ).all(...specPatterns) as Array<{ id: string; content: string; content_hash: string; file_path: string }>;
+       WHERE ${specLike.map(() => "sf.file_path LIKE ?").join(" OR ")}`
+    ).all(...specLike) as Array<{ id: string; content: string; content_hash: string; file_path: string }>;
 
     // Find impl-sourced propositions
     const implProps = this.db.prepare(
@@ -453,8 +476,8 @@ export class MemoryStore {
        FROM propositions p
        JOIN proposition_sessions ps ON p.id = ps.proposition_id
        JOIN session_files sf ON ps.session_id = sf.session_id
-       WHERE ${implPatterns.map(() => "sf.file_path LIKE ?").join(" OR ")}`
-    ).all(...implPatterns) as Array<{ id: string; content: string; content_hash: string; file_path: string }>;
+       WHERE ${implLike.map(() => "sf.file_path LIKE ?").join(" OR ")}`
+    ).all(...implLike) as Array<{ id: string; content: string; content_hash: string; file_path: string }>;
 
     const specHashes = new Map(specProps.map((p) => [p.content_hash, p]));
     const implHashes = new Map(implProps.map((p) => [p.content_hash, p]));
@@ -503,23 +526,87 @@ export class MemoryStore {
     return hash;
   }
 
-  private isPropositionValid(propositionId: string): boolean {
-    const sessionFiles = this.db.prepare(
-      `SELECT sf.file_path, sf.content_hash
-       FROM session_files sf
-       JOIN propositions p ON p.session_id = sf.session_id
-       WHERE p.id = ?`
-    ).all(propositionId) as SessionFileRow[];
+  /**
+   * Batch-count valid propositions across the entire store.
+   * Gets all unique (file_path, content_hash) pairs, hashes each file once,
+   * then determines which sessions are fully valid, and counts their propositions.
+   */
+  private batchCountValidPropositions(): number {
+    // Get all unique file paths referenced by any session
+    const allFiles = this.db.prepare(
+      "SELECT DISTINCT file_path, content_hash, session_id FROM session_files"
+    ).all() as Array<{ file_path: string; content_hash: string; session_id: string }>;
 
-    if (sessionFiles.length === 0) return true; // No provenance = always valid
+    if (allFiles.length === 0) {
+      // No provenance at all — all propositions are valid
+      return (this.db.prepare("SELECT COUNT(*) as count FROM propositions").get() as { count: number }).count;
+    }
 
-    for (const sf of sessionFiles) {
-      const currentHash = this.getCurrentFileHash(sf.file_path);
-      if (currentHash === null || currentHash !== sf.content_hash) {
-        return false;
+    // Hash each unique file once
+    const staleSessionIds = new Set<string>();
+    for (const { file_path, content_hash, session_id } of allFiles) {
+      const currentHash = this.getCurrentFileHash(file_path);
+      if (currentHash === null || currentHash !== content_hash) {
+        staleSessionIds.add(session_id);
       }
     }
-    return true;
+
+    if (staleSessionIds.size === 0) {
+      // All sessions valid
+      return (this.db.prepare("SELECT COUNT(*) as count FROM propositions").get() as { count: number }).count;
+    }
+
+    // Count propositions whose session is NOT stale
+    const placeholders = [...staleSessionIds].map(() => "?").join(",");
+    const staleCount = (this.db.prepare(
+      `SELECT COUNT(*) as count FROM propositions WHERE session_id IN (${placeholders})`
+    ).get(...staleSessionIds) as { count: number }).count;
+
+    const totalProps = (this.db.prepare("SELECT COUNT(*) as count FROM propositions").get() as { count: number }).count;
+    return totalProps - staleCount;
+  }
+
+  /**
+   * Batch-validate propositions for a set of entities.
+   * Returns a map of entity_id → valid_proposition_count.
+   */
+  private batchValidateForEntities(entityIds: string[]): Map<string, number> {
+    const result = new Map<string, number>();
+    if (entityIds.length === 0) return result;
+
+    // Build the set of stale session IDs first
+    const allFiles = this.db.prepare(
+      "SELECT DISTINCT file_path, content_hash, session_id FROM session_files"
+    ).all() as Array<{ file_path: string; content_hash: string; session_id: string }>;
+
+    const staleSessionIds = new Set<string>();
+    for (const { file_path, content_hash, session_id } of allFiles) {
+      const currentHash = this.getCurrentFileHash(file_path);
+      if (currentHash === null || currentHash !== content_hash) {
+        staleSessionIds.add(session_id);
+      }
+    }
+
+    // For each entity, count propositions that are NOT in stale sessions
+    for (const entityId of entityIds) {
+      if (staleSessionIds.size === 0) {
+        // All valid — just count
+        const count = (this.db.prepare(
+          "SELECT COUNT(*) as count FROM about WHERE entity_id = ?"
+        ).get(entityId) as { count: number }).count;
+        result.set(entityId, count);
+      } else {
+        const placeholders = [...staleSessionIds].map(() => "?").join(",");
+        const count = (this.db.prepare(
+          `SELECT COUNT(*) as count FROM about a
+           JOIN propositions p ON a.proposition_id = p.id
+           WHERE a.entity_id = ? AND p.session_id NOT IN (${placeholders})`
+        ).get(entityId, ...staleSessionIds) as { count: number }).count;
+        result.set(entityId, count);
+      }
+    }
+
+    return result;
   }
 
   private enrichProposition(row: PropositionRow): PropositionInfo {
@@ -545,45 +632,6 @@ export class MemoryStore {
       created_at: row.created_at,
       valid,
       source_files: sourceFiles,
-    };
-  }
-
-  private countValidPropositionsForEntity(entityId: string): number {
-    const propIds = this.db.prepare(
-      "SELECT proposition_id FROM about WHERE entity_id = ?"
-    ).all(entityId) as Array<{ proposition_id: string }>;
-
-    let count = 0;
-    for (const { proposition_id } of propIds) {
-      if (this.isPropositionValid(proposition_id)) {
-        count++;
-      }
-    }
-    return count;
-  }
-
-  private getStatusInternal(): StatusResult {
-    const totalProps = (this.db.prepare("SELECT COUNT(*) as count FROM propositions").get() as { count: number }).count;
-    const totalEntities = (this.db.prepare("SELECT COUNT(*) as count FROM entities").get() as { count: number }).count;
-    const totalSessions = (this.db.prepare("SELECT COUNT(*) as count FROM sessions").get() as { count: number }).count;
-
-    let validCount = 0;
-    if (totalProps > 0) {
-      const allProps = this.db.prepare("SELECT id FROM propositions").all() as Array<{ id: string }>;
-      for (const { id } of allProps) {
-        if (this.isPropositionValid(id)) {
-          validCount++;
-        }
-      }
-    }
-
-    return {
-      total_propositions: totalProps,
-      valid_propositions: validCount,
-      stale_propositions: totalProps - validCount,
-      total_entities: totalEntities,
-      total_sessions: totalSessions,
-      active_session: this.activeSessionId,
     };
   }
 

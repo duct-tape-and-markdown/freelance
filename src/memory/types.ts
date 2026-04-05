@@ -148,8 +148,7 @@ export interface SessionInfo {
 export interface BeginResult {
   session_id: string;
   entities: number;
-  valid_propositions: number;
-  stale: number;
+  total_propositions: number;
 }
 
 export interface EndResult {

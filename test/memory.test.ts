@@ -34,8 +34,7 @@ describe("MemoryStore", () => {
       const begin = store.begin();
       expect(begin.session_id).toBeTruthy();
       expect(begin.entities).toBe(0);
-      expect(begin.valid_propositions).toBe(0);
-      expect(begin.stale).toBe(0);
+      expect(begin.total_propositions).toBe(0);
 
       const end = store.end();
       expect(end.session_id).toBe(begin.session_id);
@@ -59,6 +58,25 @@ describe("MemoryStore", () => {
 
     it("rejects register without begin", () => {
       expect(() => store.registerSource("test.ts")).toThrow("No active session");
+    });
+
+    it("end counts deduplicated propositions", () => {
+      // Session 1: create a proposition
+      store.begin();
+      store.emit([{ content: "Foo exists.", entities: ["Foo"] }]);
+      store.end();
+
+      // Session 2: emit same content (deduplicated) + a new one
+      store.begin();
+      store.emit([
+        { content: "Foo exists.", entities: ["Foo"] },
+        { content: "Bar exists.", entities: ["Bar"] },
+      ]);
+      const end = store.end();
+
+      // Should count both: 1 deduped + 1 new = 2
+      expect(end.propositions_emitted).toBe(2);
+      expect(end.entities_referenced).toBe(2);
     });
   });
 
@@ -412,7 +430,7 @@ describe("MemoryStore", () => {
 
       const begin2 = store.begin();
       expect(begin2.entities).toBe(1);
-      expect(begin2.valid_propositions).toBeGreaterThanOrEqual(0);
+      expect(begin2.total_propositions).toBe(1);
       store.end();
     });
   });

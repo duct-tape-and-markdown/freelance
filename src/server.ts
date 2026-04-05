@@ -14,20 +14,7 @@ import type { SourceRef, SectionResolver, SourceOptions } from "./sources.js";
 import type { ValidatedGraph } from "./types.js";
 import { MemoryStore, registerMemoryTools } from "./memory/index.js";
 import type { MemoryConfig } from "./memory/index.js";
-
-function jsonResponse(result: unknown) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-  };
-}
-
-function errorResponse(message: string, detail?: unknown) {
-  const payload = detail ?? { error: message };
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
-    isError: true as const,
-  };
-}
+import { jsonResponse, errorResponse } from "./mcp-helpers.js";
 
 function handleError(e: unknown) {
   if (e instanceof EngineError) {
