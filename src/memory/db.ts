@@ -37,10 +37,12 @@ CREATE TABLE IF NOT EXISTS propositions (
   id TEXT PRIMARY KEY,
   content TEXT NOT NULL,
   content_hash TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'observation',
   session_id TEXT NOT NULL REFERENCES sessions(id),
   created_at TEXT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_prop_hash ON propositions(content_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_prop_hash_kind ON propositions(content_hash, kind);
+CREATE INDEX IF NOT EXISTS idx_prop_kind ON propositions(kind);
 CREATE INDEX IF NOT EXISTS idx_prop_session ON propositions(session_id);
 
 CREATE TABLE IF NOT EXISTS about (

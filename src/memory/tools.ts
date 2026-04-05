@@ -47,11 +47,12 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_emit",
-    "Write atomic propositions to memory. Each proposition is a single, self-contained claim with 1-2 entity references. Deduplicates by content hash. Requires an active session (call memory_begin first).",
+    "Write atomic propositions to memory. Each proposition is a single, self-contained claim with 1-2 entity references. Deduplicates by content hash within the same kind. Use kind 'intent' for what code should do (from specs, plans, requirements). Use kind 'observation' (default) for what code actually does. Requires an active session (call memory_begin first).",
     {
       propositions: z.array(z.object({
         content: z.string().min(1).describe("The atomic proposition — one self-contained claim"),
         entities: z.array(z.string().min(1)).min(1).max(2).describe("Entity names this proposition is about (1-2)"),
+        kind: z.enum(["intent", "observation"]).default("observation").optional().describe("'intent' = what code should do, 'observation' = what code actually does"),
         relatesTo: z.array(z.string()).optional().describe("IDs of related propositions"),
       })).min(1),
     },
@@ -158,14 +159,11 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_gaps",
-    "Find planned behavior without matching implementation. Compares propositions sourced from spec/plan files against those sourced from code files. Returns unimplemented plans, unplanned implementations, and matches.",
-    {
-      specPatterns: z.array(z.string()).optional().describe("File extensions for spec/plan files (e.g. [\".md\", \".txt\"]). Default: .md, .txt, .rst"),
-      implPatterns: z.array(z.string()).optional().describe("File extensions for implementation files (e.g. [\".ts\", \".py\"]). Default: .ts, .js, .tsx, .jsx, .py, .go, .rs"),
-    },
-    ({ specPatterns, implPatterns }) => {
+    "Compare intent propositions (what code should do) against observation propositions (what code actually does). Returns unimplemented intents, unplanned observations, and matches where intent and observation agree.",
+    {},
+    () => {
       try {
-        return jsonResponse(store.gaps({ specPatterns, implPatterns }));
+        return jsonResponse(store.gaps());
       } catch (e) {
         return handleError(e);
       }

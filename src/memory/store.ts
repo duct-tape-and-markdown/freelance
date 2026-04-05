@@ -181,7 +181,7 @@ export class MemoryStore {
     };
 
     const insertProp = this.db.prepare(
-      "INSERT INTO propositions (id, content, content_hash, session_id, created_at) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO propositions (id, content, content_hash, kind, session_id, created_at) VALUES (?, ?, ?, ?, ?, ?)"
     );
     const insertAbout = this.db.prepare(
       "INSERT OR IGNORE INTO about (proposition_id, entity_id, role) VALUES (?, ?, ?)"
@@ -196,9 +196,10 @@ export class MemoryStore {
     const emitAll = this.db.transaction(() => {
       for (const prop of propositions) {
         const contentHash = hashContent(prop.content);
+        const kind = prop.kind ?? "observation";
         const existing = this.db.prepare(
-          "SELECT id FROM propositions WHERE content_hash = ?"
-        ).get(contentHash) as { id: string } | undefined;
+          "SELECT id FROM propositions WHERE content_hash = ? AND kind = ?"
+        ).get(contentHash, kind) as { id: string } | undefined;
 
         const propResult: EmitResult["propositions"][number] = {
           id: "",
@@ -216,7 +217,7 @@ export class MemoryStore {
         } else {
           propId = generateId();
           const timestamp = now();
-          insertProp.run(propId, prop.content, contentHash, this.activeSessionId!, timestamp);
+          insertProp.run(propId, prop.content, contentHash, kind, this.activeSessionId!, timestamp);
           propResult.id = propId;
           result.created++;
         }
@@ -450,63 +451,43 @@ export class MemoryStore {
     };
   }
 
-  gaps(options?: { specPatterns?: string[]; implPatterns?: string[] }): GapsResult {
-    this.fileHashCache.clear();
+  gaps(): GapsResult {
+    // Intent propositions: what the code should do
+    const intents = this.db.prepare(
+      "SELECT id, content, content_hash FROM propositions WHERE kind = 'intent'"
+    ).all() as Array<{ id: string; content: string; content_hash: string }>;
 
-    // Default patterns: spec = documentation, impl = code
-    const specExts = options?.specPatterns ?? [".md", ".txt", ".rst"];
-    const implExts = options?.implPatterns ?? [".ts", ".js", ".tsx", ".jsx", ".py", ".go", ".rs"];
+    // Observation propositions: what the code actually does
+    const observations = this.db.prepare(
+      "SELECT id, content, content_hash FROM propositions WHERE kind = 'observation'"
+    ).all() as Array<{ id: string; content: string; content_hash: string }>;
 
-    // Convert extensions to SQL LIKE patterns
-    const specLike = specExts.map((ext) => `%${ext}`);
-    const implLike = implExts.map((ext) => `%${ext}`);
-
-    // Find spec-sourced propositions (from sessions that included spec-like files)
-    const specProps = this.db.prepare(
-      `SELECT DISTINCT p.id, p.content, p.content_hash, sf.file_path
-       FROM propositions p
-       JOIN proposition_sessions ps ON p.id = ps.proposition_id
-       JOIN session_files sf ON ps.session_id = sf.session_id
-       WHERE ${specLike.map(() => "sf.file_path LIKE ?").join(" OR ")}`
-    ).all(...specLike) as Array<{ id: string; content: string; content_hash: string; file_path: string }>;
-
-    // Find impl-sourced propositions
-    const implProps = this.db.prepare(
-      `SELECT DISTINCT p.id, p.content, p.content_hash, sf.file_path
-       FROM propositions p
-       JOIN proposition_sessions ps ON p.id = ps.proposition_id
-       JOIN session_files sf ON ps.session_id = sf.session_id
-       WHERE ${implLike.map(() => "sf.file_path LIKE ?").join(" OR ")}`
-    ).all(...implLike) as Array<{ id: string; content: string; content_hash: string; file_path: string }>;
-
-    const specHashes = new Map(specProps.map((p) => [p.content_hash, p]));
-    const implHashes = new Map(implProps.map((p) => [p.content_hash, p]));
+    const intentHashes = new Map(intents.map((p) => [p.content_hash, p]));
+    const observationHashes = new Map(observations.map((p) => [p.content_hash, p]));
 
     const result: GapsResult = { unimplemented: [], unplanned: [], matched: [] };
 
-    for (const [hash, spec] of specHashes) {
-      const impl = implHashes.get(hash);
-      if (impl) {
+    for (const [hash, intent] of intentHashes) {
+      const obs = observationHashes.get(hash);
+      if (obs) {
         result.matched.push({
-          content: spec.content,
-          plan_source: spec.file_path,
-          impl_source: impl.file_path,
+          content: intent.content,
+          intent_id: intent.id,
+          observation_id: obs.id,
         });
       } else {
         result.unimplemented.push({
-          content: spec.content,
-          source: spec.file_path,
-          proposition_id: spec.id,
+          content: intent.content,
+          proposition_id: intent.id,
         });
       }
     }
 
-    for (const [hash, impl] of implHashes) {
-      if (!specHashes.has(hash)) {
+    for (const [hash, obs] of observationHashes) {
+      if (!intentHashes.has(hash)) {
         result.unplanned.push({
-          content: impl.content,
-          source: impl.file_path,
-          proposition_id: impl.id,
+          content: obs.content,
+          proposition_id: obs.id,
         });
       }
     }
@@ -628,6 +609,7 @@ export class MemoryStore {
     return {
       id: row.id,
       content: row.content,
+      kind: row.kind,
       session_id: row.session_id,
       created_at: row.created_at,
       valid,

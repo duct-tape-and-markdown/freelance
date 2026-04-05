@@ -358,45 +358,89 @@ describe("MemoryStore", () => {
   });
 
   describe("gaps", () => {
-    it("identifies unimplemented plans", () => {
-      // Spec session
-      writeFile(tmpDir, "spec.md", "# Auth Spec");
+    it("identifies unimplemented intents", () => {
       store.begin();
-      store.registerSource("spec.md");
       store.emit([
-        { content: "Auth should validate tokens.", entities: ["Auth"] },
-        { content: "Auth should support refresh.", entities: ["Auth"] },
+        { content: "Auth validates tokens.", entities: ["Auth"], kind: "intent" },
+        { content: "Auth supports refresh.", entities: ["Auth"], kind: "intent" },
       ]);
-      store.end();
-
-      // Implementation session
-      writeFile(tmpDir, "auth.ts", "class Auth {}");
-      store.begin();
-      store.registerSource("auth.ts");
+      // Same content as first intent, but as observation = match
       store.emit([
-        { content: "Auth should validate tokens.", entities: ["Auth"] }, // same content = match
+        { content: "Auth validates tokens.", entities: ["Auth"], kind: "observation" },
       ]);
       store.end();
 
       const result = store.gaps();
       expect(result.matched).toHaveLength(1);
-      expect(result.matched[0].content).toBe("Auth should validate tokens.");
+      expect(result.matched[0].content).toBe("Auth validates tokens.");
       expect(result.unimplemented).toHaveLength(1);
-      expect(result.unimplemented[0].content).toBe("Auth should support refresh.");
+      expect(result.unimplemented[0].content).toBe("Auth supports refresh.");
     });
 
-    it("identifies unplanned implementations", () => {
-      writeFile(tmpDir, "auth.ts", "class Auth {}");
+    it("identifies unplanned observations", () => {
       store.begin();
-      store.registerSource("auth.ts");
       store.emit([
-        { content: "Auth logs failed attempts.", entities: ["Auth"] },
+        { content: "Auth logs failed attempts.", entities: ["Auth"], kind: "observation" },
       ]);
       store.end();
 
       const result = store.gaps();
       expect(result.unplanned).toHaveLength(1);
       expect(result.unplanned[0].content).toBe("Auth logs failed attempts.");
+    });
+
+    it("works with mixed-kind emissions in a single session", () => {
+      // Both intent and observation in the same session — should still work
+      store.begin();
+      store.emit([
+        { content: "Auth validates tokens.", entities: ["Auth"], kind: "intent" },
+        { content: "Auth validates tokens.", entities: ["Auth"], kind: "observation" },
+        { content: "Auth supports refresh.", entities: ["Auth"], kind: "intent" },
+        { content: "Auth logs errors.", entities: ["Auth"], kind: "observation" },
+      ]);
+      store.end();
+
+      const result = store.gaps();
+      expect(result.matched).toHaveLength(1);
+      expect(result.matched[0].content).toBe("Auth validates tokens.");
+      expect(result.unimplemented).toHaveLength(1);
+      expect(result.unimplemented[0].content).toBe("Auth supports refresh.");
+      expect(result.unplanned).toHaveLength(1);
+      expect(result.unplanned[0].content).toBe("Auth logs errors.");
+    });
+
+    it("defaults to observation when kind not specified", () => {
+      store.begin();
+      store.emit([
+        { content: "Auth exists.", entities: ["Auth"] }, // no kind = observation
+      ]);
+      store.end();
+
+      const result = store.gaps();
+      expect(result.unplanned).toHaveLength(1);
+      expect(result.unimplemented).toHaveLength(0);
+    });
+
+    it("same content deduplicates within same kind but not across kinds", () => {
+      store.begin();
+      store.emit([
+        { content: "Auth validates tokens.", entities: ["Auth"], kind: "intent" },
+      ]);
+      // Emitting same content as intent again = deduplicated
+      const r2 = store.emit([
+        { content: "Auth validates tokens.", entities: ["Auth"], kind: "intent" },
+      ]);
+      expect(r2.deduplicated).toBe(1);
+
+      // Same content as observation = new proposition
+      const r3 = store.emit([
+        { content: "Auth validates tokens.", entities: ["Auth"], kind: "observation" },
+      ]);
+      expect(r3.created).toBe(1);
+      store.end();
+
+      const result = store.gaps();
+      expect(result.matched).toHaveLength(1);
     });
   });
 

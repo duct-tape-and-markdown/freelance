@@ -28,10 +28,13 @@ export interface SessionFileRow {
   content_hash: string;
 }
 
+export type PropositionKind = "intent" | "observation";
+
 export interface PropositionRow {
   id: string;
   content: string;
   content_hash: string;
+  kind: PropositionKind;
   session_id: string;
   created_at: string;
 }
@@ -53,6 +56,7 @@ export interface RelatesToRow {
 export interface EmitProposition {
   content: string;
   entities: string[];
+  kind?: PropositionKind;
   relatesTo?: string[];
 }
 
@@ -82,6 +86,7 @@ export interface EntityInfo {
 export interface PropositionInfo {
   id: string;
   content: string;
+  kind: PropositionKind;
   session_id: string;
   created_at: string;
   valid: boolean;
@@ -120,15 +125,14 @@ export interface StatusResult {
 }
 
 export interface GapEntry {
-  content: string;
-  source: string;
   proposition_id: string;
+  content: string;
 }
 
 export interface MatchEntry {
   content: string;
-  plan_source: string;
-  impl_source: string;
+  intent_id: string;
+  observation_id: string;
 }
 
 export interface GapsResult {
