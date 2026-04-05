@@ -70,11 +70,14 @@ Override with `--source-root <path>` (CLI) or `sourceRoot` (ServerOptions).
   - `wait.ts` — Wait condition evaluation and timeout handling
   - `returns.ts` — Return schema validation
   - `helpers.ts` — Shared utilities (cloneContext, toNodeInfo)
-- `src/traversal-manager.ts` — Multi-traversal management with GUID addressing and persistence
+- `src/state/` — Stateless traversal store backed by SQLite
+  - `traversal-store.ts` — Multi-traversal management, loads/saves state per operation
+  - `db.ts` — SQLite schema for traversal state
+- `src/builder.ts` — Programmatic workflow graph construction (GraphBuilder)
 - `src/graph-resolution.ts` — Graph directory resolution and loading (env var, project, user cascading)
-- `src/daemon.ts` — HTTP daemon server wrapping TraversalManager, PID file management, shutdown handlers
+- `src/daemon.ts` — HTTP daemon server wrapping TraversalStore, PID file management, shutdown handlers
 - `src/proxy.ts` — MCP proxy that bridges stdio to daemon HTTP API
-- `src/server.ts` — MCP tool surface (6 tools wrapping TraversalManager)
+- `src/server.ts` — MCP tool surface (6 tools wrapping TraversalStore)
 - `src/cli/` — CLI subcommand handlers (init, validate, visualize, daemon, traversals, output)
   - `cli/clients.ts` — Client detection (claude-code, cursor, windsurf, cline) and display helpers
 - `src/index.ts` — CLI entry point (Commander.js, command dispatch only)

@@ -2,7 +2,8 @@ import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { TraversalManager } from "./traversal-manager.js";
+import { TraversalStore } from "./state/index.js";
+import { openStateDatabase } from "./state/index.js";
 import { EngineError } from "./errors.js";
 import { VERSION } from "./version.js";
 import { getGuide } from "./guide.js";
@@ -12,20 +13,11 @@ import { findGraphFiles, loadSingleGraph, validateCrossGraphRefs } from "./loade
 import { hashSources, checkSourcesDetailed, validateGraphSources, getDetailedDrift } from "./sources.js";
 import type { SourceRef, SectionResolver, SourceOptions } from "./sources.js";
 import type { ValidatedGraph } from "./types.js";
-
-function jsonResponse(result: unknown) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-  };
-}
-
-function errorResponse(message: string, detail?: unknown) {
-  const payload = detail ?? { error: message };
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
-    isError: true as const,
-  };
-}
+import { MemoryStore, registerMemoryTools } from "./memory/index.js";
+import type { MemoryConfig } from "./memory/index.js";
+import { buildCompileKnowledgeWorkflow, COMPILE_KNOWLEDGE_ID } from "./memory/workflow.js";
+import { buildRecollectionWorkflow, RECOLLECTION_ID } from "./memory/recollection.js";
+import { jsonResponse, errorResponse } from "./mcp-helpers.js";
 
 function handleError(e: unknown) {
   if (e instanceof EngineError) {
@@ -38,7 +30,6 @@ function handleError(e: unknown) {
 
 export interface ServerOptions {
   maxDepth?: number;
-  persistDir?: string;
   graphsDirs?: string[];
   sectionResolver?: SectionResolver;
   /** Check source bindings at freelance_start (default: false). Provenance is a build concern. */
@@ -47,13 +38,18 @@ export interface ServerOptions {
   sourceRoot?: string;
   /** Structured errors from graph loading — surfaced in freelance_list */
   loadErrors?: Array<{ file: string; message: string }>;
+  /** Memory configuration — enables persistent knowledge graph */
+  memory?: MemoryConfig;
+  /** Path to SQLite database for traversal state. Falls back to :memory: if not set. */
+  stateDb?: string;
 }
 
 export function createServer(
   graphs: Map<string, ValidatedGraph>,
   options?: ServerOptions
-): { server: McpServer; stopWatcher?: () => void } {
-  const manager = new TraversalManager(graphs, options);
+): { server: McpServer; stopWatcher?: () => void; memoryStore?: MemoryStore; manager: TraversalStore } {
+  const db = openStateDatabase(options?.stateDb ?? ":memory:");
+  const manager = new TraversalStore(db, graphs, options);
 
   // Mutable load errors — updated by watcher on reload
   let currentLoadErrors: Array<{ file: string; message: string }> = options?.loadErrors ?? [];
@@ -420,19 +416,42 @@ export function createServer(
     }
   );
 
-  return { server, stopWatcher };
+  // --- Memory ---
+  let memoryStore: MemoryStore | undefined;
+  if (options?.memory?.enabled && options.memory.db) {
+    memoryStore = new MemoryStore(options.memory.db, options.sourceRoot, options.memory.ignore);
+    registerMemoryTools(server, memoryStore);
+
+    // Inject sealed memory workflows
+    let injected = false;
+    if (!graphs.has(COMPILE_KNOWLEDGE_ID)) {
+      graphs.set(COMPILE_KNOWLEDGE_ID, buildCompileKnowledgeWorkflow());
+      injected = true;
+    }
+    if (!graphs.has(RECOLLECTION_ID)) {
+      graphs.set(RECOLLECTION_ID, buildRecollectionWorkflow());
+      injected = true;
+    }
+    if (injected) {
+      manager.updateGraphs(graphs);
+    }
+  }
+
+  return { server, stopWatcher, memoryStore, manager };
 }
 
 export async function startServer(
   graphs: Map<string, ValidatedGraph>,
   options?: ServerOptions
 ): Promise<void> {
-  const { server, stopWatcher } = createServer(graphs, options);
+  const { server, stopWatcher, memoryStore, manager } = createServer(graphs, options);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
   const shutdown = async () => {
     if (stopWatcher) stopWatcher();
+    if (memoryStore) memoryStore.close();
+    manager.close();
     await server.close();
     process.exit(0);
   };

@@ -11,9 +11,59 @@ import { setCli, info, fatal, EXIT } from "./cli/output.js";
 import { daemonStop, daemonStatus, checkRunningDaemon } from "./cli/daemon.js";
 import { parseDaemonConnect, traversalsList, traversalsInspect, traversalsReset } from "./cli/traversals.js";
 import { VERSION } from "./version.js";
-import { TRAVERSALS_DIR, DEFAULT_PORT } from "./paths.js";
+import { DEFAULT_PORT } from "./paths.js";
 import { resolveGraphsDirs, resolveSourceRoot, loadGraphsOrFatal, loadGraphsGraceful } from "./graph-resolution.js";
 import { extractSection } from "./section-resolver.js";
+import yaml from "js-yaml";
+import type { MemoryConfig } from "./memory/index.js";
+
+function resolveMemoryDbPath(): string | null {
+  // Check config in default graph directories
+  const dirs = resolveGraphsDirs();
+  const config = loadMemoryConfig(dirs);
+  if (config?.enabled && config.db) return config.db;
+
+  // Check if memory.db exists in .freelance/
+  const defaultPath = path.join(".freelance", "memory.db");
+  if (fs.existsSync(defaultPath)) return defaultPath;
+
+  return null;
+}
+
+function resolveStateDb(graphsDirs: string[]): string {
+  // Use the first graphsDir as the location for state.db
+  for (const dir of graphsDirs) {
+    if (fs.existsSync(dir)) {
+      return path.join(dir, "state.db");
+    }
+  }
+  return path.join(".freelance", "state.db");
+}
+
+function loadMemoryConfig(graphsDirs: string[]): MemoryConfig | null {
+  for (const dir of graphsDirs) {
+    const configPath = path.join(dir, "config.yml");
+    if (fs.existsSync(configPath)) {
+      try {
+        const raw = fs.readFileSync(configPath, "utf-8");
+        const config = yaml.load(raw) as Record<string, unknown>;
+        if (config?.memory && typeof config.memory === "object") {
+          const mem = config.memory as Record<string, unknown>;
+          if (mem.enabled) {
+            const dbPath = typeof mem.db === "string"
+              ? (path.isAbsolute(mem.db) ? mem.db : path.resolve(dir, mem.db))
+              : path.join(dir, "memory.db");
+            const ignore = Array.isArray(mem.ignore) ? mem.ignore as string[] : undefined;
+            return { enabled: true, db: dbPath, ignore };
+          }
+        }
+      } catch {
+        // Config parse failure — skip memory
+      }
+    }
+  }
+  return null;
+}
 
 // --- Program setup ---
 
@@ -127,8 +177,15 @@ program
       if (loadErrors.length > 0) {
         info(`Freelance: ${loadErrors.length} graph(s) failed validation — call freelance_validate for details`);
       }
+      // Check for memory configuration
+      const memoryConfig = loadMemoryConfig(dirs);
+      if (memoryConfig?.enabled) {
+        info(`Freelance: memory enabled (${memoryConfig.db})`);
+      }
+      // State database for stateless traversal persistence
+      const stateDb = resolveStateDb(dirs);
       info(`Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}, section resolver active`);
-      await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver, sourceRoot, loadErrors });
+      await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver, sourceRoot, loadErrors, memory: memoryConfig ?? undefined, stateDb });
     }
   });
 
@@ -162,13 +219,13 @@ daemonCmd
       fatal("--port must be a valid port number (1-65535)", EXIT.INVALID_USAGE);
     }
     const maxDepth = parseInt(opts.maxDepth, 10);
-    const persistDir = path.resolve(TRAVERSALS_DIR);
 
     const graphs = loadGraphsOrFatal(opts.workflows);
     const graphsDirs = resolveGraphsDirs(opts.workflows);
     const sourceRoot = resolveSourceRoot(graphsDirs, opts.sourceRoot);
+    const stateDb = resolveStateDb(graphsDirs);
     info(`Freelance daemon: loaded ${graphs.size} graph(s) from ${graphsDirs.length} directory(ies)`);
-    await startDaemon(graphs, { port, host: "127.0.0.1", persistDir, maxDepth, graphsDirs, sourceRoot });
+    await startDaemon(graphs, { port, host: "127.0.0.1", stateDb, maxDepth, graphsDirs, sourceRoot });
   });
 
 daemonCmd
@@ -214,6 +271,45 @@ traversalsCmd
     await traversalsReset(host, port, id);
   });
 
+// --- memory-register (for Claude Code PreToolUse hook) ---
+
+program
+  .command("memory-register <file>")
+  .description("Register a file as a provenance source (used by Claude Code hooks)")
+  .option("--db <path>", "Path to memory database")
+  .option("--source-root <path>", "Source root for relative path storage")
+  .action(async (file, opts) => {
+    const { MemoryStore } = await import("./memory/index.js");
+
+    // Resolve the database path
+    const dbPath = opts.db ?? resolveMemoryDbPath();
+    if (!dbPath) {
+      // No memory database configured — silently exit.
+      // The hook fires on every Read; if memory isn't enabled, that's fine.
+      process.exit(0);
+    }
+
+    const sourceRoot = opts.sourceRoot ?? process.cwd();
+    const dirs = resolveGraphsDirs();
+    const memConfig = loadMemoryConfig(dirs);
+    const ignore = memConfig?.ignore;
+    try {
+      const store = new MemoryStore(dbPath, sourceRoot, ignore);
+      const result = store.registerSource(file);
+      store.close();
+      if (!program.opts().quiet) {
+        process.stdout.write(JSON.stringify(result) + "\n");
+      }
+    } catch (e) {
+      // No active session or file unreadable — silently exit.
+      // The hook shouldn't block the agent's Read tool.
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!program.opts().quiet) {
+        process.stderr.write(`memory-register: ${msg}\n`);
+      }
+    }
+  });
+
 // --- inspect ---
 
 program
@@ -249,6 +345,14 @@ program
   });
 
 export { program };
+
+// Public API — re-export from subpaths
+export { GraphBuilder, GraphEngine, EngineError } from "./core/index.js";
+export type { ValidatedGraph, NodeInput } from "./core/index.js";
+export { createServer } from "./server.js";
+export type { ServerOptions } from "./server.js";
+export { TraversalStore } from "./state/index.js";
+export { MemoryStore } from "./memory/index.js";
 
 // Only parse when run directly (not when imported in tests)
 const isMain = process.argv[1] && (
