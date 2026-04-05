@@ -1,8 +1,9 @@
 /**
- * MemoryStore — persistent, provenance-aware knowledge graph.
+ * MemoryStore — stateless, persistent knowledge graph.
  *
- * Stores propositions with entity references and session-scoped provenance.
- * All reads validate provenance by checking file hashes on disk.
+ * No in-memory state. Every operation reads from and writes to SQLite.
+ * Multiple processes (MCP server, CLI, hooks) can access the same
+ * database concurrently. WAL mode + busy_timeout handle contention.
  */
 
 import crypto from "node:crypto";
@@ -47,8 +48,6 @@ function hashFile(filePath: string): string | null {
 
 export class MemoryStore {
   private db: Database.Database;
-  private activeSessionId: string | null = null;
-  private sessionStartTime: number | null = null;
   private sourceRoot: string;
   private fileHashCache: Map<string, string | null> = new Map();
 
@@ -61,21 +60,34 @@ export class MemoryStore {
     this.db.close();
   }
 
+  // --- Active session (read from DB, not in-memory) ---
+
+  private getActiveSession(): { id: string; started_at: string } | null {
+    return this.db.prepare(
+      "SELECT id, started_at FROM sessions WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1"
+    ).get() as { id: string; started_at: string } | undefined ?? null;
+  }
+
+  private requireActiveSession(): string {
+    const session = this.getActiveSession();
+    if (!session) {
+      throw new Error("No active session. Call memory_begin first.");
+    }
+    return session.id;
+  }
+
   // --- Session lifecycle ---
 
   begin(): BeginResult {
-    if (this.activeSessionId) {
-      throw new Error(`Session already active: ${this.activeSessionId}. Call memory_end first.`);
+    const existing = this.getActiveSession();
+    if (existing) {
+      throw new Error(`Session already active: ${existing.id}. Call memory_end first.`);
     }
 
     const sessionId = generateId();
-    this.activeSessionId = sessionId;
-    this.sessionStartTime = Date.now();
-    this.fileHashCache.clear();
 
     this.db.prepare("INSERT INTO sessions (id, started_at) VALUES (?, ?)").run(sessionId, now());
 
-    // Return current graph state — validated counts
     const status = this.computeStatus();
     return {
       session_id: sessionId,
@@ -86,12 +98,12 @@ export class MemoryStore {
   }
 
   end(): EndResult {
-    if (!this.activeSessionId) {
-      throw new Error("No active session. Call memory_begin first.");
-    }
+    const sessionId = this.requireActiveSession();
 
-    const sessionId = this.activeSessionId;
-    const duration = Date.now() - (this.sessionStartTime ?? Date.now());
+    const startedAt = (this.db.prepare(
+      "SELECT started_at FROM sessions WHERE id = ?"
+    ).get(sessionId) as { started_at: string }).started_at;
+    const duration = Date.now() - new Date(startedAt).getTime();
 
     this.db.prepare("UPDATE sessions SET ended_at = ? WHERE id = ?").run(now(), sessionId);
 
@@ -109,10 +121,6 @@ export class MemoryStore {
        WHERE p.session_id = ?`
     ).get(sessionId) as { c: number }).c;
 
-    this.activeSessionId = null;
-    this.sessionStartTime = null;
-    this.fileHashCache.clear();
-
     return {
       session_id: sessionId,
       propositions_emitted: propCount,
@@ -125,9 +133,7 @@ export class MemoryStore {
   // --- Source registration ---
 
   registerSource(filePath: string): RegisterSourceResult {
-    if (!this.activeSessionId) {
-      throw new Error("No active session. Call memory_begin first.");
-    }
+    const sessionId = this.requireActiveSession();
 
     const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(this.sourceRoot, filePath);
 
@@ -137,6 +143,7 @@ export class MemoryStore {
     if (!normalizedPath.startsWith(normalizedRoot) && normalizedPath !== path.resolve(this.sourceRoot)) {
       throw new Error(`Source file is outside the source root: ${filePath}`);
     }
+
     const hash = hashFile(resolvedPath);
     if (hash === null) {
       throw new Error(`Cannot read file: ${filePath}`);
@@ -148,18 +155,18 @@ export class MemoryStore {
 
     const existing = this.db.prepare(
       "SELECT content_hash FROM session_files WHERE session_id = ? AND file_path = ?"
-    ).get(this.activeSessionId, storedPath) as { content_hash: string } | undefined;
+    ).get(sessionId, storedPath) as { content_hash: string } | undefined;
 
     if (existing) {
       this.db.prepare(
         "UPDATE session_files SET content_hash = ? WHERE session_id = ? AND file_path = ?"
-      ).run(hash, this.activeSessionId, storedPath);
+      ).run(hash, sessionId, storedPath);
       return { file_path: storedPath, content_hash: hash, status: "updated" };
     }
 
     this.db.prepare(
       "INSERT INTO session_files (session_id, file_path, content_hash) VALUES (?, ?, ?)"
-    ).run(this.activeSessionId, storedPath, hash);
+    ).run(sessionId, storedPath, hash);
 
     return { file_path: storedPath, content_hash: hash, status: "registered" };
   }
@@ -167,14 +174,12 @@ export class MemoryStore {
   // --- Proposition emission ---
 
   emit(propositions: EmitProposition[]): EmitResult {
-    if (!this.activeSessionId) {
-      throw new Error("No active session. Call memory_begin first.");
-    }
+    const sessionId = this.requireActiveSession();
 
     // Validate that at least one source file is registered
     const fileCount = (this.db.prepare(
       "SELECT COUNT(*) as c FROM session_files WHERE session_id = ?"
-    ).get(this.activeSessionId) as { c: number }).c;
+    ).get(sessionId) as { c: number }).c;
 
     if (fileCount === 0) {
       throw new Error("No source files registered in this session. Call memory_register_source before emitting propositions.");
@@ -217,7 +222,7 @@ export class MemoryStore {
           result.deduplicated++;
         } else {
           propId = generateId();
-          insertProp.run(propId, prop.content, contentHash, this.activeSessionId!, now());
+          insertProp.run(propId, prop.content, contentHash, sessionId, now());
           propResult.id = propId;
           result.created++;
         }
@@ -339,7 +344,6 @@ export class MemoryStore {
 
     const propositions = propRows.map((p) => this.enrichProposition(p));
 
-    // Collect source sessions across all propositions for this entity
     const sessionIds = [...new Set(propRows.map((p) => p.session_id))];
     const sourceSessions: SourceSession[] = sessionIds.map((sid) => {
       const files = this.db.prepare(
@@ -400,10 +404,6 @@ export class MemoryStore {
     return hash;
   }
 
-  /**
-   * Get set of session IDs where at least one file has drifted.
-   * Hashes each unique file path once.
-   */
   private getStaleSessionIds(): Set<string> {
     const allFiles = this.db.prepare(
       "SELECT session_id, file_path, content_hash FROM session_files"
@@ -411,7 +411,7 @@ export class MemoryStore {
 
     const stale = new Set<string>();
     for (const { session_id, file_path, content_hash } of allFiles) {
-      if (stale.has(session_id)) continue; // already marked stale
+      if (stale.has(session_id)) continue;
       const currentHash = this.getCurrentFileHash(file_path);
       if (currentHash === null || currentHash !== content_hash) {
         stale.add(session_id);
@@ -424,6 +424,7 @@ export class MemoryStore {
     const totalProps = (this.db.prepare("SELECT COUNT(*) as c FROM propositions").get() as { c: number }).c;
     const totalEntities = (this.db.prepare("SELECT COUNT(*) as c FROM entities").get() as { c: number }).c;
     const totalSessions = (this.db.prepare("SELECT COUNT(*) as c FROM sessions").get() as { c: number }).c;
+    const activeSession = this.getActiveSession();
 
     const stale = this.getStaleSessionIds();
     let validCount: number;
@@ -444,7 +445,7 @@ export class MemoryStore {
       stale_propositions: totalProps - validCount,
       total_entities: totalEntities,
       total_sessions: totalSessions,
-      active_session: this.activeSessionId,
+      active_session: activeSession?.id ?? null,
     };
   }
 

@@ -512,4 +512,50 @@ describe("MemoryStore", () => {
       expect(store.status().total_propositions).toBe(1);
     });
   });
+
+  describe("stateless multi-process access", () => {
+    it("second store instance sees active session from first", () => {
+      const dbPath = path.join(tmpDir, "memory.db");
+      const store2 = new MemoryStore(dbPath, tmpDir);
+
+      writeFile(tmpDir, "a.ts", "x");
+      store.begin();
+      store.registerSource("a.ts");
+
+      // store2 can see the active session
+      const status = store2.status();
+      expect(status.active_session).toBeTruthy();
+
+      // store2 can register a source in the same session
+      writeFile(tmpDir, "b.ts", "y");
+      store2.registerSource("b.ts");
+
+      // store can still emit (both sources are registered)
+      store.emit([{ content: "Uses both.", entities: ["Multi"] }]);
+      store.end();
+
+      // store2 sees the results
+      const result = store2.browse({ name: "Multi" });
+      expect(result.entities).toHaveLength(1);
+
+      store2.close();
+    });
+
+    it("second store instance cannot begin while first has active session", () => {
+      const dbPath = path.join(tmpDir, "memory.db");
+      const store2 = new MemoryStore(dbPath, tmpDir);
+
+      store.begin();
+      expect(() => store2.begin()).toThrow("Session already active");
+
+      store.end();
+
+      // Now store2 can begin
+      const begin = store2.begin();
+      expect(begin.session_id).toBeTruthy();
+      store2.end();
+
+      store2.close();
+    });
+  });
 });
