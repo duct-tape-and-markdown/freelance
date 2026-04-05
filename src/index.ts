@@ -346,11 +346,13 @@ program
 
 export { program };
 
-// Public API for embedding
-export { GraphBuilder } from "./builder.js";
+// Public API — re-export from subpaths
+export { GraphBuilder, GraphEngine, EngineError } from "./core/index.js";
+export type { ValidatedGraph, NodeInput } from "./core/index.js";
 export { createServer } from "./server.js";
 export type { ServerOptions } from "./server.js";
-export type { ValidatedGraph } from "./types.js";
+export { TraversalStore } from "./state/index.js";
+export { MemoryStore } from "./memory/index.js";
 
 // Only parse when run directly (not when imported in tests)
 const isMain = process.argv[1] && (
