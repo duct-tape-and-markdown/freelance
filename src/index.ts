@@ -14,6 +14,36 @@ import { VERSION } from "./version.js";
 import { TRAVERSALS_DIR, DEFAULT_PORT } from "./paths.js";
 import { resolveGraphsDirs, resolveSourceRoot, loadGraphsOrFatal, loadGraphsGraceful } from "./graph-resolution.js";
 import { extractSection } from "./section-resolver.js";
+import yaml from "js-yaml";
+import type { MemoryConfig } from "./memory/index.js";
+
+function loadMemoryConfig(graphsDirs: string[]): MemoryConfig | null {
+  for (const dir of graphsDirs) {
+    const configPath = path.join(dir, "config.yml");
+    if (fs.existsSync(configPath)) {
+      try {
+        const raw = fs.readFileSync(configPath, "utf-8");
+        const config = yaml.load(raw) as Record<string, unknown>;
+        if (config?.memory && typeof config.memory === "object") {
+          const mem = config.memory as Record<string, unknown>;
+          if (mem.enabled) {
+            const dbPath = typeof mem.db === "string"
+              ? (path.isAbsolute(mem.db) ? mem.db : path.resolve(dir, mem.db))
+              : path.join(dir, "memory.db");
+            return {
+              enabled: true,
+              db: dbPath,
+              source: mem.source as MemoryConfig["source"],
+            };
+          }
+        }
+      } catch {
+        // Config parse failure — skip memory
+      }
+    }
+  }
+  return null;
+}
 
 // --- Program setup ---
 
@@ -127,8 +157,13 @@ program
       if (loadErrors.length > 0) {
         info(`Freelance: ${loadErrors.length} graph(s) failed validation — call freelance_validate for details`);
       }
+      // Check for memory configuration
+      const memoryConfig = loadMemoryConfig(dirs);
+      if (memoryConfig?.enabled) {
+        info(`Freelance: memory enabled (${memoryConfig.db})`);
+      }
       info(`Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}, section resolver active`);
-      await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver, sourceRoot, loadErrors });
+      await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver, sourceRoot, loadErrors, memory: memoryConfig ?? undefined });
     }
   });
 

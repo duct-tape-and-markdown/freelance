@@ -12,6 +12,8 @@ import { findGraphFiles, loadSingleGraph, validateCrossGraphRefs } from "./loade
 import { hashSources, checkSourcesDetailed, validateGraphSources, getDetailedDrift } from "./sources.js";
 import type { SourceRef, SectionResolver, SourceOptions } from "./sources.js";
 import type { ValidatedGraph } from "./types.js";
+import { MemoryStore, registerMemoryTools } from "./memory/index.js";
+import type { MemoryConfig } from "./memory/index.js";
 
 function jsonResponse(result: unknown) {
   return {
@@ -47,12 +49,14 @@ export interface ServerOptions {
   sourceRoot?: string;
   /** Structured errors from graph loading — surfaced in freelance_list */
   loadErrors?: Array<{ file: string; message: string }>;
+  /** Memory configuration — enables persistent knowledge graph */
+  memory?: MemoryConfig;
 }
 
 export function createServer(
   graphs: Map<string, ValidatedGraph>,
   options?: ServerOptions
-): { server: McpServer; stopWatcher?: () => void } {
+): { server: McpServer; stopWatcher?: () => void; memoryStore?: MemoryStore } {
   const manager = new TraversalManager(graphs, options);
 
   // Mutable load errors — updated by watcher on reload
@@ -420,19 +424,27 @@ export function createServer(
     }
   );
 
-  return { server, stopWatcher };
+  // --- Memory tools ---
+  let memoryStore: MemoryStore | undefined;
+  if (options?.memory?.enabled && options.memory.db) {
+    memoryStore = new MemoryStore(options.memory.db, options.sourceRoot);
+    registerMemoryTools(server, memoryStore);
+  }
+
+  return { server, stopWatcher, memoryStore };
 }
 
 export async function startServer(
   graphs: Map<string, ValidatedGraph>,
   options?: ServerOptions
 ): Promise<void> {
-  const { server, stopWatcher } = createServer(graphs, options);
+  const { server, stopWatcher, memoryStore } = createServer(graphs, options);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
   const shutdown = async () => {
     if (stopWatcher) stopWatcher();
+    if (memoryStore) memoryStore.close();
     await server.close();
     process.exit(0);
   };
