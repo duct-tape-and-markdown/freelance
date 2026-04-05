@@ -17,6 +17,16 @@ import { extractSection } from "./section-resolver.js";
 import yaml from "js-yaml";
 import type { MemoryConfig } from "./memory/index.js";
 
+function resolveStateDb(graphsDirs: string[]): string {
+  // Use the first graphsDir as the location for state.db
+  for (const dir of graphsDirs) {
+    if (fs.existsSync(dir)) {
+      return path.join(dir, "state.db");
+    }
+  }
+  return path.join(".freelance", "state.db");
+}
+
 function loadMemoryConfig(graphsDirs: string[]): MemoryConfig | null {
   for (const dir of graphsDirs) {
     const configPath = path.join(dir, "config.yml");
@@ -162,8 +172,10 @@ program
       if (memoryConfig?.enabled) {
         info(`Freelance: memory enabled (${memoryConfig.db})`);
       }
+      // State database for stateless traversal persistence
+      const stateDb = resolveStateDb(dirs);
       info(`Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}, section resolver active`);
-      await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver, sourceRoot, loadErrors, memory: memoryConfig ?? undefined });
+      await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver, sourceRoot, loadErrors, memory: memoryConfig ?? undefined, stateDb });
     }
   });
 

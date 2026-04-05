@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { TraversalManager } from "./traversal-manager.js";
+import { TraversalStore } from "./state/index.js";
 import { EngineError } from "./errors.js";
 import { VERSION } from "./version.js";
 import { getGuide } from "./guide.js";
@@ -39,13 +40,17 @@ export interface ServerOptions {
   loadErrors?: Array<{ file: string; message: string }>;
   /** Memory configuration — enables persistent knowledge graph */
   memory?: MemoryConfig;
+  /** Path to SQLite database for stateless traversal state. When set, uses TraversalStore instead of in-memory TraversalManager. */
+  stateDb?: string;
 }
 
 export function createServer(
   graphs: Map<string, ValidatedGraph>,
   options?: ServerOptions
-): { server: McpServer; stopWatcher?: () => void; memoryStore?: MemoryStore } {
-  const manager = new TraversalManager(graphs, options);
+): { server: McpServer; stopWatcher?: () => void; memoryStore?: MemoryStore; manager: TraversalManager | TraversalStore } {
+  const manager = options?.stateDb
+    ? new TraversalStore(options.stateDb, graphs, options)
+    : new TraversalManager(graphs, options);
 
   // Mutable load errors — updated by watcher on reload
   let currentLoadErrors: Array<{ file: string; message: string }> = options?.loadErrors ?? [];
@@ -426,20 +431,21 @@ export function createServer(
     }
   }
 
-  return { server, stopWatcher, memoryStore };
+  return { server, stopWatcher, memoryStore, manager };
 }
 
 export async function startServer(
   graphs: Map<string, ValidatedGraph>,
   options?: ServerOptions
 ): Promise<void> {
-  const { server, stopWatcher, memoryStore } = createServer(graphs, options);
+  const { server, stopWatcher, memoryStore, manager } = createServer(graphs, options);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
   const shutdown = async () => {
     if (stopWatcher) stopWatcher();
     if (memoryStore) memoryStore.close();
+    if ("close" in manager) (manager as TraversalStore).close();
     await server.close();
     process.exit(0);
   };
