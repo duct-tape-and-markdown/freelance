@@ -40,6 +40,7 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
         content: z.string().min(1).describe("The proposition — a self-contained claim in natural prose"),
         entities: z.array(z.string().min(1)).min(1).max(2).describe("Entity names this proposition is about (1-2)"),
         sources: z.array(z.string().min(1)).min(1).describe("Source file paths this proposition was derived from (relative to source root). Each path must be registered in the active session."),
+        entityKinds: z.record(z.string(), z.string()).optional().describe("Map of entity name to kind (e.g. function, class, type, interface, enum). Sets kind on entity creation."),
       })).min(1),
     },
     ({ propositions }) => {
@@ -68,7 +69,7 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_browse",
-    "Find entities by name, kind, or partial match. Returns entities with valid proposition counts.",
+    "Find entities by name, kind, or partial match. Returns entities with valid proposition counts. Stale entities can be refreshed by re-registering their source files via memory_register_source.",
     {
       name: z.string().optional().describe("Partial name match (case-insensitive)"),
       kind: z.string().optional().describe("Filter by entity kind"),
@@ -86,7 +87,7 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_inspect",
-    "Full entity details — valid propositions and source sessions.",
+    "Full entity details — valid propositions and source sessions. Stale propositions can be refreshed by re-registering their source files via memory_register_source.",
     {
       entity: z.string().min(1).describe("Entity ID or name"),
     },

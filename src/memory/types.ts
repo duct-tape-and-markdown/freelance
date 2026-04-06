@@ -32,6 +32,7 @@ export interface EmitProposition {
   content: string;
   entities: string[];
   sources: string[];
+  entityKinds?: Record<string, string>;
 }
 
 export interface EmitResult {

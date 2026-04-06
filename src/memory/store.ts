@@ -268,7 +268,8 @@ export class MemoryStore {
         }
 
         for (const entityName of prop.entities) {
-          const resolved = this.resolveEntity(entityName);
+          const kind = prop.entityKinds?.[entityName];
+          const resolved = this.resolveEntity(entityName, kind);
           propResult.entities.push(resolved);
           insertAbout.run(propId, resolved.id);
           if (resolved.resolution === "created") {
@@ -288,7 +289,7 @@ export class MemoryStore {
 
   // --- Entity resolution ---
 
-  private resolveEntity(name: string): { id: string; name: string; resolution: "exact" | "normalized" | "created" } {
+  private resolveEntity(name: string, kind?: string): { id: string; name: string; resolution: "exact" | "normalized" | "created" } {
     const exact = this.db.prepare(
       "SELECT id, name FROM entities WHERE name = ?"
     ).get(name) as EntityRow | undefined;
@@ -306,8 +307,8 @@ export class MemoryStore {
 
     const id = generateId();
     this.db.prepare(
-      "INSERT INTO entities (id, name, kind, created_at) VALUES (?, ?, NULL, ?)"
-    ).run(id, name, now());
+      "INSERT INTO entities (id, name, kind, created_at) VALUES (?, ?, ?, ?)"
+    ).run(id, name, kind ?? null, now());
 
     return { id, name, resolution: "created" };
   }
