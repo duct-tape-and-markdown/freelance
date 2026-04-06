@@ -8,7 +8,7 @@
 import { GraphBuilder } from "../builder.js";
 import type { ValidatedGraph } from "../types.js";
 
-export const COMPILE_KNOWLEDGE_ID = "compile-knowledge";
+export const COMPILE_KNOWLEDGE_ID = "memory:compile";
 
 export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
   return new GraphBuilder(COMPILE_KNOWLEDGE_ID, "Compile Knowledge")

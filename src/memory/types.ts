@@ -15,6 +15,7 @@ export interface SessionFileRow {
   session_id: string;
   file_path: string;
   content_hash: string;
+  mtime_ms: number | null;
 }
 
 export interface PropositionRow {
@@ -30,7 +31,7 @@ export interface PropositionRow {
 export interface EmitProposition {
   content: string;
   entities: string[];
-  sources?: string[];
+  sources: string[];
 }
 
 export interface EmitResult {

@@ -39,7 +39,7 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
       propositions: z.array(z.object({
         content: z.string().min(1).describe("The proposition — a self-contained claim in natural prose"),
         entities: z.array(z.string().min(1)).min(1).max(2).describe("Entity names this proposition is about (1-2)"),
-        sources: z.array(z.string().min(1)).optional().describe("Source file paths this proposition was derived from (relative to source root). When provided, provenance is tracked per-proposition instead of per-session."),
+        sources: z.array(z.string().min(1)).min(1).describe("Source file paths this proposition was derived from (relative to source root). Each path must be registered in the active session."),
       })).min(1),
     },
     ({ propositions }) => {
@@ -116,7 +116,7 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_search",
-    "Full-text search across proposition content. Returns matching propositions with their entities and validity status. Use FTS5 query syntax: plain words for OR, double-quoted phrases for exact match, prefix* for prefix search.",
+    "Full-text search across proposition content. Returns matching propositions with their entities and validity status. Use FTS5 query syntax: plain words for OR, double-quoted phrases for exact match, prefix* for prefix search. If your search returns no results but you later discover the answer through other means, consider starting the memory:compile workflow to capture what you learned — a search miss is a signal that memory has a gap worth filling.",
     {
       query: z.string().min(1).describe("FTS5 search query (e.g. 'subgraph context', '\"return values\"', 'wait*')"),
       limit: z.number().int().min(1).max(100).default(20).optional(),

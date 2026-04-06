@@ -89,8 +89,8 @@ describe("Memory MCP tools", () => {
       name: "memory_emit",
       arguments: {
         propositions: [
-          { content: "Auth validates JWT tokens using RS256.", entities: ["Auth"] },
-          { content: "Auth returns 401 for expired tokens.", entities: ["Auth"] },
+          { content: "Auth validates JWT tokens using RS256.", entities: ["Auth"], sources: ["auth.ts"] },
+          { content: "Auth returns 401 for expired tokens.", entities: ["Auth"], sources: ["auth.ts"] },
         ],
       },
     });
@@ -135,7 +135,7 @@ describe("Memory MCP tools", () => {
   it("emit rejected without registered source", async () => {
     const emitResult = await client.callTool({
       name: "memory_emit",
-      arguments: { propositions: [{ content: "test", entities: ["Foo"] }] },
+      arguments: { propositions: [{ content: "test", entities: ["Foo"], sources: ["a.ts"] }] },
     });
     expect(emitResult.isError).toBeTruthy();
     const err = parseContent(emitResult) as { error: string };
@@ -146,13 +146,13 @@ describe("Memory MCP tools", () => {
     const result = await client.callTool({ name: "freelance_list", arguments: {} });
     const data = parseContent(result) as { graphs: Array<{ id: string }> };
     const ids = data.graphs.map((g) => g.id);
-    expect(ids).toContain("compile-knowledge");
+    expect(ids).toContain("memory:compile");
   });
 
   it("sealed workflow is traversable", async () => {
     const startResult = await client.callTool({
       name: "freelance_start",
-      arguments: { graphId: "compile-knowledge" },
+      arguments: { graphId: "memory:compile" },
     });
     expect(startResult.isError).toBeFalsy();
     const start = parseContent(startResult) as { status: string; currentNode: string };

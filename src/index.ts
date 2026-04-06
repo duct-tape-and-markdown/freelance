@@ -30,14 +30,25 @@ function resolveMemoryDbPath(): string | null {
   return null;
 }
 
+function stateDir(graphsDir: string): string {
+  return path.join(graphsDir, ".state");
+}
+
+function ensureStateDir(graphsDir: string): string {
+  const dir = stateDir(graphsDir);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
 function resolveStateDb(graphsDirs: string[]): string {
-  // Use the first graphsDir as the location for state.db
   for (const dir of graphsDirs) {
     if (fs.existsSync(dir)) {
-      return path.join(dir, "state.db");
+      return path.join(ensureStateDir(dir), "state.db");
     }
   }
-  return path.join(".freelance", "state.db");
+  return path.join(ensureStateDir(".freelance"), "state.db");
 }
 
 function loadMemoryConfig(graphsDirs: string[]): MemoryConfig | null {
@@ -51,8 +62,8 @@ function loadMemoryConfig(graphsDirs: string[]): MemoryConfig | null {
           const mem = config.memory as Record<string, unknown>;
           if (mem.enabled) {
             const dbPath = typeof mem.db === "string"
-              ? (path.isAbsolute(mem.db) ? mem.db : path.resolve(dir, mem.db))
-              : path.join(dir, "memory.db");
+              ? (path.isAbsolute(mem.db) ? mem.db : path.resolve(ensureStateDir(dir), mem.db))
+              : path.join(ensureStateDir(dir), "memory.db");
             const ignore = Array.isArray(mem.ignore) ? mem.ignore as string[] : undefined;
             return { enabled: true, db: dbPath, ignore };
           }

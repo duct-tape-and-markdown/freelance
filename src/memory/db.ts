@@ -61,12 +61,23 @@ CREATE VIRTUAL TABLE IF NOT EXISTS propositions_fts USING fts5(
 );
 `;
 
+function migrate(db: Database.Database): void {
+  // Add mtime_ms columns for stat()-based staleness checks (replaces read+hash).
+  for (const table of ["session_files", "proposition_sources"]) {
+    const cols = db.pragma(`table_info(${table})`) as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === "mtime_ms")) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN mtime_ms REAL`);
+    }
+  }
+}
+
 export function openDatabase(dbPath: string): Database.Database {
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
   db.exec(SCHEMA_SQL);
+  migrate(db);
 
   // Rebuild FTS index on every open — external content tables don't persist
   // their index across connections, so we rebuild to ensure search works.

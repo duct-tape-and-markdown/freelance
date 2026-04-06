@@ -9,7 +9,7 @@
 import { GraphBuilder } from "../builder.js";
 import type { ValidatedGraph } from "../types.js";
 
-export const RECOLLECTION_ID = "recollection";
+export const RECOLLECTION_ID = "memory:recall";
 
 export function buildRecollectionWorkflow(): ValidatedGraph {
   return new GraphBuilder(RECOLLECTION_ID, "Recollection")

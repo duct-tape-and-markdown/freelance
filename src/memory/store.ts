@@ -14,7 +14,6 @@ import { hashContent } from "../sources.js";
 import { openDatabase } from "./db.js";
 import type {
   EntityRow,
-  SessionFileRow,
   PropositionRow,
   EmitProposition,
   EmitResult,
@@ -54,11 +53,20 @@ function hashFile(filePath: string): string | null {
   }
 }
 
+function mtimeOf(filePath: string): number | null {
+  try {
+    return fs.statSync(filePath).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
 export class MemoryStore {
   private db: Database.Database;
   private sourceRoot: string;
   private ignore: string[];
-  private fileHashCache: Map<string, string | null> = new Map();
+  private mtimeCache: Map<string, number | null> = new Map();
+  private hashCache: Map<string, string | null> = new Map();
 
   constructor(dbPath: string, sourceRoot?: string, ignore?: string[]) {
     this.db = openDatabase(dbPath);
@@ -159,6 +167,7 @@ export class MemoryStore {
     if (hash === null) {
       throw new Error(`Cannot read file: ${filePath}`);
     }
+    const mtime = mtimeOf(resolvedPath);
 
     const existing = this.db.prepare(
       "SELECT content_hash FROM session_files WHERE session_id = ? AND file_path = ?"
@@ -166,14 +175,14 @@ export class MemoryStore {
 
     if (existing) {
       this.db.prepare(
-        "UPDATE session_files SET content_hash = ? WHERE session_id = ? AND file_path = ?"
-      ).run(hash, sessionId, storedPath);
+        "UPDATE session_files SET content_hash = ?, mtime_ms = ? WHERE session_id = ? AND file_path = ?"
+      ).run(hash, mtime, sessionId, storedPath);
       return { file_path: storedPath, content_hash: hash, status: "updated" };
     }
 
     this.db.prepare(
-      "INSERT INTO session_files (session_id, file_path, content_hash) VALUES (?, ?, ?)"
-    ).run(sessionId, storedPath, hash);
+      "INSERT INTO session_files (session_id, file_path, content_hash, mtime_ms) VALUES (?, ?, ?, ?)"
+    ).run(sessionId, storedPath, hash, mtime);
 
     return { file_path: storedPath, content_hash: hash, status: "registered" };
   }
@@ -207,16 +216,16 @@ export class MemoryStore {
       "INSERT OR IGNORE INTO about (proposition_id, entity_id) VALUES (?, ?)"
     );
     const insertPropSource = this.db.prepare(
-      "INSERT OR IGNORE INTO proposition_sources (proposition_id, file_path, content_hash) VALUES (?, ?, ?)"
+      "INSERT OR IGNORE INTO proposition_sources (proposition_id, file_path, content_hash, mtime_ms) VALUES (?, ?, ?, ?)"
     );
 
     // Build a lookup of registered files in this session for source attribution
-    const sessionFiles = new Map<string, string>();
+    const sessionFiles = new Map<string, { hash: string; mtime: number | null }>();
     const sfRows = this.db.prepare(
-      "SELECT file_path, content_hash FROM session_files WHERE session_id = ?"
-    ).all(sessionId) as Array<{ file_path: string; content_hash: string }>;
+      "SELECT file_path, content_hash, mtime_ms FROM session_files WHERE session_id = ?"
+    ).all(sessionId) as Array<{ file_path: string; content_hash: string; mtime_ms: number | null }>;
     for (const sf of sfRows) {
-      sessionFiles.set(sf.file_path, sf.content_hash);
+      sessionFiles.set(sf.file_path, { hash: sf.content_hash, mtime: sf.mtime_ms });
     }
 
     const emitAll = this.db.transaction(() => {
@@ -246,14 +255,16 @@ export class MemoryStore {
           result.created++;
         }
 
-        // Per-proposition source attribution
-        if (prop.sources) {
-          for (const sourcePath of prop.sources) {
-            const hash = sessionFiles.get(sourcePath);
-            if (hash) {
-              insertPropSource.run(propId, sourcePath, hash);
-            }
+        // Per-proposition source attribution — every source must be registered
+        for (const sourcePath of prop.sources) {
+          const sf = sessionFiles.get(sourcePath);
+          if (!sf) {
+            throw new Error(
+              `Source "${sourcePath}" is not registered in this session. ` +
+              `Call memory_register_source for each file before referencing it in emit.`
+            );
           }
+          insertPropSource.run(propId, sourcePath, sf.hash, sf.mtime);
         }
 
         for (const entityName of prop.entities) {
@@ -303,8 +314,13 @@ export class MemoryStore {
 
   // --- Query operations ---
 
+  private clearProvenanceCache(): void {
+    this.mtimeCache.clear();
+    this.hashCache.clear();
+  }
+
   browse(options?: { name?: string; kind?: string; limit?: number; offset?: number }): BrowseResult {
-    this.fileHashCache.clear();
+    this.clearProvenanceCache();
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
 
@@ -351,7 +367,7 @@ export class MemoryStore {
   }
 
   inspect(entityIdOrName: string): InspectResult {
-    this.fileHashCache.clear();
+    this.clearProvenanceCache();
 
     let entity = this.db.prepare("SELECT * FROM entities WHERE id = ?").get(entityIdOrName) as EntityRow | undefined;
     if (!entity) {
@@ -397,7 +413,7 @@ export class MemoryStore {
   }
 
   bySource(filePath: string): BySourceResult {
-    this.fileHashCache.clear();
+    this.clearProvenanceCache();
 
     const storedPath = path.isAbsolute(filePath)
       ? path.relative(this.sourceRoot, filePath)
@@ -417,8 +433,13 @@ export class MemoryStore {
   }
 
   search(query: string, options?: { limit?: number }): SearchResult {
-    this.fileHashCache.clear();
+    this.clearProvenanceCache();
     const limit = options?.limit ?? 20;
+
+    // Sanitize query: replace bare hyphens with spaces so FTS5 doesn't
+    // interpret them as the NOT operator (e.g. "query-driven" → "query driven")
+    // Preserve explicitly quoted phrases and prefix wildcards.
+    const sanitized = query.replace(/(?<!["])\b(\w+)-(\w+)\b(?!["])/g, "$1 $2");
 
     const rows = this.db.prepare(
       `SELECT p.* FROM propositions p
@@ -426,7 +447,7 @@ export class MemoryStore {
        WHERE propositions_fts MATCH ?
        ORDER BY fts.rank
        LIMIT ?`
-    ).all(query, limit) as PropositionRow[];
+    ).all(sanitized, limit) as PropositionRow[];
 
     const propositions = rows.map((p) => {
       const enriched = this.enrichProposition(p);
@@ -442,32 +463,56 @@ export class MemoryStore {
   }
 
   status(): StatusResult {
-    this.fileHashCache.clear();
+    this.clearProvenanceCache();
     return this.computeStatus();
   }
 
   // --- Provenance validation ---
 
+  /** Fast path: stat() to get current mtime (~microseconds vs read+hash ~milliseconds). */
+  private getCurrentMtime(filePath: string): number | null {
+    if (this.mtimeCache.has(filePath)) {
+      return this.mtimeCache.get(filePath)!;
+    }
+    const resolvedPath = path.resolve(this.sourceRoot, filePath);
+    const mtime = mtimeOf(resolvedPath);
+    this.mtimeCache.set(filePath, mtime);
+    return mtime;
+  }
+
+  /** Slow path: read + SHA256. Used only as fallback for pre-migration data without mtime. */
   private getCurrentFileHash(filePath: string): string | null {
-    if (this.fileHashCache.has(filePath)) {
-      return this.fileHashCache.get(filePath)!;
+    if (this.hashCache.has(filePath)) {
+      return this.hashCache.get(filePath)!;
     }
     const resolvedPath = path.resolve(this.sourceRoot, filePath);
     const hash = hashFile(resolvedPath);
-    this.fileHashCache.set(filePath, hash);
+    this.hashCache.set(filePath, hash);
     return hash;
+  }
+
+  /** Check if a source file has changed since registration. */
+  private isFileChanged(filePath: string, storedHash: string, storedMtime: number | null): boolean {
+    if (storedMtime != null) {
+      const currentMtime = this.getCurrentMtime(filePath);
+      if (currentMtime !== null && currentMtime === storedMtime) {
+        return false; // Fast path: mtime unchanged → skip hash
+      }
+      // mtime differs or file missing → verify with hash
+    }
+    const currentHash = this.getCurrentFileHash(filePath);
+    return currentHash === null || currentHash !== storedHash;
   }
 
   private getStaleSessionIds(): Set<string> {
     const allFiles = this.db.prepare(
-      "SELECT session_id, file_path, content_hash FROM session_files"
-    ).all() as Array<{ session_id: string; file_path: string; content_hash: string }>;
+      "SELECT session_id, file_path, content_hash, mtime_ms FROM session_files"
+    ).all() as Array<{ session_id: string; file_path: string; content_hash: string; mtime_ms: number | null }>;
 
     const stale = new Set<string>();
-    for (const { session_id, file_path, content_hash } of allFiles) {
+    for (const { session_id, file_path, content_hash, mtime_ms } of allFiles) {
       if (stale.has(session_id)) continue;
-      const currentHash = this.getCurrentFileHash(file_path);
-      if (currentHash === null || currentHash !== content_hash) {
+      if (this.isFileChanged(file_path, content_hash, mtime_ms)) {
         stale.add(session_id);
       }
     }
@@ -520,23 +565,20 @@ export class MemoryStore {
   private enrichProposition(row: PropositionRow): PropositionInfo {
     // Prefer per-proposition sources when available, fall back to session-level
     const propSources = this.db.prepare(
-      "SELECT file_path, content_hash FROM proposition_sources WHERE proposition_id = ?"
-    ).all(row.id) as Array<{ file_path: string; content_hash: string }>;
+      "SELECT file_path, content_hash, mtime_ms FROM proposition_sources WHERE proposition_id = ?"
+    ).all(row.id) as Array<{ file_path: string; content_hash: string; mtime_ms: number | null }>;
 
     const filesToCheck = propSources.length > 0
       ? propSources
       : this.db.prepare(
-          "SELECT file_path, content_hash FROM session_files WHERE session_id = ?"
-        ).all(row.session_id) as SessionFileRow[];
+          "SELECT file_path, content_hash, mtime_ms FROM session_files WHERE session_id = ?"
+        ).all(row.session_id) as Array<{ file_path: string; content_hash: string; mtime_ms: number | null }>;
 
-    const sourceFiles = filesToCheck.map((sf) => {
-      const currentHash = this.getCurrentFileHash(sf.file_path);
-      return {
-        path: sf.file_path,
-        hash: sf.content_hash,
-        current_match: currentHash !== null && currentHash === sf.content_hash,
-      };
-    });
+    const sourceFiles = filesToCheck.map((sf) => ({
+      path: sf.file_path,
+      hash: sf.content_hash,
+      current_match: !this.isFileChanged(sf.file_path, sf.content_hash, sf.mtime_ms),
+    }));
 
     const valid = sourceFiles.length === 0 || sourceFiles.every((sf) => sf.current_match);
 

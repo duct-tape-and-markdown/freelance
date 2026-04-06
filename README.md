@@ -1,10 +1,8 @@
 # Freelance
 
-Graph-based workflow enforcement for AI coding agents.
+Graph-based workflow enforcement and persistent memory for AI coding agents.
 
-Skills tell an agent *what* to do. Freelance tells it *how* — and holds it accountable. Define structured workflows in YAML, enforce them at tool boundaries via MCP, and take back control of how your agent works through complex, multi-step tasks.
-
-State lives server-side. It can't be compacted away, forgotten, or bypassed. The agent calls tools, the server tells it where it is and what's valid. When context compacts mid-task, the agent calls `freelance_inspect` and picks up exactly where it left off.
+Define structured workflows in YAML. Enforce them at tool boundaries via MCP. Build a persistent knowledge graph that grows with every query and knows when its sources have changed.
 
 ## Quick Start
 
@@ -25,19 +23,14 @@ cd /path/to/your/project
 freelance init
 ```
 
-## How It Works
+## Workflows
 
-1. Define workflows as directed graphs in YAML (`.workflow.yaml` files)
-2. Freelance loads them and exposes MCP tools to the agent
-3. The agent calls `freelance_start` to begin a workflow, `freelance_advance` to move between nodes
-4. Gate nodes block advancement until conditions are met — enforcing quality without relying on the agent's memory
-5. Context fields travel with the traversal, keeping the agent's working state structured and lightweight
+Workflows are directed graphs defined in YAML. The agent calls MCP tools to traverse them — `freelance_start` to begin, `freelance_advance` to move between nodes. Gate nodes block advancement until conditions are met. State lives server-side, so it survives context compaction.
 
 ```yaml
 id: my-workflow
 version: "1.0.0"
 name: "My Workflow"
-description: "A simple two-step workflow"
 startNode: start
 
 context:
@@ -67,54 +60,93 @@ nodes:
     description: "Workflow complete"
 ```
 
-## What You Get
+**Node types:** action (do work), decision (pick a route), gate (enforce conditions), wait (pause for external signals), terminal (end state).
 
-**Workflow enforcement** — Nodes, edges, gates, and validations define exactly what the agent can do and when. No skipping steps, no drifting off-task.
+**Subgraph composition** — Nodes can push into child workflows with scoped context. `contextMap` passes parent values in, `returnMap` passes child values back. The engine manages a stack, so subgraphs can nest.
 
-**Surviving context compaction** — Traversal state is server-side. When the agent's context window compacts, `freelance_inspect` restores full orientation instantly.
+**Expression evaluator** — Edge conditions and validations use a safe expression language (`context.x == 'value'`, `context.count > 0`, boolean operators, nested property access). Validated at load time, evaluated at runtime.
 
-**Context management** — Structured context fields travel with the traversal, reducing what the agent needs to hold in its own window. The server manages it, the agent reads it.
+## Memory
 
-**Source provenance** — Bind source files to nodes, validate their integrity, and ensure the agent is working from the right material. Sources can be hashed, checked, and enforced at the graph level.
+Freelance includes a persistent knowledge graph backed by SQLite. The agent reads source files, reasons about them, and writes atomic propositions about 1-2 entities. Every proposition records which source files produced it and their content hashes at the time of compilation.
 
-**Composable workflows** — Subgraph composition lets you build complex workflows from reusable pieces, with scoped context and return value mapping.
+When you query memory, it checks whether the source files on disk still match. Match = valid knowledge. Mismatch = stale. The knowledge base grows with every query but never serves something that's silently out of date.
 
-## MCP Tools
+### How it works
+
+**Compilation** — The agent reads source files, then emits propositions: self-contained claims in natural prose, each about 1-2 named entities. Propositions are deduplicated by content hash. Entity references are resolved by exact match, normalized match, or creation.
+
+**Recollection** — When a new question comes in, the agent searches existing memory, reads the provenance sources, and identifies the delta — what the sources say about the question that existing propositions don't cover. Only that gap gets compiled. Each query makes the knowledge base denser from a different angle, without re-deriving what's already there.
+
+**Source provenance** — Each proposition can be linked to the specific source files it was derived from. Validity is checked per-proposition when file-level attribution is present, falling back to session-level when it's not. Propositions from a prior session aren't hidden when stale — they're returned with a confidence signal so the agent can decide whether to re-verify.
+
+**Git branching for free** — Switch branches, files change on disk, different propositions light up as valid or stale. Merge the branch, files converge, knowledge converges. No scope model, no branch tracking — just hash checks on read.
+
+### Enabling memory
+
+Add a `config.yml` to your `.freelance/` directory:
+
+```yaml
+memory:
+  enabled: true
+  db: memory.db
+  ignore:
+    - "**/node_modules/**"
+    - "**/dist/**"
+```
+
+When memory is enabled, two sealed workflows are auto-injected: `memory:compile` (read sources, emit propositions, evaluate coverage) and `memory:recall` (recall, source, compare, fill delta, evaluate). These can be referenced as subgraphs in your own workflows — for example, adding a compilation step before a terminal node to lock in knowledge that reflects the finished state of your work.
+
+### Memory tools
 
 | Tool | Description |
 |------|-------------|
-| `freelance_list` | Discover available workflow graphs |
+| `memory_register_source` | Register a file as a provenance source (hashes content) |
+| `memory_emit` | Write propositions with optional per-file source attribution |
+| `memory_end` | Close the active compilation session |
+| `memory_browse` | Find entities by name or kind |
+| `memory_inspect` | Full entity details with propositions and validity |
+| `memory_by_source` | All propositions linked to a source file |
+| `memory_search` | Full-text search across proposition content (FTS5) |
+| `memory_status` | Knowledge graph health: total, valid, stale counts |
+
+## Workflow Tools
+
+| Tool | Description |
+|------|-------------|
+| `freelance_list` | Discover available workflow graphs and active traversals |
 | `freelance_start` | Begin traversing a graph |
 | `freelance_advance` | Move to the next node via a labeled edge |
 | `freelance_context_set` | Update session context without advancing |
 | `freelance_inspect` | Read-only introspection (position, history, or full graph) |
 | `freelance_reset` | Clear traversal and start over |
 | `freelance_guide` | Authoring guidance for writing graphs |
-| `freelance_distill` | Distill a task into a new workflow, or refine an existing one after a guided run |
+| `freelance_distill` | Distill a task into a new workflow |
+| `freelance_validate` | Validate graph definitions |
+| `freelance_sources_hash` | Compute hashes for source binding |
 | `freelance_sources_check` | Verify source file availability |
 | `freelance_sources_validate` | Validate source integrity against expectations |
-| `freelance_sources_hash` | Compute hashes for source binding |
 
-## Workflow Directory Resolution
+## Configuration
+
+### Workflow directories
 
 Workflows load automatically from these directories (no flags needed):
 
 1. `./.freelance/` — project-level workflows
 2. `~/.freelance/` — user-level workflows (shared across projects)
 
-Subdirectories are scanned recursively, so you can organize however you like (e.g., `.freelance/reviews/`, `.freelance/releases/`). Later directories shadow earlier ones by graph ID.
-
-You can also specify directories explicitly:
+Subdirectories are scanned recursively. Later directories shadow earlier ones by graph ID. You can also specify directories explicitly:
 
 ```bash
 freelance mcp --workflows ./my-workflows/
 ```
 
-## MCP Configuration
+### MCP setup
 
 Run `freelance init` to auto-detect your client and generate the config. Supports Claude Code, Cursor, Windsurf, and Cline.
 
-To configure manually, add to your client's MCP config (e.g., `.mcp.json` for Claude Code, `.cursor/mcp.json` for Cursor):
+Manual configuration (e.g., `.mcp.json` for Claude Code):
 
 ```json
 {
@@ -127,7 +159,7 @@ To configure manually, add to your client's MCP config (e.g., `.mcp.json` for Cl
 }
 ```
 
-## CLI Reference
+## CLI
 
 ```
 freelance init                       # Interactive project setup
@@ -137,18 +169,6 @@ freelance inspect                    # Show active traversals from persisted sta
 freelance mcp                        # Start standalone MCP server
 freelance completion bash|zsh|fish   # Output shell completion script
 ```
-
-## Node Types
-
-- **action** — The agent performs work. Has instructions, edges out.
-- **decision** — The agent evaluates conditions and picks an edge. No work, just routing.
-- **gate** — Like action, but requires validations to pass before any edge can be taken.
-- **terminal** — End state. No edges out.
-- **wait** — Pauses traversal until an external signal or timeout.
-
-## Documentation
-
-The full specification (graph schema, expression language, subgraph composition, return schemas, architecture) is available via `freelance_guide` or by running `freelance --help` on individual commands.
 
 ## License
 

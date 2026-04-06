@@ -8,9 +8,14 @@ function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "memory-test-"));
 }
 
+let writeSeq = 0;
 function writeFile(dir: string, name: string, content: string): string {
   const filePath = path.join(dir, name);
   fs.writeFileSync(filePath, content);
+  // Ensure each write produces a distinct mtime so stat()-based staleness
+  // detection works even when writes happen within the same sub-millisecond.
+  const epoch = Date.now() / 1000 + ++writeSeq;
+  fs.utimesSync(filePath, epoch, epoch);
   return filePath;
 }
 
@@ -44,7 +49,7 @@ describe("MemoryStore", () => {
     it("end closes session and returns stats", () => {
       writeFile(tmpDir, "a.ts", "x");
       store.registerSource("a.ts");
-      store.emit([{ content: "Foo exists.", entities: ["Foo"] }]);
+      store.emit([{ content: "Foo exists.", entities: ["Foo"], sources: ["a.ts"] }]);
 
       const end = store.end();
       expect(end.session_id).toBeTruthy();
@@ -61,7 +66,7 @@ describe("MemoryStore", () => {
     });
 
     it("rejects emit without registered source", () => {
-      expect(() => store.emit([{ content: "test", entities: ["Foo"] }]))
+      expect(() => store.emit([{ content: "test", entities: ["Foo"], sources: ["a.ts"] }]))
         .toThrow("Register a source file first");
     });
 
@@ -81,7 +86,7 @@ describe("MemoryStore", () => {
     it("new session after end + registerSource", () => {
       writeFile(tmpDir, "a.ts", "x");
       store.registerSource("a.ts");
-      store.emit([{ content: "Foo.", entities: ["Foo"] }]);
+      store.emit([{ content: "Foo.", entities: ["Foo"], sources: ["a.ts"] }]);
       const session1 = store.status().active_session;
       store.end();
 
@@ -188,7 +193,7 @@ describe("MemoryStore", () => {
       // Register a real source and emit
       writeFile(tmpDir, "auth.ts", "class Auth {}");
       ignoredStore.registerSource("auth.ts");
-      ignoredStore.emit([{ content: "Auth exists.", entities: ["Auth"] }]);
+      ignoredStore.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }]);
       ignoredStore.end();
 
       // Register an ignored file — shouldn't affect anything
@@ -203,8 +208,15 @@ describe("MemoryStore", () => {
 
   describe("proposition emission", () => {
     it("requires at least one registered source", () => {
-      expect(() => store.emit([{ content: "Foo exists.", entities: ["Foo"] }]))
+      expect(() => store.emit([{ content: "Foo exists.", entities: ["Foo"], sources: ["a.ts"] }]))
         .toThrow("Register a source file first");
+    });
+
+    it("rejects emit with unregistered source path", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.registerSource("a.ts");
+      expect(() => store.emit([{ content: "Foo.", entities: ["Foo"], sources: ["unknown.ts"] }]))
+        .toThrow('Source "unknown.ts" is not registered');
     });
 
     it("emits propositions with entities", () => {
@@ -212,8 +224,8 @@ describe("MemoryStore", () => {
       store.registerSource("auth.ts");
 
       const result = store.emit([
-        { content: "Auth validates JWT tokens.", entities: ["Auth"] },
-        { content: "Auth returns 401 for expired tokens.", entities: ["Auth"] },
+        { content: "Auth validates JWT tokens.", entities: ["Auth"], sources: ["auth.ts"] },
+        { content: "Auth returns 401 for expired tokens.", entities: ["Auth"], sources: ["auth.ts"] },
       ]);
 
       expect(result.created).toBe(2);
@@ -229,8 +241,8 @@ describe("MemoryStore", () => {
       writeFile(tmpDir, "auth.ts", "class Auth {}");
       store.registerSource("auth.ts");
 
-      const r1 = store.emit([{ content: "Foo does bar.", entities: ["Foo"] }]);
-      const r2 = store.emit([{ content: "Foo does bar.", entities: ["Foo"] }]);
+      const r1 = store.emit([{ content: "Foo does bar.", entities: ["Foo"], sources: ["auth.ts"] }]);
+      const r2 = store.emit([{ content: "Foo does bar.", entities: ["Foo"], sources: ["auth.ts"] }]);
 
       expect(r1.created).toBe(1);
       expect(r2.created).toBe(0);
@@ -242,7 +254,7 @@ describe("MemoryStore", () => {
       store.registerSource("auth.ts");
 
       const result = store.emit([
-        { content: "Auth depends on Database.", entities: ["Auth", "Database"] },
+        { content: "Auth depends on Database.", entities: ["Auth", "Database"], sources: ["auth.ts"] },
       ]);
 
       expect(result.entities_created).toBe(2);
@@ -254,8 +266,8 @@ describe("MemoryStore", () => {
     it("resolves by normalized name", () => {
       writeFile(tmpDir, "a.ts", "x");
       store.registerSource("a.ts");
-      store.emit([{ content: "Foo exists.", entities: ["AuthService"] }]);
-      const r2 = store.emit([{ content: "Bar exists.", entities: ["authservice"] }]);
+      store.emit([{ content: "Foo exists.", entities: ["AuthService"], sources: ["a.ts"] }]);
+      const r2 = store.emit([{ content: "Bar exists.", entities: ["authservice"], sources: ["a.ts"] }]);
 
       expect(r2.propositions[0].entities[0].resolution).toBe("normalized");
       expect(r2.entities_resolved).toBe(1);
@@ -268,8 +280,8 @@ describe("MemoryStore", () => {
       writeFile(tmpDir, "a.ts", "x");
       store.registerSource("a.ts");
       store.emit([
-        { content: "Auth validates.", entities: ["Auth"] },
-        { content: "DB stores.", entities: ["Database"] },
+        { content: "Auth validates.", entities: ["Auth"], sources: ["a.ts"] },
+        { content: "DB stores.", entities: ["Database"], sources: ["a.ts"] },
       ]);
       store.end();
 
@@ -283,8 +295,8 @@ describe("MemoryStore", () => {
       writeFile(tmpDir, "a.ts", "x");
       store.registerSource("a.ts");
       store.emit([
-        { content: "Auth validates.", entities: ["Auth"] },
-        { content: "DB stores.", entities: ["Database"] },
+        { content: "Auth validates.", entities: ["Auth"], sources: ["a.ts"] },
+        { content: "DB stores.", entities: ["Database"], sources: ["a.ts"] },
       ]);
       store.end();
 
@@ -297,7 +309,7 @@ describe("MemoryStore", () => {
       writeFile(tmpDir, "a.ts", "x");
       store.registerSource("a.ts");
       for (let i = 0; i < 5; i++) {
-        store.emit([{ content: `Entity ${i} exists.`, entities: [`Entity${i}`] }]);
+        store.emit([{ content: `Entity ${i} exists.`, entities: [`Entity${i}`], sources: ["a.ts"] }]);
       }
       store.end();
 
@@ -312,8 +324,8 @@ describe("MemoryStore", () => {
       writeFile(tmpDir, "auth.ts", "class Auth {}");
       store.registerSource("auth.ts");
       store.emit([
-        { content: "Auth validates JWT tokens.", entities: ["Auth"] },
-        { content: "Auth returns 401 for expired tokens.", entities: ["Auth"] },
+        { content: "Auth validates JWT tokens.", entities: ["Auth"], sources: ["auth.ts"] },
+        { content: "Auth returns 401 for expired tokens.", entities: ["Auth"], sources: ["auth.ts"] },
       ]);
       store.end();
 
@@ -331,7 +343,7 @@ describe("MemoryStore", () => {
     it("resolves by name", () => {
       writeFile(tmpDir, "a.ts", "x");
       store.registerSource("a.ts");
-      store.emit([{ content: "Foo exists.", entities: ["MyService"] }]);
+      store.emit([{ content: "Foo exists.", entities: ["MyService"], sources: ["a.ts"] }]);
       store.end();
 
       const result = store.inspect("MyService");
@@ -347,11 +359,11 @@ describe("MemoryStore", () => {
       writeFile(tmpDir, "spec.md", "# Auth Spec");
 
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth validates tokens.", entities: ["Auth"] }]);
+      store.emit([{ content: "Auth validates tokens.", entities: ["Auth"], sources: ["auth.ts"] }]);
       store.end();
 
       store.registerSource("spec.md");
-      store.emit([{ content: "Auth should support refresh.", entities: ["Auth"] }]);
+      store.emit([{ content: "Auth should support refresh.", entities: ["Auth"], sources: ["spec.md"] }]);
       store.end();
 
       const result = store.inspect("Auth");
@@ -366,7 +378,7 @@ describe("MemoryStore", () => {
     it("finds propositions from sessions that included a file", () => {
       writeFile(tmpDir, "auth.ts", "class Auth {}");
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth validates.", entities: ["Auth"] }]);
+      store.emit([{ content: "Auth validates.", entities: ["Auth"], sources: ["auth.ts"] }]);
       store.end();
 
       const result = store.bySource("auth.ts");
@@ -381,8 +393,8 @@ describe("MemoryStore", () => {
       writeFile(tmpDir, "a.ts", "x");
       store.registerSource("a.ts");
       store.emit([
-        { content: "Foo exists.", entities: ["Foo"] },
-        { content: "Bar exists.", entities: ["Bar"] },
+        { content: "Foo exists.", entities: ["Foo"], sources: ["a.ts"] },
+        { content: "Bar exists.", entities: ["Bar"], sources: ["a.ts"] },
       ]);
       store.end();
 
@@ -400,7 +412,7 @@ describe("MemoryStore", () => {
     it("propositions valid when files unchanged", () => {
       writeFile(tmpDir, "auth.ts", "class Auth {}");
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth exists.", entities: ["Auth"] }]);
+      store.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }]);
       store.end();
 
       const result = store.inspect("Auth");
@@ -410,7 +422,7 @@ describe("MemoryStore", () => {
     it("propositions stale when files changed", () => {
       writeFile(tmpDir, "auth.ts", "class Auth {}");
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth exists.", entities: ["Auth"] }]);
+      store.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }]);
       store.end();
 
       writeFile(tmpDir, "auth.ts", "class Auth { validate() {} }");
@@ -423,7 +435,7 @@ describe("MemoryStore", () => {
     it("propositions stale when files deleted", () => {
       const filePath = writeFile(tmpDir, "auth.ts", "class Auth {}");
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth exists.", entities: ["Auth"] }]);
+      store.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }]);
       store.end();
 
       fs.unlinkSync(filePath);
@@ -435,7 +447,7 @@ describe("MemoryStore", () => {
     it("status reflects valid/stale counts", () => {
       writeFile(tmpDir, "auth.ts", "class Auth {}");
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth exists.", entities: ["Auth"] }]);
+      store.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }]);
       store.end();
 
       let status = store.status();
@@ -454,11 +466,11 @@ describe("MemoryStore", () => {
       writeFile(tmpDir, "db.ts", "class DB {}");
 
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth validates.", entities: ["Auth"] }]);
+      store.emit([{ content: "Auth validates.", entities: ["Auth"], sources: ["auth.ts"] }]);
       store.end();
 
       store.registerSource("db.ts");
-      store.emit([{ content: "DB stores.", entities: ["Database"] }]);
+      store.emit([{ content: "DB stores.", entities: ["Database"], sources: ["db.ts"] }]);
       store.end();
 
       writeFile(tmpDir, "auth.ts", "class Auth { changed }");
@@ -474,12 +486,12 @@ describe("MemoryStore", () => {
     it("multiple sessions referencing same file — only matching hash is valid", () => {
       writeFile(tmpDir, "auth.ts", "version 1");
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth v1.", entities: ["Auth"] }]);
+      store.emit([{ content: "Auth v1.", entities: ["Auth"], sources: ["auth.ts"] }]);
       store.end();
 
       writeFile(tmpDir, "auth.ts", "version 2");
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth v2.", entities: ["Auth"] }]);
+      store.emit([{ content: "Auth v2.", entities: ["Auth"], sources: ["auth.ts"] }]);
       store.end();
 
       const result = store.inspect("Auth");
@@ -501,7 +513,7 @@ describe("MemoryStore", () => {
 
       store.registerSource("a.ts");
       store.registerSource("b.ts");
-      store.emit([{ content: "Uses both.", entities: ["Multi"] }]);
+      store.emit([{ content: "Uses both.", entities: ["Multi"], sources: ["a.ts", "b.ts"] }]);
       store.end();
 
       expect(store.inspect("Multi").propositions[0].valid).toBe(true);
@@ -517,11 +529,11 @@ describe("MemoryStore", () => {
       writeFile(tmpDir, "db.ts", "class DB {}");
 
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth validates tokens.", entities: ["Auth"] }]);
+      store.emit([{ content: "Auth validates tokens.", entities: ["Auth"], sources: ["auth.ts"] }]);
       store.end();
 
       store.registerSource("db.ts");
-      store.emit([{ content: "DB stores users.", entities: ["Database"] }]);
+      store.emit([{ content: "DB stores users.", entities: ["Database"], sources: ["db.ts"] }]);
       store.end();
 
       const status = store.status();
@@ -533,12 +545,12 @@ describe("MemoryStore", () => {
     it("deduplication works across sessions", () => {
       writeFile(tmpDir, "a.ts", "x");
       store.registerSource("a.ts");
-      store.emit([{ content: "Auth validates tokens.", entities: ["Auth"] }]);
+      store.emit([{ content: "Auth validates tokens.", entities: ["Auth"], sources: ["a.ts"] }]);
       store.end();
 
       writeFile(tmpDir, "b.ts", "y");
       store.registerSource("b.ts");
-      const r = store.emit([{ content: "Auth validates tokens.", entities: ["Auth"] }]);
+      const r = store.emit([{ content: "Auth validates tokens.", entities: ["Auth"], sources: ["b.ts"] }]);
       expect(r.deduplicated).toBe(1);
       expect(r.created).toBe(0);
       store.end();
@@ -563,7 +575,7 @@ describe("MemoryStore", () => {
       store2.registerSource("b.ts");
 
       // store can emit (both sources are registered)
-      store.emit([{ content: "Uses both.", entities: ["Multi"] }]);
+      store.emit([{ content: "Uses both.", entities: ["Multi"], sources: ["a.ts", "b.ts"] }]);
       store.end();
 
       // store2 sees the results
