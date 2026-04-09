@@ -65,7 +65,14 @@ function loadMemoryConfig(graphsDirs: string[]): MemoryConfig | null {
               ? (path.isAbsolute(mem.db) ? mem.db : path.resolve(ensureStateDir(dir), mem.db))
               : path.join(ensureStateDir(dir), "memory.db");
             const ignore = Array.isArray(mem.ignore) ? mem.ignore as string[] : undefined;
-            return { enabled: true, db: dbPath, ignore };
+            const collections = Array.isArray(mem.collections)
+              ? (mem.collections as Array<Record<string, unknown>>).map((c) => ({
+                  name: String(c.name ?? ""),
+                  description: String(c.description ?? ""),
+                  paths: Array.isArray(c.paths) ? c.paths as string[] : [],
+                })).filter((c) => c.name.length > 0)
+              : undefined;
+            return { enabled: true, db: dbPath, ignore, collections };
           }
         }
       } catch {

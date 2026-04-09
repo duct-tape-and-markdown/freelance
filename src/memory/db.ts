@@ -35,9 +35,11 @@ CREATE TABLE IF NOT EXISTS propositions (
   content TEXT NOT NULL,
   content_hash TEXT NOT NULL,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  collection TEXT NOT NULL DEFAULT 'default',
   created_at TEXT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_prop_hash ON propositions(content_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_prop_hash_coll ON propositions(content_hash, collection);
+CREATE INDEX IF NOT EXISTS idx_prop_collection ON propositions(collection);
 
 CREATE TABLE IF NOT EXISTS about (
   proposition_id TEXT NOT NULL REFERENCES propositions(id) ON DELETE CASCADE,
@@ -59,6 +61,18 @@ CREATE VIRTUAL TABLE IF NOT EXISTS propositions_fts USING fts5(
   content='propositions',
   content_rowid='rowid'
 );
+
+-- Keep FTS in sync with propositions table.
+CREATE TRIGGER IF NOT EXISTS propositions_ai AFTER INSERT ON propositions BEGIN
+  INSERT INTO propositions_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
+CREATE TRIGGER IF NOT EXISTS propositions_ad AFTER DELETE ON propositions BEGIN
+  INSERT INTO propositions_fts(propositions_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+END;
+CREATE TRIGGER IF NOT EXISTS propositions_au AFTER UPDATE ON propositions BEGIN
+  INSERT INTO propositions_fts(propositions_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+  INSERT INTO propositions_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
 `;
 
 function migrate(db: Database.Database): void {

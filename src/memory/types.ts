@@ -23,6 +23,7 @@ export interface PropositionRow {
   content: string;
   content_hash: string;
   session_id: string;
+  collection: string;
   created_at: string;
 }
 
@@ -32,6 +33,7 @@ export interface EmitProposition {
   content: string;
   entities: string[];
   sources: string[];
+  entityKinds?: Record<string, string>;
 }
 
 export interface EmitResult {
@@ -66,13 +68,28 @@ export interface PropositionInfo {
   session_id: string;
   created_at: string;
   valid: boolean;
+  collection: string;
   source_files: Array<{ path: string; hash: string; current_match: boolean }>;
+}
+
+export interface NeighborEntity {
+  id: string;
+  name: string;
+  kind: string | null;
+  shared_propositions: number;
+  valid_shared_propositions: number;
 }
 
 export interface InspectResult {
   entity: EntityInfo;
   propositions: PropositionInfo[];
+  neighbors: NeighborEntity[];
   source_sessions: SourceSession[];
+}
+
+export interface RelatedResult {
+  entity: EntityInfo;
+  neighbors: Array<NeighborEntity & { sample: string }>;
 }
 
 export interface BrowseResult {
@@ -115,8 +132,15 @@ export interface RegisterSourceResult {
   status: "registered" | "updated" | "skipped";
 }
 
+export interface CollectionConfig {
+  name: string;
+  description: string;
+  paths: string[];
+}
+
 export interface MemoryConfig {
   enabled: boolean;
   db: string;
   ignore?: string[];
+  collections?: CollectionConfig[];
 }

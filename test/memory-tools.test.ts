@@ -58,7 +58,7 @@ describe("Memory MCP tools", () => {
     await cleanup();
   });
 
-  it("registers 8 memory tools (no memory_begin)", async () => {
+  it("registers 9 memory tools (no memory_begin)", async () => {
     const tools = await client.listTools();
     const memTools = tools.tools.filter((t) => t.name.startsWith("memory_"));
     const names = memTools.map((t) => t.name).sort();
@@ -69,6 +69,7 @@ describe("Memory MCP tools", () => {
       "memory_end",
       "memory_inspect",
       "memory_register_source",
+      "memory_related",
       "memory_search",
       "memory_status",
     ]);
@@ -88,6 +89,7 @@ describe("Memory MCP tools", () => {
     const emitResult = await client.callTool({
       name: "memory_emit",
       arguments: {
+        collection: "default",
         propositions: [
           { content: "Auth validates JWT tokens using RS256.", entities: ["Auth"], sources: ["auth.ts"] },
           { content: "Auth returns 401 for expired tokens.", entities: ["Auth"], sources: ["auth.ts"] },
@@ -135,7 +137,7 @@ describe("Memory MCP tools", () => {
   it("emit rejected without registered source", async () => {
     const emitResult = await client.callTool({
       name: "memory_emit",
-      arguments: { propositions: [{ content: "test", entities: ["Foo"], sources: ["a.ts"] }] },
+      arguments: { collection: "default", propositions: [{ content: "test", entities: ["Foo"], sources: ["a.ts"] }] },
     });
     expect(emitResult.isError).toBeTruthy();
     const err = parseContent(emitResult) as { error: string };

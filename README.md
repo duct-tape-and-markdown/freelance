@@ -107,6 +107,7 @@ When memory is enabled, two sealed workflows are auto-injected: `memory:compile`
 | `memory_browse` | Find entities by name or kind |
 | `memory_inspect` | Full entity details with propositions and validity |
 | `memory_by_source` | All propositions linked to a source file |
+| `memory_related` | Entity graph navigation — co-occurring entities with connection strength |
 | `memory_search` | Full-text search across proposition content (FTS5) |
 | `memory_status` | Knowledge graph health: total, valid, stale counts |
 

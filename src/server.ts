@@ -419,7 +419,7 @@ export function createServer(
   // --- Memory ---
   let memoryStore: MemoryStore | undefined;
   if (options?.memory?.enabled && options.memory.db) {
-    memoryStore = new MemoryStore(options.memory.db, options.sourceRoot, options.memory.ignore);
+    memoryStore = new MemoryStore(options.memory.db, options.sourceRoot, options.memory.ignore, options.memory.collections);
     registerMemoryTools(server, memoryStore);
 
     // Inject sealed memory workflows
