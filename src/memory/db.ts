@@ -83,8 +83,6 @@ function migrate(db: Database.Database): void {
       db.exec(`ALTER TABLE ${table} ADD COLUMN mtime_ms REAL`);
     }
   }
-
-
 }
 
 export function openDatabase(dbPath: string): Database.Database {

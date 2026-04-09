@@ -338,9 +338,11 @@ export class MemoryStore {
   // --- Entity lookup ---
 
   private findEntity(idOrName: string): EntityRow {
-    const entity = this.db.prepare(
-      "SELECT * FROM entities WHERE id = ? OR name = ? OR LOWER(name) = ? LIMIT 1"
-    ).get(idOrName, idOrName, idOrName.toLowerCase()) as EntityRow | undefined;
+    // Priority: id → exact name → normalized name
+    const entity =
+      (this.db.prepare("SELECT * FROM entities WHERE id = ?").get(idOrName) as EntityRow | undefined) ??
+      (this.db.prepare("SELECT * FROM entities WHERE name = ?").get(idOrName) as EntityRow | undefined) ??
+      (this.db.prepare("SELECT * FROM entities WHERE LOWER(name) = ?").get(idOrName.toLowerCase()) as EntityRow | undefined);
     if (!entity) {
       throw new Error(`Entity not found: ${idOrName}`);
     }
@@ -349,16 +351,26 @@ export class MemoryStore {
 
   // --- Neighbors ---
 
-  private getNeighbors(entityId: string, staleSessionIds: Set<string>): NeighborEntity[] {
-    const staleIds = [...staleSessionIds];
-    const stalePlaceholders = staleIds.length > 0
-      ? staleIds.map(() => "?").join(",")
-      : "'__none__'";
+  private stalePlaceholders(staleSessionIds: Set<string>): { sql: string; params: string[] } {
+    const params = [...staleSessionIds];
+    return { sql: params.length > 0 ? params.map(() => "?").join(",") : "'__none__'", params };
+  }
+
+  private getNeighbors(entityId: string, staleSessionIds: Set<string>, withSample = false): Array<NeighborEntity & { sample?: string | null }> {
+    const stale = this.stalePlaceholders(staleSessionIds);
+    const sampleCol = withSample
+      ? `, (SELECT p2.content FROM propositions p2
+               JOIN about s1 ON p2.id = s1.proposition_id
+               JOIN about s2 ON p2.id = s2.proposition_id
+               WHERE s1.entity_id = ? AND s2.entity_id = e2.id
+               ORDER BY LENGTH(p2.content) DESC LIMIT 1) as sample`
+      : "";
+    const sampleParams = withSample ? [entityId] : [];
 
     return this.db.prepare(
       `SELECT e2.id, e2.name, e2.kind,
               COUNT(DISTINCT a1.proposition_id) as shared_propositions,
-              COUNT(DISTINCT CASE WHEN p.session_id NOT IN (${stalePlaceholders}) THEN a1.proposition_id END) as valid_shared_propositions
+              COUNT(DISTINCT CASE WHEN p.session_id NOT IN (${stale.sql}) THEN a1.proposition_id END) as valid_shared_propositions${sampleCol}
        FROM about a1
        JOIN about a2 ON a1.proposition_id = a2.proposition_id
        JOIN entities e2 ON a2.entity_id = e2.id
@@ -366,7 +378,7 @@ export class MemoryStore {
        WHERE a1.entity_id = ? AND a2.entity_id != a1.entity_id
        GROUP BY e2.id
        ORDER BY valid_shared_propositions DESC`
-    ).all(...staleIds, entityId) as NeighborEntity[];
+    ).all(...stale.params, ...sampleParams, entityId) as Array<NeighborEntity & { sample?: string | null }>;
   }
 
   // --- Query operations ---
@@ -516,7 +528,6 @@ export class MemoryStore {
       `SELECT p.* FROM propositions p JOIN propositions_fts fts ON p.rowid = fts.rowid WHERE propositions_fts MATCH ?${coll.clause} ORDER BY fts.rank LIMIT ?`
     ).all(sanitized, ...coll.params, limit) as PropositionRow[];
 
-
     const propositions = rows.map((p) => {
       const enriched = this.enrichProposition(p);
       const entityRows = this.db.prepare(
@@ -546,30 +557,7 @@ export class MemoryStore {
       "SELECT COUNT(*) as c FROM about WHERE entity_id = ?"
     ).get(entity.id) as { c: number }).c;
 
-    const staleIds = [...staleSessionIds];
-    const stalePlaceholders = staleIds.length > 0
-      ? staleIds.map(() => "?").join(",")
-      : "'__none__'";
-
-    // Single query: neighbors + longest shared proposition as sample
-    const rows = this.db.prepare(
-      `SELECT e2.id, e2.name, e2.kind,
-              COUNT(DISTINCT a1.proposition_id) as shared_propositions,
-              COUNT(DISTINCT CASE WHEN p.session_id NOT IN (${stalePlaceholders}) THEN a1.proposition_id END) as valid_shared_propositions,
-              (SELECT p2.content FROM propositions p2
-               JOIN about s1 ON p2.id = s1.proposition_id
-               JOIN about s2 ON p2.id = s2.proposition_id
-               WHERE s1.entity_id = ? AND s2.entity_id = e2.id
-               ORDER BY LENGTH(p2.content) DESC LIMIT 1) as sample
-       FROM about a1
-       JOIN about a2 ON a1.proposition_id = a2.proposition_id
-       JOIN entities e2 ON a2.entity_id = e2.id
-       JOIN propositions p ON a1.proposition_id = p.id
-       WHERE a1.entity_id = ? AND a2.entity_id != a1.entity_id
-       GROUP BY e2.id
-       ORDER BY valid_shared_propositions DESC`
-    ).all(...staleIds, entity.id, entity.id) as Array<NeighborEntity & { sample: string | null }>;
-
+    const rows = this.getNeighbors(entity.id, staleSessionIds, true);
     const neighbors = rows.map((r) => ({ ...r, sample: r.sample ?? "" }));
 
     return {
@@ -654,10 +642,10 @@ export class MemoryStore {
     if (stale.size === 0) {
       validCount = totalProps;
     } else {
-      const placeholders = [...stale].map(() => "?").join(",");
+      const sp = this.stalePlaceholders(stale);
       const staleCount = (this.db.prepare(
-        `SELECT COUNT(*) as c FROM propositions WHERE session_id IN (${placeholders})${collAnd}`
-      ).get(...stale, ...collParams) as { c: number }).c;
+        `SELECT COUNT(*) as c FROM propositions WHERE session_id IN (${sp.sql})${collAnd}`
+      ).get(...sp.params, ...collParams) as { c: number }).c;
       validCount = totalProps - staleCount;
     }
 
@@ -686,12 +674,12 @@ export class MemoryStore {
         `SELECT COUNT(*) as c FROM about a JOIN propositions p ON a.proposition_id = p.id WHERE a.entity_id = ?${coll.clause}`
       ).get(entityId, ...coll.params) as { c: number }).c;
     }
-    const placeholders = [...staleSessionIds].map(() => "?").join(",");
+    const sp = this.stalePlaceholders(staleSessionIds);
     return (this.db.prepare(
       `SELECT COUNT(*) as c FROM about a
        JOIN propositions p ON a.proposition_id = p.id
-       WHERE a.entity_id = ? AND p.session_id NOT IN (${placeholders})${coll.clause}`
-    ).get(entityId, ...staleSessionIds, ...coll.params) as { c: number }).c;
+       WHERE a.entity_id = ? AND p.session_id NOT IN (${sp.sql})${coll.clause}`
+    ).get(entityId, ...sp.params, ...coll.params) as { c: number }).c;
   }
 
   private enrichProposition(row: PropositionRow): PropositionInfo {
