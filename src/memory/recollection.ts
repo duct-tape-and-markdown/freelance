@@ -19,6 +19,7 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
       "and emits new propositions to fill the delta."
     )
     .setContext({
+      collection: "",
       query: "",
       recalledEntities: 0,
       recalledPropositions: 0,
@@ -31,11 +32,12 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
       description: "Search memory for existing knowledge related to the query.",
       instructions:
         "Use memory_browse and memory_inspect to find entities and propositions " +
-        "related to the query. Catalog what's already known — these are the propositions " +
+        "related to the query, passing context.collection as the collection parameter. " +
+        "Catalog what's already known — these are the propositions " +
         "from prior compilation sessions. Note the source files listed in provenance " +
         "(source_sessions) — you'll read those next. " +
         "Update context.recalledEntities and context.recalledPropositions with counts.",
-      suggestedTools: ["memory_browse", "memory_inspect"],
+      suggestedTools: ["memory_browse", "memory_inspect", "memory_related"],
       edges: [
         {
           target: "sourcing",
@@ -93,7 +95,8 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
       type: "action",
       description: "Emit new propositions to cover the delta.",
       instructions:
-        "Emit propositions for the gaps identified in the comparison step. " +
+        "Emit propositions for the gaps identified in the comparison step, passing " +
+        "context.collection as the collection parameter to memory_emit. " +
         "Each proposition should be a self-contained claim about 1-2 entities, " +
         "capturing knowledge the sources reveal about the query that wasn't " +
         "previously compiled. Don't re-emit what's already known — focus on the delta. " +

@@ -17,6 +17,7 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       "Use this workflow to build persistent knowledge about the codebase."
     )
     .setContext({
+      collection: "",
       query: "",
       filesRead: 0,
       propositionsEmitted: 0,
@@ -45,7 +46,8 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       description: "Emit propositions about what you learned from the source files.",
       instructions:
         "Reason about what you read. Write self-contained propositions in natural prose, " +
-        "each about 1-2 entities. Use memory_emit to write them to Memory. " +
+        "each about 1-2 entities. Use memory_emit to write them to Memory, passing " +
+        "context.collection as the collection parameter. " +
         "Update context.propositionsEmitted with the total emitted this session.",
       suggestedTools: ["memory_emit"],
       edges: [

@@ -19,6 +19,8 @@ function writeFile(dir: string, name: string, content: string): string {
   return filePath;
 }
 
+const C = "default";
+
 describe("MemoryStore", () => {
   let tmpDir: string;
   let store: MemoryStore;
@@ -49,7 +51,7 @@ describe("MemoryStore", () => {
     it("end closes session and returns stats", () => {
       writeFile(tmpDir, "a.ts", "x");
       store.registerSource("a.ts");
-      store.emit([{ content: "Foo exists.", entities: ["Foo"], sources: ["a.ts"] }]);
+      store.emit([{ content: "Foo exists.", entities: ["Foo"], sources: ["a.ts"] }], C);
 
       const end = store.end();
       expect(end.session_id).toBeTruthy();
@@ -66,7 +68,7 @@ describe("MemoryStore", () => {
     });
 
     it("rejects emit without registered source", () => {
-      expect(() => store.emit([{ content: "test", entities: ["Foo"], sources: ["a.ts"] }]))
+      expect(() => store.emit([{ content: "test", entities: ["Foo"], sources: ["a.ts"] }], C))
         .toThrow("Register a source file first");
     });
 
@@ -86,7 +88,7 @@ describe("MemoryStore", () => {
     it("new session after end + registerSource", () => {
       writeFile(tmpDir, "a.ts", "x");
       store.registerSource("a.ts");
-      store.emit([{ content: "Foo.", entities: ["Foo"], sources: ["a.ts"] }]);
+      store.emit([{ content: "Foo.", entities: ["Foo"], sources: ["a.ts"] }], C);
       const session1 = store.status().active_session;
       store.end();
 
@@ -193,7 +195,7 @@ describe("MemoryStore", () => {
       // Register a real source and emit
       writeFile(tmpDir, "auth.ts", "class Auth {}");
       ignoredStore.registerSource("auth.ts");
-      ignoredStore.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }]);
+      ignoredStore.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }], C);
       ignoredStore.end();
 
       // Register an ignored file — shouldn't affect anything
@@ -208,14 +210,14 @@ describe("MemoryStore", () => {
 
   describe("proposition emission", () => {
     it("requires at least one registered source", () => {
-      expect(() => store.emit([{ content: "Foo exists.", entities: ["Foo"], sources: ["a.ts"] }]))
+      expect(() => store.emit([{ content: "Foo exists.", entities: ["Foo"], sources: ["a.ts"] }], C))
         .toThrow("Register a source file first");
     });
 
     it("rejects emit with unregistered source path", () => {
       writeFile(tmpDir, "a.ts", "x");
       store.registerSource("a.ts");
-      expect(() => store.emit([{ content: "Foo.", entities: ["Foo"], sources: ["unknown.ts"] }]))
+      expect(() => store.emit([{ content: "Foo.", entities: ["Foo"], sources: ["unknown.ts"] }], C))
         .toThrow('Source "unknown.ts" is not registered');
     });
 
@@ -226,7 +228,7 @@ describe("MemoryStore", () => {
       const result = store.emit([
         { content: "Auth validates JWT tokens.", entities: ["Auth"], sources: ["auth.ts"] },
         { content: "Auth returns 401 for expired tokens.", entities: ["Auth"], sources: ["auth.ts"] },
-      ]);
+      ], C);
 
       expect(result.created).toBe(2);
       expect(result.deduplicated).toBe(0);
@@ -241,8 +243,8 @@ describe("MemoryStore", () => {
       writeFile(tmpDir, "auth.ts", "class Auth {}");
       store.registerSource("auth.ts");
 
-      const r1 = store.emit([{ content: "Foo does bar.", entities: ["Foo"], sources: ["auth.ts"] }]);
-      const r2 = store.emit([{ content: "Foo does bar.", entities: ["Foo"], sources: ["auth.ts"] }]);
+      const r1 = store.emit([{ content: "Foo does bar.", entities: ["Foo"], sources: ["auth.ts"] }], C);
+      const r2 = store.emit([{ content: "Foo does bar.", entities: ["Foo"], sources: ["auth.ts"] }], C);
 
       expect(r1.created).toBe(1);
       expect(r2.created).toBe(0);
@@ -255,7 +257,7 @@ describe("MemoryStore", () => {
 
       const result = store.emit([
         { content: "Auth depends on Database.", entities: ["Auth", "Database"], sources: ["auth.ts"] },
-      ]);
+      ], C);
 
       expect(result.entities_created).toBe(2);
       expect(result.propositions[0].entities).toHaveLength(2);
@@ -266,8 +268,8 @@ describe("MemoryStore", () => {
     it("resolves by normalized name", () => {
       writeFile(tmpDir, "a.ts", "x");
       store.registerSource("a.ts");
-      store.emit([{ content: "Foo exists.", entities: ["AuthService"], sources: ["a.ts"] }]);
-      const r2 = store.emit([{ content: "Bar exists.", entities: ["authservice"], sources: ["a.ts"] }]);
+      store.emit([{ content: "Foo exists.", entities: ["AuthService"], sources: ["a.ts"] }], C);
+      const r2 = store.emit([{ content: "Bar exists.", entities: ["authservice"], sources: ["a.ts"] }], C);
 
       expect(r2.propositions[0].entities[0].resolution).toBe("normalized");
       expect(r2.entities_resolved).toBe(1);
@@ -282,7 +284,7 @@ describe("MemoryStore", () => {
       store.emit([
         { content: "Auth validates.", entities: ["Auth"], sources: ["a.ts"] },
         { content: "DB stores.", entities: ["Database"], sources: ["a.ts"] },
-      ]);
+      ], C);
       store.end();
 
       const result = store.browse();
@@ -297,7 +299,7 @@ describe("MemoryStore", () => {
       store.emit([
         { content: "Auth validates.", entities: ["Auth"], sources: ["a.ts"] },
         { content: "DB stores.", entities: ["Database"], sources: ["a.ts"] },
-      ]);
+      ], C);
       store.end();
 
       const result = store.browse({ name: "auth" });
@@ -309,7 +311,7 @@ describe("MemoryStore", () => {
       writeFile(tmpDir, "a.ts", "x");
       store.registerSource("a.ts");
       for (let i = 0; i < 5; i++) {
-        store.emit([{ content: `Entity ${i} exists.`, entities: [`Entity${i}`], sources: ["a.ts"] }]);
+        store.emit([{ content: `Entity ${i} exists.`, entities: [`Entity${i}`], sources: ["a.ts"] }], C);
       }
       store.end();
 
@@ -326,7 +328,7 @@ describe("MemoryStore", () => {
       store.emit([
         { content: "Auth validates JWT tokens.", entities: ["Auth"], sources: ["auth.ts"] },
         { content: "Auth returns 401 for expired tokens.", entities: ["Auth"], sources: ["auth.ts"] },
-      ]);
+      ], C);
       store.end();
 
       const result = store.inspect("Auth");
@@ -343,7 +345,7 @@ describe("MemoryStore", () => {
     it("resolves by name", () => {
       writeFile(tmpDir, "a.ts", "x");
       store.registerSource("a.ts");
-      store.emit([{ content: "Foo exists.", entities: ["MyService"], sources: ["a.ts"] }]);
+      store.emit([{ content: "Foo exists.", entities: ["MyService"], sources: ["a.ts"] }], C);
       store.end();
 
       const result = store.inspect("MyService");
@@ -359,11 +361,11 @@ describe("MemoryStore", () => {
       writeFile(tmpDir, "spec.md", "# Auth Spec");
 
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth validates tokens.", entities: ["Auth"], sources: ["auth.ts"] }]);
+      store.emit([{ content: "Auth validates tokens.", entities: ["Auth"], sources: ["auth.ts"] }], C);
       store.end();
 
       store.registerSource("spec.md");
-      store.emit([{ content: "Auth should support refresh.", entities: ["Auth"], sources: ["spec.md"] }]);
+      store.emit([{ content: "Auth should support refresh.", entities: ["Auth"], sources: ["spec.md"] }], C);
       store.end();
 
       const result = store.inspect("Auth");
@@ -378,13 +380,26 @@ describe("MemoryStore", () => {
     it("finds propositions from sessions that included a file", () => {
       writeFile(tmpDir, "auth.ts", "class Auth {}");
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth validates.", entities: ["Auth"], sources: ["auth.ts"] }]);
+      store.emit([{ content: "Auth validates.", entities: ["Auth"], sources: ["auth.ts"] }], C);
       store.end();
 
       const result = store.bySource("auth.ts");
       expect(result.file_path).toBe("auth.ts");
       expect(result.propositions).toHaveLength(1);
       expect(result.propositions[0].content).toBe("Auth validates.");
+    });
+  });
+
+  describe("search", () => {
+    it("finds propositions immediately after emit (same connection)", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.registerSource("a.ts");
+      store.emit([{ content: "Auth validates JWT tokens.", entities: ["Auth"], sources: ["a.ts"] }], C);
+      store.end();
+
+      const result = store.search("JWT");
+      expect(result.propositions).toHaveLength(1);
+      expect(result.propositions[0].content).toContain("JWT");
     });
   });
 
@@ -395,7 +410,7 @@ describe("MemoryStore", () => {
       store.emit([
         { content: "Foo exists.", entities: ["Foo"], sources: ["a.ts"] },
         { content: "Bar exists.", entities: ["Bar"], sources: ["a.ts"] },
-      ]);
+      ], C);
       store.end();
 
       const result = store.status();
@@ -412,7 +427,7 @@ describe("MemoryStore", () => {
     it("propositions valid when files unchanged", () => {
       writeFile(tmpDir, "auth.ts", "class Auth {}");
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }]);
+      store.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }], C);
       store.end();
 
       const result = store.inspect("Auth");
@@ -422,7 +437,7 @@ describe("MemoryStore", () => {
     it("propositions stale when files changed", () => {
       writeFile(tmpDir, "auth.ts", "class Auth {}");
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }]);
+      store.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }], C);
       store.end();
 
       writeFile(tmpDir, "auth.ts", "class Auth { validate() {} }");
@@ -435,7 +450,7 @@ describe("MemoryStore", () => {
     it("propositions stale when files deleted", () => {
       const filePath = writeFile(tmpDir, "auth.ts", "class Auth {}");
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }]);
+      store.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }], C);
       store.end();
 
       fs.unlinkSync(filePath);
@@ -447,7 +462,7 @@ describe("MemoryStore", () => {
     it("status reflects valid/stale counts", () => {
       writeFile(tmpDir, "auth.ts", "class Auth {}");
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }]);
+      store.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }], C);
       store.end();
 
       let status = store.status();
@@ -466,11 +481,11 @@ describe("MemoryStore", () => {
       writeFile(tmpDir, "db.ts", "class DB {}");
 
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth validates.", entities: ["Auth"], sources: ["auth.ts"] }]);
+      store.emit([{ content: "Auth validates.", entities: ["Auth"], sources: ["auth.ts"] }], C);
       store.end();
 
       store.registerSource("db.ts");
-      store.emit([{ content: "DB stores.", entities: ["Database"], sources: ["db.ts"] }]);
+      store.emit([{ content: "DB stores.", entities: ["Database"], sources: ["db.ts"] }], C);
       store.end();
 
       writeFile(tmpDir, "auth.ts", "class Auth { changed }");
@@ -486,12 +501,12 @@ describe("MemoryStore", () => {
     it("multiple sessions referencing same file — only matching hash is valid", () => {
       writeFile(tmpDir, "auth.ts", "version 1");
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth v1.", entities: ["Auth"], sources: ["auth.ts"] }]);
+      store.emit([{ content: "Auth v1.", entities: ["Auth"], sources: ["auth.ts"] }], C);
       store.end();
 
       writeFile(tmpDir, "auth.ts", "version 2");
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth v2.", entities: ["Auth"], sources: ["auth.ts"] }]);
+      store.emit([{ content: "Auth v2.", entities: ["Auth"], sources: ["auth.ts"] }], C);
       store.end();
 
       const result = store.inspect("Auth");
@@ -513,7 +528,7 @@ describe("MemoryStore", () => {
 
       store.registerSource("a.ts");
       store.registerSource("b.ts");
-      store.emit([{ content: "Uses both.", entities: ["Multi"], sources: ["a.ts", "b.ts"] }]);
+      store.emit([{ content: "Uses both.", entities: ["Multi"], sources: ["a.ts", "b.ts"] }], C);
       store.end();
 
       expect(store.inspect("Multi").propositions[0].valid).toBe(true);
@@ -529,11 +544,11 @@ describe("MemoryStore", () => {
       writeFile(tmpDir, "db.ts", "class DB {}");
 
       store.registerSource("auth.ts");
-      store.emit([{ content: "Auth validates tokens.", entities: ["Auth"], sources: ["auth.ts"] }]);
+      store.emit([{ content: "Auth validates tokens.", entities: ["Auth"], sources: ["auth.ts"] }], C);
       store.end();
 
       store.registerSource("db.ts");
-      store.emit([{ content: "DB stores users.", entities: ["Database"], sources: ["db.ts"] }]);
+      store.emit([{ content: "DB stores users.", entities: ["Database"], sources: ["db.ts"] }], C);
       store.end();
 
       const status = store.status();
@@ -545,12 +560,12 @@ describe("MemoryStore", () => {
     it("deduplication works across sessions", () => {
       writeFile(tmpDir, "a.ts", "x");
       store.registerSource("a.ts");
-      store.emit([{ content: "Auth validates tokens.", entities: ["Auth"], sources: ["a.ts"] }]);
+      store.emit([{ content: "Auth validates tokens.", entities: ["Auth"], sources: ["a.ts"] }], C);
       store.end();
 
       writeFile(tmpDir, "b.ts", "y");
       store.registerSource("b.ts");
-      const r = store.emit([{ content: "Auth validates tokens.", entities: ["Auth"], sources: ["b.ts"] }]);
+      const r = store.emit([{ content: "Auth validates tokens.", entities: ["Auth"], sources: ["b.ts"] }], C);
       expect(r.deduplicated).toBe(1);
       expect(r.created).toBe(0);
       store.end();
@@ -575,7 +590,7 @@ describe("MemoryStore", () => {
       store2.registerSource("b.ts");
 
       // store can emit (both sources are registered)
-      store.emit([{ content: "Uses both.", entities: ["Multi"], sources: ["a.ts", "b.ts"] }]);
+      store.emit([{ content: "Uses both.", entities: ["Multi"], sources: ["a.ts", "b.ts"] }], C);
       store.end();
 
       // store2 sees the results
@@ -583,6 +598,298 @@ describe("MemoryStore", () => {
       expect(result.entities).toHaveLength(1);
 
       store2.close();
+    });
+  });
+
+  describe("entityKinds", () => {
+    it("sets kind on entity creation", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.registerSource("a.ts");
+      store.emit([{
+        content: "Auth validates tokens.",
+        entities: ["Auth"],
+        sources: ["a.ts"],
+        entityKinds: { Auth: "class" },
+      }], C);
+      store.end();
+
+      const result = store.browse({ name: "Auth" });
+      expect(result.entities[0].kind).toBe("class");
+    });
+
+    it("kind is null when entityKinds not provided", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.registerSource("a.ts");
+      store.emit([{ content: "Foo exists.", entities: ["Foo"], sources: ["a.ts"] }], C);
+      store.end();
+
+      const result = store.browse({ name: "Foo" });
+      expect(result.entities[0].kind).toBeNull();
+    });
+
+    it("existing entity keeps its kind on re-resolution", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.registerSource("a.ts");
+      store.emit([{
+        content: "Auth validates.",
+        entities: ["Auth"],
+        sources: ["a.ts"],
+        entityKinds: { Auth: "class" },
+      }], C);
+      // Re-resolve same entity without kind — should keep original
+      store.emit([{
+        content: "Auth also logs.",
+        entities: ["Auth"],
+        sources: ["a.ts"],
+      }], C);
+      store.end();
+
+      const result = store.browse({ name: "Auth" });
+      expect(result.entities[0].kind).toBe("class");
+    });
+  });
+
+  describe("neighbors", () => {
+    it("inspect returns co-occurring entities with valid counts", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.registerSource("a.ts");
+      store.emit([
+        { content: "Auth depends on Database.", entities: ["Auth", "Database"], sources: ["a.ts"] },
+        { content: "Auth uses Cache for tokens.", entities: ["Auth", "Cache"], sources: ["a.ts"] },
+      ], C);
+      store.end();
+
+      const result = store.inspect("Auth");
+      expect(result.neighbors).toHaveLength(2);
+      const names = result.neighbors.map((n) => n.name).sort();
+      expect(names).toEqual(["Cache", "Database"]);
+      expect(result.neighbors[0].shared_propositions).toBe(1);
+      expect(result.neighbors[0].valid_shared_propositions).toBe(1);
+    });
+
+    it("no neighbors for isolated entity", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.registerSource("a.ts");
+      store.emit([{ content: "Standalone exists.", entities: ["Standalone"], sources: ["a.ts"] }], C);
+      store.end();
+
+      const result = store.inspect("Standalone");
+      expect(result.neighbors).toHaveLength(0);
+    });
+
+    it("valid count drops when source goes stale", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.registerSource("a.ts");
+      store.emit([
+        { content: "Auth depends on Database.", entities: ["Auth", "Database"], sources: ["a.ts"] },
+      ], C);
+      store.end();
+
+      writeFile(tmpDir, "b.ts", "y");
+      store.registerSource("b.ts");
+      store.emit([
+        { content: "Auth also uses Database for caching.", entities: ["Auth", "Database"], sources: ["b.ts"] },
+      ], C);
+      store.end();
+
+      let result = store.inspect("Auth");
+      const db = result.neighbors.find((n) => n.name === "Database")!;
+      expect(db.shared_propositions).toBe(2);
+      expect(db.valid_shared_propositions).toBe(2);
+
+      writeFile(tmpDir, "a.ts", "changed");
+      result = store.inspect("Auth");
+      const db2 = result.neighbors.find((n) => n.name === "Database")!;
+      expect(db2.shared_propositions).toBe(2);
+      expect(db2.valid_shared_propositions).toBe(1);
+    });
+  });
+
+  describe("related", () => {
+    it("returns neighbors with sample propositions", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.registerSource("a.ts");
+      store.emit([
+        { content: "Auth depends on Database for user lookups.", entities: ["Auth", "Database"], sources: ["a.ts"] },
+        { content: "Auth uses Cache to store sessions.", entities: ["Auth", "Cache"], sources: ["a.ts"] },
+        { content: "Auth also queries Database for roles.", entities: ["Auth", "Database"], sources: ["a.ts"] },
+      ], C);
+      store.end();
+
+      const result = store.related("Auth");
+      expect(result.entity.name).toBe("Auth");
+      expect(result.neighbors).toHaveLength(2);
+
+      const db = result.neighbors.find((n) => n.name === "Database");
+      expect(db!.shared_propositions).toBe(2);
+      expect(db!.sample).toBeTruthy();
+
+      const cache = result.neighbors.find((n) => n.name === "Cache");
+      expect(cache!.shared_propositions).toBe(1);
+    });
+
+    it("throws for unknown entity", () => {
+      expect(() => store.related("nonexistent")).toThrow("Entity not found");
+    });
+  });
+
+  describe("collections", () => {
+    it("rejects unknown collection on emit", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.registerSource("a.ts");
+      expect(() => store.emit([{ content: "Foo.", entities: ["Foo"], sources: ["a.ts"] }], "unknown"))
+        .toThrow('Unknown collection "unknown"');
+    });
+
+    it("same proposition in two collections creates two rows", () => {
+      const colStore = new MemoryStore(
+        path.join(tmpDir, "col.db"), tmpDir, [],
+        [
+          { name: "spec", description: "Specs", paths: [""] },
+          { name: "domain", description: "Domain", paths: [""] },
+        ]
+      );
+
+      writeFile(tmpDir, "a.ts", "x");
+      colStore.registerSource("a.ts");
+      colStore.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["a.ts"] }], "spec");
+      colStore.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["a.ts"] }], "domain");
+      colStore.end();
+
+      const status = colStore.status();
+      expect(status.total_propositions).toBe(2);
+      colStore.close();
+    });
+
+    it("deduplicates within the same collection", () => {
+      const colStore = new MemoryStore(
+        path.join(tmpDir, "col2.db"), tmpDir, [],
+        [{ name: "spec", description: "Specs", paths: [""] }]
+      );
+
+      writeFile(tmpDir, "a.ts", "x");
+      colStore.registerSource("a.ts");
+      const r1 = colStore.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["a.ts"] }], "spec");
+      const r2 = colStore.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["a.ts"] }], "spec");
+      expect(r1.created).toBe(1);
+      expect(r2.deduplicated).toBe(1);
+      colStore.end();
+      colStore.close();
+    });
+
+    it("browse with collection filter scopes results", () => {
+      const colStore = new MemoryStore(
+        path.join(tmpDir, "col3.db"), tmpDir, [],
+        [
+          { name: "spec", description: "Specs", paths: [""] },
+          { name: "domain", description: "Domain", paths: [""] },
+        ]
+      );
+
+      writeFile(tmpDir, "a.ts", "x");
+      colStore.registerSource("a.ts");
+      colStore.emit([{ content: "Auth validates.", entities: ["Auth"], sources: ["a.ts"] }], "spec");
+      colStore.emit([{ content: "DB stores.", entities: ["Database"], sources: ["a.ts"] }], "domain");
+      colStore.end();
+
+      const specResult = colStore.browse({ collection: "spec" });
+      expect(specResult.entities).toHaveLength(1);
+      expect(specResult.entities[0].name).toBe("Auth");
+
+      const allResult = colStore.browse();
+      expect(allResult.entities).toHaveLength(2);
+
+      colStore.close();
+    });
+
+    it("inspect with collection filter shows only that collection's propositions", () => {
+      const colStore = new MemoryStore(
+        path.join(tmpDir, "col4.db"), tmpDir, [],
+        [
+          { name: "spec", description: "Specs", paths: [""] },
+          { name: "domain", description: "Domain", paths: [""] },
+        ]
+      );
+
+      writeFile(tmpDir, "a.ts", "x");
+      colStore.registerSource("a.ts");
+      colStore.emit([{ content: "Auth spec claim.", entities: ["Auth"], sources: ["a.ts"] }], "spec");
+      colStore.emit([{ content: "Auth domain claim.", entities: ["Auth"], sources: ["a.ts"] }], "domain");
+      colStore.end();
+
+      const specResult = colStore.inspect("Auth", "spec");
+      expect(specResult.propositions).toHaveLength(1);
+      expect(specResult.propositions[0].content).toBe("Auth spec claim.");
+      expect(specResult.propositions[0].collection).toBe("spec");
+
+      const allResult = colStore.inspect("Auth");
+      expect(allResult.propositions).toHaveLength(2);
+
+      colStore.close();
+    });
+
+    it("search with collection filter scopes results", () => {
+      const colStore = new MemoryStore(
+        path.join(tmpDir, "col5.db"), tmpDir, [],
+        [
+          { name: "spec", description: "Specs", paths: [""] },
+          { name: "domain", description: "Domain", paths: [""] },
+        ]
+      );
+
+      writeFile(tmpDir, "a.ts", "x");
+      colStore.registerSource("a.ts");
+      colStore.emit([{ content: "Auth validates tokens.", entities: ["Auth"], sources: ["a.ts"] }], "spec");
+      colStore.emit([{ content: "Auth handles requests.", entities: ["Auth"], sources: ["a.ts"] }], "domain");
+      colStore.end();
+
+      const specResult = colStore.search("Auth", { collection: "spec" });
+      expect(specResult.propositions).toHaveLength(1);
+      expect(specResult.propositions[0].collection).toBe("spec");
+
+      const allResult = colStore.search("Auth");
+      expect(allResult.propositions).toHaveLength(2);
+
+      colStore.close();
+    });
+
+    it("status scoped to collection", () => {
+      const colStore = new MemoryStore(
+        path.join(tmpDir, "col6.db"), tmpDir, [],
+        [
+          { name: "spec", description: "Specs", paths: [""] },
+          { name: "domain", description: "Domain", paths: [""] },
+        ]
+      );
+
+      writeFile(tmpDir, "a.ts", "x");
+      colStore.registerSource("a.ts");
+      colStore.emit([{ content: "Spec prop.", entities: ["Spec"], sources: ["a.ts"] }], "spec");
+      colStore.emit([{ content: "Domain prop 1.", entities: ["Dom"], sources: ["a.ts"] }], "domain");
+      colStore.emit([{ content: "Domain prop 2.", entities: ["Dom"], sources: ["a.ts"] }], "domain");
+      colStore.end();
+
+      expect(colStore.status("spec").total_propositions).toBe(1);
+      expect(colStore.status("domain").total_propositions).toBe(2);
+      expect(colStore.status().total_propositions).toBe(3);
+
+      colStore.close();
+    });
+
+    it("default collection synthesized when none configured", () => {
+      const collections = store.getCollections();
+      expect(collections).toHaveLength(1);
+      expect(collections[0].name).toBe("default");
+    });
+
+    it("propositions include collection label in results", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.registerSource("a.ts");
+      store.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["a.ts"] }], C);
+      store.end();
+
+      const result = store.inspect("Auth");
+      expect(result.propositions[0].collection).toBe("default");
     });
   });
 });
