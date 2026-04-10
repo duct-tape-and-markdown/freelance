@@ -15,7 +15,6 @@ function handleError(e: unknown) {
 }
 
 export function registerMemoryTools(server: McpServer, store: MemoryStore): void {
-
   // --- Write ---
 
   server.tool(
