@@ -10,6 +10,18 @@ Graph-based workflow enforcement for AI coding agents.
 
 ## Running
 
+### Configuration
+
+Two config files in `.freelance/`, same schema, layered:
+- `config.yml` — team-shared (committed)
+- `config.local.yml` — machine-specific (gitignored)
+
+Precedence: CLI flags > env vars > config.local.yml > config.yml > defaults
+
+Schema: `workflows` (string[]), `memory.enabled` (bool), `memory.dir` (string), `memory.ignore` (string[]), `memory.collections` (CollectionConfig[])
+
+Arrays concatenate across files. Scalars use highest-precedence value.
+
 ### Graph Directory Resolution
 
 Graphs can be loaded from multiple directories in cascading order (later directories shadow earlier ones):
@@ -17,6 +29,7 @@ Graphs can be loaded from multiple directories in cascading order (later directo
 **Automatic resolution** (no flags needed):
 1. `./.freelance` (project-level, if exists)
 2. `~/.freelance` (user-level, if exists)
+3. Additional dirs from `config.yml` / `config.local.yml` `workflows:` key
 
 **Explicit directories** (CLI):
 ```bash
@@ -74,11 +87,12 @@ Override with `--source-root <path>` (CLI) or `sourceRoot` (ServerOptions).
   - `traversal-store.ts` — Multi-traversal management, loads/saves state per operation
   - `db.ts` — SQLite schema for traversal state
 - `src/builder.ts` — Programmatic workflow graph construction (GraphBuilder)
-- `src/graph-resolution.ts` — Graph directory resolution and loading (env var, project, user cascading)
+- `src/config.ts` — Unified config loader (config.yml + config.local.yml schema, merging, writing)
+- `src/graph-resolution.ts` — Graph directory resolution and loading (env var, project, user, config cascading)
 - `src/daemon.ts` — HTTP daemon server wrapping TraversalStore, PID file management, shutdown handlers
 - `src/proxy.ts` — MCP proxy that bridges stdio to daemon HTTP API
 - `src/server.ts` — MCP tool surface (12+ tools: traversal, guide, distill, sources, validate, plus memory)
-- `src/cli/` — CLI subcommand handlers (init, validate, visualize, daemon, traversals, stateless, memory, output, setup)
+- `src/cli/` — CLI subcommand handlers (init, validate, visualize, daemon, traversals, stateless, memory, config, output, setup)
   - `cli/clients.ts` — Client detection (claude-code, cursor, windsurf, cline) and display helpers
 - `src/index.ts` — CLI entry point (Commander.js, command dispatch only)
 - `templates/` — Starter graph templates and shell completions

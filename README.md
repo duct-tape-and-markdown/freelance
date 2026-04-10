@@ -86,25 +86,7 @@ When you query memory, it checks whether the source files on disk still match. M
 
 Memory is **enabled by default** with zero configuration. The database is stored at `.freelance/.state/memory.db`.
 
-To customize, add a `config.yml` to your `.freelance/` directory:
-
-```yaml
-memory:
-  ignore:
-    - "**/node_modules/**"
-    - "**/dist/**"
-  collections:
-    - name: default
-      description: General project knowledge
-      paths: [""]
-    - name: spec
-      description: Feature specifications
-      paths: ["docs/", "specs/"]
-```
-
-**CLI flags:**
-- `--memory-dir <path>` — store the database in a persistent location (useful for plugins)
-- `--no-memory` — disable memory entirely
+To customize, add memory settings to your `.freelance/config.yml` (see [Configuration](#configuration-1) below).
 
 **Collections** partition propositions into named buckets. All read tools accept an optional `--collection` filter. Propositions are deduplicated within a collection — the same claim can exist in multiple collections.
 
@@ -143,18 +125,61 @@ Two sealed workflows are auto-injected: `memory:compile` (read sources, emit pro
 
 ## Configuration
 
+Freelance uses two config files in `.freelance/`, both with the same schema:
+
+| File | Purpose | Committed? |
+|------|---------|-----------|
+| `config.yml` | Team-shared settings | Yes |
+| `config.local.yml` | Machine-specific overrides (plugin hooks) | No (gitignored) |
+
+Precedence: **CLI flags > env vars > config.local.yml > config.yml > defaults**
+
+```yaml
+# .freelance/config.yml
+workflows:                          # Additional workflow directories
+  - ../shared-workflows/
+
+memory:
+  enabled: true                     # Default: true. Set false to disable.
+  dir: /path/to/persistent/dir      # Override memory.db location
+  ignore:                           # Glob patterns to exclude from indexing
+    - "**/node_modules/**"
+    - "**/dist/**"
+  collections:                      # Partition propositions into named buckets
+    - name: default
+      description: General project knowledge
+      paths: [""]
+    - name: spec
+      description: Feature specifications
+      paths: ["docs/", "specs/"]
+```
+
+Merge rules: arrays (`workflows`, `ignore`, `collections`) concatenate across files. Scalars (`enabled`, `dir`) use highest-precedence value.
+
+Use `freelance config show` to see the resolved configuration and which files contributed.
+
+Use `freelance config set-local <key> <value>` to modify `config.local.yml` programmatically (used by plugin hooks).
+
 ### Workflow directories
 
 Workflows load automatically from these directories (no flags needed):
 
 1. `./.freelance/` — project-level workflows
 2. `~/.freelance/` — user-level workflows (shared across projects)
+3. Additional directories listed in `config.yml` or `config.local.yml` `workflows:`
 
 Subdirectories are scanned recursively. Later directories shadow earlier ones by graph ID. You can also specify directories explicitly:
 
 ```bash
 freelance mcp --workflows ./my-workflows/
 ```
+
+**CLI flags:**
+- `--memory-dir <path>` — override memory.db location (highest priority)
+- `--no-memory` — disable memory entirely
+
+**Environment variables:**
+- `FREELANCE_WORKFLOWS_DIR` — colon-separated list of workflow directories (bypasses auto-scan)
 
 ### MCP setup
 
@@ -208,6 +233,10 @@ freelance distill                         # Get a distill prompt
 freelance sources hash <paths...>         # Compute source hashes
 freelance sources check <sources...>      # Validate source hashes
 freelance sources validate                # Validate all source bindings
+
+# Configuration
+freelance config show                     # Display resolved config with sources
+freelance config set-local <key> <value>  # Modify config.local.yml
 
 # Server
 freelance mcp                             # Start MCP server
