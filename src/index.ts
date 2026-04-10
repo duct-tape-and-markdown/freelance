@@ -19,84 +19,20 @@ import {
   memoryRelated, memoryBySource, memoryRegister, memoryEmit, memoryEnd,
 } from "./cli/memory.js";
 import { guideShow, distillRun, sourcesHash, sourcesCheck, sourcesValidate } from "./cli/stateless.js";
-import { createTraversalStore, createMemoryStore, loadGraphSetup } from "./cli/setup.js";
+import {
+  createTraversalStore, createMemoryStore, loadGraphSetup,
+  resolveStateDb, resolveMemoryConfig,
+} from "./cli/setup.js";
 import { VERSION } from "./version.js";
 import { DEFAULT_PORT } from "./paths.js";
 import { resolveGraphsDirs, resolveSourceRoot, loadGraphsOrFatal, loadGraphsGraceful } from "./graph-resolution.js";
 import { extractSection } from "./section-resolver.js";
-import yaml from "js-yaml";
-import type { MemoryConfig } from "./memory/index.js";
-import { parseMemoryOverlay } from "./memory/index.js";
 
 function resolveMemoryDbPath(): string | null {
   const dirs = resolveGraphsDirs();
   const config = resolveMemoryConfig(dirs, {});
   if (config?.db) return config.db;
   return null;
-}
-
-function stateDir(graphsDir: string): string {
-  return path.join(graphsDir, ".state");
-}
-
-function ensureStateDir(graphsDir: string): string {
-  const dir = stateDir(graphsDir);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  return dir;
-}
-
-function resolveStateDb(graphsDirs: string[]): string {
-  for (const dir of graphsDirs) {
-    if (fs.existsSync(dir)) {
-      return path.join(ensureStateDir(dir), "state.db");
-    }
-  }
-  return path.join(ensureStateDir(".freelance"), "state.db");
-}
-
-function resolveMemoryConfig(
-  graphsDirs: string[],
-  opts: { memoryDir?: string; memory?: boolean },
-): MemoryConfig | null {
-  // Opt-out via --no-memory
-  if (opts.memory === false) return null;
-
-  // Default DB path: .state/memory.db inside the first graphs directory
-  let dbPath = path.join(ensureStateDir(graphsDirs[0] ?? ".freelance"), "memory.db");
-
-  // CLI flag override
-  if (opts.memoryDir) {
-    const memDir = path.resolve(opts.memoryDir);
-    if (!fs.existsSync(memDir)) {
-      fs.mkdirSync(memDir, { recursive: true });
-    }
-    dbPath = path.join(memDir, "memory.db");
-  }
-
-  // Load optional overlay from config.yml (collections, ignore only)
-  let ignore: string[] | undefined;
-  let collections: Array<{ name: string; description: string; paths: string[] }> | undefined;
-  for (const dir of graphsDirs) {
-    const configPath = path.join(dir, "config.yml");
-    if (fs.existsSync(configPath)) {
-      try {
-        const raw = fs.readFileSync(configPath, "utf-8");
-        const config = yaml.load(raw) as Record<string, unknown>;
-        if (config?.memory && typeof config.memory === "object") {
-          const overlay = parseMemoryOverlay(config.memory as Record<string, unknown>);
-          ignore = overlay.ignore;
-          collections = overlay.collections;
-        }
-      } catch {
-        // Config parse failure — use defaults
-      }
-      break;
-    }
-  }
-
-  return { enabled: true, db: dbPath, ignore, collections };
 }
 
 // --- Program setup ---
@@ -391,10 +327,11 @@ addWorkflowsOpt(memoryCmd
 
 addWorkflowsOpt(memoryCmd
   .command("related <entity>")
-  .description("Show entities related via shared propositions"))
+  .description("Show entities related via shared propositions")
+  .option("--collection <name>", "Scope to a collection"))
   .action((entity, opts) => {
     const { store } = createMemoryStore({ workflows: opts.workflows });
-    try { memoryRelated(store, entity); } finally { store.close(); }
+    try { memoryRelated(store, entity, opts.collection); } finally { store.close(); }
   });
 
 addWorkflowsOpt(memoryCmd
@@ -441,12 +378,11 @@ program
   });
 
 program
-  .command("distill <file>")
-  .description("Distill a task into a workflow graph, or refine an existing one")
+  .command("distill")
+  .description("Get a prompt for distilling a task into a workflow graph")
   .addOption(new Option("--mode <mode>", "Distill mode").choices(["distill", "refine"]).default("distill"))
-  .option("--graph <id>", "Graph to refine (for refine mode)")
-  .action((file, opts) => {
-    distillRun(file, opts);
+  .action((opts) => {
+    distillRun(opts);
   });
 
 const sourcesCmd = program

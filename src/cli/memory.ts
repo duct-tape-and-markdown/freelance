@@ -117,9 +117,9 @@ export function memorySearch(
   }
 }
 
-export function memoryRelated(store: MemoryStore, entity: string): void {
+export function memoryRelated(store: MemoryStore, entity: string, collection?: string): void {
   try {
-    const result = store.related(entity);
+    const result = store.related(entity, collection);
     if (cli.json) {
       outputJson(result);
     } else {

@@ -62,6 +62,13 @@ vi.mock("../src/cli/setup.js", () => ({
     sourceRoot: undefined,
     sourceOpts: {},
   })),
+  ensureStateDir: vi.fn((dir: string) => `${dir}/.state`),
+  resolveStateDb: vi.fn(() => ":memory:"),
+  resolveMemoryConfig: vi.fn((_dirs: string[], opts: { memoryDir?: string; memory?: boolean }) => {
+    if (opts.memory === false) return null;
+    const db = opts.memoryDir ? `${opts.memoryDir}/memory.db` : "/tmp/test-memory.db";
+    return { enabled: true, db };
+  }),
 }));
 vi.mock("../src/loader.js", () => ({
   loadGraphs: vi.fn(() => new Map([["test", {}]])),

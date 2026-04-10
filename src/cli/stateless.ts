@@ -4,7 +4,6 @@
  * guide, distill, sources — these operate on graph definitions and source files.
  */
 
-import fs from "node:fs";
 import { cli, info, outputJson } from "./output.js";
 import { getGuide } from "../guide.js";
 import { getDistillPrompt } from "../distill.js";
@@ -34,7 +33,7 @@ export function guideShow(topic?: string): void {
   }
 }
 
-export function distillRun(file: string, opts?: { mode?: string; graph?: string }): void {
+export function distillRun(opts?: { mode?: string }): void {
   const mode = (opts?.mode === "refine" ? "refine" : "distill") as "distill" | "refine";
   const result = getDistillPrompt(mode);
   if (cli.json) {

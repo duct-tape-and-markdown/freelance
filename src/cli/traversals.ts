@@ -126,11 +126,9 @@ export function traversalAdvance(
         info(`Advance failed: ${result.reason}`);
         process.exit(1);
       }
-      if (!result.isError) {
-        info(`Advanced ${result.traversalId} → ${result.currentNode}`);
-        if (result.node.description) {
-          info(`  Description: ${result.node.description}`);
-        }
+      info(`Advanced ${result.traversalId} → ${result.currentNode}`);
+      if (result.node.description) {
+        info(`  Description: ${result.node.description}`);
       }
     }
   } catch (e) {

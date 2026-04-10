@@ -1,7 +1,9 @@
 /**
- * Shared CLI setup — graph loading and store creation for CLI commands.
+ * Shared CLI setup — graph loading and store creation.
  *
- * Mirrors the setup path in src/server.ts but without starting an MCP server.
+ * Single source of truth for state directory resolution, DB paths,
+ * and memory config parsing. Used by both CLI commands and the MCP
+ * entry point in index.ts.
  */
 
 import path from "node:path";
@@ -14,16 +16,23 @@ import { resolveGraphsDirs, resolveSourceRoot, loadGraphsGraceful } from "../gra
 import { extractSection } from "../section-resolver.js";
 import type { ValidatedGraph } from "../types.js";
 import type { SourceOptions } from "../sources.js";
+import type { MemoryConfig } from "../memory/index.js";
 
-function ensureStateDir(graphsDir: string): string {
-  const dir = path.join(graphsDir, ".state");
+// --- State directory resolution ---
+
+function stateDir(graphsDir: string): string {
+  return path.join(graphsDir, ".state");
+}
+
+export function ensureStateDir(graphsDir: string): string {
+  const dir = stateDir(graphsDir);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
   return dir;
 }
 
-function resolveStateDb(graphsDirs: string[]): string {
+export function resolveStateDb(graphsDirs: string[]): string {
   for (const dir of graphsDirs) {
     if (fs.existsSync(dir)) {
       return path.join(ensureStateDir(dir), "state.db");
@@ -32,9 +41,52 @@ function resolveStateDb(graphsDirs: string[]): string {
   return path.join(ensureStateDir(".freelance"), "state.db");
 }
 
-function resolveMemoryDbPath(graphsDirs: string[]): string {
-  return path.join(ensureStateDir(graphsDirs[0] ?? ".freelance"), "memory.db");
+// --- Memory config resolution ---
+
+export function resolveMemoryConfig(
+  graphsDirs: string[],
+  opts: { memoryDir?: string; memory?: boolean },
+): MemoryConfig | null {
+  // Opt-out via --no-memory
+  if (opts.memory === false) return null;
+
+  // Default DB path: .state/memory.db inside the first graphs directory
+  let dbPath = path.join(ensureStateDir(graphsDirs[0] ?? ".freelance"), "memory.db");
+
+  // CLI flag override
+  if (opts.memoryDir) {
+    const memDir = path.resolve(opts.memoryDir);
+    if (!fs.existsSync(memDir)) {
+      fs.mkdirSync(memDir, { recursive: true });
+    }
+    dbPath = path.join(memDir, "memory.db");
+  }
+
+  // Load optional overlay from config.yml (collections, ignore only)
+  let ignore: string[] | undefined;
+  let collections: Array<{ name: string; description: string; paths: string[] }> | undefined;
+  for (const dir of graphsDirs) {
+    const configPath = path.join(dir, "config.yml");
+    if (fs.existsSync(configPath)) {
+      try {
+        const raw = fs.readFileSync(configPath, "utf-8");
+        const config = yaml.load(raw) as Record<string, unknown>;
+        if (config?.memory && typeof config.memory === "object") {
+          const overlay = parseMemoryOverlay(config.memory as Record<string, unknown>);
+          ignore = overlay.ignore;
+          collections = overlay.collections;
+        }
+      } catch {
+        // Config parse failure — use defaults
+      }
+      break;
+    }
+  }
+
+  return { enabled: true, db: dbPath, ignore, collections };
 }
+
+// --- CLI setup helpers ---
 
 export interface CliSetupOptions {
   workflows?: string | string[];
@@ -76,29 +128,7 @@ export function createTraversalStore(opts: CliSetupOptions): { store: TraversalS
 /** Create a MemoryStore for CLI memory commands. */
 export function createMemoryStore(opts: CliSetupOptions): { store: MemoryStore; setup: CliSetup } {
   const setup = loadGraphSetup(opts);
-  const dbPath = resolveMemoryDbPath(setup.graphsDirs);
-
-  // Load optional overlay from config.yml
-  let ignore: string[] | undefined;
-  let collections: Array<{ name: string; description: string; paths: string[] }> | undefined;
-  for (const dir of setup.graphsDirs) {
-    const configPath = path.join(dir, "config.yml");
-    if (fs.existsSync(configPath)) {
-      try {
-        const raw = fs.readFileSync(configPath, "utf-8");
-        const config = yaml.load(raw) as Record<string, unknown>;
-        if (config?.memory && typeof config.memory === "object") {
-          const overlay = parseMemoryOverlay(config.memory as Record<string, unknown>);
-          ignore = overlay.ignore;
-          collections = overlay.collections;
-        }
-      } catch {
-        // Config parse failure — use defaults
-      }
-      break;
-    }
-  }
-
-  const store = new MemoryStore(dbPath, setup.sourceRoot, ignore, collections);
+  const memConfig = resolveMemoryConfig(setup.graphsDirs, {});
+  const store = new MemoryStore(memConfig!.db, setup.sourceRoot, memConfig!.ignore, memConfig!.collections);
   return { store, setup };
 }
