@@ -146,13 +146,14 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_related",
-    "Show entities related to a given entity via shared propositions. Returns co-occurring entities ranked by connection strength, each with a sample proposition showing the relationship. Use during recall to navigate the knowledge graph without inspecting entities one at a time.",
+    `Show entities related to a given entity via shared propositions. Returns co-occurring entities ranked by connection strength, each with a sample proposition showing the relationship. Use during recall to navigate the knowledge graph without inspecting entities one at a time. ${collectionsNote}`,
     {
+      collection: collectionEnum.optional().describe("Collection to filter by (omit for all)"),
       entity: z.string().min(1).describe("Entity ID or name"),
     },
-    ({ entity }) => {
+    ({ collection, entity }) => {
       try {
-        return jsonResponse(store.related(entity));
+        return jsonResponse(store.related(entity, collection));
       } catch (e) {
         return handleError(e);
       }
