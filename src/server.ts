@@ -1,7 +1,9 @@
+import fs from "node:fs";
 import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import yaml from "js-yaml";
 import { TraversalStore } from "./state/index.js";
 import { openStateDatabase } from "./state/index.js";
 import { EngineError } from "./errors.js";
@@ -13,7 +15,7 @@ import { findGraphFiles, loadSingleGraph, validateCrossGraphRefs } from "./loade
 import { hashSources, checkSourcesDetailed, validateGraphSources, getDetailedDrift } from "./sources.js";
 import type { SourceRef, SectionResolver, SourceOptions } from "./sources.js";
 import type { ValidatedGraph } from "./types.js";
-import { MemoryStore, registerMemoryTools } from "./memory/index.js";
+import { MemoryStore, registerMemoryTools, parseMemoryOverlay } from "./memory/index.js";
 import type { MemoryConfig } from "./memory/index.js";
 import { buildCompileKnowledgeWorkflow, COMPILE_KNOWLEDGE_ID } from "./memory/workflow.js";
 import { buildRecollectionWorkflow, RECOLLECTION_ID } from "./memory/recollection.js";
@@ -61,12 +63,28 @@ export function createServer(
   };
 
   let stopWatcher: (() => void) | undefined;
+  // memoryStore is assigned later but referenced by the watcher callback (fires async)
+  let memoryStore: MemoryStore | undefined;
   if (options?.graphsDirs?.length) {
     stopWatcher = watchGraphs({
       graphsDir: options.graphsDirs,
       onUpdate: (newGraphs) => manager.updateGraphs(newGraphs),
       onError: (err) => { process.stderr.write(`Graph reload failed: ${err.message}\n`); },
       onLoadErrors: (errors) => { currentLoadErrors = errors; },
+      onConfigChange: (configPath) => {
+        if (!memoryStore) return;
+        try {
+          const raw = fs.readFileSync(configPath, "utf-8");
+          const config = yaml.load(raw) as Record<string, unknown>;
+          if (config?.memory && typeof config.memory === "object") {
+            const { ignore, collections } = parseMemoryOverlay(config.memory as Record<string, unknown>);
+            memoryStore.updateConfig(ignore, collections);
+            process.stderr.write(`Freelance: memory config reloaded from ${configPath}\n`);
+          }
+        } catch {
+          process.stderr.write(`Freelance: failed to reload memory config from ${configPath}\n`);
+        }
+      },
     });
   }
 
@@ -417,7 +435,6 @@ export function createServer(
   );
 
   // --- Memory ---
-  let memoryStore: MemoryStore | undefined;
   if (options?.memory?.enabled && options.memory.db) {
     memoryStore = new MemoryStore(options.memory.db, options.sourceRoot, options.memory.ignore, options.memory.collections);
     registerMemoryTools(server, memoryStore);

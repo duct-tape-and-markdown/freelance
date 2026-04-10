@@ -647,6 +647,42 @@ describe("MemoryStore", () => {
       const result = store.browse({ name: "Auth" });
       expect(result.entities[0].kind).toBe("class");
     });
+
+    it("backfills kind on existing entity that had none", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.registerSource("a.ts");
+      // First emit without kind
+      store.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["a.ts"] }], C);
+      expect(store.browse({ name: "Auth" }).entities[0].kind).toBeNull();
+
+      // Second emit with kind — should backfill
+      store.emit([{
+        content: "Auth validates tokens.",
+        entities: ["Auth"],
+        sources: ["a.ts"],
+        entityKinds: { Auth: "class" },
+      }], C);
+      store.end();
+
+      const result = store.browse({ name: "Auth" });
+      expect(result.entities[0].kind).toBe("class");
+    });
+
+    it("backfills kind via normalized name match", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.registerSource("a.ts");
+      store.emit([{ content: "AuthService exists.", entities: ["AuthService"], sources: ["a.ts"] }], C);
+      store.emit([{
+        content: "authservice validates.",
+        entities: ["authservice"],
+        sources: ["a.ts"],
+        entityKinds: { authservice: "class" },
+      }], C);
+      store.end();
+
+      const result = store.browse({ name: "AuthService" });
+      expect(result.entities[0].kind).toBe("class");
+    });
   });
 
   describe("neighbors", () => {
@@ -730,6 +766,35 @@ describe("MemoryStore", () => {
 
     it("throws for unknown entity", () => {
       expect(() => store.related("nonexistent")).toThrow("Entity not found");
+    });
+
+    it("scopes to collection when provided", () => {
+      const colStore = new MemoryStore(
+        path.join(tmpDir, "rel-col.db"), tmpDir, [],
+        [
+          { name: "spec", description: "Specs", paths: [""] },
+          { name: "domain", description: "Domain", paths: [""] },
+        ]
+      );
+
+      writeFile(tmpDir, "a.ts", "x");
+      colStore.registerSource("a.ts");
+      colStore.emit([
+        { content: "Auth depends on Database.", entities: ["Auth", "Database"], sources: ["a.ts"] },
+      ], "spec");
+      colStore.emit([
+        { content: "Auth uses Cache.", entities: ["Auth", "Cache"], sources: ["a.ts"] },
+      ], "domain");
+      colStore.end();
+
+      const specResult = colStore.related("Auth", "spec");
+      expect(specResult.neighbors).toHaveLength(1);
+      expect(specResult.neighbors[0].name).toBe("Database");
+
+      const allResult = colStore.related("Auth");
+      expect(allResult.neighbors).toHaveLength(2);
+
+      colStore.close();
     });
   });
 
@@ -876,10 +941,14 @@ describe("MemoryStore", () => {
       colStore.close();
     });
 
-    it("default collection synthesized when none configured", () => {
-      const collections = store.getCollections();
-      expect(collections).toHaveLength(1);
-      expect(collections[0].name).toBe("default");
+    it("default collection works when none configured", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.registerSource("a.ts");
+      store.emit([{ content: "Foo exists.", entities: ["Foo"], sources: ["a.ts"] }], "default");
+      store.end();
+
+      const result = store.inspect("Foo");
+      expect(result.propositions[0].collection).toBe("default");
     });
 
     it("propositions include collection label in results", () => {
