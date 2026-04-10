@@ -337,7 +337,7 @@ describe("CLI init", () => {
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     expect(settings.hooks?.SessionStart).toHaveLength(1);
     expect(settings.hooks?.UserPromptSubmit).toHaveLength(1);
-    expect(settings.hooks.SessionStart[0].hooks[0].command).toContain("inspect");
+    expect(settings.hooks.SessionStart[0].hooks[0].command).toContain("status");
     expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toContain("freelance_list");
   });
 

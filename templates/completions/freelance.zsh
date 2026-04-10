@@ -7,7 +7,17 @@ _freelance() {
     'visualize:Export graph as Mermaid or DOT diagram'
     'mcp:Start MCP server'
     'daemon:Manage the Freelance daemon'
-    'traversals:Manage active traversals'
+    'status:Show loaded graphs and active traversals'
+    'start:Start a new traversal on a graph'
+    'advance:Move to the next node by taking an edge'
+    'context:Update session context'
+    'inspect:Read-only introspection of current graph state'
+    'reset:Clear a traversal'
+    'memory:Query and manage the knowledge graph'
+    'guide:Show authoring guide'
+    'distill:Distill a source file into propositions'
+    'sources:Manage source bindings'
+    'memory-register:Register a source file for memory tracking'
     'completion:Output shell completion script'
   )
 
@@ -30,10 +40,20 @@ _freelance() {
           subcmds=('start:Start the daemon' 'stop:Stop the daemon' 'status:Check status')
           _describe -t commands 'daemon command' subcmds
           ;;
-        traversals)
+        memory)
           local -a subcmds
-          subcmds=('list:List traversals' 'inspect:Inspect a traversal' 'reset:Reset a traversal')
-          _describe -t commands 'traversals command' subcmds
+          subcmds=('status:Show counts' 'browse:Browse entities' 'inspect:Entity details' 'search:Full-text search' 'related:Find related entities' 'by-source:Propositions by source' 'register:Register a source' 'emit:Emit propositions' 'end:End a source batch')
+          _describe -t commands 'memory command' subcmds
+          ;;
+        context)
+          local -a subcmds
+          subcmds=('set:Update session context')
+          _describe -t commands 'context command' subcmds
+          ;;
+        sources)
+          local -a subcmds
+          subcmds=('hash:Hash source files' 'check:Check source staleness' 'validate:Validate all sources')
+          _describe -t commands 'sources command' subcmds
           ;;
         validate)
           _files -/

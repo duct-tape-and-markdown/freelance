@@ -13,7 +13,7 @@ vi.mock("../src/cli/visualize.js", () => ({ visualize: vi.fn() }));
 vi.mock("../src/cli/init.js", () => ({
   init: vi.fn(async () => {}),
   initInteractive: vi.fn(async () => {}),
-  INIT_DEFAULTS: { starter: "blank", dryRun: false },
+  INIT_DEFAULTS: { starter: "blank", hooks: false, dryRun: false },
 }));
 vi.mock("../src/cli/daemon.js", () => ({
   daemonStop: vi.fn(),
@@ -100,7 +100,7 @@ describe("program commands", () => {
   it("validate command calls validate function", async () => {
     const { validate } = await import("../src/cli/validate.js");
     await program.parseAsync(["node", "freelance", "validate", "/tmp/test"]);
-    expect(validate).toHaveBeenCalledWith("/tmp/test", { checkSources: undefined });
+    expect(validate).toHaveBeenCalledWith("/tmp/test", { checkSources: undefined, fix: undefined, basePath: undefined });
   });
 
   it("visualize command calls visualize function", async () => {
