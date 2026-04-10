@@ -26,14 +26,8 @@ import {
 import { VERSION } from "./version.js";
 import { DEFAULT_PORT } from "./paths.js";
 import { resolveGraphsDirs, resolveSourceRoot, loadGraphsOrFatal, loadGraphsGraceful } from "./graph-resolution.js";
+import { loadConfigFromDirs } from "./config.js";
 import { extractSection } from "./section-resolver.js";
-
-function resolveMemoryDbPath(): string | null {
-  const dirs = resolveGraphsDirs();
-  const config = resolveMemoryConfig(dirs, {});
-  if (config?.db) return config.db;
-  return null;
-}
 
 // --- Program setup ---
 
@@ -142,15 +136,15 @@ program
       await startProxy(host, port);
     } else {
       const maxDepth = parseInt(opts.maxDepth, 10);
-      const { graphs, errors: loadErrors } = loadGraphsGraceful(opts.workflows);
       const dirs = resolveGraphsDirs(opts.workflows);
+      const { graphs, errors: loadErrors } = loadGraphsGraceful(dirs);
       const sourceRoot = resolveSourceRoot(dirs, opts.sourceRoot);
       const sectionResolver = (filePath: string, section: string) => extractSection(filePath, section);
       if (loadErrors.length > 0) {
         info(`Freelance: ${loadErrors.length} graph(s) failed validation — call freelance_validate for details`);
       }
-      // Resolve memory configuration (enabled by default)
-      const memoryConfig = resolveMemoryConfig(dirs, { memoryDir: opts.memoryDir, memory: opts.memory });
+      const config = loadConfigFromDirs(dirs);
+      const memoryConfig = resolveMemoryConfig(dirs, { memoryDir: opts.memoryDir, memory: opts.memory }, config);
       if (memoryConfig) {
         info(`Freelance: memory enabled (${memoryConfig.db})`);
       }
@@ -417,6 +411,28 @@ addWorkflowsOpt(sourcesCmd
     sourcesValidate(setup.graphsDirs, setup.sourceOpts, opts.graph);
   });
 
+// --- config ---
+
+import { configShow, configSetLocal } from "./cli/config.js";
+
+const configCmd = program
+  .command("config")
+  .description("View and manage Freelance configuration");
+
+addWorkflowsOpt(configCmd
+  .command("show")
+  .description("Display resolved configuration with sources"))
+  .action((opts) => {
+    configShow({ workflows: opts.workflows });
+  });
+
+addWorkflowsOpt(configCmd
+  .command("set-local <key> <value>")
+  .description("Set a value in config.local.yml (for plugin hooks)"))
+  .action((key, value, opts) => {
+    configSetLocal(key, value, { workflows: opts.workflows });
+  });
+
 // --- memory-register (for Claude Code PreToolUse hook) ---
 
 program
@@ -427,18 +443,21 @@ program
   .action(async (file, opts) => {
     const { MemoryStore } = await import("./memory/index.js");
 
-    // Resolve the database path
-    const dbPath = opts.db ?? resolveMemoryDbPath();
+    // Resolve memory config once — this is a hot path (fires on every Read)
+    let dbPath = opts.db as string | undefined;
+    let ignore: string[] | undefined;
     if (!dbPath) {
-      // No memory database configured — silently exit.
-      // The hook fires on every Read; if memory isn't enabled, that's fine.
-      process.exit(0);
+      const dirs = resolveGraphsDirs();
+      const memConfig = resolveMemoryConfig(dirs, {});
+      if (!memConfig) {
+        // Memory disabled — silently exit.
+        process.exit(0);
+      }
+      dbPath = memConfig.db;
+      ignore = memConfig.ignore;
     }
 
     const sourceRoot = opts.sourceRoot ?? process.cwd();
-    const dirs = resolveGraphsDirs();
-    const memConfig = resolveMemoryConfig(dirs, {});
-    const ignore = memConfig?.ignore;
     try {
       const store = new MemoryStore(dbPath, sourceRoot, ignore);
       const result = store.registerSource(file);

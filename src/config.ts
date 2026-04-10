@@ -1,0 +1,198 @@
+/**
+ * Freelance configuration loading and merging.
+ *
+ * Two config files, same schema, layered:
+ *   .freelance/config.yml        — committed, team-shared
+ *   .freelance/config.local.yml  — gitignored, machine-specific (plugin hooks)
+ *
+ * Merge rules:
+ *   - Arrays (workflows, memory.ignore, memory.collections) concatenate
+ *   - Scalars (memory.enabled, memory.dir) use local over base
+ *   - CLI flags and env vars override everything (handled by callers)
+ */
+
+import path from "node:path";
+import fs from "node:fs";
+import yaml from "js-yaml";
+import { z } from "zod";
+import type { CollectionConfig } from "./memory/types.js";
+
+// --- Schema ---
+
+const collectionSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().default(""),
+  paths: z.array(z.string()).default([]),
+});
+
+const memorySchema = z.object({
+  enabled: z.boolean().optional(),
+  dir: z.string().optional(),
+  ignore: z.array(z.string()).optional(),
+  collections: z.array(collectionSchema).optional(),
+}).optional();
+
+const configSchema = z.object({
+  workflows: z.array(z.string()).optional(),
+  memory: memorySchema,
+});
+
+export type FreelanceConfigFile = z.infer<typeof configSchema>;
+
+/** Resolved config with provenance tracking. */
+export interface FreelanceConfig {
+  workflows: string[];
+  memory: {
+    enabled?: boolean;
+    dir?: string;
+    ignore?: string[];
+    collections?: CollectionConfig[];
+  };
+  /** Which files contributed to this config, in load order. */
+  sources: string[];
+}
+
+// --- Loading ---
+
+const CONFIG_FILE = "config.yml";
+const CONFIG_LOCAL_FILE = "config.local.yml";
+
+/** Parse and validate a single config file. Returns null if file doesn't exist or is invalid. */
+function loadConfigFile(filePath: string): FreelanceConfigFile | null {
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const parsed = yaml.load(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return configSchema.parse(parsed);
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve relative paths in a config file relative to a base directory. */
+function resolvePaths(config: FreelanceConfigFile, baseDir: string): FreelanceConfigFile {
+  const resolved = { ...config };
+  if (resolved.workflows) {
+    resolved.workflows = resolved.workflows.map((w) => path.resolve(baseDir, w));
+  }
+  if (resolved.memory?.dir) {
+    resolved.memory = { ...resolved.memory, dir: path.resolve(baseDir, resolved.memory.dir) };
+  }
+  return resolved;
+}
+
+/**
+ * Merge two config objects. Arrays concatenate so plugin hooks can extend
+ * ignore lists without clobbering project-level ones. Scalars use overlay value.
+ */
+function mergeConfigs(base: FreelanceConfigFile, overlay: FreelanceConfigFile): FreelanceConfigFile {
+  const merged: FreelanceConfigFile = { ...base };
+
+  if (overlay.workflows?.length) {
+    merged.workflows = [...(base.workflows ?? []), ...overlay.workflows];
+  }
+
+  if (overlay.memory) {
+    const baseMem = base.memory ?? {};
+    merged.memory = {
+      ...baseMem,
+      ...(overlay.memory.enabled !== undefined ? { enabled: overlay.memory.enabled } : {}),
+      ...(overlay.memory.dir !== undefined ? { dir: overlay.memory.dir } : {}),
+      ignore: [...(baseMem.ignore ?? []), ...(overlay.memory.ignore ?? [])],
+      collections: [...(baseMem.collections ?? []), ...(overlay.memory.collections ?? [])],
+    };
+  }
+
+  return merged;
+}
+
+/** Normalize a raw config file into the resolved FreelanceConfig shape. */
+function toFreelanceConfig(merged: FreelanceConfigFile, sources: string[]): FreelanceConfig {
+  return {
+    workflows: merged.workflows ?? [],
+    memory: {
+      enabled: merged.memory?.enabled,
+      dir: merged.memory?.dir,
+      ignore: merged.memory?.ignore?.length ? merged.memory.ignore : undefined,
+      collections: merged.memory?.collections?.length
+        ? merged.memory.collections as CollectionConfig[]
+        : undefined,
+    },
+    sources,
+  };
+}
+
+/**
+ * Load and merge config from a .freelance/ directory.
+ * Reads config.yml (base) and config.local.yml (local overrides).
+ * Paths in both files resolve relative to the directory containing them.
+ */
+export function loadConfig(freelanceDir: string): FreelanceConfig {
+  const sources: string[] = [];
+  let merged: FreelanceConfigFile = {};
+
+  const basePath = path.join(freelanceDir, CONFIG_FILE);
+  const base = loadConfigFile(basePath);
+  if (base) {
+    merged = resolvePaths(base, freelanceDir);
+    sources.push(basePath);
+  }
+
+  const localPath = path.join(freelanceDir, CONFIG_LOCAL_FILE);
+  const local = loadConfigFile(localPath);
+  if (local) {
+    merged = mergeConfigs(merged, resolvePaths(local, freelanceDir));
+    sources.push(localPath);
+  }
+
+  return toFreelanceConfig(merged, sources);
+}
+
+/**
+ * Load config from multiple .freelance/ directories (project + user level).
+ * Merges at the raw schema level so there's a single merge codepath,
+ * then normalizes once at the end.
+ */
+export function loadConfigFromDirs(dirs: string[]): FreelanceConfig {
+  if (dirs.length === 0) {
+    return { workflows: [], memory: {}, sources: [] };
+  }
+
+  let mergedFile: FreelanceConfigFile = {};
+  const allSources: string[] = [];
+
+  for (const dir of dirs) {
+    const basePath = path.join(dir, CONFIG_FILE);
+    const base = loadConfigFile(basePath);
+    if (base) {
+      mergedFile = mergeConfigs(mergedFile, resolvePaths(base, dir));
+      allSources.push(basePath);
+    }
+
+    const localPath = path.join(dir, CONFIG_LOCAL_FILE);
+    const local = loadConfigFile(localPath);
+    if (local) {
+      mergedFile = mergeConfigs(mergedFile, resolvePaths(local, dir));
+      allSources.push(localPath);
+    }
+  }
+
+  return toFreelanceConfig(mergedFile, allSources);
+}
+
+// --- Writing (for `config set-local`) ---
+
+/**
+ * Read, modify, and write config.local.yml atomically.
+ * Creates the file if it doesn't exist.
+ */
+export function updateLocalConfig(
+  freelanceDir: string,
+  updater: (config: FreelanceConfigFile) => FreelanceConfigFile,
+): void {
+  const localPath = path.join(freelanceDir, CONFIG_LOCAL_FILE);
+  const existing = loadConfigFile(localPath) ?? {};
+  const updated = updater(existing);
+  const content = yaml.dump(updated, { lineWidth: -1, noRefs: true });
+  fs.writeFileSync(localPath, content, "utf-8");
+}

@@ -1,8 +1,8 @@
 import path from "node:path";
 import fs from "node:fs";
 import { loadGraphs, loadGraphsLayered, loadGraphsCollecting } from "./loader.js";
-import type { CollectingLoadResult } from "./loader.js";
 import { fatal, EXIT } from "./cli/output.js";
+import { loadConfigFromDirs } from "./config.js";
 import type { ValidatedGraph } from "./types.js";
 
 /**
@@ -10,6 +10,7 @@ import type { ValidatedGraph } from "./types.js";
  * 1. Environment variable (colon-separated on Unix, semicolon on Windows)
  * 2. Project-level: ./.freelance (if exists)
  * 3. User-level: ~/.freelance (if exists)
+ * 4. Additional dirs from config.yml / config.local.yml `workflows:` key
  */
 export function resolveDefaultGraphsDirs(): string[] {
   const envValue = process.env.FREELANCE_WORKFLOWS_DIR?.trim();
@@ -30,6 +31,16 @@ export function resolveDefaultGraphsDirs(): string[] {
     dirs.push(userGraphs);
   }
 
+  // Append workflow directories from config.yml / config.local.yml
+  if (dirs.length > 0) {
+    const config = loadConfigFromDirs(dirs);
+    for (const wd of config.workflows) {
+      if (!dirs.includes(wd) && fs.existsSync(wd)) {
+        dirs.push(wd);
+      }
+    }
+  }
+
   return dirs;
 }
 
@@ -38,11 +49,10 @@ export function resolveDefaultGraphsDirs(): string[] {
  * Returns array of resolved directory paths.
  */
 export function resolveGraphsDirs(cliGraphs?: string | string[] | null): string[] {
-  if (cliGraphs && (Array.isArray(cliGraphs) ? cliGraphs.length > 0 : true)) {
-    const dirs = Array.isArray(cliGraphs) ? cliGraphs : [cliGraphs];
+  const dirs = Array.isArray(cliGraphs) ? cliGraphs : cliGraphs ? [cliGraphs] : [];
+  if (dirs.length > 0) {
     return dirs.map((d) => path.resolve(d));
   }
-
   return resolveDefaultGraphsDirs();
 }
 

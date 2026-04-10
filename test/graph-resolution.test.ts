@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { resolveDefaultGraphsDirs, resolveGraphsDirs, loadGraphsOrFatal, loadGraphsGraceful } from "../src/graph-resolution.js";
+import { tmpFreelanceDir, withTmpEnv } from "./helpers.js";
 
 let exitSpy: any;
 
@@ -26,19 +27,104 @@ describe("resolveDefaultGraphsDirs", () => {
 
   it("finds project-level .freelance", () => {
     delete process.env.FREELANCE_WORKFLOWS_DIR;
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gr-test-"));
-    fs.mkdirSync(path.join(tmpDir, ".freelance"), { recursive: true });
-    const origCwd = process.cwd();
-    const origHome = process.env.HOME;
-    process.chdir(tmpDir);
-    process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "home-"));
+    const freelanceDir = tmpFreelanceDir("gr-test-");
+    const tmpDir = path.dirname(freelanceDir);
+
+    withTmpEnv(tmpDir, () => {
+      const dirs = resolveDefaultGraphsDirs();
+      expect(dirs.length).toBe(1);
+      expect(dirs[0]).toContain(".freelance");
+    });
+  });
+});
+
+describe("config-based workflow discovery", () => {
+  it("appends dirs from config.yml workflows", () => {
+    delete process.env.FREELANCE_WORKFLOWS_DIR;
+    const freelanceDir = tmpFreelanceDir("config-wf-");
+    const tmpDir = path.dirname(freelanceDir);
+    const pluginWorkflows = path.join(tmpDir, "plugin-workflows");
+    fs.mkdirSync(pluginWorkflows, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(freelanceDir, "config.yml"),
+      `workflows:\n  - ${pluginWorkflows}\n`
+    );
+
+    withTmpEnv(tmpDir, () => {
+      const dirs = resolveDefaultGraphsDirs();
+      expect(dirs).toContain(freelanceDir);
+      expect(dirs).toContain(pluginWorkflows);
+    });
+  });
+
+  it("appends dirs from config.local.yml workflows", () => {
+    delete process.env.FREELANCE_WORKFLOWS_DIR;
+    const freelanceDir = tmpFreelanceDir("config-local-");
+    const tmpDir = path.dirname(freelanceDir);
+    const pluginWorkflows = path.join(tmpDir, "plugin-workflows");
+    fs.mkdirSync(pluginWorkflows, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(freelanceDir, "config.local.yml"),
+      `workflows:\n  - ${pluginWorkflows}\n`
+    );
+
+    withTmpEnv(tmpDir, () => {
+      const dirs = resolveDefaultGraphsDirs();
+      expect(dirs).toContain(freelanceDir);
+      expect(dirs).toContain(pluginWorkflows);
+    });
+  });
+
+  it("skips non-existent dirs from config", () => {
+    delete process.env.FREELANCE_WORKFLOWS_DIR;
+    const freelanceDir = tmpFreelanceDir("config-skip-");
+    const tmpDir = path.dirname(freelanceDir);
+
+    fs.writeFileSync(
+      path.join(freelanceDir, "config.yml"),
+      "workflows:\n  - /nonexistent/path/workflows\n"
+    );
+
+    withTmpEnv(tmpDir, () => {
+      const dirs = resolveDefaultGraphsDirs();
+      expect(dirs).toEqual([freelanceDir]);
+    });
+  });
+
+  it("deduplicates .freelance dir if listed in config", () => {
+    delete process.env.FREELANCE_WORKFLOWS_DIR;
+    const freelanceDir = tmpFreelanceDir("config-dedup-");
+    const tmpDir = path.dirname(freelanceDir);
+
+    fs.writeFileSync(
+      path.join(freelanceDir, "config.yml"),
+      `workflows:\n  - ${freelanceDir}\n`
+    );
+
+    withTmpEnv(tmpDir, () => {
+      const dirs = resolveDefaultGraphsDirs();
+      expect(dirs).toEqual([freelanceDir]);
+    });
+  });
+
+  it("not read when FREELANCE_WORKFLOWS_DIR is set", () => {
+    const freelanceDir = tmpFreelanceDir("config-env-");
+    const tmpDir = path.dirname(freelanceDir);
+    const pluginWorkflows = path.join(tmpDir, "plugin-workflows");
+    fs.mkdirSync(pluginWorkflows, { recursive: true });
+    fs.writeFileSync(
+      path.join(freelanceDir, "config.yml"),
+      `workflows:\n  - ${pluginWorkflows}\n`
+    );
+
+    process.env.FREELANCE_WORKFLOWS_DIR = "/a";
 
     const dirs = resolveDefaultGraphsDirs();
-    expect(dirs.length).toBe(1);
-    expect(dirs[0]).toContain(".freelance");
+    expect(dirs).toEqual(["/a"]);
+    expect(dirs).not.toContain(pluginWorkflows);
 
-    process.chdir(origCwd);
-    process.env.HOME = origHome;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });
@@ -69,17 +155,11 @@ describe("loadGraphsOrFatal", () => {
   it("exits when no dirs found", () => {
     delete process.env.FREELANCE_WORKFLOWS_DIR;
     const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "no-graphs-"));
-    const origCwd = process.cwd();
-    const origHome = process.env.HOME;
-    process.chdir(emptyDir);
-    process.env.HOME = emptyDir;
 
-    expect(() => loadGraphsOrFatal(null)).toThrow("process.exit");
-    expect(exitSpy).toHaveBeenCalledWith(2);
-
-    process.chdir(origCwd);
-    process.env.HOME = origHome;
-    fs.rmSync(emptyDir, { recursive: true, force: true });
+    withTmpEnv(emptyDir, () => {
+      expect(() => loadGraphsOrFatal(null)).toThrow("process.exit");
+      expect(exitSpy).toHaveBeenCalledWith(2);
+    });
   });
 });
 
@@ -87,19 +167,13 @@ describe("loadGraphsGraceful", () => {
   it("returns empty result when no dirs found", () => {
     delete process.env.FREELANCE_WORKFLOWS_DIR;
     const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "graceful-"));
-    const origCwd = process.cwd();
-    const origHome = process.env.HOME;
-    process.chdir(emptyDir);
-    process.env.HOME = emptyDir;
 
-    const result = loadGraphsGraceful(null);
-    expect(result.graphs).toBeInstanceOf(Map);
-    expect(result.graphs.size).toBe(0);
-    expect(result.errors).toHaveLength(0);
-
-    process.chdir(origCwd);
-    process.env.HOME = origHome;
-    fs.rmSync(emptyDir, { recursive: true, force: true });
+    withTmpEnv(emptyDir, () => {
+      const result = loadGraphsGraceful(null);
+      expect(result.graphs).toBeInstanceOf(Map);
+      expect(result.graphs.size).toBe(0);
+      expect(result.errors).toHaveLength(0);
+    });
   });
 
   it("returns empty graphs with errors when all graphs fail validation", () => {

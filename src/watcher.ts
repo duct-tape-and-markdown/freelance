@@ -13,8 +13,8 @@ export interface WatcherOptions {
   onError: (error: Error) => void;
   /** Called with structured load errors when some graphs fail validation */
   onLoadErrors?: (errors: CollectingLoadResult["errors"]) => void;
-  /** Called when config.yml changes in any watched directory */
-  onConfigChange?: (configPath: string) => void;
+  /** Called with the directory path when config.yml or config.local.yml changes */
+  onConfigChange?: (dir: string) => void;
   /** Debounce interval in ms (default: 200) */
   debounceMs?: number;
 }
@@ -53,9 +53,9 @@ export function watchGraphs(options: WatcherOptions): () => void {
   const watchers = dirs.map((dir) =>
     fs.watch(dir, { recursive: true }, (_eventType, filename) => {
       if (!filename) return;
-      if (filename === "config.yml" && onConfigChange) {
+      if ((filename === "config.yml" || filename === "config.local.yml") && onConfigChange) {
         if (configDebounce) clearTimeout(configDebounce);
-        configDebounce = setTimeout(() => onConfigChange(path.join(dir, filename)), debounceMs);
+        configDebounce = setTimeout(() => onConfigChange(dir), debounceMs);
       } else if (filename.endsWith(".workflow.yaml")) {
         if (graphDebounce) clearTimeout(graphDebounce);
         graphDebounce = setTimeout(reload, debounceMs);

@@ -1,9 +1,7 @@
-import fs from "node:fs";
 import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import yaml from "js-yaml";
 import { TraversalStore } from "./state/index.js";
 import { openStateDatabase } from "./state/index.js";
 import { EngineError } from "./errors.js";
@@ -15,7 +13,8 @@ import { findGraphFiles, loadSingleGraph, validateCrossGraphRefs } from "./loade
 import { hashSources, checkSourcesDetailed, validateGraphSources, getDetailedDrift } from "./sources.js";
 import type { SourceRef, SectionResolver, SourceOptions } from "./sources.js";
 import type { ValidatedGraph } from "./types.js";
-import { MemoryStore, registerMemoryTools, parseMemoryOverlay } from "./memory/index.js";
+import { MemoryStore, registerMemoryTools } from "./memory/index.js";
+import { loadConfigFromDirs } from "./config.js";
 import type { MemoryConfig } from "./memory/index.js";
 import { buildCompileKnowledgeWorkflow, COMPILE_KNOWLEDGE_ID } from "./memory/workflow.js";
 import { buildRecollectionWorkflow, RECOLLECTION_ID } from "./memory/recollection.js";
@@ -71,18 +70,14 @@ export function createServer(
       onUpdate: (newGraphs) => manager.updateGraphs(newGraphs),
       onError: (err) => { process.stderr.write(`Graph reload failed: ${err.message}\n`); },
       onLoadErrors: (errors) => { currentLoadErrors = errors; },
-      onConfigChange: (configPath) => {
-        if (!memoryStore) return;
+      onConfigChange: () => {
+        if (!memoryStore || !options?.graphsDirs) return;
         try {
-          const raw = fs.readFileSync(configPath, "utf-8");
-          const config = yaml.load(raw) as Record<string, unknown>;
-          if (config?.memory && typeof config.memory === "object") {
-            const { ignore, collections } = parseMemoryOverlay(config.memory as Record<string, unknown>);
-            memoryStore.updateConfig(ignore, collections);
-            process.stderr.write(`Freelance: memory config reloaded from ${configPath}\n`);
-          }
+          const config = loadConfigFromDirs(options.graphsDirs);
+          memoryStore.updateConfig(config.memory.ignore, config.memory.collections);
+          process.stderr.write("Freelance: memory config reloaded\n");
         } catch {
-          process.stderr.write(`Freelance: failed to reload memory config from ${configPath}\n`);
+          process.stderr.write("Freelance: failed to reload memory config\n");
         }
       },
     });
@@ -336,7 +331,8 @@ export function createServer(
         }> = [];
 
         for (const id of targets) {
-          const def = fileMap.get(id)!;
+          const def = fileMap.get(id);
+          if (!def) continue;
           const sourceResult = validateGraphSources(def, sourceOpts);
 
           for (const warning of sourceResult.warnings) {
