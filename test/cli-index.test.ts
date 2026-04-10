@@ -9,7 +9,7 @@ vi.mock("../src/daemon.js", () => ({
 vi.mock("../src/proxy.js", () => ({ startProxy: vi.fn(async () => {}) }));
 vi.mock("../src/cli/validate.js", () => ({ validate: vi.fn() }));
 vi.mock("../src/cli/visualize.js", () => ({ visualize: vi.fn() }));
-vi.mock("../src/cli/inspect.js", () => ({ inspect: vi.fn() }));
+// inspect command now uses traversal store directly (no separate mock needed)
 vi.mock("../src/cli/init.js", () => ({
   init: vi.fn(async () => {}),
   initInteractive: vi.fn(async () => {}),
@@ -22,9 +22,46 @@ vi.mock("../src/cli/daemon.js", () => ({
 }));
 vi.mock("../src/cli/traversals.js", () => ({
   parseDaemonConnect: vi.fn(() => ({ host: "127.0.0.1", port: 7433 })),
-  traversalsList: vi.fn(async () => {}),
-  traversalsInspect: vi.fn(async () => {}),
-  traversalsReset: vi.fn(async () => {}),
+  traversalStatus: vi.fn(),
+  traversalStart: vi.fn(),
+  traversalAdvance: vi.fn(),
+  traversalContextSet: vi.fn(),
+  traversalInspect: vi.fn(),
+  traversalReset: vi.fn(),
+}));
+vi.mock("../src/cli/memory.js", () => ({
+  memoryStatus: vi.fn(),
+  memoryBrowse: vi.fn(),
+  memoryInspect: vi.fn(),
+  memorySearch: vi.fn(),
+  memoryRelated: vi.fn(),
+  memoryBySource: vi.fn(),
+  memoryRegister: vi.fn(),
+  memoryEmit: vi.fn(),
+  memoryEnd: vi.fn(),
+}));
+vi.mock("../src/cli/stateless.js", () => ({
+  guideShow: vi.fn(),
+  distillRun: vi.fn(),
+  sourcesHash: vi.fn(),
+  sourcesCheck: vi.fn(),
+  sourcesValidate: vi.fn(),
+}));
+vi.mock("../src/cli/setup.js", () => ({
+  createTraversalStore: vi.fn(() => ({
+    store: { close: vi.fn(), listGraphs: vi.fn(() => ({ graphs: [], activeTraversals: [] })) },
+    setup: { graphsDirs: [], sourceOpts: {} },
+  })),
+  createMemoryStore: vi.fn(() => ({
+    store: { close: vi.fn() },
+    setup: { graphsDirs: [], sourceOpts: {} },
+  })),
+  loadGraphSetup: vi.fn(() => ({
+    graphs: new Map(),
+    graphsDirs: [],
+    sourceRoot: undefined,
+    sourceOpts: {},
+  })),
 }));
 vi.mock("../src/loader.js", () => ({
   loadGraphs: vi.fn(() => new Map([["test", {}]])),
@@ -65,10 +102,10 @@ describe("program commands", () => {
     expect(visualize).toHaveBeenCalledWith("/tmp/test.workflow.yaml", expect.objectContaining({ format: "dot" }));
   });
 
-  it("inspect command calls inspect function", async () => {
-    const { inspect } = await import("../src/cli/inspect.js");
-    await program.parseAsync(["node", "freelance", "inspect", "--oneline"]);
-    expect(inspect).toHaveBeenCalledWith({ oneline: true });
+  it("inspect command calls traversalInspect", async () => {
+    const { traversalInspect } = await import("../src/cli/traversals.js");
+    await program.parseAsync(["node", "freelance", "inspect"]);
+    expect(traversalInspect).toHaveBeenCalled();
   });
 
   it("init --yes calls init function", async () => {
@@ -184,21 +221,21 @@ describe("program commands", () => {
     ).rejects.toThrow("process.exit");
   });
 
-  it("traversals list calls traversalsList", async () => {
-    const { traversalsList } = await import("../src/cli/traversals.js");
-    await program.parseAsync(["node", "freelance", "traversals", "list"]);
-    expect(traversalsList).toHaveBeenCalled();
+  it("status command calls traversalStatus", async () => {
+    const { traversalStatus } = await import("../src/cli/traversals.js");
+    await program.parseAsync(["node", "freelance", "status"]);
+    expect(traversalStatus).toHaveBeenCalled();
   });
 
-  it("traversals inspect calls traversalsInspect", async () => {
-    const { traversalsInspect } = await import("../src/cli/traversals.js");
-    await program.parseAsync(["node", "freelance", "traversals", "inspect", "tr_abc"]);
-    expect(traversalsInspect).toHaveBeenCalled();
+  it("start command calls traversalStart", async () => {
+    const { traversalStart } = await import("../src/cli/traversals.js");
+    await program.parseAsync(["node", "freelance", "start", "my-graph"]);
+    expect(traversalStart).toHaveBeenCalled();
   });
 
-  it("traversals reset calls traversalsReset", async () => {
-    const { traversalsReset } = await import("../src/cli/traversals.js");
-    await program.parseAsync(["node", "freelance", "traversals", "reset", "tr_abc"]);
-    expect(traversalsReset).toHaveBeenCalled();
+  it("guide command calls guideShow", async () => {
+    const { guideShow } = await import("../src/cli/stateless.js");
+    await program.parseAsync(["node", "freelance", "guide"]);
+    expect(guideShow).toHaveBeenCalled();
   });
 });
