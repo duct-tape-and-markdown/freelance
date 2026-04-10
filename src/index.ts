@@ -16,17 +16,12 @@ import { resolveGraphsDirs, resolveSourceRoot, loadGraphsOrFatal, loadGraphsGrac
 import { extractSection } from "./section-resolver.js";
 import yaml from "js-yaml";
 import type { MemoryConfig } from "./memory/index.js";
+import { parseMemoryOverlay } from "./memory/index.js";
 
 function resolveMemoryDbPath(): string | null {
-  // Check config in default graph directories
   const dirs = resolveGraphsDirs();
-  const config = loadMemoryConfig(dirs);
-  if (config?.enabled && config.db) return config.db;
-
-  // Check if memory.db exists in .freelance/
-  const defaultPath = path.join(".freelance", "memory.db");
-  if (fs.existsSync(defaultPath)) return defaultPath;
-
+  const config = resolveMemoryConfig(dirs, {});
+  if (config?.db) return config.db;
   return null;
 }
 
@@ -51,7 +46,28 @@ function resolveStateDb(graphsDirs: string[]): string {
   return path.join(ensureStateDir(".freelance"), "state.db");
 }
 
-function loadMemoryConfig(graphsDirs: string[]): MemoryConfig | null {
+function resolveMemoryConfig(
+  graphsDirs: string[],
+  opts: { memoryDir?: string; memory?: boolean },
+): MemoryConfig | null {
+  // Opt-out via --no-memory
+  if (opts.memory === false) return null;
+
+  // Default DB path: .state/memory.db inside the first graphs directory
+  let dbPath = path.join(ensureStateDir(graphsDirs[0] ?? ".freelance"), "memory.db");
+
+  // CLI flag override
+  if (opts.memoryDir) {
+    const memDir = path.resolve(opts.memoryDir);
+    if (!fs.existsSync(memDir)) {
+      fs.mkdirSync(memDir, { recursive: true });
+    }
+    dbPath = path.join(memDir, "memory.db");
+  }
+
+  // Load optional overlay from config.yml (collections, ignore only)
+  let ignore: string[] | undefined;
+  let collections: Array<{ name: string; description: string; paths: string[] }> | undefined;
   for (const dir of graphsDirs) {
     const configPath = path.join(dir, "config.yml");
     if (fs.existsSync(configPath)) {
@@ -59,28 +75,18 @@ function loadMemoryConfig(graphsDirs: string[]): MemoryConfig | null {
         const raw = fs.readFileSync(configPath, "utf-8");
         const config = yaml.load(raw) as Record<string, unknown>;
         if (config?.memory && typeof config.memory === "object") {
-          const mem = config.memory as Record<string, unknown>;
-          if (mem.enabled) {
-            const dbPath = typeof mem.db === "string"
-              ? (path.isAbsolute(mem.db) ? mem.db : path.resolve(ensureStateDir(dir), mem.db))
-              : path.join(ensureStateDir(dir), "memory.db");
-            const ignore = Array.isArray(mem.ignore) ? mem.ignore as string[] : undefined;
-            const collections = Array.isArray(mem.collections)
-              ? (mem.collections as Array<Record<string, unknown>>).map((c) => ({
-                  name: String(c.name ?? ""),
-                  description: String(c.description ?? ""),
-                  paths: Array.isArray(c.paths) ? c.paths as string[] : [],
-                })).filter((c) => c.name.length > 0)
-              : undefined;
-            return { enabled: true, db: dbPath, ignore, collections };
-          }
+          const overlay = parseMemoryOverlay(config.memory as Record<string, unknown>);
+          ignore = overlay.ignore;
+          collections = overlay.collections;
         }
       } catch {
-        // Config parse failure — skip memory
+        // Config parse failure — use defaults
       }
+      break;
     }
   }
-  return null;
+
+  return { enabled: true, db: dbPath, ignore, collections };
 }
 
 // --- Program setup ---
@@ -181,6 +187,8 @@ program
   .addOption(new Option("--connect <host:port>", "Connect to daemon instead of standalone").hideHelp())
   .option("--max-depth <n>", "Maximum subgraph nesting depth", "5")
   .option("--source-root <path>", "Base path for resolving source references (default: parent of first workflows dir)")
+  .option("--memory-dir <path>", "Persistent directory for memory database")
+  .option("--no-memory", "Disable memory")
   .action(async (opts) => {
     if (opts.connect) {
       const { host, port } = parseDaemonConnect(opts);
@@ -195,9 +203,9 @@ program
       if (loadErrors.length > 0) {
         info(`Freelance: ${loadErrors.length} graph(s) failed validation — call freelance_validate for details`);
       }
-      // Check for memory configuration
-      const memoryConfig = loadMemoryConfig(dirs);
-      if (memoryConfig?.enabled) {
+      // Resolve memory configuration (enabled by default)
+      const memoryConfig = resolveMemoryConfig(dirs, { memoryDir: opts.memoryDir, memory: opts.memory });
+      if (memoryConfig) {
         info(`Freelance: memory enabled (${memoryConfig.db})`);
       }
       // State database for stateless traversal persistence
@@ -309,7 +317,7 @@ program
 
     const sourceRoot = opts.sourceRoot ?? process.cwd();
     const dirs = resolveGraphsDirs();
-    const memConfig = loadMemoryConfig(dirs);
+    const memConfig = resolveMemoryConfig(dirs, {});
     const ignore = memConfig?.ignore;
     try {
       const store = new MemoryStore(dbPath, sourceRoot, ignore);

@@ -95,6 +95,13 @@ export class MemoryStore {
     }
   }
 
+  updateConfig(ignore?: string[], collections?: CollectionConfig[]): void {
+    if (ignore !== undefined) this.ignore = ignore;
+    if (collections !== undefined && collections.length > 0) {
+      this.collections = new Map(collections.map((c) => [c.name, c]));
+    }
+  }
+
   close(): void {
     this.db.close();
   }
