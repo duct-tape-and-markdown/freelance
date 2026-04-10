@@ -214,6 +214,8 @@ freelance mcp                             # Start MCP server
 freelance completion bash|zsh|fish        # Shell completion script
 ```
 
+Run `freelance --help` for full details and flags.
+
 ## License
 
 MIT

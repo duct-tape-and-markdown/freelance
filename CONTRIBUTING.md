@@ -19,14 +19,14 @@ Requires Node.js 20+.
 2. Make your changes
 3. Run `npm run build` — must compile with zero errors
 4. Run `npm test` — all 514+ tests must pass, 90% line coverage threshold enforced
-5. Run `npx freelance validate templates/` — all starter templates must validate cleanly
+5. Run `npx freelance-mcp validate templates/` — all starter templates must validate cleanly
 6. Open a PR against `main`
 
 ## Project Structure
 
 - `src/engine/` — Core graph engine, expression evaluator, loader, schema
 - `src/server/` — MCP server (stdio transport)
-- `src/cli/` — CLI commands (init, validate, visualize, inspect)
+- `src/cli/` — CLI commands (init, validate, visualize, status, start, advance, inspect, reset, etc.)
 - `templates/` — Starter workflow graphs
 - `test/` — Test suites mirroring src/ structure
 
@@ -34,7 +34,7 @@ Requires Node.js 20+.
 
 Graphs are YAML files with the `.workflow.yaml` extension. Look at the starter templates in `templates/` for examples, or run `freelance_guide` for the full schema. Validate your graphs with:
 ```bash
-npx freelance validate path/to/graphs/
+npx freelance-mcp validate path/to/graphs/
 ```
 
 ## Code Style

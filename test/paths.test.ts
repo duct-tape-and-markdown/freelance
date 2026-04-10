@@ -59,10 +59,8 @@ describe("getPidFilePath", () => {
 });
 
 describe("constants", () => {
-  it("exports FREELANCE_DIR and TRAVERSALS_DIR", async () => {
-    const { FREELANCE_DIR, TRAVERSALS_DIR } = await importPaths();
+  it("exports FREELANCE_DIR", async () => {
+    const { FREELANCE_DIR } = await importPaths();
     expect(FREELANCE_DIR).toBe(".freelance");
-    expect(TRAVERSALS_DIR).toContain(".freelance");
-    expect(TRAVERSALS_DIR).toContain("traversals");
   });
 });

@@ -40,7 +40,7 @@ freelance mcp
 freelance mcp --workflows ./graphs --workflows ~/.freelance
 
 # NOTE: daemon mode exists but is hidden/untested — not yet public
-# Commands: daemon start|stop|status, traversals list|inspect|reset, mcp --connect
+# Commands: daemon start|stop|status, mcp --connect
 
 # Project setup
 freelance init
@@ -77,8 +77,8 @@ Override with `--source-root <path>` (CLI) or `sourceRoot` (ServerOptions).
 - `src/graph-resolution.ts` — Graph directory resolution and loading (env var, project, user cascading)
 - `src/daemon.ts` — HTTP daemon server wrapping TraversalStore, PID file management, shutdown handlers
 - `src/proxy.ts` — MCP proxy that bridges stdio to daemon HTTP API
-- `src/server.ts` — MCP tool surface (6 tools wrapping TraversalStore)
-- `src/cli/` — CLI subcommand handlers (init, validate, visualize, daemon, traversals, output)
+- `src/server.ts` — MCP tool surface (12+ tools: traversal, guide, distill, sources, validate, plus memory)
+- `src/cli/` — CLI subcommand handlers (init, validate, visualize, daemon, traversals, stateless, memory, output, setup)
   - `cli/clients.ts` — Client detection (claude-code, cursor, windsurf, cline) and display helpers
 - `src/index.ts` — CLI entry point (Commander.js, command dispatch only)
 - `templates/` — Starter graph templates and shell completions

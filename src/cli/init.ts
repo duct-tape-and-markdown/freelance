@@ -132,7 +132,7 @@ This project uses Freelance for workflow enforcement. Call \`freelance_list\` to
 
 // --- Enforcement hooks ---
 
-const SESSION_START_COMMAND = "npx -y freelance-mcp@latest inspect --active --oneline";
+const SESSION_START_COMMAND = "npx -y freelance-mcp@latest status";
 const PROMPT_SUBMIT_COMMAND = "echo '**IMPORTANT** - Workflows may apply. Call freelance_list, match the user'\"'\"'s task to an available graph, and start it before doing other work.'";
 
 interface HookEntry {
@@ -162,7 +162,7 @@ function writeHooks(includeEnforcement: boolean): { path: string; wrote: string[
   const wrote: string[] = [];
 
   // SessionStart hook — always written (lightweight, shows active traversals)
-  if (!hasFreelanceHook(settings.hooks.SessionStart, "freelance-mcp@latest inspect")) {
+  if (!hasFreelanceHook(settings.hooks.SessionStart, "freelance-mcp@latest status")) {
     if (!settings.hooks.SessionStart) settings.hooks.SessionStart = [];
     settings.hooks.SessionStart.push({
       matcher: "",
@@ -194,7 +194,7 @@ function wouldWriteHooks(includeEnforcement: boolean): string[] {
     : {};
 
   const would: string[] = [];
-  if (!hasFreelanceHook(settings.hooks?.SessionStart, "freelance-mcp@latest inspect")) {
+  if (!hasFreelanceHook(settings.hooks?.SessionStart, "freelance-mcp@latest status")) {
     would.push("SessionStart");
   }
   if (includeEnforcement && !hasFreelanceHook(settings.hooks?.UserPromptSubmit, "freelance_list")) {

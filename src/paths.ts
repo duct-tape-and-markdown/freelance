@@ -1,7 +1,6 @@
 import path from "node:path";
 
 export const FREELANCE_DIR = ".freelance";
-export const TRAVERSALS_DIR = path.join(FREELANCE_DIR, "traversals");
 export const DEFAULT_PORT = (() => {
   const env = process.env.FREELANCE_DAEMON_PORT;
   if (!env) return 7433;
