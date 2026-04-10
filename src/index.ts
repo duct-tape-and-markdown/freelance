@@ -9,84 +9,30 @@ import { validate } from "./cli/validate.js";
 import { visualize } from "./cli/visualize.js";
 import { setCli, info, fatal, EXIT } from "./cli/output.js";
 import { daemonStop, daemonStatus, checkRunningDaemon } from "./cli/daemon.js";
-import { parseDaemonConnect, traversalsList, traversalsInspect, traversalsReset } from "./cli/traversals.js";
+import { parseDaemonConnect } from "./cli/traversals.js";
+import {
+  traversalStatus, traversalStart, traversalAdvance,
+  traversalContextSet, traversalInspect, traversalReset,
+} from "./cli/traversals.js";
+import {
+  memoryStatus, memoryBrowse, memoryInspect, memorySearch,
+  memoryRelated, memoryBySource, memoryRegister, memoryEmit, memoryEnd,
+} from "./cli/memory.js";
+import { guideShow, distillRun, sourcesHash, sourcesCheck, sourcesValidate } from "./cli/stateless.js";
+import {
+  createTraversalStore, createMemoryStore, loadGraphSetup,
+  resolveStateDb, resolveMemoryConfig,
+} from "./cli/setup.js";
 import { VERSION } from "./version.js";
 import { DEFAULT_PORT } from "./paths.js";
 import { resolveGraphsDirs, resolveSourceRoot, loadGraphsOrFatal, loadGraphsGraceful } from "./graph-resolution.js";
 import { extractSection } from "./section-resolver.js";
-import yaml from "js-yaml";
-import type { MemoryConfig } from "./memory/index.js";
-import { parseMemoryOverlay } from "./memory/index.js";
 
 function resolveMemoryDbPath(): string | null {
   const dirs = resolveGraphsDirs();
   const config = resolveMemoryConfig(dirs, {});
   if (config?.db) return config.db;
   return null;
-}
-
-function stateDir(graphsDir: string): string {
-  return path.join(graphsDir, ".state");
-}
-
-function ensureStateDir(graphsDir: string): string {
-  const dir = stateDir(graphsDir);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  return dir;
-}
-
-function resolveStateDb(graphsDirs: string[]): string {
-  for (const dir of graphsDirs) {
-    if (fs.existsSync(dir)) {
-      return path.join(ensureStateDir(dir), "state.db");
-    }
-  }
-  return path.join(ensureStateDir(".freelance"), "state.db");
-}
-
-function resolveMemoryConfig(
-  graphsDirs: string[],
-  opts: { memoryDir?: string; memory?: boolean },
-): MemoryConfig | null {
-  // Opt-out via --no-memory
-  if (opts.memory === false) return null;
-
-  // Default DB path: .state/memory.db inside the first graphs directory
-  let dbPath = path.join(ensureStateDir(graphsDirs[0] ?? ".freelance"), "memory.db");
-
-  // CLI flag override
-  if (opts.memoryDir) {
-    const memDir = path.resolve(opts.memoryDir);
-    if (!fs.existsSync(memDir)) {
-      fs.mkdirSync(memDir, { recursive: true });
-    }
-    dbPath = path.join(memDir, "memory.db");
-  }
-
-  // Load optional overlay from config.yml (collections, ignore only)
-  let ignore: string[] | undefined;
-  let collections: Array<{ name: string; description: string; paths: string[] }> | undefined;
-  for (const dir of graphsDirs) {
-    const configPath = path.join(dir, "config.yml");
-    if (fs.existsSync(configPath)) {
-      try {
-        const raw = fs.readFileSync(configPath, "utf-8");
-        const config = yaml.load(raw) as Record<string, unknown>;
-        if (config?.memory && typeof config.memory === "object") {
-          const overlay = parseMemoryOverlay(config.memory as Record<string, unknown>);
-          ignore = overlay.ignore;
-          collections = overlay.collections;
-        }
-      } catch {
-        // Config parse failure — use defaults
-      }
-      break;
-    }
-  }
-
-  return { enabled: true, db: dbPath, ignore, collections };
 }
 
 // --- Program setup ---
@@ -264,37 +210,211 @@ daemonCmd
   .description("Check daemon status")
   .action(() => daemonStatus());
 
-// --- traversals (hidden — requires daemon) ---
+// --- Traversal commands (direct SQLite access) ---
 
-const traversalsCmd = program
-  .command("traversals", { hidden: true })
-  .description("Manage active traversals (requires running daemon)");
+function addWorkflowsOpt(cmd: Command): Command {
+  return cmd.option(
+    "--workflows <directory>",
+    "Workflow definitions directory (repeatable for layering)",
+    (value: string, previous?: string[]) => (previous ? [...previous, value] : [value])
+  );
+}
 
-traversalsCmd
-  .command("list")
-  .description("List active traversals")
-  .option("--connect <host:port>", "Daemon address")
-  .action(async (opts) => {
-    const { host, port } = parseDaemonConnect(opts);
-    await traversalsList(host, port);
+addWorkflowsOpt(program
+  .command("status")
+  .description("Show loaded graphs and active traversals"))
+  .action((opts) => {
+    const { store } = createTraversalStore({ workflows: opts.workflows });
+    try { traversalStatus(store); } finally { store.close(); }
   });
 
-traversalsCmd
-  .command("inspect <id>")
-  .description("Inspect a traversal")
-  .option("--connect <host:port>", "Daemon address")
-  .action(async (id, opts) => {
-    const { host, port } = parseDaemonConnect(opts);
-    await traversalsInspect(host, port, id);
+addWorkflowsOpt(program
+  .command("start <graphId>")
+  .description("Begin traversing a workflow graph")
+  .option("--context <json>", "Initial context as JSON"))
+  .action((graphId, opts) => {
+    const { store } = createTraversalStore({ workflows: opts.workflows });
+    try { traversalStart(store, graphId, opts.context); } finally { store.close(); }
   });
 
-traversalsCmd
-  .command("reset <id>")
-  .description("Reset a traversal")
-  .option("--connect <host:port>", "Daemon address")
-  .action(async (id, opts) => {
-    const { host, port } = parseDaemonConnect(opts);
-    await traversalsReset(host, port, id);
+addWorkflowsOpt(program
+  .command("advance [edge]")
+  .description("Move to the next node by taking a labeled edge")
+  .option("--context <json>", "Context updates as JSON")
+  .option("--traversal <id>", "Traversal ID (auto-resolved if only one active)"))
+  .action((edge, opts) => {
+    const { store } = createTraversalStore({ workflows: opts.workflows });
+    try { traversalAdvance(store, edge, opts); } finally { store.close(); }
+  });
+
+const contextCmd = program
+  .command("context")
+  .description("Update traversal context");
+
+addWorkflowsOpt(contextCmd
+  .command("set <updates...>")
+  .description("Set context key=value pairs (e.g. foo=1 bar=true)")
+  .option("--traversal <id>", "Traversal ID (auto-resolved if only one active)"))
+  .action((updates, opts) => {
+    const { store } = createTraversalStore({ workflows: opts.workflows });
+    try { traversalContextSet(store, updates, opts); } finally { store.close(); }
+  });
+
+addWorkflowsOpt(program
+  .command("inspect [traversalId]")
+  .description("Read-only introspection of current graph state")
+  .addOption(new Option("--detail <level>", "Detail level").choices(["position", "full", "history"]).default("position")))
+  .action((traversalId, opts) => {
+    const { store } = createTraversalStore({ workflows: opts.workflows });
+    try { traversalInspect(store, traversalId, opts.detail); } finally { store.close(); }
+  });
+
+addWorkflowsOpt(program
+  .command("reset [traversalId]")
+  .description("Clear a traversal")
+  .option("--confirm", "Required safety check"))
+  .action((traversalId, opts) => {
+    const { store } = createTraversalStore({ workflows: opts.workflows });
+    try { traversalReset(store, traversalId, opts); } finally { store.close(); }
+  });
+
+// --- Memory commands ---
+
+const memoryCmd = program
+  .command("memory")
+  .description("Query and manage the persistent knowledge graph");
+
+addWorkflowsOpt(memoryCmd
+  .command("status")
+  .description("Show proposition and entity counts")
+  .option("--collection <name>", "Scope to a collection"))
+  .action((opts) => {
+    const { store } = createMemoryStore({ workflows: opts.workflows });
+    try { memoryStatus(store, opts.collection); } finally { store.close(); }
+  });
+
+addWorkflowsOpt(memoryCmd
+  .command("browse")
+  .description("Find entities by name, kind, or partial match")
+  .option("--name <pattern>", "Partial name match (case-insensitive)")
+  .option("--kind <kind>", "Filter by entity kind")
+  .option("--collection <name>", "Scope to a collection")
+  .option("--limit <n>", "Maximum results")
+  .option("--offset <n>", "Skip first N results"))
+  .action((opts) => {
+    const { store } = createMemoryStore({ workflows: opts.workflows });
+    try { memoryBrowse(store, opts); } finally { store.close(); }
+  });
+
+addWorkflowsOpt(memoryCmd
+  .command("inspect <entity>")
+  .description("Full entity details — propositions, neighbors, sources")
+  .option("--collection <name>", "Scope to a collection"))
+  .action((entity, opts) => {
+    const { store } = createMemoryStore({ workflows: opts.workflows });
+    try { memoryInspect(store, entity, opts.collection); } finally { store.close(); }
+  });
+
+addWorkflowsOpt(memoryCmd
+  .command("search <query>")
+  .description("Full-text search across proposition content")
+  .option("--collection <name>", "Scope to a collection")
+  .option("--limit <n>", "Maximum results"))
+  .action((query, opts) => {
+    const { store } = createMemoryStore({ workflows: opts.workflows });
+    try { memorySearch(store, query, opts); } finally { store.close(); }
+  });
+
+addWorkflowsOpt(memoryCmd
+  .command("related <entity>")
+  .description("Show entities related via shared propositions")
+  .option("--collection <name>", "Scope to a collection"))
+  .action((entity, opts) => {
+    const { store } = createMemoryStore({ workflows: opts.workflows });
+    try { memoryRelated(store, entity, opts.collection); } finally { store.close(); }
+  });
+
+addWorkflowsOpt(memoryCmd
+  .command("by-source <file>")
+  .description("All propositions derived from a source file")
+  .option("--collection <name>", "Scope to a collection"))
+  .action((file, opts) => {
+    const { store } = createMemoryStore({ workflows: opts.workflows });
+    try { memoryBySource(store, file, opts.collection); } finally { store.close(); }
+  });
+
+addWorkflowsOpt(memoryCmd
+  .command("register <file>")
+  .description("Register a file as a provenance source"))
+  .action((file, opts) => {
+    const { store } = createMemoryStore({ workflows: opts.workflows });
+    try { memoryRegister(store, file); } finally { store.close(); }
+  });
+
+addWorkflowsOpt(memoryCmd
+  .command("emit <file>")
+  .description("Write propositions from JSON file (use - for stdin)")
+  .option("--collection <name>", "Target collection", "default"))
+  .action((file, opts) => {
+    const { store } = createMemoryStore({ workflows: opts.workflows });
+    try { memoryEmit(store, file, opts.collection); } finally { store.close(); }
+  });
+
+addWorkflowsOpt(memoryCmd
+  .command("end")
+  .description("Close the active compilation session"))
+  .action((opts) => {
+    const { store } = createMemoryStore({ workflows: opts.workflows });
+    try { memoryEnd(store); } finally { store.close(); }
+  });
+
+// --- Stateless commands ---
+
+program
+  .command("guide [topic]")
+  .description("Get help with authoring workflow graphs")
+  .action((topic) => {
+    guideShow(topic);
+  });
+
+program
+  .command("distill")
+  .description("Get a prompt for distilling a task into a workflow graph")
+  .addOption(new Option("--mode <mode>", "Distill mode").choices(["distill", "refine"]).default("distill"))
+  .action((opts) => {
+    distillRun(opts);
+  });
+
+const sourcesCmd = program
+  .command("sources")
+  .description("Manage source bindings and provenance");
+
+addWorkflowsOpt(sourcesCmd
+  .command("hash <paths...>")
+  .description("Hash source files for provenance stamping (path or path:section)")
+  .option("--source-root <path>", "Base path for resolving source references"))
+  .action((paths, opts) => {
+    const setup = loadGraphSetup({ workflows: opts.workflows, sourceRoot: opts.sourceRoot });
+    sourcesHash(setup.sourceOpts, paths);
+  });
+
+addWorkflowsOpt(sourcesCmd
+  .command("check <sources...>")
+  .description("Validate source hashes (path:hash or path:section:hash)")
+  .option("--source-root <path>", "Base path for resolving source references"))
+  .action((sources, opts) => {
+    const setup = loadGraphSetup({ workflows: opts.workflows, sourceRoot: opts.sourceRoot });
+    sourcesCheck(setup.sourceOpts, sources);
+  });
+
+addWorkflowsOpt(sourcesCmd
+  .command("validate")
+  .description("Validate all source bindings across loaded graphs")
+  .option("--graph <id>", "Check a single graph by ID")
+  .option("--source-root <path>", "Base path for resolving source references"))
+  .action((opts) => {
+    const setup = loadGraphSetup({ workflows: opts.workflows, sourceRoot: opts.sourceRoot });
+    sourcesValidate(setup.graphsDirs, setup.sourceOpts, opts.graph);
   });
 
 // --- memory-register (for Claude Code PreToolUse hook) ---
@@ -334,17 +454,6 @@ program
         process.stderr.write(`memory-register: ${msg}\n`);
       }
     }
-  });
-
-// --- inspect ---
-
-program
-  .command("inspect")
-  .description("Show active traversals from persisted state")
-  .option("--oneline", "Compact one-line output (for hooks)")
-  .action(async (opts) => {
-    const { inspect } = await import("./cli/inspect.js");
-    inspect({ oneline: opts.oneline ?? false });
   });
 
 // --- completion ---

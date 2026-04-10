@@ -1,7 +1,15 @@
-import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
-import http from "node:http";
-import { parseDaemonConnect, daemonFetch, traversalsList, traversalsInspect, traversalsReset } from "../src/cli/traversals.js";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { parseDaemonConnect } from "../src/cli/traversals.js";
+import {
+  traversalStatus, traversalStart, traversalAdvance,
+  traversalContextSet, traversalInspect, traversalReset,
+} from "../src/cli/traversals.js";
 import { setCli } from "../src/cli/output.js";
+import { TraversalStore } from "../src/state/index.js";
+import { openStateDatabase } from "../src/state/index.js";
+import { loadSingleGraph } from "../src/loader.js";
+import type { ValidatedGraph } from "../src/types.js";
+import path from "node:path";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let exitSpy: any;
@@ -52,140 +60,168 @@ describe("parseDaemonConnect", () => {
   });
 });
 
-// Test server for daemonFetch and traversals commands
-let server: http.Server;
-let port: number;
+// --- Direct store-based CLI tests ---
 
-// Route handler — tests override this per-test
-let handler: (req: http.IncomingMessage, res: http.ServerResponse) => void;
+function createTestStore(): TraversalStore {
+  // Load a single valid graph to avoid circular subgraph errors
+  const fixture = path.resolve("test/fixtures/valid-branching.workflow.yaml");
+  const loaded = loadSingleGraph(fixture);
+  const graphs = new Map<string, ValidatedGraph>([[loaded.id, loaded]]);
+  const db = openStateDatabase(":memory:");
+  return new TraversalStore(db, graphs, { maxDepth: 5 });
+}
 
-beforeAll(async () => {
-  server = http.createServer((req, res) => handler(req, res));
-  await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", () => resolve());
-  });
-  port = (server.address() as { port: number }).port;
-});
-
-afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-});
-
-describe("daemonFetch", () => {
-  it("returns parsed JSON on success", async () => {
-    handler = (_req, res) => {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true }));
-    };
-    const result = await daemonFetch("127.0.0.1", port, "/test");
-    expect(result).toEqual({ ok: true });
+describe("traversalStatus", () => {
+  it("shows graphs and no traversals (text mode)", () => {
+    const store = createTestStore();
+    try {
+      traversalStatus(store);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Graphs:"));
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("No active traversals"));
+    } finally {
+      store.close();
+    }
   });
 
-  it("calls fatal on HTTP error", async () => {
-    handler = (_req, res) => {
-      res.writeHead(500, { "Content-Type": "text/plain" });
-      res.end("Internal Server Error");
-    };
-    await expect(daemonFetch("127.0.0.1", port, "/fail")).rejects.toThrow("process.exit");
-    expect(exitSpy).toHaveBeenCalledWith(4);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("HTTP 500"));
-  });
-
-  it("calls fatal on connection error", async () => {
-    // Port 1 is almost certainly not listening
-    await expect(daemonFetch("127.0.0.1", 1, "/fail")).rejects.toThrow("process.exit");
-    expect(exitSpy).toHaveBeenCalledWith(4);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Failed to connect"));
-  });
-});
-
-describe("traversalsList", () => {
-  it("prints 'No active traversals' when empty (text mode)", async () => {
-    handler = (_req, res) => {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ traversals: [] }));
-    };
-    await traversalsList("127.0.0.1", port);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("No active traversals"));
-  });
-
-  it("prints formatted traversals (text mode)", async () => {
-    handler = (_req, res) => {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
-        traversals: [{
-          traversalId: "tr_abc123",
-          graphId: "test-graph",
-          currentNode: "start",
-          stackDepth: 0,
-          lastUpdated: "2026-01-01T00:00:00Z",
-        }],
-      }));
-    };
-    await traversalsList("127.0.0.1", port);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("tr_abc123"));
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("test-graph"));
-  });
-
-  it("outputs JSON in json mode", async () => {
+  it("outputs JSON", () => {
     setCli({ json: true });
-    handler = (_req, res) => {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ traversals: [] }));
-    };
-    await traversalsList("127.0.0.1", port);
-    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
-    expect(JSON.parse(output)).toEqual({ traversals: [] });
+    const store = createTestStore();
+    try {
+      traversalStatus(store);
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
+      const parsed = JSON.parse(output);
+      expect(parsed).toHaveProperty("graphs");
+      expect(parsed).toHaveProperty("activeTraversals");
+    } finally {
+      store.close();
+    }
   });
 });
 
-describe("traversalsInspect", () => {
-  it("prints formatted traversal detail (text mode)", async () => {
-    handler = (_req, res) => {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
-        traversalId: "tr_abc123",
-        graphId: "test-graph",
-        currentNode: "start",
-        stackDepth: 0,
-      }));
-    };
-    await traversalsInspect("127.0.0.1", port, "tr_abc123");
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("tr_abc123"));
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("test-graph"));
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("start"));
+describe("traversalStart", () => {
+  it("starts a traversal and prints node info", () => {
+    const store = createTestStore();
+    try {
+      // Use a graph from fixtures — "linear" is a simple one
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return; // skip if no fixtures
+      traversalStart(store, graphId);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Started traversal"));
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Node:"));
+    } finally {
+      store.close();
+    }
   });
 
-  it("outputs JSON in json mode", async () => {
+  it("outputs JSON on start", () => {
     setCli({ json: true });
-    handler = (_req, res) => {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ traversalId: "tr_abc123", graphId: "g", currentNode: "n", stackDepth: 0 }));
-    };
-    await traversalsInspect("127.0.0.1", port, "tr_abc123");
-    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
-    expect(JSON.parse(output).traversalId).toBe("tr_abc123");
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      traversalStart(store, graphId);
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
+      const parsed = JSON.parse(output);
+      expect(parsed).toHaveProperty("traversalId");
+      expect(parsed).toHaveProperty("currentNode");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("errors on unknown graph", () => {
+    const store = createTestStore();
+    try {
+      expect(() => traversalStart(store, "nonexistent-graph")).toThrow("process.exit");
+    } finally {
+      store.close();
+    }
   });
 });
 
-describe("traversalsReset", () => {
-  it("prints reset confirmation (text mode)", async () => {
-    handler = (_req, res) => {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "reset" }));
-    };
-    await traversalsReset("127.0.0.1", port, "tr_abc123");
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Reset traversal tr_abc123"));
+describe("traversalInspect", () => {
+  it("shows current position", () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const { traversalId } = store.createTraversal(graphId);
+      traversalInspect(store, traversalId, "position");
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Traversal:"));
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Graph:"));
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Node:"));
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("traversalContextSet", () => {
+  it("sets key=value pairs", () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      store.createTraversal(graphId);
+      traversalContextSet(store, ["foo=42", "bar=true"]);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Updated context"));
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("foo = 42"));
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("bar = true"));
+    } finally {
+      store.close();
+    }
   });
 
-  it("outputs JSON in json mode", async () => {
+  it("errors on invalid pair", () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      store.createTraversal(graphId);
+      expect(() => traversalContextSet(store, ["noequalssign"])).toThrow("process.exit");
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("traversalReset", () => {
+  it("errors without --confirm", () => {
+    const store = createTestStore();
+    try {
+      expect(() => traversalReset(store, undefined, {})).toThrow("process.exit");
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("--confirm"));
+    } finally {
+      store.close();
+    }
+  });
+
+  it("resets with --confirm", () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const { traversalId } = store.createTraversal(graphId);
+      traversalReset(store, traversalId, { confirm: true });
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Reset traversal"));
+    } finally {
+      store.close();
+    }
+  });
+
+  it("outputs JSON on reset", () => {
     setCli({ json: true });
-    handler = (_req, res) => {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "reset" }));
-    };
-    await traversalsReset("127.0.0.1", port, "tr_abc123");
-    const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
-    expect(JSON.parse(output)).toEqual({ status: "reset" });
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const { traversalId } = store.createTraversal(graphId);
+      traversalReset(store, traversalId, { confirm: true });
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
+      const parsed = JSON.parse(output);
+      expect(parsed).toHaveProperty("status", "reset");
+    } finally {
+      store.close();
+    }
   });
 });
