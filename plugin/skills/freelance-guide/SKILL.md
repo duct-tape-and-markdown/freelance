@@ -1,15 +1,15 @@
 ---
 name: freelance-guide
-description: How to use Freelance workflow enforcement. Claude should read this when working with graph workflows, traversals, or when Freelance MCP tools are available.
+description: How to use Freelance workflow enforcement and memory. Claude should read this when working with graph workflows, traversals, memory tools, or when Freelance MCP tools are available.
 ---
 
-# Freelance — Workflow Enforcement
+# Freelance — Workflow Enforcement & Memory
 
-Freelance is a graph engine MCP that enforces structured workflows. State is server-side — it survives context compaction.
+Freelance is a graph engine MCP that enforces structured workflows and builds a persistent knowledge graph. State is server-side — it survives context compaction.
 
-## Available Tools
+## Workflow Tools
 
-- `freelance_list` — List available workflows
+- `freelance_list` — List available workflows and active traversals
 - `freelance_start` — Begin a workflow traversal
 - `freelance_advance` — Move to the next node via an edge label
 - `freelance_context_set` — Update traversal context as you complete work
@@ -17,9 +17,34 @@ Freelance is a graph engine MCP that enforces structured workflows. State is ser
 - `freelance_reset` — Reset or abandon a traversal (`{ confirm: true }`)
 - `freelance_guide` — Get graph authoring help
 - `freelance_distill` — Distill a task into a new workflow, or refine an existing one
+- `freelance_validate` — Validate graph definitions
 - `freelance_sources_hash` — Content provenance stamping
 - `freelance_sources_check` — Validate source bindings
 - `freelance_sources_validate` — Check source hashes across loaded graphs
+
+## Memory Tools
+
+Memory is a persistent knowledge graph backed by SQLite. The agent reads source files, reasons about them, and writes propositions. Every proposition tracks its source files and their content hashes — when files change, propositions are marked stale.
+
+- `memory_register_source` — Register a file as a provenance source (hashes content)
+- `memory_emit` — Write propositions about 1-2 entities with source attribution
+- `memory_end` — Close the active compilation session
+- `memory_browse` — Find entities by name or kind, optionally scoped to a collection
+- `memory_inspect` — Full entity details with propositions, neighbors, and validity
+- `memory_by_source` — All propositions linked to a source file
+- `memory_related` — Entity graph navigation — co-occurring entities with connection strength
+- `memory_search` — Full-text search across proposition content (FTS5)
+- `memory_status` — Knowledge graph health: total, valid, stale counts
+
+### Memory Workflows
+
+Two sealed workflows are available as subgraphs:
+- `memory:compile` — Read sources, emit propositions, evaluate coverage
+- `memory:recall` — Recall existing knowledge, read provenance sources, compare, fill delta
+
+### Collections
+
+Propositions can be scoped to named collections (e.g., "default", "spec"). All read tools accept an optional `collection` parameter to filter results.
 
 ## During a Traversal
 
@@ -35,3 +60,4 @@ Freelance is a graph engine MCP that enforces structured workflows. State is ser
 
 Call `freelance_list` to see available workflows, then `freelance_start` to begin one.
 Call `freelance_guide` for help authoring new graph definitions.
+Call `memory_status` to check the knowledge graph health.

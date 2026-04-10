@@ -82,20 +82,33 @@ When you query memory, it checks whether the source files on disk still match. M
 
 **Git branching for free** — Switch branches, files change on disk, different propositions light up as valid or stale. Merge the branch, files converge, knowledge converges. No scope model, no branch tracking — just hash checks on read.
 
-### Enabling memory
+### Configuration
 
-Add a `config.yml` to your `.freelance/` directory:
+Memory is **enabled by default** with zero configuration. The database is stored at `.freelance/.state/memory.db`.
+
+To customize, add a `config.yml` to your `.freelance/` directory:
 
 ```yaml
 memory:
-  enabled: true
-  db: memory.db
   ignore:
     - "**/node_modules/**"
     - "**/dist/**"
+  collections:
+    - name: default
+      description: General project knowledge
+      paths: [""]
+    - name: spec
+      description: Feature specifications
+      paths: ["docs/", "specs/"]
 ```
 
-When memory is enabled, two sealed workflows are auto-injected: `memory:compile` (read sources, emit propositions, evaluate coverage) and `memory:recall` (recall, source, compare, fill delta, evaluate). These can be referenced as subgraphs in your own workflows — for example, adding a compilation step before a terminal node to lock in knowledge that reflects the finished state of your work.
+**CLI flags:**
+- `--memory-dir <path>` — store the database in a persistent location (useful for plugins)
+- `--no-memory` — disable memory entirely
+
+**Collections** partition propositions into named buckets. All read tools accept an optional `--collection` filter. Propositions are deduplicated within a collection — the same claim can exist in multiple collections.
+
+Two sealed workflows are auto-injected: `memory:compile` (read sources, emit propositions, evaluate coverage) and `memory:recall` (recall, source, compare, fill delta, evaluate). These can be referenced as subgraphs in your own workflows.
 
 ### Memory tools
 
@@ -162,13 +175,43 @@ Manual configuration (e.g., `.mcp.json` for Claude Code):
 
 ## CLI
 
+Every MCP tool has a CLI equivalent. Commands operate directly on SQLite — no daemon or MCP client required.
+
 ```
-freelance init                       # Interactive project setup
-freelance validate <dir>             # Validate graph definitions
-freelance visualize <file>           # Render graph as Mermaid or DOT
-freelance inspect                    # Show active traversals from persisted state
-freelance mcp                        # Start standalone MCP server
-freelance completion bash|zsh|fish   # Output shell completion script
+# Setup
+freelance init                            # Interactive project setup
+freelance validate <dir>                  # Validate graph definitions
+freelance visualize <file>                # Render graph as Mermaid or DOT
+
+# Traversals
+freelance status                          # Show loaded graphs and active traversals
+freelance start <graphId>                 # Begin a workflow traversal
+freelance advance [edge]                  # Move to next node via edge label
+freelance context set <key=value...>      # Update traversal context
+freelance inspect [traversalId]           # Read-only introspection
+freelance reset [traversalId] --confirm   # Clear a traversal
+
+# Memory
+freelance memory status                   # Proposition and entity counts
+freelance memory browse                   # Find entities by name or kind
+freelance memory inspect <entity>         # Full entity details
+freelance memory search <query>           # Full-text search
+freelance memory related <entity>         # Co-occurring entities
+freelance memory by-source <file>         # Propositions from a source file
+freelance memory register <file>          # Register a provenance source
+freelance memory emit <file>              # Write propositions from JSON
+freelance memory end                      # Close compilation session
+
+# Graph tools
+freelance guide [topic]                   # Authoring guidance
+freelance distill                         # Get a distill prompt
+freelance sources hash <paths...>         # Compute source hashes
+freelance sources check <sources...>      # Validate source hashes
+freelance sources validate                # Validate all source bindings
+
+# Server
+freelance mcp                             # Start MCP server
+freelance completion bash|zsh|fish        # Shell completion script
 ```
 
 ## License
