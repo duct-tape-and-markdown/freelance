@@ -84,10 +84,6 @@ export class MemoryStore {
     );
   }
 
-  getCollections(): CollectionConfig[] {
-    return [...this.collections.values()];
-  }
-
   private resolveCollection(collection: string): void {
     if (!this.collections.has(collection)) {
       const available = [...this.collections.keys()].join(", ");
@@ -655,7 +651,11 @@ export class MemoryStore {
     const totalProps = (this.db.prepare(
       `SELECT COUNT(*) as c FROM propositions${collWhere}`
     ).get(...collParams) as { c: number }).c;
-    const totalEntities = (this.db.prepare("SELECT COUNT(*) as c FROM entities").get() as { c: number }).c;
+    const totalEntities = collection
+      ? (this.db.prepare(
+          "SELECT COUNT(DISTINCT a.entity_id) as c FROM about a JOIN propositions p ON a.proposition_id = p.id WHERE p.collection = ?"
+        ).get(collection) as { c: number }).c
+      : (this.db.prepare("SELECT COUNT(*) as c FROM entities").get() as { c: number }).c;
     const totalSessions = (this.db.prepare("SELECT COUNT(*) as c FROM sessions").get() as { c: number }).c;
     const activeSession = this.getActiveSession();
 

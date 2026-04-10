@@ -15,13 +15,6 @@ function handleError(e: unknown) {
 }
 
 export function registerMemoryTools(server: McpServer, store: MemoryStore): void {
-  const collections = store.getCollections();
-  const collectionEnum = z.enum(
-    collections.map((c) => c.name) as [string, ...string[]]
-  );
-  const collectionsNote = `Available collections: ${
-    collections.map((c) => `"${c.name}" (${c.paths.join(", ")}) — ${c.description}`).join("; ")
-  }.`;
 
   // --- Write ---
 
@@ -42,9 +35,9 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_emit",
-    `Write propositions to memory. Each proposition is a self-contained claim about 1-2 entities, written in natural prose. Deduplicates by content hash within a collection. Requires an active session with at least one registered source file. ${collectionsNote}`,
+    "Write propositions to memory. Each proposition is a self-contained claim about 1-2 entities, written in natural prose. Deduplicates by content hash within a collection. Requires an active session with at least one registered source file.",
     {
-      collection: collectionEnum.describe("Target collection for these propositions"),
+      collection: z.string().min(1).describe("Target collection for these propositions"),
       propositions: z.array(z.object({
         content: z.string().min(1).describe("The proposition — a self-contained claim in natural prose"),
         entities: z.array(z.string().min(1)).min(1).max(2).describe("Entity names this proposition is about (1-2)"),
@@ -78,9 +71,9 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_browse",
-    `Find entities by name, kind, or partial match. Returns entities with valid proposition counts. Stale entities can be refreshed by re-registering their source files via memory_register_source. ${collectionsNote}`,
+    "Find entities by name, kind, or partial match. Returns entities with valid proposition counts. Stale entities can be refreshed by re-registering their source files via memory_register_source.",
     {
-      collection: collectionEnum.optional().describe("Collection to filter by (omit for all)"),
+      collection: z.string().optional().describe("Collection to filter by (omit for all)"),
       name: z.string().optional().describe("Partial name match (case-insensitive)"),
       kind: z.string().optional().describe("Filter by entity kind"),
       limit: z.number().int().min(1).max(200).default(50).optional(),
@@ -97,9 +90,9 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_inspect",
-    `Full entity details — valid propositions, neighbors, and source sessions. Stale propositions can be refreshed by re-registering their source files via memory_register_source. ${collectionsNote}`,
+    "Full entity details — valid propositions, neighbors, and source sessions. Stale propositions can be refreshed by re-registering their source files via memory_register_source.",
     {
-      collection: collectionEnum.optional().describe("Collection to filter by (omit for all)"),
+      collection: z.string().optional().describe("Collection to filter by (omit for all)"),
       entity: z.string().min(1).describe("Entity ID or name"),
     },
     ({ collection, entity }) => {
@@ -113,9 +106,9 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_by_source",
-    `All propositions from sessions that included a file. Shows valid and stale. ${collectionsNote}`,
+    "All propositions from sessions that included a file. Shows valid and stale.",
     {
-      collection: collectionEnum.optional().describe("Collection to filter by (omit for all)"),
+      collection: z.string().optional().describe("Collection to filter by (omit for all)"),
       file_path: z.string().min(1).describe("File path (relative to source root or absolute)"),
     },
     ({ collection, file_path }) => {
@@ -129,9 +122,9 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_search",
-    `Full-text search across proposition content. Returns matching propositions with their entities and validity status. Use FTS5 query syntax: plain words for OR, double-quoted phrases for exact match, prefix* for prefix search. If your search returns no results but you later discover the answer through other means, consider starting the memory:compile workflow to capture what you learned — a search miss is a signal that memory has a gap worth filling. ${collectionsNote}`,
+    "Full-text search across proposition content. Returns matching propositions with their entities and validity status. Use FTS5 query syntax: plain words for OR, double-quoted phrases for exact match, prefix* for prefix search. If your search returns no results but you later discover the answer through other means, consider starting the memory:compile workflow to capture what you learned — a search miss is a signal that memory has a gap worth filling.",
     {
-      collection: collectionEnum.optional().describe("Collection to filter by (omit for all)"),
+      collection: z.string().optional().describe("Collection to filter by (omit for all)"),
       query: z.string().min(1).describe("FTS5 search query (e.g. 'subgraph context', '\"return values\"', 'wait*')"),
       limit: z.number().int().min(1).max(100).default(20).optional(),
     },
@@ -146,9 +139,9 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_related",
-    `Show entities related to a given entity via shared propositions. Returns co-occurring entities ranked by connection strength, each with a sample proposition showing the relationship. Use during recall to navigate the knowledge graph without inspecting entities one at a time. ${collectionsNote}`,
+    "Show entities related to a given entity via shared propositions. Returns co-occurring entities ranked by connection strength, each with a sample proposition showing the relationship. Use during recall to navigate the knowledge graph without inspecting entities one at a time.",
     {
-      collection: collectionEnum.optional().describe("Collection to filter by (omit for all)"),
+      collection: z.string().optional().describe("Collection to filter by (omit for all)"),
       entity: z.string().min(1).describe("Entity ID or name"),
     },
     ({ collection, entity }) => {
@@ -162,9 +155,9 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_status",
-    `Total propositions, valid count, stale count, entity count. Optionally scoped to a collection. ${collectionsNote}`,
+    "Total propositions, valid count, stale count, entity count. Optionally scoped to a collection.",
     {
-      collection: collectionEnum.optional().describe("Collection to get status for (omit for aggregate)"),
+      collection: z.string().optional().describe("Collection to get status for (omit for aggregate)"),
     },
     ({ collection }) => {
       try {

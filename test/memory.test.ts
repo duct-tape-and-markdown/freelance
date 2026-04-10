@@ -941,10 +941,14 @@ describe("MemoryStore", () => {
       colStore.close();
     });
 
-    it("default collection synthesized when none configured", () => {
-      const collections = store.getCollections();
-      expect(collections).toHaveLength(1);
-      expect(collections[0].name).toBe("default");
+    it("default collection works when none configured", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.registerSource("a.ts");
+      store.emit([{ content: "Foo exists.", entities: ["Foo"], sources: ["a.ts"] }], "default");
+      store.end();
+
+      const result = store.inspect("Foo");
+      expect(result.propositions[0].collection).toBe("default");
     });
 
     it("propositions include collection label in results", () => {
