@@ -21,7 +21,7 @@ import {
 import { guideShow, distillRun, sourcesHash, sourcesCheck, sourcesValidate } from "./cli/stateless.js";
 import {
   createTraversalStore, createMemoryStore, loadGraphSetup,
-  resolveStateDb, resolveMemoryConfig,
+  ensureStateDir, resolveStateDb, resolveMemoryConfig,
 } from "./cli/setup.js";
 import { VERSION } from "./version.js";
 import { DEFAULT_PORT } from "./paths.js";
@@ -149,6 +149,7 @@ program
         info(`Freelance: memory enabled (${memoryConfig.db})`);
       }
       // State database for stateless traversal persistence
+      ensureStateDir(dirs[0] ?? ".freelance");
       const stateDb = resolveStateDb(dirs);
       info(`Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}, section resolver active`);
       await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver, sourceRoot, loadErrors, memory: memoryConfig ?? undefined, stateDb });
@@ -189,6 +190,7 @@ daemonCmd
     const graphs = loadGraphsOrFatal(opts.workflows);
     const graphsDirs = resolveGraphsDirs(opts.workflows);
     const sourceRoot = resolveSourceRoot(graphsDirs, opts.sourceRoot);
+    ensureStateDir(graphsDirs[0] ?? ".freelance");
     const stateDb = resolveStateDb(graphsDirs);
     info(`Freelance daemon: loaded ${graphs.size} graph(s) from ${graphsDirs.length} directory(ies)`);
     await startDaemon(graphs, { port, host: "127.0.0.1", stateDb, maxDepth, graphsDirs, sourceRoot });

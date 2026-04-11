@@ -79,7 +79,7 @@ describe("Memory MCP tools", () => {
     // memory_register_source should be blocked
     const regResult = await client.callTool({
       name: "memory_register_source",
-      arguments: { file_path: "auth.ts" },
+      arguments: { filePath: "auth.ts" },
     });
     expect(regResult.isError).toBeTruthy();
     const regErr = parseContent(regResult) as { error: string };
@@ -132,7 +132,7 @@ describe("Memory MCP tools", () => {
     // Register source — session created lazily
     const regResult = await client.callTool({
       name: "memory_register_source",
-      arguments: { file_path: "auth.ts" },
+      arguments: { filePath: "auth.ts" },
     });
     expect(regResult.isError).toBeFalsy();
     const reg = parseContent(regResult) as { status: string };

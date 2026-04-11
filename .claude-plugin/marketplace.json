@@ -9,7 +9,7 @@
       "name": "freelance",
       "source": "./plugin",
       "description": "Graph-based workflow enforcement for AI coding agents. Adds MCP tools, hooks, and skills for structured workflow traversals.",
-      "version": "1.0.0",
+      "version": "1.2.1",
       "author": { "name": "duct-tape-and-markdown" }
     }
   ]

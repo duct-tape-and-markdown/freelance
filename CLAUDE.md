@@ -100,4 +100,4 @@ Override with `--source-root <path>` (CLI) or `sourceRoot` (ServerOptions).
 ## Graph definitions
 
 Graph files use `.workflow.yaml` extension. See `test/fixtures/` for examples.
-See `docs/SPEC.md` for the full specification.
+See `src/schema/graph-schema.ts` for the full schema definition.

@@ -2,13 +2,13 @@ import { z } from "zod";
 
 const returnFieldType = z.enum(["boolean", "string", "number", "array", "object"]);
 
-export const returnFieldSchema = z.object({
+const returnFieldSchema = z.object({
   type: returnFieldType,
   items: returnFieldType.optional(),
   description: z.string().optional(),
 });
 
-export const returnSchemaDefinition = z.object({
+const returnSchemaDefinition = z.object({
   required: z.record(z.string(), returnFieldSchema).optional(),
   optional: z.record(z.string(), returnFieldSchema).optional(),
 });
@@ -35,7 +35,7 @@ const stringMapOrShorthand = z.union([
   ),
 ]);
 
-export const subgraphDefinitionSchema = z.object({
+const subgraphDefinitionSchema = z.object({
   graphId: z.string(),
   condition: z.string().optional(),
   initialContext: z.record(z.string(), z.unknown()).optional(),
@@ -43,7 +43,7 @@ export const subgraphDefinitionSchema = z.object({
   returnMap: stringMapOrShorthand.optional(),
 });
 
-export const waitOnEntrySchema = z.object({
+const waitOnEntrySchema = z.object({
   key: z.string(),
   type: z.enum(["boolean", "string", "number", "array", "object"]),
   description: z.string().optional(),
@@ -74,7 +74,7 @@ export const nodeDefinitionSchema = z.object({
 });
 
 /** Typed context field with optional enum constraint for static validation */
-export const contextFieldDescriptorSchema = z.object({
+const contextFieldDescriptorSchema = z.object({
   type: z.enum(["string", "number", "boolean"]),
   enum: z.array(z.union([z.string(), z.number()])).optional(),
   default: z.unknown().default(null),
