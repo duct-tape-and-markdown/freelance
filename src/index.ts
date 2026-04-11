@@ -438,30 +438,21 @@ addWorkflowsOpt(configCmd
 program
   .command("memory-register <file>")
   .description("Register a file as a provenance source (used by Claude Code hooks)")
-  .option("--db <path>", "Path to memory database")
-  .option("--source-root <path>", "Source root for relative path storage")
-  .action(async (file, opts) => {
+  .action(async (file) => {
     const { MemoryStore } = await import("./memory/index.js");
     const { COMPILE_KNOWLEDGE_ID } = await import("./memory/workflow.js");
     const { RECOLLECTION_ID } = await import("./memory/recollection.js");
 
-    // Resolve memory config once — this is a hot path (fires on every Read)
-    let dbPath = opts.db as string | undefined;
-    let ignore: string[] | undefined;
-    let dirs: string[] | undefined;
-    if (!dbPath) {
-      dirs = resolveGraphsDirs();
-      const memConfig = resolveMemoryConfig(dirs, {});
-      if (!memConfig) {
-        // Memory disabled — silently exit.
-        process.exit(0);
-      }
-      dbPath = memConfig.db;
-      ignore = memConfig.ignore;
+    // Resolve config — this is a hot path (fires on every Read)
+    const dirs = resolveGraphsDirs();
+    const memConfig = resolveMemoryConfig(dirs, {});
+    if (!memConfig) {
+      // Memory disabled — silently exit.
+      process.exit(0);
     }
 
     // Gate: only register files when a memory traversal is active
-    const stateDbPath = resolveStateDb(dirs ?? resolveGraphsDirs());
+    const stateDbPath = resolveStateDb(dirs);
     try {
       const { openStateDatabase } = await import("./state/index.js");
       const stateDb = openStateDatabase(stateDbPath);
@@ -479,9 +470,9 @@ program
       process.exit(0);
     }
 
-    const sourceRoot = opts.sourceRoot ?? process.cwd();
+    const sourceRoot = process.cwd();
     try {
-      const store = new MemoryStore(dbPath, sourceRoot, ignore);
+      const store = new MemoryStore(memConfig.db, sourceRoot, memConfig.ignore);
       const result = store.registerSource(file);
       store.close();
       if (!program.opts().quiet) {
