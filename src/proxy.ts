@@ -2,20 +2,7 @@ import http from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-
-function jsonResponse(result: unknown) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-  };
-}
-
-function errorResponse(message: string, detail?: unknown) {
-  const payload = detail ?? { error: message };
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
-    isError: true as const,
-  };
-}
+import { jsonResponse, errorResponse } from "./mcp-helpers.js";
 
 async function daemonRequest(
   host: string,

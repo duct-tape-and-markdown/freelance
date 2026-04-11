@@ -1,7 +1,7 @@
 {
   "name": "freelance",
   "description": "Graph-based workflow enforcement for AI coding agents. Enforces structured workflows via MCP — state survives context compaction.",
-  "version": "1.1.0",
+  "version": "1.2.1",
   "author": {
     "name": "duct-tape-and-markdown",
     "url": "https://github.com/duct-tape-and-markdown"

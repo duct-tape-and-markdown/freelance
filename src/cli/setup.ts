@@ -54,13 +54,17 @@ export function ensureStateDir(graphsDir: string): string {
   return dir;
 }
 
+/**
+ * Resolve the state DB path without creating directories.
+ * Use ensureStateDir() before opening the DB for writes.
+ */
 export function resolveStateDb(graphsDirs: string[]): string {
   for (const dir of graphsDirs) {
     if (fs.existsSync(dir)) {
-      return path.join(ensureStateDir(dir), "state.db");
+      return path.join(stateDir(dir), "state.db");
     }
   }
-  return path.join(ensureStateDir(graphsDirs[0] ?? ".freelance"), "state.db");
+  return path.join(stateDir(graphsDirs[0] ?? ".freelance"), "state.db");
 }
 
 // --- Memory config resolution ---
@@ -134,6 +138,7 @@ export function loadGraphSetup(opts: CliSetupOptions): CliSetup {
 /** Create a TraversalStore for CLI traversal commands. */
 export function createTraversalStore(opts: CliSetupOptions): { store: TraversalStore; setup: CliSetup } {
   const setup = loadGraphSetup(opts);
+  ensureStateDir(setup.graphsDirs[0] ?? ".freelance");
   const stateDb = resolveStateDb(setup.graphsDirs);
   const db = openStateDatabase(stateDb);
   const maxDepth = opts.maxDepth ?? 5;

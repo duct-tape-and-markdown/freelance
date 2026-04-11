@@ -14,6 +14,7 @@ _freelance() {
     'inspect:Read-only introspection of current graph state'
     'reset:Clear a traversal'
     'memory:Query and manage the knowledge graph'
+    'config:Show or update configuration'
     'guide:Show authoring guide'
     'distill:Distill a source file into propositions'
     'sources:Manage source bindings'
@@ -54,6 +55,11 @@ _freelance() {
           local -a subcmds
           subcmds=('hash:Hash source files' 'check:Check source staleness' 'validate:Validate all sources')
           _describe -t commands 'sources command' subcmds
+          ;;
+        config)
+          local -a subcmds
+          subcmds=('show:Show merged configuration' 'set-local:Set a value in config.local.yml')
+          _describe -t commands 'config command' subcmds
           ;;
         validate)
           _files -/

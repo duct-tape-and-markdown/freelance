@@ -11,6 +11,7 @@ complete -c freelance -n "__fish_use_subcommand" -a context -d "Update session c
 complete -c freelance -n "__fish_use_subcommand" -a inspect -d "Inspect current graph state"
 complete -c freelance -n "__fish_use_subcommand" -a reset -d "Clear a traversal"
 complete -c freelance -n "__fish_use_subcommand" -a memory -d "Knowledge graph"
+complete -c freelance -n "__fish_use_subcommand" -a config -d "Show or update configuration"
 complete -c freelance -n "__fish_use_subcommand" -a guide -d "Authoring guide"
 complete -c freelance -n "__fish_use_subcommand" -a distill -d "Distill source into propositions"
 complete -c freelance -n "__fish_use_subcommand" -a sources -d "Manage source bindings"
@@ -24,4 +25,5 @@ complete -c freelance -n "__fish_seen_subcommand_from daemon" -a "start stop sta
 complete -c freelance -n "__fish_seen_subcommand_from memory" -a "status browse inspect search related by-source register emit end"
 complete -c freelance -n "__fish_seen_subcommand_from context" -a "set"
 complete -c freelance -n "__fish_seen_subcommand_from sources" -a "hash check validate"
+complete -c freelance -n "__fish_seen_subcommand_from config" -a "show set-local"
 complete -c freelance -n "__fish_seen_subcommand_from completion" -a "bash zsh fish"

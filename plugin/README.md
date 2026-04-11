@@ -21,7 +21,7 @@ claude --plugin-dir ./plugin
 
 | Component | Purpose |
 |-----------|---------|
-| **MCP Server** | 11 tools for workflow traversal, distillation, and source provenance |
+| **MCP Server** | 21 tools for workflow traversal, memory, and source provenance |
 | **SessionStart hook** | Reminds the agent about active workflows on session start |
 | **UserPromptSubmit hook** | Checks for active workflows before each prompt |
 | **`/freelance:freelance-guide`** | Workflow usage instructions (auto-invoked by Claude) |

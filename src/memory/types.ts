@@ -11,13 +11,6 @@ export interface EntityRow {
   created_at: string;
 }
 
-export interface SessionFileRow {
-  session_id: string;
-  file_path: string;
-  content_hash: string;
-  mtime_ms: number | null;
-}
-
 export interface PropositionRow {
   id: string;
   content: string;

@@ -3,7 +3,7 @@ _freelance_completions() {
   local cur prev commands
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  commands="init validate visualize mcp daemon status start advance context inspect reset memory guide distill sources memory-register completion"
+  commands="init validate visualize mcp daemon status start advance context inspect reset memory config guide distill sources memory-register completion"
 
   case "${COMP_WORDS[1]}" in
     daemon)
@@ -20,6 +20,10 @@ _freelance_completions() {
       ;;
     sources)
       COMPREPLY=( $(compgen -W "hash check validate" -- "$cur") )
+      return 0
+      ;;
+    config)
+      COMPREPLY=( $(compgen -W "show set-local" -- "$cur") )
       return 0
       ;;
     init)
