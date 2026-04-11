@@ -177,4 +177,34 @@ describe("TraversalStore — stateless SQLite", () => {
       store = new TraversalStore(openStateDatabase(path.join(tmpDir, "state.db")), graphs);
     });
   });
+
+  describe("hasActiveTraversalForGraph", () => {
+    it("returns false when no traversals exist", () => {
+      expect(store.hasActiveTraversalForGraph("valid-simple")).toBe(false);
+    });
+
+    it("returns true when a matching traversal exists", () => {
+      store.createTraversal("valid-simple");
+      expect(store.hasActiveTraversalForGraph("valid-simple")).toBe(true);
+      expect(store.hasActiveTraversalForGraph("valid-branching")).toBe(false);
+    });
+
+    it("accepts multiple graph IDs", () => {
+      store.createTraversal("valid-branching");
+      expect(store.hasActiveTraversalForGraph("valid-simple", "valid-branching")).toBe(true);
+      expect(store.hasActiveTraversalForGraph("nonexistent", "also-nonexistent")).toBe(false);
+    });
+
+    it("returns false after traversal is reset", () => {
+      const t = store.createTraversal("valid-simple");
+      expect(store.hasActiveTraversalForGraph("valid-simple")).toBe(true);
+      store.resetTraversal(t.traversalId);
+      expect(store.hasActiveTraversalForGraph("valid-simple")).toBe(false);
+    });
+
+    it("returns false for empty graphIds", () => {
+      store.createTraversal("valid-simple");
+      expect(store.hasActiveTraversalForGraph()).toBe(false);
+    });
+  });
 });

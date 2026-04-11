@@ -442,12 +442,15 @@ program
   .option("--source-root <path>", "Source root for relative path storage")
   .action(async (file, opts) => {
     const { MemoryStore } = await import("./memory/index.js");
+    const { COMPILE_KNOWLEDGE_ID } = await import("./memory/workflow.js");
+    const { RECOLLECTION_ID } = await import("./memory/recollection.js");
 
     // Resolve memory config once — this is a hot path (fires on every Read)
     let dbPath = opts.db as string | undefined;
     let ignore: string[] | undefined;
-    const dirs = resolveGraphsDirs();
+    let dirs: string[] | undefined;
     if (!dbPath) {
+      dirs = resolveGraphsDirs();
       const memConfig = resolveMemoryConfig(dirs, {});
       if (!memConfig) {
         // Memory disabled — silently exit.
@@ -458,13 +461,14 @@ program
     }
 
     // Gate: only register files when a memory traversal is active
-    const stateDbPath = resolveStateDb(dirs);
+    const stateDbPath = resolveStateDb(dirs ?? resolveGraphsDirs());
     try {
       const { openStateDatabase } = await import("./state/index.js");
       const stateDb = openStateDatabase(stateDbPath);
+      const placeholders = [COMPILE_KNOWLEDGE_ID, RECOLLECTION_ID].map(() => "?").join(", ");
       const row = stateDb.prepare(
-        "SELECT 1 FROM traversals WHERE graph_id IN ('memory:compile', 'memory:recall') LIMIT 1"
-      ).get();
+        `SELECT 1 FROM traversals WHERE graph_id IN (${placeholders}) LIMIT 1`
+      ).get(COMPILE_KNOWLEDGE_ID, RECOLLECTION_ID);
       stateDb.close();
       if (!row) {
         // No active memory traversal — silently exit.
