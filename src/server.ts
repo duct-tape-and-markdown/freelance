@@ -431,7 +431,7 @@ export function createServer(
   );
 
   // --- Memory ---
-  if (options?.memory?.enabled && options.memory.db) {
+  if (options?.memory?.enabled !== false && options?.memory?.db) {
     memoryStore = new MemoryStore(options.memory.db, options.sourceRoot, options.memory.ignore, options.memory.collections);
     registerMemoryTools(server, memoryStore);
 

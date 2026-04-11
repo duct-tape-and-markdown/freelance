@@ -19,13 +19,18 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
 
   server.tool(
     "memory_register_source",
-    "Register a file as a provenance source. Memory hashes the file and records it in the active session (creating one if needed). Must be called for every file read during compilation — memory_emit requires at least one registered source.",
+    "Register one or more files as provenance sources. Memory hashes each file and records it in the active session (creating one if needed). Must be called for every file read during compilation — memory_emit requires at least one registered source.",
     {
-      file_path: z.string().min(1).describe("Path to the source file (relative to source root or absolute)"),
+      file_path: z.union([
+        z.string().min(1),
+        z.array(z.string().min(1)).min(1),
+      ]).describe("Path(s) to source file(s) (relative to source root or absolute)"),
     },
     ({ file_path }) => {
       try {
-        return jsonResponse(store.registerSource(file_path));
+        const paths = Array.isArray(file_path) ? file_path : [file_path];
+        const results = paths.map(p => store.registerSource(p));
+        return jsonResponse(results.length === 1 ? results[0] : results);
       } catch (e) {
         return handleError(e);
       }
