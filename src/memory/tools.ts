@@ -34,16 +34,16 @@ export function registerMemoryTools(
     "memory_register_source",
     "Register one or more files as provenance sources. Memory hashes each file and records it in the active session (creating one if needed). Must be called for every file read during compilation — memory_emit requires at least one registered source.",
     {
-      file_path: z.union([
+      filePath: z.union([
         z.string().min(1),
         z.array(z.string().min(1)).min(1),
       ]).describe("Path(s) to source file(s) (relative to source root or absolute)"),
     },
-    ({ file_path }) => {
+    ({ filePath }) => {
       try {
         const blocked = requireMemoryTraversal();
         if (blocked) return errorResponse(blocked);
-        const paths = Array.isArray(file_path) ? file_path : [file_path];
+        const paths = Array.isArray(filePath) ? filePath : [filePath];
         const results = paths.map(p => store.registerSource(p));
         return jsonResponse(results.length === 1 ? results[0] : results);
       } catch (e) {
@@ -132,11 +132,11 @@ export function registerMemoryTools(
     "All propositions from sessions that included a file. Shows valid and stale.",
     {
       collection: z.string().optional().describe("Collection to filter by (omit for all)"),
-      file_path: z.string().min(1).describe("File path (relative to source root or absolute)"),
+      filePath: z.string().min(1).describe("File path (relative to source root or absolute)"),
     },
-    ({ collection, file_path }) => {
+    ({ collection, filePath }) => {
       try {
-        return jsonResponse(store.bySource(file_path, collection));
+        return jsonResponse(store.bySource(filePath, collection));
       } catch (e) {
         return handleError(e);
       }
