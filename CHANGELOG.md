@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-04-10
+
+### Fixed
+
+- **Memory enabled-by-default** — Memory gate in server checked `enabled && db` instead of `enabled !== false && db`, preventing zero-config memory activation when `memory.enabled` was unset
+
+### Changed
+
+- **`memory_register_source` accepts arrays** — `file_path` parameter now accepts a single path or an array of paths, reducing round-trips during compilation workflows
+
 ## [1.2.0] - 2026-04-10
 
 ### Added
