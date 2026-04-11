@@ -201,6 +201,16 @@ export class TraversalStore {
     );
   }
 
+  /** Check whether any active traversal belongs to one of the given graph IDs. */
+  hasActiveTraversalForGraph(...graphIds: string[]): boolean {
+    if (graphIds.length === 0) return false;
+    const placeholders = graphIds.map(() => "?").join(", ");
+    const row = this.db.prepare(
+      `SELECT 1 FROM traversals WHERE graph_id IN (${placeholders}) LIMIT 1`
+    ).get(...graphIds);
+    return row !== undefined;
+  }
+
   // --- Engine load/save ---
 
   private loadEngine(traversalId: string): GraphEngine {
