@@ -433,7 +433,9 @@ export function createServer(
   // --- Memory ---
   if (options?.memory?.enabled !== false && options?.memory?.db) {
     memoryStore = new MemoryStore(options.memory.db, options.sourceRoot, options.memory.ignore, options.memory.collections);
-    registerMemoryTools(server, memoryStore);
+    const hasActiveMemoryTraversal = () =>
+      manager.hasActiveTraversalForGraph(COMPILE_KNOWLEDGE_ID, RECOLLECTION_ID);
+    registerMemoryTools(server, memoryStore, hasActiveMemoryTraversal);
 
     // Inject sealed memory workflows
     let injected = false;

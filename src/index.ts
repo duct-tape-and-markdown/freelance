@@ -446,8 +446,8 @@ program
     // Resolve memory config once — this is a hot path (fires on every Read)
     let dbPath = opts.db as string | undefined;
     let ignore: string[] | undefined;
+    const dirs = resolveGraphsDirs();
     if (!dbPath) {
-      const dirs = resolveGraphsDirs();
       const memConfig = resolveMemoryConfig(dirs, {});
       if (!memConfig) {
         // Memory disabled — silently exit.
@@ -455,6 +455,24 @@ program
       }
       dbPath = memConfig.db;
       ignore = memConfig.ignore;
+    }
+
+    // Gate: only register files when a memory traversal is active
+    const stateDbPath = resolveStateDb(dirs);
+    try {
+      const { openStateDatabase } = await import("./state/index.js");
+      const stateDb = openStateDatabase(stateDbPath);
+      const row = stateDb.prepare(
+        "SELECT 1 FROM traversals WHERE graph_id IN ('memory:compile', 'memory:recall') LIMIT 1"
+      ).get();
+      stateDb.close();
+      if (!row) {
+        // No active memory traversal — silently exit.
+        process.exit(0);
+      }
+    } catch {
+      // State DB unavailable — silently exit.
+      process.exit(0);
     }
 
     const sourceRoot = opts.sourceRoot ?? process.cwd();

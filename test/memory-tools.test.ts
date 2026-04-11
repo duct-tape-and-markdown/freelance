@@ -75,7 +75,60 @@ describe("Memory MCP tools", () => {
     ]);
   });
 
-  it("full compilation flow via MCP tools", async () => {
+  it("write tools blocked without active memory traversal", async () => {
+    // memory_register_source should be blocked
+    const regResult = await client.callTool({
+      name: "memory_register_source",
+      arguments: { file_path: "auth.ts" },
+    });
+    expect(regResult.isError).toBeTruthy();
+    const regErr = parseContent(regResult) as { error: string };
+    expect(regErr.error).toContain("active memory workflow traversal");
+
+    // memory_emit should be blocked
+    const emitResult = await client.callTool({
+      name: "memory_emit",
+      arguments: {
+        collection: "default",
+        propositions: [{ content: "test", entities: ["Foo"], sources: ["a.ts"] }],
+      },
+    });
+    expect(emitResult.isError).toBeTruthy();
+    const emitErr = parseContent(emitResult) as { error: string };
+    expect(emitErr.error).toContain("active memory workflow traversal");
+
+    // memory_end should be blocked
+    const endResult = await client.callTool({ name: "memory_end", arguments: {} });
+    expect(endResult.isError).toBeTruthy();
+    const endErr = parseContent(endResult) as { error: string };
+    expect(endErr.error).toContain("active memory workflow traversal");
+  });
+
+  it("read tools available without active memory traversal", async () => {
+    // Browse should work without a traversal
+    const browseResult = await client.callTool({ name: "memory_browse", arguments: {} });
+    expect(browseResult.isError).toBeFalsy();
+
+    // Status should work without a traversal
+    const statusResult = await client.callTool({ name: "memory_status", arguments: {} });
+    expect(statusResult.isError).toBeFalsy();
+
+    // Search should work without a traversal
+    const searchResult = await client.callTool({
+      name: "memory_search",
+      arguments: { query: "test" },
+    });
+    expect(searchResult.isError).toBeFalsy();
+  });
+
+  it("full compilation flow via MCP tools (with active traversal)", async () => {
+    // Start a memory:compile traversal first
+    const startResult = await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "memory:compile" },
+    });
+    expect(startResult.isError).toBeFalsy();
+
     // Register source — session created lazily
     const regResult = await client.callTool({
       name: "memory_register_source",
@@ -134,7 +187,13 @@ describe("Memory MCP tools", () => {
     expect(status.valid_propositions).toBe(2);
   });
 
-  it("emit rejected without registered source", async () => {
+  it("emit rejected without registered source (within active traversal)", async () => {
+    // Start memory traversal
+    await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "memory:compile" },
+    });
+
     const emitResult = await client.callTool({
       name: "memory_emit",
       arguments: { collection: "default", propositions: [{ content: "test", entities: ["Foo"], sources: ["a.ts"] }] },

@@ -14,8 +14,21 @@ function handleError(e: unknown) {
   return errorResponse(message);
 }
 
-export function registerMemoryTools(server: McpServer, store: MemoryStore): void {
-  // --- Write ---
+export function registerMemoryTools(
+  server: McpServer,
+  store: MemoryStore,
+  hasActiveMemoryTraversal?: () => boolean,
+): void {
+  const TRAVERSAL_REQUIRED =
+    "Memory write tools require an active memory workflow traversal. Start a memory:compile or memory:recall traversal first.";
+
+  function requireMemoryTraversal(): string | undefined {
+    if (hasActiveMemoryTraversal && !hasActiveMemoryTraversal()) {
+      return TRAVERSAL_REQUIRED;
+    }
+  }
+
+  // --- Write (gated by active memory traversal) ---
 
   server.tool(
     "memory_register_source",
@@ -28,6 +41,8 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
     },
     ({ file_path }) => {
       try {
+        const blocked = requireMemoryTraversal();
+        if (blocked) return errorResponse(blocked);
         const paths = Array.isArray(file_path) ? file_path : [file_path];
         const results = paths.map(p => store.registerSource(p));
         return jsonResponse(results.length === 1 ? results[0] : results);
@@ -51,6 +66,8 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
     },
     ({ collection, propositions }) => {
       try {
+        const blocked = requireMemoryTraversal();
+        if (blocked) return errorResponse(blocked);
         return jsonResponse(store.emit(propositions, collection));
       } catch (e) {
         return handleError(e);
@@ -64,6 +81,8 @@ export function registerMemoryTools(server: McpServer, store: MemoryStore): void
     {},
     () => {
       try {
+        const blocked = requireMemoryTraversal();
+        if (blocked) return errorResponse(blocked);
         return jsonResponse(store.end());
       } catch (e) {
         return handleError(e);
