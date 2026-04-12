@@ -34,8 +34,8 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
         "Use memory_browse and memory_inspect to find entities and propositions " +
         "related to the query, passing context.collection as the collection parameter. " +
         "Catalog what's already known — these are the propositions " +
-        "from prior compilation sessions. Note the source files listed in provenance " +
-        "(source_sessions) — you'll read those next. " +
+        "from prior compilations. Note the source files listed in each entity's " +
+        "inspect response (source_files) — you'll read those next. " +
         "Update context.recalledEntities and context.recalledPropositions with counts.",
       suggestedTools: ["memory_browse", "memory_inspect", "memory_related"],
       edges: [
@@ -50,7 +50,7 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
       type: "action",
       description: "Read source files guided by provenance from recalled propositions.",
       instructions:
-        "Read the source files identified during recall (from provenance in source_sessions). " +
+        "Read the source files identified during recall (from source_files on each entity's inspect response). " +
         "If recall found no prior knowledge, read sources relevant to the query on your own. " +
         "Focus on understanding what the sources say about the query subject matter — " +
         "not on indexing the files themselves. " +

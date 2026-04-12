@@ -1,5 +1,5 @@
 /**
- * Memory store database layer. Five tables plus an FTS5 virtual table
+ * Memory store database layer. Four tables plus an FTS5 virtual table
  * mirroring `propositions.content`.
  */
 
@@ -44,25 +44,10 @@ CREATE TABLE IF NOT EXISTS entities (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_name ON entities(name);
 CREATE INDEX IF NOT EXISTS idx_entity_kind ON entities(kind);
 
-CREATE TABLE IF NOT EXISTS sessions (
-  id TEXT PRIMARY KEY,
-  started_at TEXT NOT NULL,
-  ended_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS session_files (
-  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-  file_path TEXT NOT NULL,
-  content_hash TEXT NOT NULL,
-  PRIMARY KEY (session_id, file_path)
-);
-CREATE INDEX IF NOT EXISTS idx_sf_path ON session_files(file_path);
-
 CREATE TABLE IF NOT EXISTS propositions (
   id TEXT PRIMARY KEY,
   content TEXT NOT NULL,
   content_hash TEXT NOT NULL,
-  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   collection TEXT NOT NULL DEFAULT 'default',
   created_at TEXT NOT NULL
 );
@@ -80,6 +65,7 @@ CREATE TABLE IF NOT EXISTS proposition_sources (
   proposition_id TEXT NOT NULL REFERENCES propositions(id) ON DELETE CASCADE,
   file_path TEXT NOT NULL,
   content_hash TEXT NOT NULL,
+  mtime_ms REAL,
   PRIMARY KEY (proposition_id, file_path)
 );
 CREATE INDEX IF NOT EXISTS idx_ps_file ON proposition_sources(file_path);
@@ -103,13 +89,20 @@ CREATE TRIGGER IF NOT EXISTS propositions_au AFTER UPDATE ON propositions BEGIN
 END;
 `;
 
-function migrate(db: Db): void {
-  // Add mtime_ms columns for stat()-based staleness checks (replaces read+hash).
-  for (const table of ["session_files", "proposition_sources"]) {
-    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-    if (!cols.some((c) => c.name === "mtime_ms")) {
-      db.exec(`ALTER TABLE ${table} ADD COLUMN mtime_ms REAL`);
-    }
+function checkSchemaCompatibility(db: Db): void {
+  // Pre-1.3 databases have `sessions` and `session_files` tables and a
+  // `propositions.session_id NOT NULL` column. The schema is incompatible
+  // enough that migration isn't worth the code — surface a clear error.
+  const legacyTables = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('sessions', 'session_files')"
+  ).all() as Array<{ name: string }>;
+
+  if (legacyTables.length > 0) {
+    throw new Error(
+      "Memory database uses a pre-1.3 schema (sessions/session_files tables present). " +
+      "The storage layout is incompatible with this version — delete the memory.db file " +
+      "and re-run. Freelance will re-compile knowledge on demand."
+    );
   }
 }
 
@@ -118,9 +111,9 @@ export function openDatabase(dbPath: string): Db {
   inner.exec("PRAGMA journal_mode = WAL");
   inner.exec("PRAGMA foreign_keys = ON");
   inner.exec("PRAGMA busy_timeout = 5000");
-  inner.exec(SCHEMA_SQL);
   const db = wrap(inner);
-  migrate(db);
+  checkSchemaCompatibility(db);
+  inner.exec(SCHEMA_SQL);
 
   // Rebuild FTS index on every open — external content tables don't persist
   // their index across connections, so we rebuild to ensure search works.

@@ -195,15 +195,3 @@ export function memoryEmit(store: MemoryStore, file: string, collection: string)
   }
 }
 
-export function memoryEnd(store: MemoryStore): void {
-  try {
-    const result = store.end();
-    if (cli.json) {
-      outputJson(result);
-    } else {
-      info(`Session ended: ${result.propositions_emitted} propositions, ${result.entities_referenced} entities, ${result.files_registered} files`);
-    }
-  } catch (e) {
-    handleError(e);
-  }
-}

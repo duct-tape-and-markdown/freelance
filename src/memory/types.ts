@@ -15,7 +15,6 @@ export interface PropositionRow {
   id: string;
   content: string;
   content_hash: string;
-  session_id: string;
   collection: string;
   created_at: string;
 }
@@ -50,15 +49,9 @@ export interface EntityInfo {
   valid_proposition_count: number;
 }
 
-export interface SourceSession {
-  id: string;
-  files: string[];
-}
-
 export interface PropositionInfo {
   id: string;
   content: string;
-  session_id: string;
   created_at: string;
   valid: boolean;
   collection: string;
@@ -77,7 +70,8 @@ export interface InspectResult {
   entity: EntityInfo;
   propositions: PropositionInfo[];
   neighbors: NeighborEntity[];
-  source_sessions: SourceSession[];
+  /** Deduped list of source file paths referenced by any of this entity's propositions. */
+  source_files: string[];
 }
 
 export interface RelatedResult {
@@ -107,22 +101,12 @@ export interface StatusResult {
   valid_propositions: number;
   stale_propositions: number;
   total_entities: number;
-  total_sessions: number;
-  active_session: string | null;
-}
-
-export interface EndResult {
-  session_id: string;
-  propositions_emitted: number;
-  entities_referenced: number;
-  files_registered: number;
-  duration_ms: number;
 }
 
 export interface RegisterSourceResult {
   file_path: string;
   content_hash: string;
-  status: "registered" | "updated" | "skipped";
+  status: "registered" | "skipped";
 }
 
 export interface CollectionConfig {

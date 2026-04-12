@@ -47,8 +47,9 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       instructions:
         "Reason about what you read. Write self-contained propositions in natural prose, " +
         "each about 1-2 entities. Use memory_emit to write them to Memory, passing " +
-        "context.collection as the collection parameter. " +
-        "Update context.propositionsEmitted with the total emitted this session.",
+        "context.collection as the collection parameter and listing the source file(s) " +
+        "each proposition was derived from. Update context.propositionsEmitted with the " +
+        "total emitted so far.",
       suggestedTools: ["memory_emit"],
       edges: [
         {
@@ -83,7 +84,7 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
     })
     .node("complete", {
       type: "terminal",
-      description: "Compilation session complete.",
+      description: "Compilation complete.",
     })
     .build();
 }

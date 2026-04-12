@@ -1,7 +1,7 @@
 /**
  * MCP tool registration for Freelance Memory.
  *
- * 9 tools: 3 write (register_source, emit, end), 6 read (browse, inspect, by_source, search, related, status).
+ * 8 tools: 2 write (register_source, emit), 6 read (browse, inspect, by_source, search, related, status).
  */
 
 import { z } from "zod";
@@ -32,7 +32,7 @@ export function registerMemoryTools(
 
   server.tool(
     "memory_register_source",
-    "Register one or more files as provenance sources. Memory hashes each file and records it in the active session (creating one if needed). Must be called for every file read during compilation — memory_emit requires at least one registered source.",
+    "Hash one or more source files and return their content hashes. This is a stateless echo — it exists so the compile-knowledge workflow can require that agents prove they read a file before emitting propositions about it. The hash is for the agent's own bookkeeping; nothing is persisted here.",
     {
       filePath: z.union([
         z.string().min(1),
@@ -54,13 +54,13 @@ export function registerMemoryTools(
 
   server.tool(
     "memory_emit",
-    "Write propositions to memory. Each proposition is a self-contained claim about 1-2 entities, written in natural prose. Deduplicates by content hash within a collection. Requires an active session with at least one registered source file.",
+    "Write propositions to memory. Each proposition is a self-contained claim about 1-2 entities, written in natural prose, with its own source file list. Sources are hashed at emit time and attached per-proposition for staleness tracking. Deduplicates by content hash within a collection.",
     {
       collection: z.string().min(1).describe("Target collection for these propositions"),
       propositions: z.array(z.object({
         content: z.string().min(1).describe("The proposition — a self-contained claim in natural prose"),
         entities: z.array(z.string().min(1)).min(1).max(2).describe("Entity names this proposition is about (1-2)"),
-        sources: z.array(z.string().min(1)).min(1).describe("Source file paths this proposition was derived from (relative to source root). Each path must be registered in the active session."),
+        sources: z.array(z.string().min(1)).min(1).describe("Source file paths this proposition was derived from (relative to source root). Each file is hashed at emit time for per-proposition provenance."),
         entityKinds: z.record(z.string(), z.string()).optional().describe("Map of entity name to kind (e.g. function, class, type, interface, enum). Sets kind on entity creation."),
       })).min(1),
     },
@@ -69,21 +69,6 @@ export function registerMemoryTools(
         const blocked = requireMemoryTraversal();
         if (blocked) return errorResponse(blocked);
         return jsonResponse(store.emit(propositions, collection));
-      } catch (e) {
-        return handleError(e);
-      }
-    }
-  );
-
-  server.tool(
-    "memory_end",
-    "Close the active compilation session. Returns stats about propositions emitted, entities referenced, and files registered.",
-    {},
-    () => {
-      try {
-        const blocked = requireMemoryTraversal();
-        if (blocked) return errorResponse(blocked);
-        return jsonResponse(store.end());
       } catch (e) {
         return handleError(e);
       }
@@ -113,7 +98,7 @@ export function registerMemoryTools(
 
   server.tool(
     "memory_inspect",
-    "Full entity details — valid propositions, neighbors, and source sessions. Stale propositions can be refreshed by re-registering their source files via memory_register_source.",
+    "Full entity details — valid propositions, neighbors, and the deduped list of source files that produced any of this entity's propositions. Stale propositions can be refreshed by re-running the compile workflow on their source files.",
     {
       collection: z.string().optional().describe("Collection to filter by (omit for all)"),
       entity: z.string().min(1).describe("Entity ID or name"),
@@ -129,7 +114,7 @@ export function registerMemoryTools(
 
   server.tool(
     "memory_by_source",
-    "All propositions from sessions that included a file. Shows valid and stale.",
+    "All propositions derived from a specific source file. Shows valid and stale.",
     {
       collection: z.string().optional().describe("Collection to filter by (omit for all)"),
       filePath: z.string().min(1).describe("File path (relative to source root or absolute)"),

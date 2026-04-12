@@ -1,14 +1,15 @@
 /**
  * MemoryStore — stateless, persistent knowledge graph.
  *
- * No in-memory state. Every operation reads from and writes to SQLite.
- * Multiple processes (MCP server, CLI, hooks) can access the same
- * database concurrently. WAL mode + busy_timeout handle contention.
+ * Every write goes through the `node:sqlite` layer; there is no in-memory
+ * session state. Sources are attached per-proposition at emit time, so
+ * staleness is computed per-proposition against the current filesystem.
  */
 
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import picomatch from "picomatch";
 import { hashContent } from "../sources.js";
 import { openDatabase, type Db } from "./db.js";
 import type {
@@ -23,9 +24,7 @@ import type {
   BySourceResult,
   SearchResult,
   StatusResult,
-  EndResult,
   RegisterSourceResult,
-  SourceSession,
   CollectionConfig,
   NeighborEntity,
   RelatedResult,
@@ -38,8 +37,6 @@ function generateId(): string {
 function now(): string {
   return new Date().toISOString();
 }
-
-import picomatch from "picomatch";
 
 function isIgnored(filePath: string, patterns: string[]): boolean {
   if (patterns.length === 0) return false;
@@ -101,111 +98,47 @@ export class MemoryStore {
     this.db.close();
   }
 
-  // --- Active session (read from DB, not in-memory) ---
-
-  private getActiveSession(): { id: string; started_at: string } | null {
-    return this.db.prepare(
-      "SELECT id, started_at FROM sessions WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1"
-    ).get() as { id: string; started_at: string } | undefined ?? null;
-  }
+  // --- Source path resolution ---
 
   /**
-   * Get or create the active session. Sessions are created lazily
-   * on first registerSource call and closed explicitly via end().
+   * Validate a source file path against the source root and ignore patterns.
+   * Returns the stored (relative) path, resolved absolute path, and ignore
+   * status. Throws if the path escapes the source root.
    */
-  private ensureActiveSession(): string {
-    const session = this.getActiveSession();
-    if (session) return session.id;
-
-    const sessionId = generateId();
-    this.db.prepare("INSERT INTO sessions (id, started_at) VALUES (?, ?)").run(sessionId, now());
-    return sessionId;
-  }
-
-  private requireActiveSession(): string {
-    const session = this.getActiveSession();
-    if (!session) {
-      throw new Error("No active session. Register a source file first.");
-    }
-    return session.id;
-  }
-
-  end(): EndResult {
-    const sessionId = this.requireActiveSession();
-
-    const startedAt = (this.db.prepare(
-      "SELECT started_at FROM sessions WHERE id = ?"
-    ).get(sessionId) as { started_at: string }).started_at;
-    const duration = Date.now() - new Date(startedAt).getTime();
-
-    this.db.prepare("UPDATE sessions SET ended_at = ? WHERE id = ?").run(now(), sessionId);
-
-    const fileCount = (this.db.prepare(
-      "SELECT COUNT(*) as c FROM session_files WHERE session_id = ?"
-    ).get(sessionId) as { c: number }).c;
-
-    const propCount = (this.db.prepare(
-      "SELECT COUNT(*) as c FROM propositions WHERE session_id = ?"
-    ).get(sessionId) as { c: number }).c;
-
-    const entityCount = (this.db.prepare(
-      `SELECT COUNT(DISTINCT a.entity_id) as c FROM about a
-       JOIN propositions p ON a.proposition_id = p.id
-       WHERE p.session_id = ?`
-    ).get(sessionId) as { c: number }).c;
-
-    return {
-      session_id: sessionId,
-      propositions_emitted: propCount,
-      entities_referenced: entityCount,
-      files_registered: fileCount,
-      duration_ms: duration,
-    };
-  }
-
-  // --- Source registration ---
-
-  registerSource(filePath: string): RegisterSourceResult {
+  private prepareSourcePath(filePath: string): { storedPath: string; resolvedPath: string; ignored: boolean } {
     const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(this.sourceRoot, filePath);
 
-    // Reject paths outside the source root
     const normalizedRoot = path.resolve(this.sourceRoot) + path.sep;
     const normalizedPath = path.resolve(resolvedPath);
     if (!normalizedPath.startsWith(normalizedRoot) && normalizedPath !== path.resolve(this.sourceRoot)) {
       throw new Error(`Source file is outside the source root: ${filePath}`);
     }
 
-    // Check ignore patterns against the relative path
     const storedPath = path.isAbsolute(filePath)
       ? path.relative(this.sourceRoot, filePath)
       : filePath;
 
-    if (isIgnored(storedPath, this.ignore)) {
+    return { storedPath, resolvedPath, ignored: isIgnored(storedPath, this.ignore) };
+  }
+
+  // --- Source registration (zero-state hash echo) ---
+
+  /**
+   * Hash a source file and return its content hash. No persistent state is
+   * written — registration is a workflow-level ritual enforced by the
+   * compile-knowledge sealed workflow, not a storage requirement.
+   */
+  registerSource(filePath: string): RegisterSourceResult {
+    const { storedPath, resolvedPath, ignored } = this.prepareSourcePath(filePath);
+
+    if (ignored) {
       return { file_path: storedPath, content_hash: "", status: "skipped" };
     }
-
-    const sessionId = this.ensureActiveSession();
 
     const hash = hashFile(resolvedPath);
     if (hash === null) {
       throw new Error(`Cannot read file: ${filePath}`);
     }
-    const mtime = mtimeOf(resolvedPath);
-
-    const existing = this.db.prepare(
-      "SELECT content_hash FROM session_files WHERE session_id = ? AND file_path = ?"
-    ).get(sessionId, storedPath) as { content_hash: string } | undefined;
-
-    if (existing) {
-      this.db.prepare(
-        "UPDATE session_files SET content_hash = ?, mtime_ms = ? WHERE session_id = ? AND file_path = ?"
-      ).run(hash, mtime, sessionId, storedPath);
-      return { file_path: storedPath, content_hash: hash, status: "updated" };
-    }
-
-    this.db.prepare(
-      "INSERT INTO session_files (session_id, file_path, content_hash, mtime_ms) VALUES (?, ?, ?, ?)"
-    ).run(sessionId, storedPath, hash, mtime);
 
     return { file_path: storedPath, content_hash: hash, status: "registered" };
   }
@@ -214,16 +147,6 @@ export class MemoryStore {
 
   emit(propositions: EmitProposition[], collection: string): EmitResult {
     this.resolveCollection(collection);
-    const sessionId = this.requireActiveSession();
-
-    // Validate that at least one source file is registered
-    const fileCount = (this.db.prepare(
-      "SELECT COUNT(*) as c FROM session_files WHERE session_id = ?"
-    ).get(sessionId) as { c: number }).c;
-
-    if (fileCount === 0) {
-      throw new Error("No source files registered in this session. Call memory_register_source before emitting propositions.");
-    }
 
     const result: EmitResult = {
       created: 0,
@@ -236,8 +159,8 @@ export class MemoryStore {
     // DO NOTHING (not DO UPDATE) so the propositions_au AFTER UPDATE trigger
     // doesn't fire on dedup hits and churn the FTS index.
     const upsertProp = this.db.prepare(
-      `INSERT INTO propositions (id, content, content_hash, session_id, collection, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO propositions (id, content, content_hash, collection, created_at)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT (content_hash, collection) DO NOTHING
        RETURNING id`
     );
@@ -251,20 +174,11 @@ export class MemoryStore {
       "INSERT OR IGNORE INTO proposition_sources (proposition_id, file_path, content_hash, mtime_ms) VALUES (?, ?, ?, ?)"
     );
 
-    // Build a lookup of registered files in this session for source attribution
-    const sessionFiles = new Map<string, { hash: string; mtime: number | null }>();
-    const sfRows = this.db.prepare(
-      "SELECT file_path, content_hash, mtime_ms FROM session_files WHERE session_id = ?"
-    ).all(sessionId) as Array<{ file_path: string; content_hash: string; mtime_ms: number | null }>;
-    for (const sf of sfRows) {
-      sessionFiles.set(sf.file_path, { hash: sf.content_hash, mtime: sf.mtime_ms });
-    }
-
     for (const prop of propositions) {
       const contentHash = hashContent(prop.content);
       const newId = generateId();
       const inserted = upsertProp.get(
-        newId, prop.content, contentHash, sessionId, collection, now(),
+        newId, prop.content, contentHash, collection, now(),
       ) as { id: string } | undefined;
 
       const propResult: EmitResult["propositions"][number] = {
@@ -280,8 +194,6 @@ export class MemoryStore {
         propResult.status = "created";
         result.created++;
       } else {
-        // Conflict: an existing row owns this (content_hash, collection).
-        // Fetch its id so we can attach about/sources rows to it.
         const existing = selectExistingProp.get(contentHash, collection) as { id: string };
         propId = existing.id;
         propResult.status = "deduplicated";
@@ -289,16 +201,16 @@ export class MemoryStore {
       }
       propResult.id = propId;
 
-      // Per-proposition source attribution — every source must be registered
+      // Per-proposition source attribution. Each source file is hashed fresh
+      // at emit time; if the file can't be read, the emit fails for this prop.
       for (const sourcePath of prop.sources) {
-        const sf = sessionFiles.get(sourcePath);
-        if (!sf) {
-          throw new Error(
-            `Source "${sourcePath}" is not registered in this session. ` +
-            `Call memory_register_source for each file before referencing it in emit.`
-          );
+        const { storedPath, resolvedPath } = this.prepareSourcePath(sourcePath);
+        const hash = hashFile(resolvedPath);
+        if (hash === null) {
+          throw new Error(`Cannot read source file "${sourcePath}" during emit.`);
         }
-        insertPropSource.run(propId, sourcePath, sf.hash, sf.mtime);
+        const mtime = mtimeOf(resolvedPath);
+        insertPropSource.run(propId, storedPath, hash, mtime);
       }
 
       for (const entityName of prop.entities) {
@@ -367,14 +279,18 @@ export class MemoryStore {
 
   // --- Neighbors ---
 
-  private getNeighbors(entityId: string, staleSessionIds: Set<string>, options?: { withSample?: boolean; collection?: string }): Array<NeighborEntity & { sample?: string | null }> {
+  private getNeighbors(
+    entityId: string,
+    stalePropIds: Set<string>,
+    options?: { withSample?: boolean; collection?: string }
+  ): Array<NeighborEntity & { sample?: string | null }> {
     const withSample = options?.withSample ?? false;
     const collection = options?.collection;
 
-    const staleParams = [...staleSessionIds];
+    const staleParams = [...stalePropIds];
     const staleFilter = staleParams.length > 0
-      ? `p.session_id NOT IN (${staleParams.map(() => "?").join(",")})`
-      : "1"; // no stale sessions → all are valid
+      ? `a1.proposition_id NOT IN (${staleParams.map(() => "?").join(",")})`
+      : "1";
 
     const collFilter = collection ? " AND p.collection = ?" : "";
     const collParams: unknown[] = collection ? [collection] : [];
@@ -460,10 +376,10 @@ export class MemoryStore {
        LIMIT ? OFFSET ?`
     ).all(...params, limit, offset) as Array<EntityRow & { proposition_count: number }>;
 
-    const staleSessionIds = this.getStaleSessionIds();
+    const stalePropIds = this.getStalePropositionIds();
 
     const entities: EntityInfo[] = rows.map((row) => {
-      const validCount = this.countValidForEntity(row.id, staleSessionIds, collection);
+      const validCount = this.countValidForEntity(row.id, stalePropIds, collection);
       return {
         id: row.id,
         name: row.name,
@@ -488,17 +404,17 @@ export class MemoryStore {
 
     const propositions = propRows.map((p) => this.enrichProposition(p));
 
-    const sessionIds = [...new Set(propRows.map((p) => p.session_id))];
-    const sourceSessions: SourceSession[] = sessionIds.map((sid) => {
-      const files = this.db.prepare(
-        "SELECT file_path FROM session_files WHERE session_id = ?"
-      ).all(sid) as Array<{ file_path: string }>;
-      return { id: sid, files: files.map((f) => f.file_path) };
-    });
+    // Deduped list of source files across all propositions for this entity
+    const sourceFiles = new Set<string>();
+    for (const p of propositions) {
+      for (const sf of p.source_files) {
+        sourceFiles.add(sf.path);
+      }
+    }
 
     const validCount = propositions.filter((p) => p.valid).length;
-    const staleSessionIds = this.getStaleSessionIds();
-    const neighbors = this.getNeighbors(entity.id, staleSessionIds, { collection });
+    const stalePropIds = this.getStalePropositionIds();
+    const neighbors = this.getNeighbors(entity.id, stalePropIds, { collection });
 
     return {
       entity: {
@@ -510,7 +426,7 @@ export class MemoryStore {
       },
       propositions,
       neighbors,
-      source_sessions: sourceSessions,
+      source_files: [...sourceFiles].sort(),
     };
   }
 
@@ -524,7 +440,10 @@ export class MemoryStore {
 
     const coll = this.collectionFilter(collection);
     const propRows = this.db.prepare(
-      `SELECT DISTINCT p.* FROM propositions p JOIN session_files sf ON p.session_id = sf.session_id WHERE sf.file_path = ?${coll.clause} ORDER BY p.created_at DESC`
+      `SELECT DISTINCT p.* FROM propositions p
+       JOIN proposition_sources ps ON p.id = ps.proposition_id
+       WHERE ps.file_path = ?${coll.clause}
+       ORDER BY p.created_at DESC`
     ).all(storedPath, ...coll.params) as PropositionRow[];
 
     return {
@@ -573,8 +492,8 @@ export class MemoryStore {
     this.clearProvenanceCache();
     const entity = this.findEntity(entityIdOrName);
 
-    const staleSessionIds = this.getStaleSessionIds();
-    const validCount = this.countValidForEntity(entity.id, staleSessionIds, collection);
+    const stalePropIds = this.getStalePropositionIds();
+    const validCount = this.countValidForEntity(entity.id, stalePropIds, collection);
     const totalCount = collection
       ? (this.db.prepare(
           "SELECT COUNT(*) as c FROM about a JOIN propositions p ON a.proposition_id = p.id WHERE a.entity_id = ? AND p.collection = ?"
@@ -583,7 +502,7 @@ export class MemoryStore {
           "SELECT COUNT(*) as c FROM about WHERE entity_id = ?"
         ).get(entity.id) as { c: number }).c;
 
-    const rows = this.getNeighbors(entity.id, staleSessionIds, { withSample: true, collection });
+    const rows = this.getNeighbors(entity.id, stalePropIds, { withSample: true, collection });
     const neighbors = rows.map((r) => ({ ...r, sample: r.sample ?? "" }));
 
     return {
@@ -627,24 +546,27 @@ export class MemoryStore {
     if (storedMtime != null) {
       const currentMtime = this.getCurrentMtime(filePath);
       if (currentMtime !== null && currentMtime === storedMtime) {
-        return false; // Fast path: mtime unchanged → skip hash
+        return false;
       }
-      // mtime differs or file missing → verify with hash
     }
     const currentHash = this.getCurrentFileHash(filePath);
     return currentHash === null || currentHash !== storedHash;
   }
 
-  private getStaleSessionIds(): Set<string> {
-    const allFiles = this.db.prepare(
-      "SELECT session_id, file_path, content_hash, mtime_ms FROM session_files"
-    ).all() as Array<{ session_id: string; file_path: string; content_hash: string; mtime_ms: number | null }>;
+  /**
+   * Scan proposition_sources and return the set of propositions that have
+   * at least one drifted source file.
+   */
+  private getStalePropositionIds(): Set<string> {
+    const rows = this.db.prepare(
+      "SELECT proposition_id, file_path, content_hash, mtime_ms FROM proposition_sources"
+    ).all() as Array<{ proposition_id: string; file_path: string; content_hash: string; mtime_ms: number | null }>;
 
     const stale = new Set<string>();
-    for (const { session_id, file_path, content_hash, mtime_ms } of allFiles) {
-      if (stale.has(session_id)) continue;
+    for (const { proposition_id, file_path, content_hash, mtime_ms } of rows) {
+      if (stale.has(proposition_id)) continue;
       if (this.isFileChanged(file_path, content_hash, mtime_ms)) {
-        stale.add(session_id);
+        stale.add(proposition_id);
       }
     }
     return stale;
@@ -652,7 +574,6 @@ export class MemoryStore {
 
   private computeStatus(collection?: string): StatusResult {
     const collWhere = collection ? " WHERE collection = ?" : "";
-    const collAnd = collection ? " AND collection = ?" : "";
     const collParams: unknown[] = collection ? [collection] : [];
 
     const totalProps = (this.db.prepare(
@@ -663,21 +584,22 @@ export class MemoryStore {
           "SELECT COUNT(DISTINCT a.entity_id) as c FROM about a JOIN propositions p ON a.proposition_id = p.id WHERE p.collection = ?"
         ).get(collection) as { c: number }).c
       : (this.db.prepare("SELECT COUNT(*) as c FROM entities").get() as { c: number }).c;
-    const totalSessions = (this.db.prepare("SELECT COUNT(*) as c FROM sessions").get() as { c: number }).c;
-    const activeSession = this.getActiveSession();
 
-    const stale = this.getStaleSessionIds();
+    const stale = this.getStalePropositionIds();
     let validCount: number;
 
     if (stale.size === 0) {
       validCount = totalProps;
+    } else if (!collection) {
+      validCount = totalProps - stale.size;
     } else {
+      // Count only stale props in this collection
       const staleParams = [...stale];
       const placeholders = staleParams.map(() => "?").join(",");
-      const staleCount = (this.db.prepare(
-        `SELECT COUNT(*) as c FROM propositions WHERE session_id IN (${placeholders})${collAnd}`
-      ).get(...staleParams, ...collParams) as { c: number }).c;
-      validCount = totalProps - staleCount;
+      const staleInCollection = (this.db.prepare(
+        `SELECT COUNT(*) as c FROM propositions WHERE id IN (${placeholders}) AND collection = ?`
+      ).get(...staleParams, collection) as { c: number }).c;
+      validCount = totalProps - staleInCollection;
     }
 
     return {
@@ -685,14 +607,12 @@ export class MemoryStore {
       valid_propositions: validCount,
       stale_propositions: totalProps - validCount,
       total_entities: totalEntities,
-      total_sessions: totalSessions,
-      active_session: activeSession?.id ?? null,
     };
   }
 
-  private countValidForEntity(entityId: string, staleSessionIds: Set<string>, collection?: string): number {
-    // Fast path: no stale sessions and no collection filter — skip JOIN
-    if (staleSessionIds.size === 0 && !collection) {
+  private countValidForEntity(entityId: string, stalePropIds: Set<string>, collection?: string): number {
+    // Fast path: no stale props and no collection filter — skip JOIN
+    if (stalePropIds.size === 0 && !collection) {
       return (this.db.prepare(
         "SELECT COUNT(*) as c FROM about WHERE entity_id = ?"
       ).get(entityId) as { c: number }).c;
@@ -700,33 +620,26 @@ export class MemoryStore {
 
     const coll = this.collectionFilter(collection);
 
-    if (staleSessionIds.size === 0) {
+    if (stalePropIds.size === 0) {
       return (this.db.prepare(
         `SELECT COUNT(*) as c FROM about a JOIN propositions p ON a.proposition_id = p.id WHERE a.entity_id = ?${coll.clause}`
       ).get(entityId, ...coll.params) as { c: number }).c;
     }
-    const staleParams = [...staleSessionIds];
+    const staleParams = [...stalePropIds];
     const placeholders = staleParams.map(() => "?").join(",");
     return (this.db.prepare(
       `SELECT COUNT(*) as c FROM about a
        JOIN propositions p ON a.proposition_id = p.id
-       WHERE a.entity_id = ? AND p.session_id NOT IN (${placeholders})${coll.clause}`
+       WHERE a.entity_id = ? AND a.proposition_id NOT IN (${placeholders})${coll.clause}`
     ).get(entityId, ...staleParams, ...coll.params) as { c: number }).c;
   }
 
   private enrichProposition(row: PropositionRow): PropositionInfo {
-    // Prefer per-proposition sources when available, fall back to session-level
     const propSources = this.db.prepare(
       "SELECT file_path, content_hash, mtime_ms FROM proposition_sources WHERE proposition_id = ?"
     ).all(row.id) as Array<{ file_path: string; content_hash: string; mtime_ms: number | null }>;
 
-    const filesToCheck = propSources.length > 0
-      ? propSources
-      : this.db.prepare(
-          "SELECT file_path, content_hash, mtime_ms FROM session_files WHERE session_id = ?"
-        ).all(row.session_id) as Array<{ file_path: string; content_hash: string; mtime_ms: number | null }>;
-
-    const sourceFiles = filesToCheck.map((sf) => ({
+    const sourceFiles = propSources.map((sf) => ({
       path: sf.file_path,
       hash: sf.content_hash,
       current_match: !this.isFileChanged(sf.file_path, sf.content_hash, sf.mtime_ms),
@@ -737,7 +650,6 @@ export class MemoryStore {
     return {
       id: row.id,
       content: row.content,
-      session_id: row.session_id,
       created_at: row.created_at,
       valid,
       collection: row.collection,

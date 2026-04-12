@@ -17,7 +17,7 @@ import {
 } from "./traversals.js";
 import {
   memoryStatus, memoryBrowse, memoryInspect, memorySearch,
-  memoryRelated, memoryBySource, memoryRegister, memoryEmit, memoryEnd,
+  memoryRelated, memoryBySource, memoryRegister, memoryEmit,
 } from "./memory.js";
 import { guideShow, distillRun, sourcesHash, sourcesCheck, sourcesValidate } from "./stateless.js";
 import {
@@ -298,14 +298,6 @@ addWorkflowsOpt(memoryCmd
   .action((file, opts) => {
     const { store } = createMemoryStore({ workflows: opts.workflows });
     try { memoryEmit(store, file, opts.collection); } finally { store.close(); }
-  });
-
-addWorkflowsOpt(memoryCmd
-  .command("end")
-  .description("Close the active compilation session"))
-  .action((opts) => {
-    const { store } = createMemoryStore({ workflows: opts.workflows });
-    try { memoryEnd(store); } finally { store.close(); }
   });
 
 // --- Stateless commands ---
