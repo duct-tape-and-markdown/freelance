@@ -1,7 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
-import { Graph, alg } from "@dagrejs/graphlib";
+// @dagrejs/graphlib is a CJS bundle with `cjs-module-lexer` named-export
+// hints. Node's native ESM loader reads those hints and lets us import
+// named exports, but `tsx` does not — `import { Graph, alg }` works under
+// `node dist/...` and fails under `tsx src/...`. createRequire forces CJS
+// semantics under both loaders.
+import { createRequire } from "node:module";
+const { Graph, alg } = createRequire(import.meta.url)("@dagrejs/graphlib") as typeof import("@dagrejs/graphlib");
+type Graph = import("@dagrejs/graphlib").Graph;
 import { graphDefinitionSchema, isContextFieldDescriptor } from "./schema/graph-schema.js";
 import type { GraphDefinition } from "./schema/graph-schema.js";
 import type { ValidatedGraph } from "./types.js";
