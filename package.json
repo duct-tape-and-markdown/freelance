@@ -69,7 +69,6 @@
   "license": "MIT",
   "dependencies": {
     "@dagrejs/graphlib": "^4.0.1",
-    "@inquirer/prompts": "^8.3.2",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "better-sqlite3": "^12.8.0",
     "commander": "^14.0.3",
@@ -77,6 +76,9 @@
     "picomatch": "^4.0.4",
     "remark-parse": "^11.0.0",
     "unified": "^11.0.5"
+  },
+  "optionalDependencies": {
+    "@inquirer/prompts": "^8.3.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

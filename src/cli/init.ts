@@ -425,8 +425,27 @@ Next steps:
 Happy building.`);
 }
 
+// @inquirer/prompts is an optionalDependency; surface a friendly hint
+// instead of a cryptic ESM resolution error when it's absent.
+async function loadPrompts() {
+  try {
+    return await import("@inquirer/prompts");
+  } catch (e) {
+    const err = e as NodeJS.ErrnoException;
+    if (err.code === "ERR_MODULE_NOT_FOUND" || /Cannot find package/.test(err.message ?? "")) {
+      fatal(
+        "Interactive init requires @inquirer/prompts (optional dependency).\n" +
+          "  Install: npm install @inquirer/prompts\n" +
+          "  Or skip prompts: freelance init --yes",
+        EXIT.GENERAL_ERROR,
+      );
+    }
+    throw e;
+  }
+}
+
 export async function initInteractive(opts?: { dryRun?: boolean }): Promise<void> {
-  const { select } = await import("@inquirer/prompts");
+  const { select, confirm } = await loadPrompts();
 
   info("\nWelcome to Freelance \u2014 graph-based workflow enforcement for AI agents.\n");
 
@@ -470,7 +489,6 @@ export async function initInteractive(opts?: { dryRun?: boolean }): Promise<void
 
   let hooks = false;
   if (client === "claude-code") {
-    const { confirm } = await import("@inquirer/prompts");
     hooks = await confirm({
       message: "Enable workflow enforcement hooks? (reminds the agent to follow workflows)",
       default: false,
