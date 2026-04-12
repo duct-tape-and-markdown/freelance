@@ -81,7 +81,7 @@ let exitSpy: any;
 let stderrSpy: any;
 let stdoutSpy: any;
 
-import { program } from "../src/index.js";
+import { program } from "../src/cli/program.js";
 // Graph resolution tests live in test/graph-resolution.test.ts (canonical location)
 
 beforeEach(() => {

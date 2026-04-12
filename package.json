@@ -6,7 +6,7 @@
   "description": "Graph-based workflow enforcement for AI coding agents",
   "main": "dist/index.js",
   "bin": {
-    "freelance": "dist/index.js"
+    "freelance": "dist/bin.js"
   },
   "publishConfig": {
     "access": "public"
@@ -41,7 +41,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "dev": "tsx src/index.ts",
+    "dev": "tsx src/bin.ts",
     "test": "vitest run",
     "sync-plugin-version": "node scripts/sync-plugin-version.mjs",
     "version": "npm run sync-plugin-version && git add plugins/freelance/.claude-plugin/plugin.json",
