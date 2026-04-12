@@ -200,7 +200,7 @@ Manual configuration (e.g., `.mcp.json` for Claude Code):
 
 ## CLI
 
-Every MCP tool has a CLI equivalent. Commands operate directly on SQLite — no daemon or MCP client required.
+Every MCP tool has a CLI equivalent. Commands operate directly on the local state store — no daemon or MCP client required.
 
 ```
 # Setup

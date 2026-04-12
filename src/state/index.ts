@@ -1,2 +1,3 @@
 export { TraversalStore } from "./traversal-store.js";
-export { openStateDatabase } from "./db.js";
+export { openStateStore } from "./db.js";
+export type { StateStore, TraversalRecord } from "./db.js";

@@ -9,9 +9,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type Database from "better-sqlite3";
 import { hashContent } from "../sources.js";
-import { openDatabase } from "./db.js";
+import { openDatabase, type Db } from "./db.js";
 import type {
   EntityRow,
   PropositionRow,
@@ -67,7 +66,7 @@ function mtimeOf(filePath: string): number | null {
 const DEFAULT_COLLECTION: CollectionConfig = { name: "default", description: "General project knowledge", paths: [""] };
 
 export class MemoryStore {
-  private db: Database.Database;
+  private db: Db;
   private sourceRoot: string;
   private ignore: string[];
   private collections: Map<string, CollectionConfig>;
@@ -234,8 +233,16 @@ export class MemoryStore {
       propositions: [],
     };
 
-    const insertProp = this.db.prepare(
-      "INSERT INTO propositions (id, content, content_hash, session_id, collection, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+    // DO NOTHING (not DO UPDATE) so the propositions_au AFTER UPDATE trigger
+    // doesn't fire on dedup hits and churn the FTS index.
+    const upsertProp = this.db.prepare(
+      `INSERT INTO propositions (id, content, content_hash, session_id, collection, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT (content_hash, collection) DO NOTHING
+       RETURNING id`
+    );
+    const selectExistingProp = this.db.prepare(
+      "SELECT id FROM propositions WHERE content_hash = ? AND collection = ?"
     );
     const insertAbout = this.db.prepare(
       "INSERT OR IGNORE INTO about (proposition_id, entity_id) VALUES (?, ?)"
@@ -253,62 +260,62 @@ export class MemoryStore {
       sessionFiles.set(sf.file_path, { hash: sf.content_hash, mtime: sf.mtime_ms });
     }
 
-    const emitAll = this.db.transaction(() => {
-      for (const prop of propositions) {
-        const contentHash = hashContent(prop.content);
-        const existing = this.db.prepare(
-          "SELECT id FROM propositions WHERE content_hash = ? AND collection = ?"
-        ).get(contentHash, collection) as { id: string } | undefined;
+    for (const prop of propositions) {
+      const contentHash = hashContent(prop.content);
+      const newId = generateId();
+      const inserted = upsertProp.get(
+        newId, prop.content, contentHash, sessionId, collection, now(),
+      ) as { id: string } | undefined;
 
-        const propResult: EmitResult["propositions"][number] = {
-          id: "",
-          content: prop.content,
-          status: "created",
-          entities: [],
-        };
+      const propResult: EmitResult["propositions"][number] = {
+        id: "",
+        content: prop.content,
+        status: "created",
+        entities: [],
+      };
 
-        let propId: string;
-        if (existing) {
-          propId = existing.id;
-          propResult.id = propId;
-          propResult.status = "deduplicated";
-          result.deduplicated++;
-        } else {
-          propId = generateId();
-          insertProp.run(propId, prop.content, contentHash, sessionId, collection, now());
-          propResult.id = propId;
-          result.created++;
-        }
-
-        // Per-proposition source attribution — every source must be registered
-        for (const sourcePath of prop.sources) {
-          const sf = sessionFiles.get(sourcePath);
-          if (!sf) {
-            throw new Error(
-              `Source "${sourcePath}" is not registered in this session. ` +
-              `Call memory_register_source for each file before referencing it in emit.`
-            );
-          }
-          insertPropSource.run(propId, sourcePath, sf.hash, sf.mtime);
-        }
-
-        for (const entityName of prop.entities) {
-          const kind = prop.entityKinds?.[entityName];
-          const resolved = this.resolveEntity(entityName, kind);
-          propResult.entities.push(resolved);
-          insertAbout.run(propId, resolved.id);
-          if (resolved.resolution === "created") {
-            result.entities_created++;
-          } else {
-            result.entities_resolved++;
-          }
-        }
-
-        result.propositions.push(propResult);
+      let propId: string;
+      if (inserted) {
+        propId = newId;
+        propResult.status = "created";
+        result.created++;
+      } else {
+        // Conflict: an existing row owns this (content_hash, collection).
+        // Fetch its id so we can attach about/sources rows to it.
+        const existing = selectExistingProp.get(contentHash, collection) as { id: string };
+        propId = existing.id;
+        propResult.status = "deduplicated";
+        result.deduplicated++;
       }
-    });
+      propResult.id = propId;
 
-    emitAll();
+      // Per-proposition source attribution — every source must be registered
+      for (const sourcePath of prop.sources) {
+        const sf = sessionFiles.get(sourcePath);
+        if (!sf) {
+          throw new Error(
+            `Source "${sourcePath}" is not registered in this session. ` +
+            `Call memory_register_source for each file before referencing it in emit.`
+          );
+        }
+        insertPropSource.run(propId, sourcePath, sf.hash, sf.mtime);
+      }
+
+      for (const entityName of prop.entities) {
+        const kind = prop.entityKinds?.[entityName];
+        const resolved = this.resolveEntity(entityName, kind);
+        propResult.entities.push(resolved);
+        insertAbout.run(propId, resolved.id);
+        if (resolved.resolution === "created") {
+          result.entities_created++;
+        } else {
+          result.entities_resolved++;
+        }
+      }
+
+      result.propositions.push(propResult);
+    }
+
     return result;
   }
 

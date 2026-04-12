@@ -63,7 +63,7 @@ vi.mock("../src/cli/setup.js", () => ({
     sourceOpts: {},
   })),
   ensureStateDir: vi.fn((dir: string) => `${dir}/.state`),
-  resolveStateDb: vi.fn(() => ":memory:"),
+  resolveStateDir: vi.fn(() => ":memory:"),
   resolveMemoryConfig: vi.fn((_dirs: string[], opts: { memoryDir?: string; memory?: boolean }) => {
     if (opts.memory === false) return null;
     const db = opts.memoryDir ? `${opts.memoryDir}/memory.db` : "/tmp/test-memory.db";

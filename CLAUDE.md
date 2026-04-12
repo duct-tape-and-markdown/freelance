@@ -83,9 +83,9 @@ Override with `--source-root <path>` (CLI) or `sourceRoot` (ServerOptions).
   - `wait.ts` — Wait condition evaluation and timeout handling
   - `returns.ts` — Return schema validation
   - `helpers.ts` — Shared utilities (cloneContext, toNodeInfo)
-- `src/state/` — Stateless traversal store backed by SQLite
+- `src/state/` — Stateless traversal store (JSON files on disk)
   - `traversal-store.ts` — Multi-traversal management, loads/saves state per operation
-  - `db.ts` — SQLite schema for traversal state
+  - `db.ts` — StateStore interface + JSON-directory and in-memory backends
 - `src/builder.ts` — Programmatic workflow graph construction (GraphBuilder)
 - `src/config.ts` — Unified config loader (config.yml + config.local.yml schema, merging, writing)
 - `src/graph-resolution.ts` — Graph directory resolution and loading (env var, project, user, config cascading)

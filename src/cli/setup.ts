@@ -9,7 +9,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { TraversalStore } from "../state/index.js";
-import { openStateDatabase } from "../state/index.js";
+import { openStateStore } from "../state/index.js";
 import { MemoryStore } from "../memory/index.js";
 import { resolveGraphsDirs, resolveSourceRoot, loadGraphsGraceful } from "../graph-resolution.js";
 import { loadConfigFromDirs } from "../config.js";
@@ -55,16 +55,17 @@ export function ensureStateDir(graphsDir: string): string {
 }
 
 /**
- * Resolve the state DB path without creating directories.
- * Use ensureStateDir() before opening the DB for writes.
+ * Resolve the traversals directory. The JsonDirectoryStateStore
+ * constructor creates the dir if missing, so callers don't need to
+ * ensureStateDir first.
  */
-export function resolveStateDb(graphsDirs: string[]): string {
+export function resolveStateDir(graphsDirs: string[]): string {
   for (const dir of graphsDirs) {
     if (fs.existsSync(dir)) {
-      return path.join(stateDir(dir), "state.db");
+      return path.join(stateDir(dir), "traversals");
     }
   }
-  return path.join(stateDir(graphsDirs[0] ?? ".freelance"), "state.db");
+  return path.join(stateDir(graphsDirs[0] ?? ".freelance"), "traversals");
 }
 
 // --- Memory config resolution ---
@@ -139,10 +140,10 @@ export function loadGraphSetup(opts: CliSetupOptions): CliSetup {
 export function createTraversalStore(opts: CliSetupOptions): { store: TraversalStore; setup: CliSetup } {
   const setup = loadGraphSetup(opts);
   ensureStateDir(setup.graphsDirs[0] ?? ".freelance");
-  const stateDb = resolveStateDb(setup.graphsDirs);
-  const db = openStateDatabase(stateDb);
+  const traversalsDir = resolveStateDir(setup.graphsDirs);
+  const backend = openStateStore(traversalsDir);
   const maxDepth = opts.maxDepth ?? 5;
-  const store = new TraversalStore(db, setup.graphs, { maxDepth });
+  const store = new TraversalStore(backend, setup.graphs, { maxDepth });
   return { store, setup };
 }
 

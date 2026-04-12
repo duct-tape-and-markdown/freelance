@@ -59,12 +59,12 @@ function makeTmpDir(): string {
 
 async function startDaemonOnRandomPort(
   graphs: Map<string, ValidatedGraph>,
-  stateDb: string
+  stateDir: string
 ): Promise<{ server: http.Server; port: number }> {
   const daemon = createDaemon(graphs, {
     port: 0,
     host: "127.0.0.1",
-    stateDb,
+    stateDir,
   });
   await new Promise<void>((resolve) => {
     daemon.server.listen(0, "127.0.0.1", () => resolve());
@@ -88,13 +88,13 @@ describe("Daemon edge cases", () => {
     servers.length = 0;
   });
 
-  it("persists traversals across restart via SQLite", async () => {
+  it("persists traversals across restart via JSON files", async () => {
     const graphs = loadFixtures("valid-simple.workflow.yaml");
     const tmpDir = makeTmpDir();
-    const stateDb = path.join(tmpDir, "state.db");
+    const stateDir = path.join(tmpDir, "traversals");
 
     // Start daemon 1, create a traversal, advance once
-    const d1 = await startDaemonOnRandomPort(graphs, stateDb);
+    const d1 = await startDaemonOnRandomPort(graphs, stateDir);
     servers.push(d1.server);
 
     const { data: created } = await request(d1.port, "POST", "/traversals", {
@@ -111,11 +111,11 @@ describe("Daemon edge cases", () => {
     await closeServer(d1.server);
     servers.pop();
 
-    // Start daemon 2 with same stateDb
-    const d2 = await startDaemonOnRandomPort(graphs, stateDb);
+    // Start daemon 2 with same stateDir
+    const d2 = await startDaemonOnRandomPort(graphs, stateDir);
     servers.push(d2.server);
 
-    // The traversal should be restored from SQLite
+    // The traversal should be restored from disk
     const { data: listed } = await request(d2.port, "GET", "/traversals");
     const traversals = listed.traversals as Array<Record<string, unknown>>;
     expect(traversals.length).toBe(1);
@@ -132,7 +132,7 @@ describe("Daemon edge cases", () => {
   it("handles concurrent traversals on different graphs", async () => {
     const graphs = loadFixtures("valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
     const tmpDir = makeTmpDir();
-    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "state.db"));
+    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "traversals"));
     servers.push(d.server);
 
     const [r1, r2] = await Promise.all([
@@ -163,7 +163,7 @@ describe("Daemon edge cases", () => {
   it("reset removes traversal from SQLite", async () => {
     const graphs = loadFixtures("valid-simple.workflow.yaml");
     const tmpDir = makeTmpDir();
-    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "state.db"));
+    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "traversals"));
     servers.push(d.server);
 
     const { data: created } = await request(d.port, "POST", "/traversals", {
@@ -188,7 +188,7 @@ describe("Daemon edge cases", () => {
   it("returns EngineError as 400 for invalid graph ID", async () => {
     const graphs = loadFixtures("valid-simple.workflow.yaml");
     const tmpDir = makeTmpDir();
-    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "state.db"));
+    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "traversals"));
     servers.push(d.server);
 
     const { status, data } = await request(d.port, "POST", "/traversals", {
@@ -202,7 +202,7 @@ describe("Daemon edge cases", () => {
   it("advance on unknown traversal returns 400", async () => {
     const graphs = loadFixtures("valid-simple.workflow.yaml");
     const tmpDir = makeTmpDir();
-    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "state.db"));
+    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "traversals"));
     servers.push(d.server);
 
     const { status, data } = await request(d.port, "POST", "/traversals/tr_nonexistent/advance", {
@@ -216,7 +216,7 @@ describe("Daemon edge cases", () => {
   it("context set on unknown traversal returns 400", async () => {
     const graphs = loadFixtures("valid-simple.workflow.yaml");
     const tmpDir = makeTmpDir();
-    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "state.db"));
+    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "traversals"));
     servers.push(d.server);
 
     const { status, data } = await request(d.port, "POST", "/traversals/tr_nope/context", {
@@ -230,7 +230,7 @@ describe("Daemon edge cases", () => {
   it("inspect with full detail returns graph definition", async () => {
     const graphs = loadFixtures("valid-simple.workflow.yaml");
     const tmpDir = makeTmpDir();
-    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "state.db"));
+    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "traversals"));
     servers.push(d.server);
 
     const { data: created } = await request(d.port, "POST", "/traversals", {
@@ -249,7 +249,7 @@ describe("Daemon edge cases", () => {
   it("returns 404 for unknown routes", async () => {
     const graphs = loadFixtures("valid-simple.workflow.yaml");
     const tmpDir = makeTmpDir();
-    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "state.db"));
+    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "traversals"));
     servers.push(d.server);
 
     const { status, data } = await request(d.port, "GET", "/nonexistent");
@@ -261,7 +261,7 @@ describe("Daemon edge cases", () => {
   it("returns 400 for invalid JSON body", async () => {
     const graphs = loadFixtures("valid-simple.workflow.yaml");
     const tmpDir = makeTmpDir();
-    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "state.db"));
+    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "traversals"));
     servers.push(d.server);
 
     const { status, data } = await new Promise<{ status: number; data: Record<string, unknown> }>((resolve, reject) => {
@@ -297,7 +297,7 @@ describe("Daemon edge cases", () => {
     const daemon = createDaemon(graphs, {
       port: 0,
       host: "127.0.0.1",
-      stateDb: path.join(graphsDir, "state.db"),
+      stateDir: path.join(graphsDir, "traversals"),
       graphsDirs: [graphsDir],
     });
     expect(daemon.stopWatcher).toBeDefined();
@@ -335,7 +335,7 @@ describe("Daemon edge cases", () => {
     const daemon = createDaemon(graphs, {
       port: 0,
       host: "127.0.0.1",
-      stateDb: path.join(graphsDir, "state.db"),
+      stateDir: path.join(graphsDir, "traversals"),
       graphsDirs: [graphsDir],
     });
 
@@ -361,7 +361,7 @@ describe("Daemon edge cases", () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
     const graphs = loadFixtures("valid-simple.workflow.yaml");
     const tmpDir = makeTmpDir();
-    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "state.db"));
+    const d = await startDaemonOnRandomPort(graphs, path.join(tmpDir, "traversals"));
 
     const { status, data } = await request(d.port, "POST", "/shutdown");
     expect(status).toBe(200);
@@ -387,7 +387,7 @@ describe("Daemon edge cases", () => {
       startDaemon(graphs, {
         port: 0,
         host: "127.0.0.1",
-        stateDb: path.join(tmpDir, "state.db"),
+        stateDir: path.join(tmpDir, "traversals"),
         graphsDirs: [tmpDir],
       });
 

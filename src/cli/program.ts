@@ -26,7 +26,7 @@ import {
 import { guideShow, distillRun, sourcesHash, sourcesCheck, sourcesValidate } from "./stateless.js";
 import {
   createTraversalStore, createMemoryStore, loadGraphSetup,
-  ensureStateDir, resolveStateDb, resolveMemoryConfig,
+  ensureStateDir, resolveStateDir, resolveMemoryConfig,
 } from "./setup.js";
 import { configShow, configSetLocal } from "./config.js";
 import { VERSION } from "../version.js";
@@ -154,11 +154,11 @@ program
       if (memoryConfig) {
         info(`Freelance: memory enabled (${memoryConfig.db})`);
       }
-      // State database for stateless traversal persistence
+      // Directory for persistent traversal state (one JSON file per traversal)
       ensureStateDir(dirs[0] ?? ".freelance");
-      const stateDb = resolveStateDb(dirs);
-      info(`Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}, section resolver active`);
-      await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver, sourceRoot, loadErrors, memory: memoryConfig ?? undefined, stateDb });
+      const stateDir = resolveStateDir(dirs);
+      info(`Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}`);
+      await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver, sourceRoot, loadErrors, memory: memoryConfig ?? undefined, stateDir });
     }
   });
 
@@ -197,9 +197,9 @@ daemonCmd
     const graphsDirs = resolveGraphsDirs(opts.workflows);
     const sourceRoot = resolveSourceRoot(graphsDirs, opts.sourceRoot);
     ensureStateDir(graphsDirs[0] ?? ".freelance");
-    const stateDb = resolveStateDb(graphsDirs);
+    const stateDir = resolveStateDir(graphsDirs);
     info(`Freelance daemon: loaded ${graphs.size} graph(s) from ${graphsDirs.length} directory(ies)`);
-    await startDaemon(graphs, { port, host: "127.0.0.1", stateDb, maxDepth, graphsDirs, sourceRoot });
+    await startDaemon(graphs, { port, host: "127.0.0.1", stateDir, maxDepth, graphsDirs, sourceRoot });
   });
 
 daemonCmd
@@ -458,21 +458,19 @@ program
     }
 
     // Gate: only register files when a memory traversal is active
-    const stateDbPath = resolveStateDb(dirs);
+    const stateDirPath = resolveStateDir(dirs);
     try {
-      const { openStateDatabase } = await import("../state/index.js");
-      const stateDb = openStateDatabase(stateDbPath);
-      const placeholders = [COMPILE_KNOWLEDGE_ID, RECOLLECTION_ID].map(() => "?").join(", ");
-      const row = stateDb.prepare(
-        `SELECT 1 FROM traversals WHERE graph_id IN (${placeholders}) LIMIT 1`
-      ).get(COMPILE_KNOWLEDGE_ID, RECOLLECTION_ID);
-      stateDb.close();
-      if (!row) {
+      const { openStateStore } = await import("../state/index.js");
+      const state = openStateStore(stateDirPath);
+      const memoryIds = new Set([COMPILE_KNOWLEDGE_ID, RECOLLECTION_ID]);
+      const active = state.list().some((r) => memoryIds.has(r.graphId));
+      state.close();
+      if (!active) {
         // No active memory traversal — silently exit.
         process.exit(0);
       }
     } catch {
-      // State DB unavailable — silently exit.
+      // State store unavailable — silently exit.
       process.exit(0);
     }
 

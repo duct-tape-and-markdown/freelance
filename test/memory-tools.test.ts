@@ -37,7 +37,7 @@ describe("Memory MCP tools", () => {
     const { server, memoryStore, manager } = createServer(graphs, {
       memory: { enabled: true, db: dbPath },
       sourceRoot: tmpDir,
-      stateDb: path.join(tmpDir, "state.db"),
+      stateDir: path.join(tmpDir, "traversals"),
     });
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

@@ -1,7 +1,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { TraversalStore, openStateDatabase } from "./state/index.js";
+import { TraversalStore, openStateStore } from "./state/index.js";
 import { EngineError } from "./errors.js";
 import { getPidFilePath } from "./paths.js";
 import { info } from "./cli/output.js";
@@ -12,7 +12,7 @@ import type { ValidatedGraph } from "./types.js";
 interface DaemonOptions {
   port: number;
   host: string;
-  stateDb: string;
+  stateDir: string;
   maxDepth?: number;
   graphsDirs?: string[];
   sourceRoot?: string;
@@ -40,8 +40,8 @@ export function createDaemon(
   graphs: Map<string, ValidatedGraph>,
   options: DaemonOptions
 ): { server: http.Server; manager: TraversalStore; stopWatcher?: () => void } {
-  const db = openStateDatabase(options.stateDb);
-  const manager = new TraversalStore(db, graphs, {
+  const backend = openStateStore(options.stateDir);
+  const manager = new TraversalStore(backend, graphs, {
     maxDepth: options.maxDepth,
   });
 
@@ -204,7 +204,7 @@ export async function startDaemon(
     server.listen(options.port, options.host, () => {
       info(`Freelance daemon listening on ${options.host}:${options.port}`);
       info(`PID: ${process.pid}`);
-      info(`State: ${options.stateDb}`);
+      info(`State: ${options.stateDir}`);
       if (options.graphsDirs?.length) {
         info(`Watching: ${options.graphsDirs.join(", ")}`);
       }

@@ -58,7 +58,7 @@
     "automation"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.12.0"
   },
   "repository": {
     "type": "git",
@@ -72,7 +72,6 @@
   "dependencies": {
     "@dagrejs/graphlib": "^4.0.1",
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "better-sqlite3": "^12.8.0",
     "commander": "^14.0.3",
     "js-yaml": "^4.1.0",
     "picomatch": "^4.0.4",
@@ -83,7 +82,6 @@
     "@inquirer/prompts": "^8.3.2"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.5.0",
     "@types/picomatch": "^4.0.3",

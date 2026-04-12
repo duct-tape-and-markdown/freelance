@@ -1,10 +1,38 @@
 /**
- * SQLite database layer for Freelance Memory.
- *
- * Five tables. No vector columns. No embedding indexes.
+ * Memory store database layer. Five tables plus an FTS5 virtual table
+ * mirroring `propositions.content`.
  */
 
-import Database from "better-sqlite3";
+import "./suppress-warnings.js";
+import { DatabaseSync, type StatementSync, type SQLInputValue } from "node:sqlite";
+
+// Loose-typed adapter over `node:sqlite`. Centralises the `unknown ↔
+// SQLInputValue / SQLOutputValue` casts in one place so store.ts can
+// keep its own row types without re-casting at every call site.
+export interface Stmt {
+  all(...params: unknown[]): unknown[];
+  get(...params: unknown[]): unknown;
+  run(...params: unknown[]): void;
+}
+
+export interface Db {
+  prepare(sql: string): Stmt;
+  exec(sql: string): void;
+  close(): void;
+}
+
+function wrap(inner: DatabaseSync): Db {
+  const wrapStmt = (stmt: StatementSync): Stmt => ({
+    all: (...params: unknown[]) => stmt.all(...(params as SQLInputValue[])),
+    get: (...params: unknown[]) => stmt.get(...(params as SQLInputValue[])),
+    run: (...params: unknown[]) => { stmt.run(...(params as SQLInputValue[])); },
+  });
+  return {
+    prepare: (sql: string) => wrapStmt(inner.prepare(sql)),
+    exec: (sql: string) => inner.exec(sql),
+    close: () => inner.close(),
+  };
+}
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entities (
@@ -75,22 +103,23 @@ CREATE TRIGGER IF NOT EXISTS propositions_au AFTER UPDATE ON propositions BEGIN
 END;
 `;
 
-function migrate(db: Database.Database): void {
+function migrate(db: Db): void {
   // Add mtime_ms columns for stat()-based staleness checks (replaces read+hash).
   for (const table of ["session_files", "proposition_sources"]) {
-    const cols = db.pragma(`table_info(${table})`) as Array<{ name: string }>;
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
     if (!cols.some((c) => c.name === "mtime_ms")) {
       db.exec(`ALTER TABLE ${table} ADD COLUMN mtime_ms REAL`);
     }
   }
 }
 
-export function openDatabase(dbPath: string): Database.Database {
-  const db = new Database(dbPath);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-  db.pragma("busy_timeout = 5000");
-  db.exec(SCHEMA_SQL);
+export function openDatabase(dbPath: string): Db {
+  const inner = new DatabaseSync(dbPath);
+  inner.exec("PRAGMA journal_mode = WAL");
+  inner.exec("PRAGMA foreign_keys = ON");
+  inner.exec("PRAGMA busy_timeout = 5000");
+  inner.exec(SCHEMA_SQL);
+  const db = wrap(inner);
   migrate(db);
 
   // Rebuild FTS index on every open — external content tables don't persist

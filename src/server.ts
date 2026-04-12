@@ -3,7 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { TraversalStore } from "./state/index.js";
-import { openStateDatabase } from "./state/index.js";
+import { openStateStore } from "./state/index.js";
 import { EngineError } from "./errors.js";
 import { VERSION } from "./version.js";
 import { getGuide } from "./guide.js";
@@ -41,16 +41,16 @@ export interface ServerOptions {
   loadErrors?: Array<{ file: string; message: string }>;
   /** Memory configuration — enables persistent knowledge graph */
   memory?: MemoryConfig;
-  /** Path to SQLite database for traversal state. Falls back to :memory: if not set. */
-  stateDb?: string;
+  /** Directory for persistent traversal state (one JSON file per traversal). Falls back to :memory: if not set. */
+  stateDir?: string;
 }
 
 export function createServer(
   graphs: Map<string, ValidatedGraph>,
   options?: ServerOptions
 ): { server: McpServer; stopWatcher?: () => void; memoryStore?: MemoryStore; manager: TraversalStore } {
-  const db = openStateDatabase(options?.stateDb ?? ":memory:");
-  const manager = new TraversalStore(db, graphs, options);
+  const backend = openStateStore(options?.stateDir ?? ":memory:");
+  const manager = new TraversalStore(backend, graphs, options);
 
   // Mutable load errors — updated by watcher on reload
   let currentLoadErrors: Array<{ file: string; message: string }> = options?.loadErrors ?? [];

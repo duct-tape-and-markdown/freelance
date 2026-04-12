@@ -6,7 +6,7 @@ import {
 } from "../src/cli/traversals.js";
 import { setCli } from "../src/cli/output.js";
 import { TraversalStore } from "../src/state/index.js";
-import { openStateDatabase } from "../src/state/index.js";
+import { openStateStore } from "../src/state/index.js";
 import { loadSingleGraph } from "../src/loader.js";
 import type { ValidatedGraph } from "../src/types.js";
 import path from "node:path";
@@ -67,7 +67,7 @@ function createTestStore(): TraversalStore {
   const fixture = path.resolve("test/fixtures/valid-branching.workflow.yaml");
   const loaded = loadSingleGraph(fixture);
   const graphs = new Map<string, ValidatedGraph>([[loaded.id, loaded]]);
-  const db = openStateDatabase(":memory:");
+  const db = openStateStore(":memory:");
   return new TraversalStore(db, graphs, { maxDepth: 5 });
 }
 
