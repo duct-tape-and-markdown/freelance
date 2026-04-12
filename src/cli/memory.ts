@@ -1,8 +1,4 @@
-/**
- * CLI handlers for memory subcommands.
- *
- * Operates directly on MemoryStore (SQLite) — no daemon required.
- */
+/** CLI handlers for memory subcommands. Operates directly on MemoryStore. */
 
 import fs from "node:fs";
 import { cli, info, outputJson } from "./output.js";

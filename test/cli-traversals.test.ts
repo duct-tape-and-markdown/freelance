@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { parseDaemonConnect } from "../src/cli/traversals.js";
 import {
   traversalStatus, traversalStart, traversalAdvance,
   traversalContextSet, traversalInspect, traversalReset,
@@ -27,37 +26,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-});
-
-describe("parseDaemonConnect", () => {
-  it("returns defaults when no connect option", () => {
-    expect(parseDaemonConnect({})).toEqual({ host: "127.0.0.1", port: 7433 });
-  });
-
-  it("parses host only (no colon)", () => {
-    expect(parseDaemonConnect({ connect: "myhost" })).toEqual({ host: "myhost", port: 7433 });
-  });
-
-  it("parses host:port", () => {
-    expect(parseDaemonConnect({ connect: "myhost:8080" })).toEqual({ host: "myhost", port: 8080 });
-  });
-
-  it("defaults host to 127.0.0.1 when only :port given", () => {
-    expect(parseDaemonConnect({ connect: ":9000" })).toEqual({ host: "127.0.0.1", port: 9000 });
-  });
-
-  it("calls fatal for invalid port (NaN)", () => {
-    expect(() => parseDaemonConnect({ connect: "host:abc" })).toThrow("process.exit");
-    expect(exitSpy).toHaveBeenCalledWith(2);
-  });
-
-  it("calls fatal for port 0", () => {
-    expect(() => parseDaemonConnect({ connect: "host:0" })).toThrow("process.exit");
-  });
-
-  it("calls fatal for port > 65535", () => {
-    expect(() => parseDaemonConnect({ connect: "host:99999" })).toThrow("process.exit");
-  });
 });
 
 // --- Direct store-based CLI tests ---

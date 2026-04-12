@@ -277,19 +277,19 @@ Wait nodes can have a \`timeout\` field (ISO 8601 duration, e.g., "PT1H" for 1 h
 ## Tips
 
 - Use \`freelance_context_set\` from outside the agent (or a separate process) to satisfy wait conditions
-- Wait nodes in daemon mode persist across sessions — the traversal resumes when conditions are met`,
+- Traversal state is persisted to disk, so wait nodes survive MCP client restarts — the traversal resumes when conditions are met`,
 
   "multi-agent": `# Multi-Agent Workflows
 
-Freelance can coordinate multiple agents working on the same traversal or related traversals.
+Freelance can coordinate multiple agents working on the same traversal or related traversals. Traversal state lives on disk, so any MCP client pointed at the same state directory sees the same traversals.
 
-## Shared traversals (daemon mode)
+## Shared traversals
 
-When running the daemon, multiple MCP clients can connect via proxy and share traversal state. One agent advances the graph while another monitors or contributes context.
+Multiple MCP clients pointed at the same workflows directory share traversal state through the filesystem. One agent advances the graph while another monitors or contributes context.
 
 ## Separate traversals
 
-Each agent can run its own traversal of the same or different graphs. Use the daemon's traversal management to track them all.
+Each agent can run its own traversal of the same or different graphs.
 
 ## Patterns
 
@@ -300,12 +300,11 @@ One agent does implementation work, another runs a separate review graph that ga
 Agent A completes a graph that produces artifacts. Agent B starts a downstream graph consuming those artifacts.
 
 ### Parallel tasks
-Multiple agents each work on a task from the same plan, updating shared context via the daemon.
+Multiple agents each work on a task from the same plan, updating shared context.
 
 ## Tips
 
-- Use the daemon for multi-agent setups — it provides persistence and shared state
-- Each agent should specify \`traversalId\` explicitly to avoid ambiguity
+- Each agent should specify \`traversalId\` explicitly to avoid ambiguity when multiple traversals are active
 - Wait nodes are natural handoff points between agents`,
 
   "anti-patterns": `# Anti-Patterns

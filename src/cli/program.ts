@@ -8,13 +8,9 @@ import path from "node:path";
 import fs from "node:fs";
 import { Command, Option } from "commander";
 import { startServer } from "../server.js";
-import { startDaemon } from "../daemon.js";
-import { startProxy } from "../proxy.js";
 import { validate } from "./validate.js";
 import { visualize } from "./visualize.js";
 import { setCli, info, fatal, EXIT } from "./output.js";
-import { daemonStop, daemonStatus, checkRunningDaemon } from "./daemon.js";
-import { parseDaemonConnect } from "./traversals.js";
 import {
   traversalStatus, traversalStart, traversalAdvance,
   traversalContextSet, traversalInspect, traversalReset,
@@ -30,8 +26,7 @@ import {
 } from "./setup.js";
 import { configShow, configSetLocal } from "./config.js";
 import { VERSION } from "../version.js";
-import { DEFAULT_PORT } from "../paths.js";
-import { resolveGraphsDirs, resolveSourceRoot, loadGraphsOrFatal, loadGraphsGraceful } from "../graph-resolution.js";
+import { resolveGraphsDirs, resolveSourceRoot, loadGraphsGraceful } from "../graph-resolution.js";
 import { loadConfigFromDirs } from "../config.js";
 import { extractSection } from "../section-resolver.js";
 
@@ -130,89 +125,32 @@ program
     "Workflow definitions directory (repeatable for layering)",
     (value: string, previous?: string[]) => (previous ? [...previous, value] : [value])
   )
-  .addOption(new Option("--connect <host:port>", "Connect to daemon instead of standalone").hideHelp())
   .option("--max-depth <n>", "Maximum subgraph nesting depth", "5")
   .option("--source-root <path>", "Base path for resolving source references (default: parent of first workflows dir)")
   .option("--memory-dir <path>", "Persistent directory for memory database")
   .option("--no-memory", "Disable memory")
   .action(async (opts) => {
-    if (opts.connect) {
-      const { host, port } = parseDaemonConnect(opts);
-      info(`Freelance proxy: connecting to daemon at ${host}:${port}`);
-      await startProxy(host, port);
-    } else {
-      const maxDepth = parseInt(opts.maxDepth, 10);
-      const dirs = resolveGraphsDirs(opts.workflows);
-      const { graphs, errors: loadErrors } = loadGraphsGraceful(dirs);
-      const sourceRoot = resolveSourceRoot(dirs, opts.sourceRoot);
-      const sectionResolver = (filePath: string, section: string) => extractSection(filePath, section);
-      if (loadErrors.length > 0) {
-        info(`Freelance: ${loadErrors.length} graph(s) failed validation — call freelance_validate for details`);
-      }
-      const config = loadConfigFromDirs(dirs);
-      const memoryConfig = resolveMemoryConfig(dirs, { memoryDir: opts.memoryDir, memory: opts.memory }, config);
-      if (memoryConfig) {
-        info(`Freelance: memory enabled (${memoryConfig.db})`);
-      }
-      // Directory for persistent traversal state (one JSON file per traversal)
-      ensureStateDir(dirs[0] ?? ".freelance");
-      const stateDir = resolveStateDir(dirs);
-      info(`Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}`);
-      await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver, sourceRoot, loadErrors, memory: memoryConfig ?? undefined, stateDir });
-    }
-  });
-
-// --- daemon (hidden — untested, not yet public) ---
-
-const daemonCmd = program
-  .command("daemon", { hidden: true })
-  .description("Manage the Freelance daemon");
-
-daemonCmd
-  .command("start", { isDefault: true })
-  .description("Start the daemon")
-  .option(
-    "--workflows <directory>",
-    "Workflow definitions directory (repeatable for layering)",
-    (value: string, previous?: string[]) => (previous ? [...previous, value] : [value])
-  )
-  .option("--port <port>", `Port to listen on (default: ${DEFAULT_PORT})`, String(DEFAULT_PORT))
-  .option("--max-depth <n>", "Maximum subgraph nesting depth", "5")
-  .option("--source-root <path>", "Base path for resolving source references (default: parent of first workflows dir)")
-  .action(async (opts) => {
-    // Idempotent: if daemon is already running, report and exit
-    const running = checkRunningDaemon();
-    if (running) {
-      info(`Daemon already running (PID ${running.pid}, port ${running.port})`);
-      process.exit(0);
-    }
-
-    const port = parseInt(opts.port, 10);
-    if (isNaN(port) || port < 1 || port > 65535) {
-      fatal("--port must be a valid port number (1-65535)", EXIT.INVALID_USAGE);
-    }
     const maxDepth = parseInt(opts.maxDepth, 10);
-
-    const graphs = loadGraphsOrFatal(opts.workflows);
-    const graphsDirs = resolveGraphsDirs(opts.workflows);
-    const sourceRoot = resolveSourceRoot(graphsDirs, opts.sourceRoot);
-    ensureStateDir(graphsDirs[0] ?? ".freelance");
-    const stateDir = resolveStateDir(graphsDirs);
-    info(`Freelance daemon: loaded ${graphs.size} graph(s) from ${graphsDirs.length} directory(ies)`);
-    await startDaemon(graphs, { port, host: "127.0.0.1", stateDir, maxDepth, graphsDirs, sourceRoot });
+    const dirs = resolveGraphsDirs(opts.workflows);
+    const { graphs, errors: loadErrors } = loadGraphsGraceful(dirs);
+    const sourceRoot = resolveSourceRoot(dirs, opts.sourceRoot);
+    const sectionResolver = (filePath: string, section: string) => extractSection(filePath, section);
+    if (loadErrors.length > 0) {
+      info(`Freelance: ${loadErrors.length} graph(s) failed validation — call freelance_validate for details`);
+    }
+    const config = loadConfigFromDirs(dirs);
+    const memoryConfig = resolveMemoryConfig(dirs, { memoryDir: opts.memoryDir, memory: opts.memory }, config);
+    if (memoryConfig) {
+      info(`Freelance: memory enabled (${memoryConfig.db})`);
+    }
+    // Directory for persistent traversal state (one JSON file per traversal)
+    ensureStateDir(dirs[0] ?? ".freelance");
+    const stateDir = resolveStateDir(dirs);
+    info(`Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}`);
+    await startServer(graphs, { maxDepth, graphsDirs: dirs, sectionResolver, sourceRoot, loadErrors, memory: memoryConfig ?? undefined, stateDir });
   });
 
-daemonCmd
-  .command("stop")
-  .description("Stop the daemon")
-  .action(() => daemonStop());
-
-daemonCmd
-  .command("status")
-  .description("Check daemon status")
-  .action(() => daemonStatus());
-
-// --- Traversal commands (direct SQLite access) ---
+// --- Traversal commands ---
 
 function addWorkflowsOpt(cmd: Command): Command {
   return cmd.option(

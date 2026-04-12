@@ -2,13 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { resolveDefaultGraphsDirs, resolveGraphsDirs, loadGraphsOrFatal, loadGraphsGraceful } from "../src/graph-resolution.js";
+import { resolveDefaultGraphsDirs, resolveGraphsDirs, loadGraphsGraceful } from "../src/graph-resolution.js";
 import { tmpFreelanceDir, withTmpEnv } from "./helpers.js";
 
-let exitSpy: any;
-
 beforeEach(() => {
-  exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
+  vi.spyOn(process, "exit").mockImplementation((() => {
     throw new Error("process.exit");
   }) as never);
   vi.spyOn(process.stderr, "write").mockImplementation(() => true);
@@ -136,30 +134,6 @@ describe("resolveGraphsDirs", () => {
 
   it("resolves array of CLI paths", () => {
     expect(resolveGraphsDirs(["/a", "/b"])).toEqual([path.resolve("/a"), path.resolve("/b")]);
-  });
-});
-
-describe("loadGraphsOrFatal", () => {
-  it("loads valid graphs from a directory", () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gr-load-"));
-    const fixturesDir = path.resolve(import.meta.dirname, "fixtures");
-    fs.copyFileSync(
-      path.join(fixturesDir, "valid-simple.workflow.yaml"),
-      path.join(tmpDir, "valid-simple.workflow.yaml")
-    );
-    const graphs = loadGraphsOrFatal(tmpDir);
-    expect(graphs.size).toBe(1);
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("exits when no dirs found", () => {
-    delete process.env.FREELANCE_WORKFLOWS_DIR;
-    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "no-graphs-"));
-
-    withTmpEnv(emptyDir, () => {
-      expect(() => loadGraphsOrFatal(null)).toThrow("process.exit");
-      expect(exitSpy).toHaveBeenCalledWith(2);
-    });
   });
 });
 

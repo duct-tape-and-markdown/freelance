@@ -1,27 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// Mock heavy dependencies to prevent real server/daemon starts
+// Mock heavy dependencies to prevent real server starts
 vi.mock("../src/server.js", () => ({ startServer: vi.fn(async () => {}) }));
-vi.mock("../src/daemon.js", () => ({
-  startDaemon: vi.fn(async () => {}),
-  createDaemon: vi.fn(),
-}));
-vi.mock("../src/proxy.js", () => ({ startProxy: vi.fn(async () => {}) }));
 vi.mock("../src/cli/validate.js", () => ({ validate: vi.fn() }));
 vi.mock("../src/cli/visualize.js", () => ({ visualize: vi.fn() }));
-// inspect command now uses traversal store directly (no separate mock needed)
 vi.mock("../src/cli/init.js", () => ({
   init: vi.fn(async () => {}),
   initInteractive: vi.fn(async () => {}),
   INIT_DEFAULTS: { starter: "blank", hooks: false, dryRun: false },
 }));
-vi.mock("../src/cli/daemon.js", () => ({
-  daemonStop: vi.fn(),
-  daemonStatus: vi.fn(),
-  checkRunningDaemon: vi.fn(() => null),
-}));
 vi.mock("../src/cli/traversals.js", () => ({
-  parseDaemonConnect: vi.fn(() => ({ host: "127.0.0.1", port: 7433 })),
   traversalStatus: vi.fn(),
   traversalStart: vi.fn(),
   traversalAdvance: vi.fn(),
@@ -149,22 +137,6 @@ describe("program commands", () => {
     expect(validate).toHaveBeenCalled();
   });
 
-  it("daemon stop calls daemonStop", async () => {
-    const { daemonStop } = await import("../src/cli/daemon.js");
-    try {
-      await program.parseAsync(["node", "freelance", "daemon", "stop"]);
-    } catch {
-      // daemonStop calls fatal which throws
-    }
-    expect(daemonStop).toHaveBeenCalled();
-  });
-
-  it("daemon status calls daemonStatus", async () => {
-    const { daemonStatus } = await import("../src/cli/daemon.js");
-    await program.parseAsync(["node", "freelance", "daemon", "status"]);
-    expect(daemonStatus).toHaveBeenCalled();
-  });
-
   it("mcp standalone loads graphs and starts server", async () => {
     const { startServer } = await import("../src/server.js");
     await program.parseAsync(["node", "freelance", "mcp", "--workflows", "/tmp/fake"]);
@@ -200,32 +172,6 @@ describe("program commands", () => {
     // Clean up
     const fs = await import("node:fs");
     try { fs.rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
-  });
-
-  it("mcp --connect starts proxy", async () => {
-    const { startProxy } = await import("../src/proxy.js");
-    await program.parseAsync(["node", "freelance", "mcp", "--connect", "localhost:8080"]);
-    expect(startProxy).toHaveBeenCalled();
-  });
-
-  it("daemon start loads graphs and starts daemon", async () => {
-    const { startDaemon } = await import("../src/daemon.js");
-    await program.parseAsync(["node", "freelance", "daemon", "start", "--workflows", "/tmp/fake", "--port", "9999"]);
-    expect(startDaemon).toHaveBeenCalled();
-  });
-
-  it("daemon start exits when already running", async () => {
-    const { checkRunningDaemon } = await import("../src/cli/daemon.js");
-    (checkRunningDaemon as ReturnType<typeof vi.fn>).mockReturnValueOnce({ pid: 1234, port: 7433 });
-    await expect(
-      program.parseAsync(["node", "freelance", "daemon", "start", "--workflows", "/tmp/fake"])
-    ).rejects.toThrow("process.exit");
-  });
-
-  it("daemon start with invalid port calls fatal", async () => {
-    await expect(
-      program.parseAsync(["node", "freelance", "daemon", "start", "--workflows", "/tmp/fake", "--port", "99999"])
-    ).rejects.toThrow("process.exit");
   });
 
   it("status command calls traversalStatus", async () => {

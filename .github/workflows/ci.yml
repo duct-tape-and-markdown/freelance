@@ -30,8 +30,6 @@ jobs:
           npx vitest run --coverage --coverage.reporter=text
           --coverage.thresholds.lines=90
           --coverage.exclude='src/index.ts'
-          --coverage.exclude='src/proxy.ts'
-          --coverage.exclude='src/daemon.ts'
           --coverage.exclude='src/**/index.ts'
 
       - name: Validate test fixtures

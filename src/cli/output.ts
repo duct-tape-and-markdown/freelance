@@ -7,7 +7,6 @@ export const EXIT = {
   GENERAL_ERROR: 1,
   INVALID_USAGE: 2,
   GRAPH_ERROR: 3,
-  DAEMON_ERROR: 4,
 } as const;
 
 // Global CLI state — set via setCli() from index.ts before any command runs.

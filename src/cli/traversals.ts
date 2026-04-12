@@ -1,35 +1,11 @@
 /**
- * CLI handlers for traversal commands.
- *
- * Operates directly on TraversalStore (SQLite) — no daemon required.
+ * CLI handlers for traversal commands. Operates directly on TraversalStore.
  */
 
-import { cli, info, outputJson, fatal, EXIT } from "./output.js";
+import { cli, info, outputJson } from "./output.js";
 import type { TraversalStore } from "../state/index.js";
 import type { InspectPositionResult, InspectHistoryResult, InspectFullResult } from "../types.js";
 import { EngineError } from "../errors.js";
-import { DEFAULT_PORT } from "../paths.js";
-
-/** Parse --connect host:port for daemon/proxy commands. */
-export function parseDaemonConnect(opts: { connect?: string }): {
-  host: string;
-  port: number;
-} {
-  if (!opts.connect) {
-    return { host: "127.0.0.1", port: DEFAULT_PORT };
-  }
-  const lastColon = opts.connect.lastIndexOf(":");
-  if (lastColon === -1) {
-    return { host: opts.connect, port: DEFAULT_PORT };
-  }
-  const host = opts.connect.slice(0, lastColon) || "127.0.0.1";
-  const portStr = opts.connect.slice(lastColon + 1);
-  const port = parseInt(portStr, 10);
-  if (isNaN(port) || port < 1 || port > 65535) {
-    fatal(`Invalid port in --connect: "${portStr}"`, EXIT.INVALID_USAGE);
-  }
-  return { host, port };
-}
 
 function handleError(e: unknown): never {
   const message = e instanceof EngineError ? e.message : e instanceof Error ? e.message : String(e);

@@ -1,7 +1,6 @@
 import path from "node:path";
 import fs from "node:fs";
-import { loadGraphs, loadGraphsLayered, loadGraphsCollecting } from "./loader.js";
-import { fatal, EXIT } from "./cli/output.js";
+import { loadGraphsCollecting } from "./loader.js";
 import { loadConfigFromDirs } from "./config.js";
 import type { ValidatedGraph } from "./types.js";
 
@@ -77,32 +76,6 @@ export function resolveSourceRoot(
   if (explicit) return path.resolve(explicit);
   if (graphsDirs.length > 0) return path.dirname(graphsDirs[0]);
   return undefined;
-}
-
-/**
- * Resolve graph directories, load all graphs, and exit on failure.
- */
-export function loadGraphsOrFatal(graphsDirs?: string | string[] | null) {
-  const dirs = resolveGraphsDirs(graphsDirs);
-
-  if (dirs.length === 0) {
-    fatal(
-      "No graph directories found or provided.\n\n" +
-        "Specify with: --workflows <directory>\n" +
-        "Or set: FREELANCE_WORKFLOWS_DIR=dir1:dir2\n" +
-        "Or create: ./.freelance/ or ~/.freelance/",
-      EXIT.INVALID_USAGE
-    );
-  }
-
-  try {
-    return dirs.length === 1 ? loadGraphs(dirs[0]) : loadGraphsLayered(dirs);
-  } catch (err) {
-    fatal(
-      `Graph loading failed: ${err instanceof Error ? err.message : err}`,
-      EXIT.GRAPH_ERROR
-    );
-  }
 }
 
 export interface GracefulLoadResult {
