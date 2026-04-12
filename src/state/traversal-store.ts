@@ -23,23 +23,6 @@ function generateTraversalId(): string {
   return "tr_" + crypto.randomBytes(4).toString("hex");
 }
 
-/**
- * Snapshot graph definitions so in-flight traversals are pinned to the
- * definitions they were created with.
- */
-function snapshotGraphs(
-  graphs: Map<string, ValidatedGraph>
-): Map<string, ValidatedGraph> {
-  const snapshot = new Map<string, ValidatedGraph>();
-  for (const [id, vg] of graphs) {
-    snapshot.set(id, {
-      definition: structuredClone(vg.definition),
-      graph: vg.graph,
-    });
-  }
-  return snapshot;
-}
-
 export class TraversalStore {
   private state: StateStore;
   private graphs: Map<string, ValidatedGraph>;
@@ -105,8 +88,7 @@ export class TraversalStore {
     initialContext?: Record<string, unknown>
   ): { traversalId: string } & StartResult {
     const id = generateTraversalId();
-    const snapshot = snapshotGraphs(this.graphs);
-    const engine = new GraphEngine(snapshot, { maxDepth: this.maxDepth });
+    const engine = new GraphEngine(this.graphs, { maxDepth: this.maxDepth });
     const result = engine.start(graphId, initialContext);
 
     const stack = engine.getStack();
@@ -196,8 +178,7 @@ export class TraversalStore {
       );
     }
 
-    const snapshot = snapshotGraphs(this.graphs);
-    const engine = new GraphEngine(snapshot, { maxDepth: this.maxDepth });
+    const engine = new GraphEngine(this.graphs, { maxDepth: this.maxDepth });
     engine.restoreStack(record.stack);
     return { engine, record };
   }
