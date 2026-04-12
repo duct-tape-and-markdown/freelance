@@ -1,11 +1,15 @@
 {
   "name": "freelance-mcp",
   "version": "1.2.1",
+  "mcpName": "io.github.duct-tape-and-markdown/freelance",
   "type": "module",
   "description": "Graph-based workflow enforcement for AI coding agents",
   "main": "dist/index.js",
   "bin": {
     "freelance": "dist/index.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "exports": {
     ".": {
