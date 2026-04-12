@@ -43,7 +43,9 @@
     "build": "tsc",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
-    "prepublishOnly": "npm run build && npm test"
+    "sync-plugin-version": "node scripts/sync-plugin-version.mjs",
+    "version": "npm run sync-plugin-version && git add plugins/freelance/.claude-plugin/plugin.json",
+    "prepublishOnly": "npm run sync-plugin-version && npm run build && npm test"
   },
   "keywords": [
     "mcp",

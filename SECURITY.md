@@ -14,7 +14,7 @@ In scope:
 - The MCP server (stdio transport) and its tool surface
 - Graph loading, expression evaluation, and source-binding validation
 - The SQLite memory store and its FTS5 query surface
-- Claude Code plugin artifacts under `plugin/`
+- Claude Code plugin artifacts under `plugins/freelance/`
 
 Out of scope:
 
