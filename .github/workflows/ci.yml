@@ -58,10 +58,12 @@ jobs:
 
       - name: Install and smoke test the tarball
         run: |
+          set -x
+          ls -la "$GITHUB_WORKSPACE/${{ steps.pack.outputs.tarball }}"
           TEMPDIR="$(mktemp -d)"
           cd "$TEMPDIR"
           npm init -y > /dev/null
-          npm install --silent "$GITHUB_WORKSPACE/${{ steps.pack.outputs.tarball }}"
+          npm install "$GITHUB_WORKSPACE/${{ steps.pack.outputs.tarball }}"
           # Library import — asserts pure side-effect-free import and expected export surface
           node --input-type=module -e "
           import * as pkg from 'freelance-mcp';
