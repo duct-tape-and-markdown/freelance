@@ -27,6 +27,17 @@ jobs:
 
       - run: npm test
 
-      - run: npm publish --provenance --access public
+      # Pre-release GitHub Releases publish under the `beta` dist-tag so
+      # `@latest` stays on the stable track. Promote to `latest` afterwards
+      # with `npm dist-tag add freelance-mcp@<version> latest`.
+      - name: Publish (stable)
+        if: github.event.release.prerelease == false
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish (pre-release)
+        if: github.event.release.prerelease == true
+        run: npm publish --provenance --access public --tag beta
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

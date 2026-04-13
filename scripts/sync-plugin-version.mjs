@@ -17,6 +17,7 @@
  * Wired via the `version` and `prepublishOnly` npm script hooks.
  */
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -72,4 +73,17 @@ if (prevMarketplaceVersion === target) {
   console.log(`marketplace.json: (none) \u2192 ${target}`);
 } else {
   console.log(`marketplace.json: ${prevMarketplaceVersion} \u2192 ${target}`);
+}
+
+// Biome's JSON formatter collapses short arrays onto a single line;
+// JSON.stringify(obj, null, 2) always expands them. Run biome after the
+// write so the committed files stay lint-clean. Best-effort: if biome
+// isn't installed (e.g. running from a packed tarball), skip silently.
+const biomeResult = spawnSync(
+  "npx",
+  ["--no-install", "biome", "format", "--write", pluginPath, marketplacePath],
+  { cwd: repoRoot, stdio: "inherit" },
+);
+if (biomeResult.status !== 0 && biomeResult.status !== null) {
+  console.warn("warning: biome format step failed; files may need manual re-format");
 }
