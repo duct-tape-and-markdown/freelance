@@ -78,16 +78,17 @@ CREATE VIRTUAL TABLE IF NOT EXISTS propositions_fts USING fts5(
   content_rowid='rowid'
 );
 
--- Keep FTS in sync with propositions table.
+-- Keep FTS in sync with propositions table. Only INSERT and DELETE
+-- triggers fire in practice: memory_emit uses ON CONFLICT DO NOTHING on
+-- the (content_hash, collection) unique index, so an UPDATE path on the
+-- propositions row never executes. The AFTER UPDATE trigger was present
+-- in earlier schemas and never fired; removing it keeps the schema
+-- honest about the real write path.
 CREATE TRIGGER IF NOT EXISTS propositions_ai AFTER INSERT ON propositions BEGIN
   INSERT INTO propositions_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
 CREATE TRIGGER IF NOT EXISTS propositions_ad AFTER DELETE ON propositions BEGIN
   INSERT INTO propositions_fts(propositions_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
-END;
-CREATE TRIGGER IF NOT EXISTS propositions_au AFTER UPDATE ON propositions BEGIN
-  INSERT INTO propositions_fts(propositions_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
-  INSERT INTO propositions_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
 `;
 
@@ -118,6 +119,13 @@ export function openDatabase(dbPath: string): Db {
   const db = wrap(inner);
   checkSchemaCompatibility(db);
   inner.exec(SCHEMA_SQL);
+
+  // Converge older databases that were created with the propositions_au
+  // AFTER UPDATE trigger. memory_emit's ON CONFLICT DO NOTHING means
+  // UPDATE never happens on the propositions row, so the trigger was
+  // dormant — this drop just makes the schema deterministic across
+  // freshly-opened databases.
+  inner.exec("DROP TRIGGER IF EXISTS propositions_au");
 
   // Rebuild FTS index on every open — external content tables don't persist
   // their index across connections, so we rebuild to ensure search works.

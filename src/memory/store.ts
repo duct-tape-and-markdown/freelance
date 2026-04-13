@@ -151,8 +151,11 @@ export class MemoryStore {
       propositions: [],
     };
 
-    // DO NOTHING (not DO UPDATE) so the propositions_au AFTER UPDATE trigger
-    // doesn't fire on dedup hits and churn the FTS index.
+    // DO NOTHING (not DO UPDATE) — if an existing row matches on
+    // (content_hash, collection) the insert becomes a no-op and returns
+    // no row. We then SELECT the existing id separately. This keeps emit
+    // idempotent under retry and keeps the FTS index untouched on dedup
+    // hits (there's no AFTER UPDATE trigger to churn regardless).
     const upsertProp = this.db.prepare(
       `INSERT INTO propositions (id, content, content_hash, collection, created_at)
        VALUES (?, ?, ?, ?, ?)
