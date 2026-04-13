@@ -27,7 +27,7 @@ Two config files in `.freelance/`, same schema, layered:
 
 Precedence: CLI flags > env vars > config.local.yml > config.yml > defaults
 
-Schema: `workflows` (string[]), `memory.enabled` (bool), `memory.dir` (string), `memory.ignore` (string[]), `memory.collections` (CollectionConfig[])
+Schema: `workflows` (string[]), `memory.enabled` (bool), `memory.dir` (string), `memory.collections` (CollectionConfig[])
 
 Arrays concatenate across files. Scalars use highest-precedence value.
 
