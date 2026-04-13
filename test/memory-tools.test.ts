@@ -58,7 +58,7 @@ describe("Memory MCP tools", () => {
     await cleanup();
   });
 
-  it("registers 8 memory tools", async () => {
+  it("registers 7 memory tools", async () => {
     const tools = await client.listTools();
     const memTools = tools.tools.filter((t) => t.name.startsWith("memory_"));
     const names = memTools.map((t) => t.name).sort();
@@ -67,7 +67,6 @@ describe("Memory MCP tools", () => {
       "memory_by_source",
       "memory_emit",
       "memory_inspect",
-      "memory_register_source",
       "memory_related",
       "memory_search",
       "memory_status",
@@ -75,15 +74,6 @@ describe("Memory MCP tools", () => {
   });
 
   it("write tools blocked without active memory traversal", async () => {
-    // memory_register_source should be blocked
-    const regResult = await client.callTool({
-      name: "memory_register_source",
-      arguments: { filePath: "auth.ts" },
-    });
-    expect(regResult.isError).toBeTruthy();
-    const regErr = parseContent(regResult) as { error: string };
-    expect(regErr.error).toContain("active memory workflow traversal");
-
     // memory_emit should be blocked
     const emitResult = await client.callTool({
       name: "memory_emit",
@@ -122,16 +112,7 @@ describe("Memory MCP tools", () => {
     });
     expect(startResult.isError).toBeFalsy();
 
-    // Register source — stateless hash echo
-    const regResult = await client.callTool({
-      name: "memory_register_source",
-      arguments: { filePath: "auth.ts" },
-    });
-    expect(regResult.isError).toBeFalsy();
-    const reg = parseContent(regResult) as { status: string };
-    expect(reg.status).toBe("registered");
-
-    // Emit
+    // Emit — memory_emit hashes sources at emit time, no pre-registration needed
     const emitResult = await client.callTool({
       name: "memory_emit",
       arguments: {

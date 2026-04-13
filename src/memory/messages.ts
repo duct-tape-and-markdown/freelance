@@ -19,9 +19,8 @@ export const compileMessages = {
         "After each read, call freelance_context_set to append the file path to " +
         "context.filesReadPaths. The path list is your working set — when you emit " +
         "propositions in the next node, you'll cite sources from this list. memory_emit " +
-        "hashes each cited source file at emit time, so calling memory_register_source " +
-        "is optional (it only returns the hash for your own bookkeeping; nothing is " +
-        "persisted).",
+        "hashes each cited source file at emit time for per-proposition provenance, so " +
+        "there's no pre-registration step: read, track the path, emit when ready.",
     },
     compiling: {
       description: "Emit propositions about what you learned from the source files.",

@@ -158,19 +158,6 @@ export function memoryBySource(store: MemoryStore, filePath: string, collection?
   }
 }
 
-export function memoryRegister(store: MemoryStore, filePath: string): void {
-  try {
-    const result = store.registerSource(filePath);
-    if (cli.json) {
-      outputJson(result);
-    } else {
-      info(`Registered: ${filePath}`);
-    }
-  } catch (e) {
-    handleError(e);
-  }
-}
-
 export function memoryEmit(store: MemoryStore, file: string, collection: string): void {
   try {
     // Read JSON from file or stdin

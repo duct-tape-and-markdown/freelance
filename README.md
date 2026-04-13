@@ -98,7 +98,6 @@ Write tools (gated by an active `memory:compile` or `memory:recall` traversal):
 
 | Tool | Description |
 |------|-------------|
-| `memory_register_source` | Hash one or more files and return their content hashes (stateless) |
 | `memory_emit` | Write propositions with required per-file source attribution |
 
 Read tools (available anytime):

@@ -28,8 +28,7 @@ Memory is a persistent knowledge graph backed by SQLite. The agent reads source 
 
 Write tools (gated by an active `memory:compile` or `memory:recall` traversal):
 
-- `memory_register_source` — Hash one or more source files and return their content hashes (stateless echo)
-- `memory_emit` — Write propositions about 1-2 entities with per-file source attribution
+- `memory_emit` — Write propositions about 1-2 entities with per-file source attribution (sources are hashed at emit time for per-proposition provenance)
 
 Read tools (available anytime):
 

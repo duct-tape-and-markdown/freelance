@@ -8,6 +8,15 @@ Graph-based workflow enforcement for AI coding agents.
 - `npm test` — run all tests
 - `npm run dev` — run in development mode
 
+## Code navigation
+
+Prefer AST-aware tools over plain text search when exploring or refactoring TypeScript:
+
+- **LSP tool** (`LSP`) — use for semantic queries: `goToDefinition`, `findReferences`, `hover`, `documentSymbol`, `workspaceSymbol`, `goToImplementation`, and call hierarchy (`prepareCallHierarchy` / `incomingCalls` / `outgoingCalls`). Better than Grep for "where is X used" or "what does this type resolve to".
+- **ast-grep** (`sg` on PATH) — use for structural search/rewrite: `sg run -p '<pattern>' -l ts src/`. Better than Grep when the match depends on syntax shape rather than a literal string (e.g. call sites of a specific method, JSX props, type annotations).
+
+Fall back to Grep only for literal strings, comments, or non-code files.
+
 ## Running
 
 ### Configuration

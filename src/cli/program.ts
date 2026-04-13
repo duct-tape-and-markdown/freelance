@@ -18,7 +18,6 @@ import {
   memoryBySource,
   memoryEmit,
   memoryInspect,
-  memoryRegister,
   memoryRelated,
   memorySearch,
   memoryStatus,
@@ -404,17 +403,6 @@ addWorkflowsOpt(
 });
 
 addWorkflowsOpt(
-  memoryCmd.command("register <file>").description("Register a file as a provenance source"),
-).action((file, opts) => {
-  const { store } = createMemoryStore({ workflows: opts.workflows });
-  try {
-    memoryRegister(store, file);
-  } finally {
-    store.close();
-  }
-});
-
-addWorkflowsOpt(
   memoryCmd
     .command("emit <file>")
     .description("Write propositions from JSON file (use - for stdin)")
@@ -497,58 +485,6 @@ addWorkflowsOpt(
 ).action((key, value, opts) => {
   configSetLocal(key, value, { workflows: opts.workflows });
 });
-
-// --- memory-register (for Claude Code PreToolUse hook) ---
-
-program
-  .command("memory-register <file>")
-  .description("Register a file as a provenance source (used by Claude Code hooks)")
-  .action(async (file) => {
-    const { MemoryStore } = await import("../memory/index.js");
-    const { COMPILE_KNOWLEDGE_ID } = await import("../memory/workflow.js");
-    const { RECOLLECTION_ID } = await import("../memory/recollection.js");
-
-    // Resolve config — this is a hot path (fires on every Read)
-    const dirs = resolveGraphsDirs();
-    const memConfig = resolveMemoryConfig(dirs, {});
-    if (!memConfig) {
-      // Memory disabled — silently exit.
-      process.exit(0);
-    }
-
-    // Gate: only register files when a memory traversal is active
-    const stateDirPath = resolveStateDir(dirs);
-    try {
-      const { openStateStore } = await import("../state/index.js");
-      const state = openStateStore(stateDirPath);
-      const memoryIds = new Set([COMPILE_KNOWLEDGE_ID, RECOLLECTION_ID]);
-      const active = state.list().some((r) => memoryIds.has(r.graphId));
-      state.close();
-      if (!active) {
-        // No active memory traversal — silently exit.
-        process.exit(0);
-      }
-    } catch {
-      // State store unavailable — silently exit.
-      process.exit(0);
-    }
-
-    const sourceRoot = process.cwd();
-    try {
-      const store = new MemoryStore(memConfig.db, sourceRoot);
-      const result = store.registerSource(file);
-      store.close();
-      if (!program.opts().quiet) {
-        process.stdout.write(`${JSON.stringify(result)}\n`);
-      }
-    } catch (e) {
-      // The hook must not block the agent's Read tool — swallow and log.
-      const msg = e instanceof Error ? e.message : String(e);
-      if (!program.opts().quiet) {
-        process.stderr.write(`memory-register: ${msg}\n`);
-      }
-    }
-  });
 
 // --- completion ---
 

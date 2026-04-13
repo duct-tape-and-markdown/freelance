@@ -105,12 +105,6 @@ export interface StatusResult {
   total_entities: number;
 }
 
-export interface RegisterSourceResult {
-  file_path: string;
-  content_hash: string;
-  status: "registered" | "skipped";
-}
-
 export interface CollectionConfig {
   name: string;
   description: string;

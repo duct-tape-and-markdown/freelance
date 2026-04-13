@@ -1,7 +1,7 @@
 /**
  * MCP tool registration for Freelance Memory.
  *
- * 8 tools: 2 write (register_source, emit), 6 read (browse, inspect, by_source, search, related, status).
+ * 7 tools: 1 write (emit), 6 read (browse, inspect, by_source, search, related, status).
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -29,27 +29,6 @@ export function registerMemoryTools(
   }
 
   // --- Write (gated by active memory traversal) ---
-
-  server.tool(
-    "memory_register_source",
-    "Hash one or more source files and return their content hashes. Optional for most workflows — memory_emit automatically hashes source files at emit time, so you don't need to pre-register. Call this when you want a file's current hash for your own bookkeeping (e.g. to compare against an earlier recorded value, or to cite a hash in a discussion without re-reading the file). Persists nothing; each call is independent. Gated: requires an active memory:compile or memory:recall traversal.",
-    {
-      filePath: z
-        .union([z.string().min(1), z.array(z.string().min(1)).min(1)])
-        .describe("Path(s) to source file(s) (relative to source root or absolute)"),
-    },
-    ({ filePath }) => {
-      try {
-        const blocked = requireMemoryTraversal();
-        if (blocked) return errorResponse(blocked);
-        const paths = Array.isArray(filePath) ? filePath : [filePath];
-        const results = paths.map((p) => store.registerSource(p));
-        return jsonResponse(results.length === 1 ? results[0] : results);
-      } catch (e) {
-        return handleError(e);
-      }
-    },
-  );
 
   server.tool(
     "memory_emit",

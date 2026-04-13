@@ -24,9 +24,7 @@ vi.mock("../src/cli/memory.js", () => ({
   memorySearch: vi.fn(),
   memoryRelated: vi.fn(),
   memoryBySource: vi.fn(),
-  memoryRegister: vi.fn(),
   memoryEmit: vi.fn(),
-  memoryEnd: vi.fn(),
 }));
 vi.mock("../src/cli/stateless.js", () => ({
   guideShow: vi.fn(),

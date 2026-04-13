@@ -66,7 +66,23 @@ provenance.
 - **Memory sessions** — `sessions` and `session_files` tables,
   `propositions.session_id` column, `getStaleSessionIds`, `end()`,
   `requireActiveSession`, and the session-files fallback branch in
-  `enrichProposition`. Memory tool count: 9 → 8.
+  `enrichProposition`.
+- **`memory_register_source` MCP tool removed** along with
+  `MemoryStore.registerSource`, `RegisterSourceResult`, the `freelance
+  memory register <file>` CLI subcommand, and the hidden `freelance
+  memory-register <file>` hot-path command that existed as a target for
+  a never-wired Claude Code `PreToolUse` hook. The sessions removal in
+  `11de30c` had already made this a stateless echo — hash a file, return
+  the hash, persist nothing. Nothing downstream consulted its result:
+  `memory_emit` re-hashes every cited source at emit time for
+  per-proposition provenance, so pre-registration was ceremonial. Rather
+  than keep a tool the workflow instructions explicitly told the agent
+  was optional, it's deleted. Memory tool count: 9 → 7 (sessions removal
+  dropped `memory_end`, this removal drops `memory_register_source`).
+  The sealed `memory:compile` workflow instruction that mentioned
+  register_source is rewritten to reflect the new reality: "read files,
+  track their paths in context.filesReadPaths, cite them in memory_emit
+  when ready."
 - **`better-sqlite3`** and `@types/better-sqlite3` dependencies. Zero native
   deps in the runtime install.
 - **`EXIT.DAEMON_ERROR`**, `loadGraphsOrFatal` (only caller was daemon start),

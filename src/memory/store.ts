@@ -39,16 +39,10 @@ import type {
   InspectResult,
   PropositionInfo,
   PropositionRow,
-  RegisterSourceResult,
   RelatedResult,
   SearchResult,
   StatusResult,
 } from "./types.js";
-
-// RegisterSourceResult is scheduled for removal alongside memory_register_source
-// in the next commit; keeping the import until that lands keeps this commit's
-// diff focused on the ignore-pattern removal.
-void (null as unknown as RegisterSourceResult);
 
 function generateId(): string {
   return crypto.randomUUID();
@@ -142,25 +136,6 @@ export class MemoryStore {
       : filePath;
 
     return { storedPath, resolvedPath };
-  }
-
-  // --- Source registration (zero-state hash echo) ---
-
-  /**
-   * Hash a source file and return its content hash. No persistent state is
-   * written — this is a plain read+hash operation, useful for ad-hoc
-   * bookkeeping. Scheduled for removal in the next commit along with the
-   * memory_register_source MCP tool.
-   */
-  registerSource(filePath: string): RegisterSourceResult {
-    const { storedPath, resolvedPath } = this.prepareSourcePath(filePath);
-
-    const hash = hashFile(resolvedPath);
-    if (hash === null) {
-      throw new Error(`Cannot read file: ${filePath}`);
-    }
-
-    return { file_path: storedPath, content_hash: hash, status: "registered" };
   }
 
   // --- Proposition emission ---
