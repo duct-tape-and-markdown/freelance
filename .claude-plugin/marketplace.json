@@ -15,13 +15,7 @@
       },
       "homepage": "https://github.com/duct-tape-and-markdown/freelance",
       "license": "MIT",
-      "keywords": [
-        "workflow",
-        "graph",
-        "mcp",
-        "enforcement",
-        "automation"
-      ],
+      "keywords": ["workflow", "graph", "mcp", "enforcement", "automation"],
       "version": "1.3.0-beta.0"
     }
   ]

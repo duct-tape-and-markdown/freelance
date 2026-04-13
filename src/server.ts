@@ -136,9 +136,7 @@ export async function startServer(
   const shutdown = (reason: string, exitCode = 0) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    process.stderr.write(
-      `freelance-mcp shutdown pid=${process.pid} reason=${reason}\n`,
-    );
+    process.stderr.write(`freelance-mcp shutdown pid=${process.pid} reason=${reason}\n`);
     void (async () => {
       try {
         if (stopWatcher) stopWatcher();
