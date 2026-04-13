@@ -17,7 +17,6 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
     .setContext({
       collection: "",
       query: "",
-      filesRead: 0,
       filesReadPaths: [],
       propositionsEmitted: 0,
       coverageSatisfied: false,
@@ -30,7 +29,7 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
         {
           target: "compiling",
           label: M.edges.filesRead.label,
-          condition: "context.filesRead > 0",
+          condition: "len(context.filesReadPaths) > 0",
           description: M.edges.filesRead.description,
         },
       ],

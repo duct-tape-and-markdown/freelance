@@ -21,7 +21,6 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
       query: "",
       recalledEntities: 0,
       recalledPropositions: 0,
-      sourcesRead: 0,
       sourcesReadPaths: [],
       gapsFilled: 0,
       coverageSatisfied: false,
@@ -47,7 +46,7 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
         {
           target: "comparing",
           label: M.edges.sourcesRead.label,
-          condition: "context.sourcesRead > 0",
+          condition: "len(context.sourcesReadPaths) > 0",
           description: M.edges.sourcesRead.description,
         },
       ],

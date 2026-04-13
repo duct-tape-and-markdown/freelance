@@ -17,11 +17,11 @@ export const compileMessages = {
       instructions:
         "Read files related to the compilation query using your native Read tool. " +
         "After each read, call freelance_context_set to append the file path to " +
-        "context.filesReadPaths and increment context.filesRead. The path list is your " +
-        "working set — when you emit propositions in the next node, you'll cite sources " +
-        "from this list. memory_emit hashes each cited source file at emit time, so " +
-        "calling memory_register_source is optional (it only returns the hash for your " +
-        "own bookkeeping; nothing is persisted).",
+        "context.filesReadPaths. The path list is your working set — when you emit " +
+        "propositions in the next node, you'll cite sources from this list. memory_emit " +
+        "hashes each cited source file at emit time, so calling memory_register_source " +
+        "is optional (it only returns the hash for your own bookkeeping; nothing is " +
+        "persisted).",
     },
     compiling: {
       description: "Emit propositions about what you learned from the source files.",
@@ -90,9 +90,9 @@ export const recallMessages = {
         "If recall found no prior knowledge, read sources relevant to the query on your own. " +
         "Focus on understanding what the sources say about the query subject matter — " +
         "not on indexing the files themselves. After each read, call freelance_context_set " +
-        "to append the file path to context.sourcesReadPaths and increment context.sourcesRead. " +
-        "The path list is your working set — when you fill gaps in the next nodes, cite " +
-        "sources from this list (memory_emit hashes them at emit time).",
+        "to append the file path to context.sourcesReadPaths. The path list is your " +
+        "working set — when you fill gaps in the next nodes, cite sources from this list " +
+        "(memory_emit hashes them at emit time).",
     },
     comparing: {
       description: "Compare existing knowledge against what sources say about the query.",
