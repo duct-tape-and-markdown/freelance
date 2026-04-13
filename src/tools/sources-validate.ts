@@ -4,7 +4,7 @@ import { findGraphFiles, loadSingleGraph } from "../loader.js";
 import { errorResponse, handleError, jsonResponse } from "../mcp-helpers.js";
 import { getDetailedDrift, validateGraphSources } from "../sources.js";
 import type { ValidatedGraph } from "../types.js";
-import type { FreelanceToolDeps } from "./index.js";
+import type { FreelanceToolDeps } from "./deps.js";
 
 export function registerSourcesValidateTool(server: McpServer, deps: FreelanceToolDeps): void {
   const { graphsDirs, sourceOpts } = deps;

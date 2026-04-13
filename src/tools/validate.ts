@@ -4,7 +4,7 @@ import { z } from "zod";
 import { findGraphFiles, loadSingleGraph, validateCrossGraphRefs } from "../loader.js";
 import { errorResponse, handleError, jsonResponse } from "../mcp-helpers.js";
 import type { ValidatedGraph } from "../types.js";
-import type { FreelanceToolDeps } from "./index.js";
+import type { FreelanceToolDeps } from "./deps.js";
 
 export function registerValidateTool(server: McpServer, deps: FreelanceToolDeps): void {
   const { graphsDirs } = deps;

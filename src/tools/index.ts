@@ -9,11 +9,9 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SourceOptions } from "../sources.js";
-import type { TraversalStore } from "../state/index.js";
-import type { ValidatedGraph } from "../types.js";
 import { registerAdvanceTool } from "./advance.js";
 import { registerContextSetTool } from "./context-set.js";
+import type { FreelanceToolDeps } from "./deps.js";
 import { registerDistillTool } from "./distill.js";
 import { registerGuideTool } from "./guide.js";
 import { registerInspectTool } from "./inspect.js";
@@ -25,20 +23,11 @@ import { registerSourcesValidateTool } from "./sources-validate.js";
 import { registerStartTool } from "./start.js";
 import { registerValidateTool } from "./validate.js";
 
-/**
- * Dependency bundle passed to each tool's register function. Tools
- * destructure only what they need. Mutable fields (loadErrors) are
- * exposed as getters so tools always see the current value without
- * being re-registered when the watcher mutates state.
- */
-export interface FreelanceToolDeps {
-  manager: TraversalStore;
-  graphs: Map<string, ValidatedGraph>;
-  sourceOpts: SourceOptions;
-  graphsDirs?: string[];
-  validateSourcesOnStart?: boolean;
-  getLoadErrors: () => Array<{ file: string; message: string }>;
-}
+// Re-exported for external consumers that construct the deps object
+// themselves (the root src/server.ts does this inline and doesn't need
+// the import, but keeping the re-export preserves the API of
+// `./tools/index.js` for anyone else).
+export type { FreelanceToolDeps } from "./deps.js";
 
 export function registerFreelanceTools(server: McpServer, deps: FreelanceToolDeps): void {
   registerListTool(server, deps);

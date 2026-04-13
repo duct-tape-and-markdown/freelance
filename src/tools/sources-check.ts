@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { handleError, jsonResponse } from "../mcp-helpers.js";
 import { checkSourcesDetailed } from "../sources.js";
-import type { FreelanceToolDeps } from "./index.js";
+import type { FreelanceToolDeps } from "./deps.js";
 
 export function registerSourcesCheckTool(server: McpServer, deps: FreelanceToolDeps): void {
   const { sourceOpts } = deps;
