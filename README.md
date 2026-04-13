@@ -229,9 +229,8 @@ freelance memory inspect <entity>         # Full entity details
 freelance memory search <query>           # Full-text search
 freelance memory related <entity>         # Co-occurring entities
 freelance memory by-source <file>         # Propositions from a source file
-freelance memory register <file>          # Register a provenance source
+freelance memory register <file>          # Hash a file (stateless echo)
 freelance memory emit <file>              # Write propositions from JSON
-freelance memory end                      # Close compilation session
 
 # Graph tools
 freelance guide [topic]                   # Authoring guidance

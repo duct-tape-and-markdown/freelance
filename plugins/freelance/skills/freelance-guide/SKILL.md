@@ -26,11 +26,15 @@ Freelance is a graph engine MCP that enforces structured workflows and builds a 
 
 Memory is a persistent knowledge graph backed by SQLite. The agent reads source files, reasons about them, and writes propositions. Every proposition tracks its source files and their content hashes — when files change, propositions are marked stale.
 
-- `memory_register_source` — Register a file as a provenance source (hashes content)
-- `memory_emit` — Write propositions about 1-2 entities with source attribution
-- `memory_end` — Close the active compilation session
+Write tools (gated by an active `memory:compile` or `memory:recall` traversal):
+
+- `memory_register_source` — Hash one or more source files and return their content hashes (stateless echo)
+- `memory_emit` — Write propositions about 1-2 entities with per-file source attribution
+
+Read tools (available anytime):
+
 - `memory_browse` — Find entities by name or kind, optionally scoped to a collection
-- `memory_inspect` — Full entity details with propositions, neighbors, and validity
+- `memory_inspect` — Full entity details with propositions, neighbors, and deduped source files
 - `memory_by_source` — All propositions linked to a source file
 - `memory_related` — Entity graph navigation — co-occurring entities with connection strength
 - `memory_search` — Full-text search across proposition content (FTS5)
