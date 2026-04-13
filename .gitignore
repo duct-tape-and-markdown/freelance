@@ -1,11 +1,30 @@
+# Dependencies & build
 node_modules
 dist
-*.log
-.vscode/
 coverage/
 *.tsbuildinfo
+
+# Editors & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Secrets & env
+.env
+.env.local
+.env.*.local
+.envrc
+.git-credentials
+*.pem
+
+# Project
 .freelance/
 .claude/settings.local.json
 docs/
-.envrc
-.git-credentials

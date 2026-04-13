@@ -3,6 +3,7 @@
   "version": "1.2.1",
   "mcpName": "io.github.duct-tape-and-markdown/freelance",
   "type": "module",
+  "sideEffects": false,
   "description": "Graph-based workflow enforcement for AI coding agents",
   "main": "dist/index.js",
   "bin": {
@@ -35,9 +36,8 @@
   },
   "files": [
     "dist/",
-    "templates/",
-    "!dist/**/*.js.map",
-    "!dist/**/*.d.ts.map"
+    "src/",
+    "templates/"
   ],
   "scripts": {
     "build": "tsc",
