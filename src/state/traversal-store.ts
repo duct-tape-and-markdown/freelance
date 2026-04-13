@@ -6,6 +6,7 @@
 
 import crypto from "node:crypto";
 import { GraphEngine } from "../engine/index.js";
+import type { OpContext, OpsRegistry } from "../engine/operations.js";
 import { EngineError } from "../errors.js";
 import type {
   AdvanceResult,
@@ -23,19 +24,47 @@ function generateTraversalId(): string {
   return `tr_${crypto.randomBytes(4).toString("hex")}`;
 }
 
+export interface TraversalStoreOptions {
+  maxDepth?: number;
+  /**
+   * Ops registry passed through to every GraphEngine instance constructed
+   * for load/create/advance operations. Required for any workflow that
+   * contains programmatic nodes; graphs without them work without one.
+   */
+  opsRegistry?: OpsRegistry;
+  /**
+   * Host capabilities passed alongside opsRegistry to op handlers during
+   * programmatic drain. Must be provided whenever opsRegistry is provided
+   * (the drain loop refuses to run ops without both).
+   */
+  opContext?: OpContext;
+}
+
 export class TraversalStore {
   private state: StateStore;
   private graphs: Map<string, ValidatedGraph>;
   private maxDepth: number;
+  private opsRegistry?: OpsRegistry;
+  private opContext?: OpContext;
 
   constructor(
     state: StateStore,
     graphs: Map<string, ValidatedGraph>,
-    options?: { maxDepth?: number },
+    options?: TraversalStoreOptions,
   ) {
     this.state = state;
     this.graphs = graphs;
     this.maxDepth = options?.maxDepth ?? 5;
+    this.opsRegistry = options?.opsRegistry;
+    this.opContext = options?.opContext;
+  }
+
+  private makeEngine(): GraphEngine {
+    return new GraphEngine(this.graphs, {
+      maxDepth: this.maxDepth,
+      opsRegistry: this.opsRegistry,
+      opContext: this.opContext,
+    });
   }
 
   close(): void {
@@ -88,7 +117,7 @@ export class TraversalStore {
     initialContext?: Record<string, unknown>,
   ): { traversalId: string } & StartResult {
     const id = generateTraversalId();
-    const engine = new GraphEngine(this.graphs, { maxDepth: this.maxDepth });
+    const engine = this.makeEngine();
     const result = engine.start(graphId, initialContext);
 
     const stack = engine.getStack();
@@ -172,7 +201,7 @@ export class TraversalStore {
       throw new EngineError(`Traversal "${traversalId}" not found`, "TRAVERSAL_NOT_FOUND");
     }
 
-    const engine = new GraphEngine(this.graphs, { maxDepth: this.maxDepth });
+    const engine = this.makeEngine();
     engine.restoreStack(record.stack);
     return { engine, record };
   }
