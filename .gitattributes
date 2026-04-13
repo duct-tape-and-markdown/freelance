@@ -1,0 +1,21 @@
+# Normalize line endings on commit. Working-copy line endings are forced to
+# LF regardless of the client's core.autocrlf setting, so Windows clones
+# don't silently acquire CRLF files that then fail `biome check` in the
+# pre-commit hook.
+* text=auto eol=lf
+
+# Binary files — never modify line endings.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
