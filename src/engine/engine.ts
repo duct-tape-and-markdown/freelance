@@ -159,14 +159,14 @@ export class GraphEngine {
       return popSubgraph(this.stack, this.graphs, previousNode, edge);
     }
     if (!isTerminal && !isWait && newNodeDef.subgraph) {
-      return maybePushSubgraph(
-        this.stack,
-        this.graphs,
+      return maybePushSubgraph({
+        stack: this.stack,
+        graphs: this.graphs,
         previousNode,
         edge,
         newNodeDef,
-        this.maxDepth,
-      );
+        maxDepth: this.maxDepth,
+      });
     }
 
     // Wait node arrival

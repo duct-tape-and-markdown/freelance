@@ -10,14 +10,17 @@ import type {
 import { cloneContext, toNodeInfo } from "./helpers.js";
 import { evaluateTransitions } from "./transitions.js";
 
-export function maybePushSubgraph(
-  stack: SessionState[],
-  graphs: Map<string, ValidatedGraph>,
-  previousNode: string,
-  edge: string,
-  newNodeDef: NodeDefinition,
-  maxDepth: number,
-): AdvanceSuccessResult {
+interface PushSubgraphArgs {
+  stack: SessionState[];
+  graphs: Map<string, ValidatedGraph>;
+  previousNode: string;
+  edge: string;
+  newNodeDef: NodeDefinition;
+  maxDepth: number;
+}
+
+export function maybePushSubgraph(args: PushSubgraphArgs): AdvanceSuccessResult {
+  const { stack, graphs, previousNode, edge, newNodeDef, maxDepth } = args;
   const parentSession = stack[stack.length - 1];
   const subgraph = newNodeDef.subgraph!;
 
@@ -29,7 +32,11 @@ export function maybePushSubgraph(
       condMet = false;
     }
     if (!condMet) {
-      const parentDef = graphs.get(parentSession.graphId)!.definition;
+      const parentGraph = graphs.get(parentSession.graphId);
+      if (!parentGraph) {
+        throw new EngineError(`Graph "${parentSession.graphId}" not found`, "GRAPH_NOT_FOUND");
+      }
+      const parentDef = parentGraph.definition;
       return {
         status: "advanced",
         isError: false,
