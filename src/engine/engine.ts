@@ -24,19 +24,43 @@ import {
   checkWaitBlocking,
 } from "./gates.js";
 import { cloneContext, toNodeInfo } from "./helpers.js";
+import type { OpContext, OpsRegistry } from "./operations.js";
+import { drainProgrammaticChain } from "./programmatic.js";
 import { maybePushSubgraph, popSubgraph } from "./subgraph.js";
 import { evaluateTransitions } from "./transitions.js";
 import { computeTimeoutAt, evaluateWaitConditions } from "./wait.js";
 
+export interface GraphEngineOptions {
+  maxDepth?: number;
+  /**
+   * Ops registry for programmatic-node execution. When present, the drain
+   * loop can run operations from this registry between agent turns. When
+   * absent, any programmatic node encountered during traversal throws
+   * EngineError("NO_OPS_REGISTRY"). Graphs without programmatic nodes run
+   * identically with or without the registry.
+   */
+  opsRegistry?: OpsRegistry;
+  /**
+   * Host capabilities passed to op handlers (currently: a MemoryStore
+   * reference). Required alongside opsRegistry — the drain loop refuses
+   * to run ops without both.
+   */
+  opContext?: OpContext;
+}
+
 export class GraphEngine {
   private stack: SessionState[] = [];
   private maxDepth: number;
+  private opsRegistry?: OpsRegistry;
+  private opContext?: OpContext;
 
   constructor(
     private graphs: Map<string, ValidatedGraph>,
-    options?: { maxDepth?: number },
+    options?: GraphEngineOptions,
   ) {
     this.maxDepth = options?.maxDepth ?? 5;
+    this.opsRegistry = options?.opsRegistry;
+    this.opContext = options?.opContext;
   }
 
   list(): GraphListResult {
@@ -78,15 +102,23 @@ export class GraphEngine {
       startedAt: new Date().toISOString(),
     });
 
-    const node = def.nodes[def.startNode];
+    // If the start node is programmatic, drain the chain before handing
+    // control back to the agent. The agent should never see a programmatic
+    // node as an "arrived at" position — they see whatever non-programmatic
+    // node the chain terminates at, with context already populated.
+    const session = this.activeSession();
+    drainProgrammaticChain(session, def, this.opsRegistry, this.opContext);
+
+    const landedNodeId = session.currentNode;
+    const node = def.nodes[landedNodeId];
     return {
       status: "started",
       isError: false,
       graphId,
-      currentNode: def.startNode,
+      currentNode: landedNodeId,
       node: toNodeInfo(node),
-      validTransitions: evaluateTransitions(node, context),
-      context: cloneContext(context),
+      validTransitions: evaluateTransitions(node, session.context),
+      context: cloneContext(session.context),
       ...(def.sources && def.sources.length > 0 ? { graphSources: def.sources } : {}),
     } satisfies StartResult;
   }
@@ -149,6 +181,15 @@ export class GraphEngine {
     });
     session.currentNode = edgeDef.target;
     session.turnCount = 0;
+
+    // Drain zero or more programmatic hops before the agent-visible
+    // dispatch. The drainer mutates session.currentNode, history, and
+    // context; on return we're guaranteed to be on a non-programmatic
+    // node (or one that the dispatch below will handle — terminal,
+    // wait, or subgraph push are all non-programmatic by schema
+    // constraint, so they fall through cleanly). If no programmatic
+    // node is in the chain this is effectively a no-op.
+    drainProgrammaticChain(session, def, this.opsRegistry, this.opContext);
 
     const newNodeDef = def.nodes[session.currentNode];
     const isTerminal = newNodeDef.type === "terminal";
