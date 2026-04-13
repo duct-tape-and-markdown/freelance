@@ -39,27 +39,27 @@ jobs:
           node dist/bin.js --help
           node dist/bin.js visualize ./test/fixtures-valid/valid-simple.workflow.yaml --format mermaid
 
-      - name: Pack
-        id: pack
-        run: |
-          # --ignore-scripts so the `prepare` lifecycle (simple-git-hooks setup)
-          # doesn't pollute stdout when we capture the tarball filename.
-          npm pack --ignore-scripts --silent > /dev/null
-          echo "tarball=$(ls freelance-mcp-*.tgz | head -1)" >> "$GITHUB_OUTPUT"
-
-      - name: publint
-        run: npx -y publint "${{ steps.pack.outputs.tarball }}"
-
       - name: arethetypeswrong
         run: >-
           npx -y @arethetypeswrong/cli
           --ignore-rules cjs-resolves-to-esm no-resolution
           --pack .
 
+      - name: Pack
+        id: pack
+        run: |
+          # --ignore-scripts so the `prepare` lifecycle (simple-git-hooks setup)
+          # doesn't pollute stdout when we capture the tarball filename.
+          # Runs AFTER attw: attw --pack . deletes the tarball it creates during
+          # cleanup, which would also wipe ours since they share a filename.
+          npm pack --ignore-scripts --silent > /dev/null
+          echo "tarball=$(ls freelance-mcp-*.tgz | head -1)" >> "$GITHUB_OUTPUT"
+
+      - name: publint
+        run: npx -y publint "${{ steps.pack.outputs.tarball }}"
+
       - name: Install and smoke test the tarball
         run: |
-          set -x
-          ls -la "$GITHUB_WORKSPACE/${{ steps.pack.outputs.tarball }}"
           TEMPDIR="$(mktemp -d)"
           cd "$TEMPDIR"
           npm init -y > /dev/null
