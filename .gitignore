@@ -3,6 +3,7 @@ node_modules
 dist
 coverage/
 *.tsbuildinfo
+*.tgz
 
 # Editors & OS
 .vscode/
