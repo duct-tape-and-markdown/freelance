@@ -69,17 +69,18 @@ export function sourcesHash(sourceOpts: SourceOptions, paths: string[]): void {
 export function sourcesCheck(sourceOpts: SourceOptions, paths: string[]): void {
   try {
     // Expect path:hash or path:section:hash format
-    const sources = paths.map((p) => {
+    const sources: Array<{ path: string; section?: string; hash: string }> = [];
+    for (const p of paths) {
       const parts = p.split(":");
       if (parts.length === 3) {
-        return { path: parts[0], section: parts[1], hash: parts[2] };
+        sources.push({ path: parts[0], section: parts[1], hash: parts[2] });
+      } else if (parts.length === 2) {
+        sources.push({ path: parts[0], hash: parts[1] });
+      } else {
+        info(`Error: invalid format "${p}" — expected path:hash or path:section:hash`);
+        process.exit(1);
       }
-      if (parts.length === 2) {
-        return { path: parts[0], hash: parts[1] };
-      }
-      info(`Error: invalid format "${p}" — expected path:hash or path:section:hash`);
-      process.exit(1);
-    });
+    }
     const result = checkSourcesDetailed(sources, sourceOpts);
     if (cli.json) {
       outputJson(result);
