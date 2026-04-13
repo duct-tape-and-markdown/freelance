@@ -72,70 +72,6 @@ describe("MemoryStore", () => {
     });
   });
 
-  describe("ignore filtering", () => {
-    let ignoredStore: MemoryStore;
-
-    beforeEach(() => {
-      ignoredStore = new MemoryStore(path.join(tmpDir, "memory-ignored.db"), tmpDir, [
-        "**/node_modules/**",
-        "**/dist/**",
-        "**/.git/**",
-        "**/*.lock",
-      ]);
-    });
-
-    afterEach(() => {
-      ignoredStore.close();
-    });
-
-    it("skips files in ignored directories", () => {
-      fs.mkdirSync(path.join(tmpDir, "node_modules", "lodash"), { recursive: true });
-      writeFile(path.join(tmpDir, "node_modules", "lodash"), "index.js", "module.exports = {}");
-
-      const result = ignoredStore.registerSource("node_modules/lodash/index.js");
-      expect(result.status).toBe("skipped");
-      expect(result.content_hash).toBe("");
-    });
-
-    it("skips files matching extension patterns", () => {
-      writeFile(tmpDir, "package-lock.lock", "{}");
-      const result = ignoredStore.registerSource("package-lock.lock");
-      expect(result.status).toBe("skipped");
-    });
-
-    it("skips nested ignored directories", () => {
-      fs.mkdirSync(path.join(tmpDir, "packages", "api", "dist"), { recursive: true });
-      writeFile(path.join(tmpDir, "packages", "api", "dist"), "index.js", "compiled");
-
-      const result = ignoredStore.registerSource("packages/api/dist/index.js");
-      expect(result.status).toBe("skipped");
-    });
-
-    it("allows files not matching any pattern", () => {
-      fs.mkdirSync(path.join(tmpDir, "src"), { recursive: true });
-      writeFile(path.join(tmpDir, "src"), "auth.ts", "class Auth {}");
-
-      const result = ignoredStore.registerSource("src/auth.ts");
-      expect(result.status).toBe("registered");
-    });
-
-    it("ignored registerSource returns skipped without touching storage", () => {
-      writeFile(tmpDir, "auth.ts", "class Auth {}");
-      ignoredStore.registerSource("auth.ts");
-      ignoredStore.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }], C);
-
-      const propsBefore = ignoredStore.status().total_propositions;
-
-      fs.mkdirSync(path.join(tmpDir, "node_modules"), { recursive: true });
-      writeFile(path.join(tmpDir, "node_modules"), "lodash.js", "x");
-      const result = ignoredStore.registerSource("node_modules/lodash.js");
-      expect(result.status).toBe("skipped");
-
-      // Registration is zero-state, so proposition counts are unchanged.
-      expect(ignoredStore.status().total_propositions).toBe(propsBefore);
-    });
-  });
-
   describe("proposition emission", () => {
     it("rejects emit when a source file cannot be read", () => {
       expect(() =>
@@ -769,15 +705,10 @@ describe("MemoryStore", () => {
     });
 
     it("scopes to collection when provided", () => {
-      const colStore = new MemoryStore(
-        path.join(tmpDir, "rel-col.db"),
-        tmpDir,
-        [],
-        [
-          { name: "spec", description: "Specs", paths: [""] },
-          { name: "domain", description: "Domain", paths: [""] },
-        ],
-      );
+      const colStore = new MemoryStore(path.join(tmpDir, "rel-col.db"), tmpDir, [
+        { name: "spec", description: "Specs", paths: [""] },
+        { name: "domain", description: "Domain", paths: [""] },
+      ]);
 
       writeFile(tmpDir, "a.ts", "x");
       colStore.registerSource("a.ts");
@@ -817,15 +748,10 @@ describe("MemoryStore", () => {
     });
 
     it("same proposition in two collections creates two rows", () => {
-      const colStore = new MemoryStore(
-        path.join(tmpDir, "col.db"),
-        tmpDir,
-        [],
-        [
-          { name: "spec", description: "Specs", paths: [""] },
-          { name: "domain", description: "Domain", paths: [""] },
-        ],
-      );
+      const colStore = new MemoryStore(path.join(tmpDir, "col.db"), tmpDir, [
+        { name: "spec", description: "Specs", paths: [""] },
+        { name: "domain", description: "Domain", paths: [""] },
+      ]);
 
       writeFile(tmpDir, "a.ts", "x");
       colStore.registerSource("a.ts");
@@ -838,12 +764,9 @@ describe("MemoryStore", () => {
     });
 
     it("deduplicates within the same collection", () => {
-      const colStore = new MemoryStore(
-        path.join(tmpDir, "col2.db"),
-        tmpDir,
-        [],
-        [{ name: "spec", description: "Specs", paths: [""] }],
-      );
+      const colStore = new MemoryStore(path.join(tmpDir, "col2.db"), tmpDir, [
+        { name: "spec", description: "Specs", paths: [""] },
+      ]);
 
       writeFile(tmpDir, "a.ts", "x");
       colStore.registerSource("a.ts");
@@ -861,15 +784,10 @@ describe("MemoryStore", () => {
     });
 
     it("browse with collection filter scopes results", () => {
-      const colStore = new MemoryStore(
-        path.join(tmpDir, "col3.db"),
-        tmpDir,
-        [],
-        [
-          { name: "spec", description: "Specs", paths: [""] },
-          { name: "domain", description: "Domain", paths: [""] },
-        ],
-      );
+      const colStore = new MemoryStore(path.join(tmpDir, "col3.db"), tmpDir, [
+        { name: "spec", description: "Specs", paths: [""] },
+        { name: "domain", description: "Domain", paths: [""] },
+      ]);
 
       writeFile(tmpDir, "a.ts", "x");
       colStore.registerSource("a.ts");
@@ -893,15 +811,10 @@ describe("MemoryStore", () => {
     });
 
     it("inspect with collection filter shows only that collection's propositions", () => {
-      const colStore = new MemoryStore(
-        path.join(tmpDir, "col4.db"),
-        tmpDir,
-        [],
-        [
-          { name: "spec", description: "Specs", paths: [""] },
-          { name: "domain", description: "Domain", paths: [""] },
-        ],
-      );
+      const colStore = new MemoryStore(path.join(tmpDir, "col4.db"), tmpDir, [
+        { name: "spec", description: "Specs", paths: [""] },
+        { name: "domain", description: "Domain", paths: [""] },
+      ]);
 
       writeFile(tmpDir, "a.ts", "x");
       colStore.registerSource("a.ts");
@@ -926,15 +839,10 @@ describe("MemoryStore", () => {
     });
 
     it("search with collection filter scopes results", () => {
-      const colStore = new MemoryStore(
-        path.join(tmpDir, "col5.db"),
-        tmpDir,
-        [],
-        [
-          { name: "spec", description: "Specs", paths: [""] },
-          { name: "domain", description: "Domain", paths: [""] },
-        ],
-      );
+      const colStore = new MemoryStore(path.join(tmpDir, "col5.db"), tmpDir, [
+        { name: "spec", description: "Specs", paths: [""] },
+        { name: "domain", description: "Domain", paths: [""] },
+      ]);
 
       writeFile(tmpDir, "a.ts", "x");
       colStore.registerSource("a.ts");
@@ -958,15 +866,10 @@ describe("MemoryStore", () => {
     });
 
     it("status scoped to collection", () => {
-      const colStore = new MemoryStore(
-        path.join(tmpDir, "col6.db"),
-        tmpDir,
-        [],
-        [
-          { name: "spec", description: "Specs", paths: [""] },
-          { name: "domain", description: "Domain", paths: [""] },
-        ],
-      );
+      const colStore = new MemoryStore(path.join(tmpDir, "col6.db"), tmpDir, [
+        { name: "spec", description: "Specs", paths: [""] },
+        { name: "domain", description: "Domain", paths: [""] },
+      ]);
 
       writeFile(tmpDir, "a.ts", "x");
       colStore.registerSource("a.ts");

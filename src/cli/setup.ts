@@ -101,7 +101,6 @@ export function resolveMemoryConfig(
   return {
     enabled: true,
     db: dbPath,
-    ignore: cfg.memory.ignore,
     collections: cfg.memory.collections,
   };
 }
@@ -157,11 +156,6 @@ export function createMemoryStore(opts: CliSetupOptions): { store: MemoryStore; 
   if (!memConfig) {
     throw new Error("Memory is disabled. Enable it in config.yml or remove --no-memory.");
   }
-  const store = new MemoryStore(
-    memConfig.db,
-    setup.sourceRoot,
-    memConfig.ignore,
-    memConfig.collections,
-  );
+  const store = new MemoryStore(memConfig.db, setup.sourceRoot, memConfig.collections);
   return { store, setup };
 }

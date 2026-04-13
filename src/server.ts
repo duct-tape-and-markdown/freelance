@@ -67,7 +67,7 @@ export function createServer(
         if (!memoryStore || !options?.graphsDirs) return;
         try {
           const config = loadConfigFromDirs(options.graphsDirs);
-          memoryStore.updateConfig(config.memory.ignore, config.memory.collections);
+          memoryStore.updateConfig(config.memory.collections);
           process.stderr.write("Freelance: memory config reloaded\n");
         } catch {
           process.stderr.write("Freelance: failed to reload memory config\n");
@@ -92,7 +92,6 @@ export function createServer(
     memoryStore = new MemoryStore(
       options.memory.db,
       options.sourceRoot,
-      options.memory.ignore,
       options.memory.collections,
     );
     const hasActiveMemoryTraversal = () =>

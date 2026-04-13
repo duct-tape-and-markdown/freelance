@@ -115,30 +115,6 @@ describe("config + memory resolution", () => {
       if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true });
     }
   });
-
-  it("memory ignore patterns merge from config.yml and config.local.yml", () => {
-    const freelanceDir = makeDir("mem-ignore-merge-");
-    fs.writeFileSync(
-      path.join(freelanceDir, "config.yml"),
-      `
-memory:
-  ignore:
-    - "**/node_modules/**"
-`,
-    );
-    fs.writeFileSync(
-      path.join(freelanceDir, "config.local.yml"),
-      `
-memory:
-  ignore:
-    - "**/vendor/**"
-`,
-    );
-
-    const memConfig = resolveMemoryConfig([freelanceDir], {});
-    expect(memConfig).not.toBeNull();
-    expect(memConfig!.ignore).toEqual(["**/node_modules/**", "**/vendor/**"]);
-  });
 });
 
 describe("multi-dir config merge", () => {
@@ -150,8 +126,6 @@ describe("multi-dir config merge", () => {
       path.join(projectDir, "config.yml"),
       `
 memory:
-  ignore:
-    - "**/dist/**"
   collections:
     - name: project
       description: Project knowledge
@@ -162,8 +136,10 @@ memory:
       path.join(userDir, "config.yml"),
       `
 memory:
-  ignore:
-    - "**/cache/**"
+  collections:
+    - name: user
+      description: User knowledge
+      paths: [""]
 `,
     );
     fs.writeFileSync(
@@ -176,10 +152,9 @@ memory:
 
     const config = loadConfigFromDirs([projectDir, userDir]);
 
-    // Arrays concatenate
-    expect(config.memory.ignore).toEqual(["**/dist/**", "**/cache/**"]);
-    expect(config.memory.collections).toHaveLength(1);
-    expect(config.memory.collections![0].name).toBe("project");
+    // Arrays concatenate across directories
+    expect(config.memory.collections).toHaveLength(2);
+    expect(config.memory.collections!.map((c) => c.name)).toEqual(["project", "user"]);
 
     // Scalar from user's local overrides
     expect(config.memory.dir).toBe("/tmp/user-persistent");

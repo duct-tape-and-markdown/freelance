@@ -14,7 +14,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import picomatch from "picomatch";
 import { hashContent } from "../sources.js";
 import { type Db, openDatabase } from "./db.js";
 import {
@@ -46,18 +45,17 @@ import type {
   StatusResult,
 } from "./types.js";
 
+// RegisterSourceResult is scheduled for removal alongside memory_register_source
+// in the next commit; keeping the import until that lands keeps this commit's
+// diff focused on the ignore-pattern removal.
+void (null as unknown as RegisterSourceResult);
+
 function generateId(): string {
   return crypto.randomUUID();
 }
 
 function now(): string {
   return new Date().toISOString();
-}
-
-function isIgnored(filePath: string, patterns: string[]): boolean {
-  if (patterns.length === 0) return false;
-  const match = picomatch(patterns, { dot: true });
-  return match(filePath.replace(/\\/g, "/"));
 }
 
 function hashFile(filePath: string): string | null {
@@ -85,18 +83,11 @@ const DEFAULT_COLLECTION: CollectionConfig = {
 export class MemoryStore {
   private db: Db;
   private sourceRoot: string;
-  private ignore: string[];
   private collections: Map<string, CollectionConfig>;
 
-  constructor(
-    dbPath: string,
-    sourceRoot?: string,
-    ignore?: string[],
-    collections?: CollectionConfig[],
-  ) {
+  constructor(dbPath: string, sourceRoot?: string, collections?: CollectionConfig[]) {
     this.db = openDatabase(dbPath);
     this.sourceRoot = sourceRoot ?? process.cwd();
-    this.ignore = ignore ?? [];
     this.collections = new Map(
       (collections && collections.length > 0 ? collections : [DEFAULT_COLLECTION]).map((c) => [
         c.name,
@@ -112,8 +103,7 @@ export class MemoryStore {
     }
   }
 
-  updateConfig(ignore?: string[], collections?: CollectionConfig[]): void {
-    if (ignore !== undefined) this.ignore = ignore;
+  updateConfig(collections?: CollectionConfig[]): void {
     if (collections !== undefined && collections.length > 0) {
       this.collections = new Map(collections.map((c) => [c.name, c]));
     }
@@ -126,14 +116,13 @@ export class MemoryStore {
   // --- Source path resolution ---
 
   /**
-   * Validate a source file path against the source root and ignore patterns.
-   * Returns the stored (relative) path, resolved absolute path, and ignore
-   * status. Throws if the path escapes the source root.
+   * Validate a source file path against the source root. Returns the stored
+   * (relative) path and the resolved absolute path. Throws if the path
+   * escapes the source root.
    */
   private prepareSourcePath(filePath: string): {
     storedPath: string;
     resolvedPath: string;
-    ignored: boolean;
   } {
     const resolvedPath = path.isAbsolute(filePath)
       ? filePath
@@ -152,22 +141,19 @@ export class MemoryStore {
       ? path.relative(this.sourceRoot, filePath)
       : filePath;
 
-    return { storedPath, resolvedPath, ignored: isIgnored(storedPath, this.ignore) };
+    return { storedPath, resolvedPath };
   }
 
   // --- Source registration (zero-state hash echo) ---
 
   /**
    * Hash a source file and return its content hash. No persistent state is
-   * written — registration is a workflow-level ritual enforced by the
-   * compile-knowledge sealed workflow, not a storage requirement.
+   * written — this is a plain read+hash operation, useful for ad-hoc
+   * bookkeeping. Scheduled for removal in the next commit along with the
+   * memory_register_source MCP tool.
    */
   registerSource(filePath: string): RegisterSourceResult {
-    const { storedPath, resolvedPath, ignored } = this.prepareSourcePath(filePath);
-
-    if (ignored) {
-      return { file_path: storedPath, content_hash: "", status: "skipped" };
-    }
+    const { storedPath, resolvedPath } = this.prepareSourcePath(filePath);
 
     const hash = hashFile(resolvedPath);
     if (hash === null) {

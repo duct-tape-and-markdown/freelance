@@ -38,8 +38,6 @@ describe("configShow", () => {
       path.join(dir, "config.yml"),
       `
 memory:
-  ignore:
-    - "**/dist/**"
   collections:
     - name: default
       description: General
@@ -50,7 +48,6 @@ memory:
     const output = stderrOutput.join("");
     expect(output).toContain("Graph directories:");
     expect(output).toContain(dir);
-    expect(output).toContain("ignore:");
     expect(output).toContain("collections: default");
     expect(output).toContain("Loaded from:");
   });

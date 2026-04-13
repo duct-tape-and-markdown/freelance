@@ -6,7 +6,7 @@
  *   .freelance/config.local.yml  — gitignored, machine-specific (plugin hooks)
  *
  * Merge rules:
- *   - Arrays (workflows, memory.ignore, memory.collections) concatenate
+ *   - Arrays (workflows, memory.collections) concatenate
  *   - Scalars (memory.enabled, memory.dir) use local over base
  *   - CLI flags and env vars override everything (handled by callers)
  */
@@ -29,7 +29,6 @@ const memorySchema = z
   .object({
     enabled: z.boolean().optional(),
     dir: z.string().optional(),
-    ignore: z.array(z.string()).optional(),
     collections: z.array(collectionSchema).optional(),
   })
   .optional();
@@ -47,7 +46,6 @@ export interface FreelanceConfig {
   memory: {
     enabled?: boolean;
     dir?: string;
-    ignore?: string[];
     collections?: CollectionConfig[];
   };
   /** Which files contributed to this config, in load order. */
@@ -84,8 +82,9 @@ function resolvePaths(config: FreelanceConfigFile, baseDir: string): FreelanceCo
 }
 
 /**
- * Merge two config objects. Arrays concatenate so plugin hooks can extend
- * ignore lists without clobbering project-level ones. Scalars use overlay value.
+ * Merge two config objects. Arrays (workflows, collections) concatenate so
+ * plugin hooks can extend project-level values without clobbering them.
+ * Scalars use the overlay value.
  */
 function mergeConfigs(
   base: FreelanceConfigFile,
@@ -103,7 +102,6 @@ function mergeConfigs(
       ...baseMem,
       ...(overlay.memory.enabled !== undefined ? { enabled: overlay.memory.enabled } : {}),
       ...(overlay.memory.dir !== undefined ? { dir: overlay.memory.dir } : {}),
-      ignore: [...(baseMem.ignore ?? []), ...(overlay.memory.ignore ?? [])],
       collections: [...(baseMem.collections ?? []), ...(overlay.memory.collections ?? [])],
     };
   }
@@ -118,7 +116,6 @@ function toFreelanceConfig(merged: FreelanceConfigFile, sources: string[]): Free
     memory: {
       enabled: merged.memory?.enabled,
       dir: merged.memory?.dir,
-      ignore: merged.memory?.ignore?.length ? merged.memory.ignore : undefined,
       collections: merged.memory?.collections?.length
         ? (merged.memory.collections as CollectionConfig[])
         : undefined,

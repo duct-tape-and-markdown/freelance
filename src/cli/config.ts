@@ -50,9 +50,6 @@ export function configShow(opts: { workflows?: string | string[] }): void {
   if (config.memory.dir) {
     info(`    dir: ${config.memory.dir}`);
   }
-  if (config.memory.ignore?.length) {
-    info(`    ignore: ${config.memory.ignore.join(", ")}`);
-  }
   if (config.memory.collections?.length) {
     info(`    collections: ${config.memory.collections.map((c) => c.name).join(", ")}`);
   }

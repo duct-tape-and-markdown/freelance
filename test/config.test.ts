@@ -33,8 +33,6 @@ describe("loadConfig", () => {
       path.join(dir, "config.yml"),
       `
 memory:
-  ignore:
-    - "**/node_modules/**"
   collections:
     - name: default
       description: General
@@ -42,7 +40,6 @@ memory:
 `,
     );
     const config = loadConfig(dir);
-    expect(config.memory.ignore).toEqual(["**/node_modules/**"]);
     expect(config.memory.collections).toHaveLength(1);
     expect(config.memory.collections![0].name).toBe("default");
     expect(config.sources).toHaveLength(1);
@@ -57,8 +54,7 @@ memory:
       path.join(dir, "config.yml"),
       `
 memory:
-  ignore:
-    - "**/dist/**"
+  enabled: true
 `,
     );
     fs.writeFileSync(
@@ -68,14 +64,12 @@ workflows:
   - ${pluginDir}
 memory:
   dir: /tmp/persistent
-  ignore:
-    - "**/cache/**"
 `,
     );
     const config = loadConfig(dir);
     expect(config.workflows).toEqual([pluginDir]);
     expect(config.memory.dir).toBe("/tmp/persistent");
-    expect(config.memory.ignore).toEqual(["**/dist/**", "**/cache/**"]);
+    expect(config.memory.enabled).toBe(true);
     expect(config.sources).toHaveLength(2);
   });
 
@@ -135,22 +129,20 @@ describe("loadConfigFromDirs", () => {
     fs.writeFileSync(
       path.join(dir1, "config.yml"),
       `
-memory:
-  ignore:
-    - "*.log"
+workflows:
+  - /a
 `,
     );
     fs.writeFileSync(
       path.join(dir2, "config.yml"),
       `
-memory:
-  ignore:
-    - "*.tmp"
+workflows:
+  - /b
 `,
     );
 
     const config = loadConfigFromDirs([dir1, dir2]);
-    expect(config.memory.ignore).toEqual(["*.log", "*.tmp"]);
+    expect(config.workflows).toEqual(["/a", "/b"]);
     expect(config.sources).toHaveLength(2);
   });
 

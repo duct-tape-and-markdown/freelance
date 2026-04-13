@@ -120,6 +120,5 @@ export interface CollectionConfig {
 export interface MemoryConfig {
   enabled: boolean;
   db: string;
-  ignore?: string[];
   collections?: CollectionConfig[];
 }

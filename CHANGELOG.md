@@ -46,6 +46,18 @@ provenance.
   exposed is still reachable via `import { X } from "freelance-mcp"`.
   Consumers using `import { X } from "freelance-mcp/state"` (or
   `./memory`, `./server`) must switch to the root import.
+- **`memory.ignore` config field removed.** After the sessions removal in
+  `11de30c`, the ignore patterns were only consulted by
+  `memory_register_source` — a tool that doesn't persist state and therefore
+  couldn't meaningfully filter anything. `memory_emit` never checked the
+  patterns. Users with `memory.ignore` in their `config.yml` or
+  `config.local.yml` should remove the field; Zod will silently drop
+  unknown fields, so configs won't break, but the ignore patterns will no
+  longer have any effect. Filtering source files from memory is now a
+  workflow concern (decline to cite them as proposition sources) rather
+  than a store concern. Also drops `picomatch` and `@types/picomatch` from
+  the dependency list — they were only used by the removed `isIgnored`
+  helper.
 
 ### Removed
 

@@ -535,7 +535,7 @@ program
 
     const sourceRoot = process.cwd();
     try {
-      const store = new MemoryStore(memConfig.db, sourceRoot, memConfig.ignore);
+      const store = new MemoryStore(memConfig.db, sourceRoot);
       const result = store.registerSource(file);
       store.close();
       if (!program.opts().quiet) {
