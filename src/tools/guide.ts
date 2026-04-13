@@ -4,11 +4,14 @@ import { getGuide } from "../guide.js";
 import { errorResponse, jsonResponse } from "../mcp-helpers.js";
 
 export function registerGuideTool(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     "freelance_guide",
-    "Authoring guidance for writing .workflow.yaml graph definitions. This is for humans (or agents) creating new graphs, not for agents traversing existing ones — if you're being asked to run a workflow, call freelance_list + freelance_start instead. Call with no topic to see available topics (schema, conditions, subgraphs, source bindings, etc.).",
     {
-      topic: z.string().optional(),
+      description:
+        "Authoring guidance for writing .workflow.yaml graph definitions — schema, conditions, subgraphs, source bindings, edge semantics, and common mistakes. Use this when you're creating or refining a workflow graph (for example, after freelance_distill hands you an authoring prompt). NOT the right tool when you're asked to run an existing workflow — for that, call freelance_list and freelance_start. Call with no topic to see the table of contents.",
+      inputSchema: {
+        topic: z.string().optional(),
+      },
     },
     ({ topic }) => {
       const result = getGuide(topic);

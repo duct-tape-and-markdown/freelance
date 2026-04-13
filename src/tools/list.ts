@@ -5,10 +5,13 @@ import type { FreelanceToolDeps } from "./deps.js";
 export function registerListTool(server: McpServer, deps: FreelanceToolDeps): void {
   const { manager, getLoadErrors } = deps;
 
-  server.tool(
+  server.registerTool(
     "freelance_list",
-    "Discover what Freelance workflows are available. Returns the set of loaded graph definitions (each with id, name, version, nodeCount) plus any active traversals already running. Call this first in any session that might use Freelance — it's the cheapest way to answer 'what can I run?' and 'am I already mid-workflow?' If any .workflow.yaml files failed to load, the result includes a loadErrors array; call freelance_validate for the specific parse or topology errors.",
-    {},
+    {
+      description:
+        "Discover what Freelance workflows are available. Returns the set of loaded graph definitions (each with id, name, version, nodeCount) plus any active traversals already running. Call this first in any session that might use Freelance — it's the cheapest way to answer 'what can I run?' and 'am I already mid-workflow?' If any .workflow.yaml files failed to load, the result includes a loadErrors array; call freelance_validate for the specific parse or topology errors.",
+      inputSchema: {},
+    },
     () => {
       try {
         const result = manager.listGraphs();

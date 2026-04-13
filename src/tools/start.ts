@@ -7,12 +7,15 @@ import type { FreelanceToolDeps } from "./deps.js";
 export function registerStartTool(server: McpServer, deps: FreelanceToolDeps): void {
   const { manager, graphs, sourceOpts, validateSourcesOnStart } = deps;
 
-  server.tool(
+  server.registerTool(
     "freelance_start",
-    "Begin a new traversal of a workflow graph — this creates a server-side state machine rooted at the graph's start node. Returns a traversalId which is passed to advance/inspect/context_set (or omitted when there's only one active traversal). Call freelance_list first to see available graphs. initialContext is an optional map of key/value pairs the workflow's conditions and instructions can reference from the first node onward.",
     {
-      graphId: z.string().min(1),
-      initialContext: z.record(z.string(), z.unknown()).optional(),
+      description:
+        "Begin a new traversal of a workflow graph — this creates a server-side state machine rooted at the graph's start node. Returns a traversalId which is passed to advance/inspect/context_set (or omitted when there's only one active traversal). Call freelance_list first to see available graphs. initialContext is an optional map of key/value pairs the workflow's conditions and instructions can reference from the first node onward.",
+      inputSchema: {
+        graphId: z.string().min(1),
+        initialContext: z.record(z.string(), z.unknown()).optional(),
+      },
     },
     ({ graphId, initialContext }) => {
       try {
