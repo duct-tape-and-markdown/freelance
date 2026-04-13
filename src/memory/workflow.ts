@@ -20,6 +20,7 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       collection: "",
       query: "",
       filesRead: 0,
+      filesReadPaths: [],
       propositionsEmitted: 0,
       coverageSatisfied: false,
     })
@@ -28,16 +29,18 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       description: "Read source files relevant to the query.",
       instructions:
         "Read files related to the compilation query using your native Read tool. " +
-        "The PreToolUse hook will call memory_register_source automatically (Claude Code), " +
-        "or call memory_register_source explicitly for each file you read. " +
-        "Update context.filesRead with the number of files read so far.",
-      suggestedTools: ["memory_register_source"],
+        "After each read, call freelance_context_set to append the file path to " +
+        "context.filesReadPaths and increment context.filesRead. The path list is your " +
+        "working set — when you emit propositions in the next node, you'll cite sources " +
+        "from this list. memory_emit hashes each cited source file at emit time, so " +
+        "calling memory_register_source is optional (it only returns the hash for your " +
+        "own bookkeeping; nothing is persisted).",
       edges: [
         {
           target: "compiling",
           label: "files-read",
           condition: "context.filesRead > 0",
-          description: "At least one source file has been read and registered.",
+          description: "At least one source file has been read.",
         },
       ],
     })
@@ -47,9 +50,10 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       instructions:
         "Reason about what you read. Write self-contained propositions in natural prose, " +
         "each about 1-2 entities. Use memory_emit to write them to Memory, passing " +
-        "context.collection as the collection parameter and listing the source file(s) " +
-        "each proposition was derived from. Update context.propositionsEmitted with the " +
-        "total emitted so far.",
+        "context.collection as the collection parameter. For each proposition's sources " +
+        "field, cite the file paths from context.filesReadPaths that the proposition was " +
+        "actually derived from (memory_emit will hash them at emit time for per-proposition " +
+        "provenance). Update context.propositionsEmitted with the total emitted so far.",
       suggestedTools: ["memory_emit"],
       edges: [
         {

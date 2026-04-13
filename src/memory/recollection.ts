@@ -24,6 +24,7 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
       recalledEntities: 0,
       recalledPropositions: 0,
       sourcesRead: 0,
+      sourcesReadPaths: [],
       gapsFilled: 0,
       coverageSatisfied: false,
     })
@@ -53,9 +54,10 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
         "Read the source files identified during recall (from source_files on each entity's inspect response). " +
         "If recall found no prior knowledge, read sources relevant to the query on your own. " +
         "Focus on understanding what the sources say about the query subject matter — " +
-        "not on indexing the files themselves. " +
-        "Update context.sourcesRead with the number of files read.",
-      suggestedTools: ["memory_register_source"],
+        "not on indexing the files themselves. After each read, call freelance_context_set " +
+        "to append the file path to context.sourcesReadPaths and increment context.sourcesRead. " +
+        "The path list is your working set — when you fill gaps in the next nodes, cite " +
+        "sources from this list (memory_emit hashes them at emit time).",
       edges: [
         {
           target: "comparing",
@@ -99,7 +101,10 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
         "context.collection as the collection parameter to memory_emit. " +
         "Each proposition should be a self-contained claim about 1-2 entities, " +
         "capturing knowledge the sources reveal about the query that wasn't " +
-        "previously compiled. Don't re-emit what's already known — focus on the delta. " +
+        "previously compiled. For each proposition's sources field, cite the file paths " +
+        "from context.sourcesReadPaths that the proposition was actually derived from " +
+        "(memory_emit hashes them at emit time for per-proposition provenance). " +
+        "Don't re-emit what's already known — focus on the delta. " +
         "Update context.gapsFilled with the number of new propositions emitted.",
       suggestedTools: ["memory_emit"],
       edges: [
