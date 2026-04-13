@@ -6,6 +6,29 @@
  * code (node topology, edge wiring, setContext defaults).
  */
 
+/**
+ * The rubric the agent reads when it's about to emit propositions.
+ * Shared by memory:compile (compiling node) and memory:recall (filling
+ * node) because the atomicity rule is identical across both workflows
+ * and the rubric is the product definition of a well-formed proposition.
+ *
+ * Changes here affect both sealed workflows atomically — by design.
+ */
+const PROPOSITION_RUBRIC =
+  "Emit ATOMIC propositions: ONE factual claim per proposition, one sentence strongly preferred, two sentences maximum. " +
+  "If your thought uses 'and', 'also', 'plus', lists multiple facts, or tries to explain both WHAT and WHY in the same breath, SPLIT it into separate propositions. " +
+  "Each prop should survive independently: if a single sub-claim changes later, only that one prop should have to go stale.\n\n" +
+  "The `entities` array names the things the claim is genuinely about. One entity for 'X does Y' claims; two or more for relationship claims like 'A depends on B', 'A was replaced by B via C', 'A uses B in the presence of C'. " +
+  "Multi-entity propositions are valuable — they make the knowledge graph denser and enable relationship queries via memory_related. " +
+  "Name every entity the claim is actually about, up to 4. Never pack extra entities to justify a compound prop — split the compound instead.\n\n" +
+  "WRONG (four independent facts mashed into one prop):\n" +
+  '  "Biome was added as the linter with space/2 indent, simple-git-hooks runs it as a pre-commit gate, the format pass touched 72 files, and noNonNullAssertion is disabled because its auto-fix broke type narrowing."\n\n' +
+  "RIGHT (four atomic props, one fact each):\n" +
+  '  1. "Biome v2 is the format and lint tool, configured with space/2 indent and line width 100." — entities: ["Biome", "biome.json"]\n' +
+  '  2. "simple-git-hooks runs `biome check` as a pre-commit gate." — entities: ["simple-git-hooks", "Biome"]\n' +
+  '  3. "The initial Biome format pass touched 72 files with zero semantic changes." — entities: ["Biome"]\n' +
+  '  4. "Biome\'s noNonNullAssertion rule is disabled because its auto-fix converted `!` to `?.` and broke TypeScript narrowing." — entities: ["noNonNullAssertion", "Biome"]';
+
 export const compileMessages = {
   description:
     "Read source files, reason about them, and emit propositions to Memory. " +
@@ -25,12 +48,10 @@ export const compileMessages = {
     compiling: {
       description: "Emit propositions about what you learned from the source files.",
       instructions:
-        "Reason about what you read. Write self-contained propositions in natural prose, " +
-        "each about 1-2 entities. Use memory_emit to write them to Memory, passing " +
-        "context.collection as the collection parameter. For each proposition's sources " +
-        "field, cite the file paths from context.filesReadPaths that the proposition was " +
-        "actually derived from (memory_emit will hash them at emit time for per-proposition " +
-        "provenance). Update context.propositionsEmitted with the total emitted so far.",
+        `${PROPOSITION_RUBRIC}\n\n` +
+        "Cite sources from context.filesReadPaths — only the files each prop was actually derived from. " +
+        "Call memory_emit with context.collection as the collection parameter. " +
+        "Update context.propositionsEmitted with the running total.",
     },
     evaluating: {
       description: "Check coverage — are there areas not yet compiled?",
@@ -107,14 +128,10 @@ export const recallMessages = {
     filling: {
       description: "Emit new propositions to cover the delta.",
       instructions:
-        "Emit propositions for the gaps identified in the comparison step, passing " +
-        "context.collection as the collection parameter to memory_emit. " +
-        "Each proposition should be a self-contained claim about 1-2 entities, " +
-        "capturing knowledge the sources reveal about the query that wasn't " +
-        "previously compiled. For each proposition's sources field, cite the file paths " +
-        "from context.sourcesReadPaths that the proposition was actually derived from " +
-        "(memory_emit hashes them at emit time for per-proposition provenance). " +
-        "Don't re-emit what's already known — focus on the delta. " +
+        `${PROPOSITION_RUBRIC}\n\n` +
+        "This is a gap-filling step: emit only NEW propositions — facts the sources reveal about the query that the recalled set doesn't already cover. Don't re-emit what's already known.\n\n" +
+        "Cite sources from context.sourcesReadPaths — only the files each prop was actually derived from. " +
+        "Call memory_emit with context.collection as the collection parameter. " +
         "Update context.gapsFilled with the number of new propositions emitted.",
     },
     evaluating: {

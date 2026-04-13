@@ -32,7 +32,7 @@ export function registerMemoryTools(
 
   server.tool(
     "memory_emit",
-    "Write propositions to the knowledge graph. Each proposition is a self-contained claim in natural prose, scoped to 1-2 named entities, with its own list of source file paths it was derived from. Sources are hashed at emit time and attached per-proposition — staleness is later computed per-proposition against current file state on every read. Deduplication is by content hash within a collection (emitting the same content twice is a no-op). Entities are resolved by exact name, then case-insensitive name, created if missing; pass entityKinds to tag new entities at creation time. Gated: requires an active memory:compile or memory:recall traversal.",
+    "Write propositions to the knowledge graph. Each proposition is ONE atomic factual claim in natural prose — single sentence strongly preferred, two max. If you're tempted to use 'and' or 'also' or list multiple facts, split into separate propositions instead. The entities array names every entity the claim is genuinely about: one for 'X does Y' claims, two or more for relationships like 'A depends on B' or 'A was replaced by B via C'. Multi-entity propositions make the graph denser — prefer them for relationship claims, but never pack entities to justify a compound prop. Sources are hashed at emit time and attached per-proposition so staleness can be computed against current file state on every read. Deduplication is by content hash within a collection (emitting the same content twice is a no-op). Entities are resolved by exact name, then case-insensitive name, created if missing; pass entityKinds to tag new entities at creation. Gated: requires an active memory:compile or memory:recall traversal.",
     {
       collection: z.string().min(1).describe("Target collection for these propositions"),
       propositions: z
@@ -41,12 +41,16 @@ export function registerMemoryTools(
             content: z
               .string()
               .min(1)
-              .describe("The proposition — a self-contained claim in natural prose"),
+              .describe(
+                "ONE atomic factual claim in natural prose. Single sentence strongly preferred. If you'd write 'and', 'also', or list multiple facts, emit two propositions instead.",
+              ),
             entities: z
               .array(z.string().min(1))
               .min(1)
-              .max(2)
-              .describe("Entity names this proposition is about (1-2)"),
+              .max(4)
+              .describe(
+                "Every entity the claim is genuinely about (1-4). Use 1 for subject-verb claims; 2+ for relationship claims ('A depends on B', 'A was replaced by B via C'). Multi-entity props make the graph denser via memory_related. Never pack extra entities to justify a compound prop — split the compound instead. >4 usually means the prop is a hub and should be split.",
+              ),
             sources: z
               .array(z.string().min(1))
               .min(1)

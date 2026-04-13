@@ -102,6 +102,19 @@ provenance.
 
 ### Added
 
+- **Proposition rubric in sealed memory workflows** — the `compiling` node
+  in `memory:compile` and the `filling` node in `memory:recall` now carry
+  an explicit atomicity rubric instructing the agent to emit ONE factual
+  claim per proposition (single sentence preferred, two max) and to split
+  compound thoughts into separate propositions. Includes a negative
+  example (four facts mashed into one prop) and four atomic rewrites as
+  counterpoint. The rubric is a shared constant in `src/memory/messages.ts`
+  so changes propagate to both sealed workflows atomically. Surfaced by a
+  self-review of an earlier compilation pass whose props averaged
+  paragraph-length — the sealed workflow correctly shaped the process
+  (read → emit → evaluate) but the instructions never defined what a
+  well-formed proposition looks like, so quality was delegated to agent
+  judgment with no rubric to apply.
 - **`EmitResult.warnings`** — `memory_emit` now returns a `warnings`
   array alongside the existing result fields when non-fatal conflicts
   are surfaced. Currently the only warning type is
@@ -115,6 +128,21 @@ provenance.
 
 ### Changed
 
+- **`memory_emit.entities` cap raised from 2 to 4.** The old `1-2` cap
+  was under-constraining atomicity (paragraph-sized props sneak through
+  on two entities) and over-constraining relationship density (legitimate
+  three- or four-way relationship claims like "A was replaced by B via
+  mechanism C" couldn't be expressed). The new cap permits multi-party
+  relationship propositions while the rubric and Zod `.describe()` make
+  clear that splitting compounds is always preferred over packing extra
+  entities, and that >4 entities in one prop usually means it's a hub and
+  should be split. The `content` and `entities` `.describe()` strings
+  both carry the updated guidance inline for agents that read parameter
+  docs without looking at the tool description. The `memory_emit` tool
+  description itself is rewritten to open with "ONE atomic factual claim
+  in natural prose" rather than the previous "self-contained claim"
+  phrasing, which had been interpreted as "stands alone" rather than
+  "single fact."
 - **Traversal state moved from SQLite to JSON files.** New `StateStore`
   interface in `src/state/db.ts` with two backends: `JsonDirectoryStateStore`
   (one file per traversal under `.state/traversals/`, atomic writes via
