@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import path from "node:path";
 import type { CollectingLoadResult } from "./loader.js";
 import { loadGraphsCollecting } from "./loader.js";
 import type { ValidatedGraph } from "./types.js";

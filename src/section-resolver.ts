@@ -60,5 +60,5 @@ function extractHeadingText(node: Heading): string {
 }
 
 function matchesSection(headingText: string, query: string): boolean {
-  return headingText === query || headingText.startsWith(query + ":");
+  return headingText === query || headingText.startsWith(`${query}:`);
 }

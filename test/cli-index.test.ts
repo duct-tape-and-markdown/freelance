@@ -185,7 +185,7 @@ describe("program commands", () => {
 
   it("mcp --memory-dir overrides DB path", async () => {
     const { startServer } = await import("../src/server.js");
-    const tmpDir = "/tmp/freelance-test-memdir-" + Date.now();
+    const tmpDir = `/tmp/freelance-test-memdir-${Date.now()}`;
     await program.parseAsync([
       "node",
       "freelance",

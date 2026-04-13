@@ -2,7 +2,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setCli } from "../src/cli/output.js";
 import {
-  traversalAdvance,
   traversalContextSet,
   traversalInspect,
   traversalReset,

@@ -37,26 +37,26 @@ export function setCli(opts: Partial<CliState>): void {
 
 /** Write JSON to stdout. */
 export function outputJson(data: unknown): void {
-  process.stdout.write(JSON.stringify(data, null, 2) + "\n");
+  process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
 }
 
 /** Write informational message to stderr (progress, success, etc). */
 export function info(msg: string): void {
   if (!cli.quiet) {
-    process.stderr.write(msg + "\n");
+    process.stderr.write(`${msg}\n`);
   }
 }
 
 /** Write verbose/debug message to stderr. Scaffolding — not yet wired up. */
 export function debug(msg: string): void {
   if (cli.verbose && !cli.quiet) {
-    process.stderr.write(msg + "\n");
+    process.stderr.write(`${msg}\n`);
   }
 }
 
 /** Write error to stderr (always prints, even with --quiet). */
 export function error(msg: string): void {
-  process.stderr.write(msg + "\n");
+  process.stderr.write(`${msg}\n`);
 }
 
 /** Write error to stderr and exit. */

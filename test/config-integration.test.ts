@@ -4,12 +4,11 @@
  */
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { configSetLocal } from "../src/cli/config.js";
 import { ensureStateDir, resolveMemoryConfig } from "../src/cli/setup.js";
-import { loadConfig, loadConfigFromDirs, updateLocalConfig } from "../src/config.js";
+import { loadConfig, loadConfigFromDirs } from "../src/config.js";
 import { resolveDefaultGraphsDirs } from "../src/graph-resolution.js";
 import { tmpFreelanceDir, withTmpEnv } from "./helpers.js";
 
@@ -70,7 +69,7 @@ describe("plugin hook flow", () => {
 
   it("set-local workflows is idempotent across multiple hook runs", () => {
     const freelanceDir = makeDir("plugin-idem-");
-    const pluginDir = "/tmp/plugin-wf-" + Date.now();
+    const pluginDir = `/tmp/plugin-wf-${Date.now()}`;
 
     // Simulate hook running on three separate sessions
     configSetLocal("workflows", pluginDir, { workflows: freelanceDir });

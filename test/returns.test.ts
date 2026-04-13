@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { GraphEngine } from "../src/engine/index.js";
 import { loadGraphs } from "../src/loader.js";
-import type { AdvanceErrorResult, ValidatedGraph } from "../src/types.js";
+import type { ValidatedGraph } from "../src/types.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 

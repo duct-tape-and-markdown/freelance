@@ -26,5 +26,5 @@ if (plugin.version === pkg.version) {
 
 const prev = plugin.version;
 plugin.version = pkg.version;
-fs.writeFileSync(pluginPath, JSON.stringify(plugin, null, 2) + "\n");
+fs.writeFileSync(pluginPath, `${JSON.stringify(plugin, null, 2)}\n`);
 console.log(`plugin.json: ${prev} \u2192 ${pkg.version}`);

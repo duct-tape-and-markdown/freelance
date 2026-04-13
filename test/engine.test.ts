@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { GraphEngine } from "../src/engine/index.js";
 import { EngineError } from "../src/errors.js";
 import { loadGraphs } from "../src/loader.js";

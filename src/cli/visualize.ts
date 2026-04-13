@@ -53,7 +53,7 @@ function toMermaid(def: GraphDefinition): string {
     }
   }
 
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}\n`;
 }
 
 function toDot(def: GraphDefinition): string {
@@ -82,7 +82,7 @@ function toDot(def: GraphDefinition): string {
   }
 
   lines.push("}");
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}\n`;
 }
 
 function escapeHtml(s: string): string {

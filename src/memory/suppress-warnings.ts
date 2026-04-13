@@ -35,7 +35,7 @@ process.on("warning", (warning: Error) => {
   if (warning.stack) {
     const lines = warning.stack.split("\n").slice(1);
     if (lines.length > 0) {
-      process.stderr.write(lines.join("\n") + "\n");
+      process.stderr.write(`${lines.join("\n")}\n`);
     }
   }
 });

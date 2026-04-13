@@ -539,7 +539,7 @@ program
       const result = store.registerSource(file);
       store.close();
       if (!program.opts().quiet) {
-        process.stdout.write(JSON.stringify(result) + "\n");
+        process.stdout.write(`${JSON.stringify(result)}\n`);
       }
     } catch (e) {
       // The hook must not block the agent's Read tool — swallow and log.

@@ -66,7 +66,7 @@ function readJsonFile(filePath: string): McpConfig {
 
 function writeJsonFile(filePath: string, data: McpConfig): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n");
+  fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`);
 }
 
 function getMcpEntry(): Record<string, unknown> {
@@ -208,9 +208,9 @@ function appendClaudeMd(): boolean {
     if (content.includes("freelance_list") || content.includes("Freelance")) {
       return false;
     }
-    fs.writeFileSync(claudeMdPath, content.trimEnd() + "\n\n" + CLAUDE_MD_SECTION + "\n");
+    fs.writeFileSync(claudeMdPath, `${content.trimEnd()}\n\n${CLAUDE_MD_SECTION}\n`);
   } else {
-    fs.writeFileSync(claudeMdPath, CLAUDE_MD_SECTION + "\n");
+    fs.writeFileSync(claudeMdPath, `${CLAUDE_MD_SECTION}\n`);
   }
   return true;
 }
@@ -229,7 +229,7 @@ function wouldAppendClaudeMd(): boolean {
 function printManualConfig(): void {
   const entry = getMcpEntry();
   info("\nAdd this to your MCP client configuration:\n");
-  process.stdout.write(JSON.stringify({ mcpServers: { freelance: entry } }, null, 2) + "\n");
+  process.stdout.write(`${JSON.stringify({ mcpServers: { freelance: entry } }, null, 2)}\n`);
 }
 
 export async function init(options: InitOptions): Promise<void> {

@@ -20,7 +20,7 @@ import type {
 import type { StateStore, TraversalRecord } from "./db.js";
 
 function generateTraversalId(): string {
-  return "tr_" + crypto.randomBytes(4).toString("hex");
+  return `tr_${crypto.randomBytes(4).toString("hex")}`;
 }
 
 export class TraversalStore {
