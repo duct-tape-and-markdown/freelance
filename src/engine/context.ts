@@ -41,7 +41,7 @@ export function enforceStrictContext(def: GraphDefinition, updates: Record<strin
   }
 }
 
-export function buildStackView(stack: SessionState[]): StackEntry[] {
+function buildStackView(stack: SessionState[]): StackEntry[] {
   return stack.map((s, i) => {
     if (i === stack.length - 1) {
       return { graphId: s.graphId, currentNode: s.currentNode };

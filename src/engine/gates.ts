@@ -5,7 +5,7 @@ import { validateReturnSchema } from "./returns.js";
 import { evaluateTransitions } from "./transitions.js";
 import { checkWaitTimeout, evaluateWaitConditions } from "./wait.js";
 
-export function makeAdvanceError(
+function makeAdvanceError(
   currentNode: string,
   reason: string,
   nodeDef: NodeDefinition,
