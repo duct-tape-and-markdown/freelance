@@ -8,7 +8,7 @@ export function registerResetTool(server: McpServer, deps: FreelanceToolDeps): v
 
   server.tool(
     "freelance_reset",
-    "Clear a traversal. Call this to start over or switch to a different graph. Requires confirm: true as a safety check.",
+    "Clear a traversal, discarding its stack and context. Use this to start a workflow over from the beginning or to abandon one before starting a different graph. Requires confirm: true — this is a deliberate guard against accidental resets from ambiguous tool-call sequences, not a security check. Destroyed context cannot be recovered.",
     {
       traversalId: z.string().optional(),
       confirm: z.boolean(),

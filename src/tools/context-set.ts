@@ -8,7 +8,7 @@ export function registerContextSetTool(server: McpServer, deps: FreelanceToolDep
 
   server.tool(
     "freelance_context_set",
-    "Update session context without advancing. Use this to record work results before choosing which edge to take. Returns updated valid transitions with conditionMet evaluated.",
+    "Update traversal context without advancing to a new node. Use this to record work results (e.g. `{ testsPass: true, coverage: 0.92 }`) so that the next freelance_advance can evaluate edge conditions against the updated state. Returns the refreshed list of valid transitions with conditionMet re-evaluated — so you can see which edges are now unlocked before taking one. Alternative: pass contextUpdates directly to freelance_advance in a single call; use context_set when you want to check which edges open up before committing.",
     {
       traversalId: z.string().optional(),
       updates: z.record(z.string(), z.unknown()),

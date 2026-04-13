@@ -9,7 +9,7 @@ export function registerStartTool(server: McpServer, deps: FreelanceToolDeps): v
 
   server.tool(
     "freelance_start",
-    "Begin traversing a workflow graph. Returns a traversalId for subsequent operations. Call freelance_list first to see available graphs.",
+    "Begin a new traversal of a workflow graph — this creates a server-side state machine rooted at the graph's start node. Returns a traversalId which is passed to advance/inspect/context_set (or omitted when there's only one active traversal). Call freelance_list first to see available graphs. initialContext is an optional map of key/value pairs the workflow's conditions and instructions can reference from the first node onward.",
     {
       graphId: z.string().min(1),
       initialContext: z.record(z.string(), z.unknown()).optional(),
