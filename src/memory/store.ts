@@ -4,6 +4,11 @@
  * Every write goes through the `node:sqlite` layer; there is no in-memory
  * session state. Sources are attached per-proposition at emit time, so
  * staleness is computed per-proposition against the current filesystem.
+ *
+ * Read-side query helpers live in ./enrichment.ts (pure functions over a
+ * db handle), and provenance staleness checking lives in ./staleness.ts
+ * (per-call cache threaded through each public read so cache growth is
+ * bounded to a single operation).
  */
 
 import crypto from "node:crypto";
@@ -12,6 +17,18 @@ import path from "node:path";
 import picomatch from "picomatch";
 import { hashContent } from "../sources.js";
 import { type Db, openDatabase } from "./db.js";
+import {
+  collectionFilter,
+  computeStatus,
+  countValidForEntity,
+  getNeighbors,
+} from "./enrichment.js";
+import {
+  createStalenessCache,
+  getStalePropositionIds,
+  isFileChanged,
+  type StalenessCache,
+} from "./staleness.js";
 import type {
   BrowseResult,
   BySourceResult,
@@ -21,7 +38,6 @@ import type {
   EntityInfo,
   EntityRow,
   InspectResult,
-  NeighborEntity,
   PropositionInfo,
   PropositionRow,
   RegisterSourceResult,
@@ -71,8 +87,6 @@ export class MemoryStore {
   private sourceRoot: string;
   private ignore: string[];
   private collections: Map<string, CollectionConfig>;
-  private mtimeCache: Map<string, number | null> = new Map();
-  private hashCache: Map<string, string | null> = new Map();
 
   constructor(
     dbPath: string,
@@ -306,64 +320,7 @@ export class MemoryStore {
     return entity;
   }
 
-  // --- Neighbors ---
-
-  private getNeighbors(
-    entityId: string,
-    stalePropIds: Set<string>,
-    options?: { withSample?: boolean; collection?: string },
-  ): Array<NeighborEntity & { sample?: string | null }> {
-    const withSample = options?.withSample ?? false;
-    const collection = options?.collection;
-
-    const staleParams = [...stalePropIds];
-    const staleFilter =
-      staleParams.length > 0
-        ? `a1.proposition_id NOT IN (${staleParams.map(() => "?").join(",")})`
-        : "1";
-
-    const collFilter = collection ? " AND p.collection = ?" : "";
-    const collParams: unknown[] = collection ? [collection] : [];
-
-    const sampleCol = withSample
-      ? `, (SELECT p2.content FROM propositions p2
-               JOIN about s1 ON p2.id = s1.proposition_id
-               JOIN about s2 ON p2.id = s2.proposition_id
-               WHERE s1.entity_id = ? AND s2.entity_id = e2.id
-               ORDER BY p2.rowid DESC LIMIT 1) as sample`
-      : "";
-    const sampleParams: unknown[] = withSample ? [entityId] : [];
-
-    return this.db
-      .prepare(
-        `SELECT e2.id, e2.name, e2.kind,
-              COUNT(DISTINCT a1.proposition_id) as shared_propositions,
-              COUNT(DISTINCT CASE WHEN ${staleFilter} THEN a1.proposition_id END) as valid_shared_propositions${sampleCol}
-       FROM about a1
-       JOIN about a2 ON a1.proposition_id = a2.proposition_id
-       JOIN entities e2 ON a2.entity_id = e2.id
-       JOIN propositions p ON a1.proposition_id = p.id
-       WHERE a1.entity_id = ? AND a2.entity_id != a1.entity_id${collFilter}
-       GROUP BY e2.id
-       ORDER BY valid_shared_propositions DESC`,
-      )
-      .all(...staleParams, ...sampleParams, entityId, ...collParams) as Array<
-      NeighborEntity & { sample?: string | null }
-    >;
-  }
-
   // --- Query operations ---
-
-  /** Build optional collection filter clause + params for WHERE appendage. */
-  private collectionFilter(collection: string | undefined): { clause: string; params: unknown[] } {
-    if (!collection) return { clause: "", params: [] };
-    return { clause: " AND p.collection = ?", params: [collection] };
-  }
-
-  private clearProvenanceCache(): void {
-    this.mtimeCache.clear();
-    this.hashCache.clear();
-  }
 
   browse(options?: {
     name?: string;
@@ -372,7 +329,7 @@ export class MemoryStore {
     offset?: number;
     collection?: string;
   }): BrowseResult {
-    this.clearProvenanceCache();
+    const cache = createStalenessCache();
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
     const collection = options?.collection;
@@ -419,10 +376,10 @@ export class MemoryStore {
       )
       .all(...params, limit, offset) as Array<EntityRow & { proposition_count: number }>;
 
-    const stalePropIds = this.getStalePropositionIds();
+    const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
 
     const entities: EntityInfo[] = rows.map((row) => {
-      const validCount = this.countValidForEntity(row.id, stalePropIds, collection);
+      const validCount = countValidForEntity(this.db, row.id, stalePropIds, collection);
       return {
         id: row.id,
         name: row.name,
@@ -437,17 +394,17 @@ export class MemoryStore {
 
   inspect(entityIdOrName: string, collection?: string): InspectResult {
     if (collection) this.resolveCollection(collection);
-    this.clearProvenanceCache();
+    const cache = createStalenessCache();
     const entity = this.findEntity(entityIdOrName);
 
-    const coll = this.collectionFilter(collection);
+    const coll = collectionFilter(collection);
     const propRows = this.db
       .prepare(
         `SELECT p.* FROM propositions p JOIN about a ON p.id = a.proposition_id WHERE a.entity_id = ?${coll.clause} ORDER BY p.created_at DESC`,
       )
       .all(entity.id, ...coll.params) as PropositionRow[];
 
-    const propositions = propRows.map((p) => this.enrichProposition(p));
+    const propositions = propRows.map((p) => this.enrichProposition(p, cache));
 
     // Deduped list of source files across all propositions for this entity
     const sourceFiles = new Set<string>();
@@ -458,8 +415,8 @@ export class MemoryStore {
     }
 
     const validCount = propositions.filter((p) => p.valid).length;
-    const stalePropIds = this.getStalePropositionIds();
-    const neighbors = this.getNeighbors(entity.id, stalePropIds, { collection });
+    const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
+    const neighbors = getNeighbors(this.db, entity.id, stalePropIds, { collection });
 
     return {
       entity: {
@@ -477,13 +434,13 @@ export class MemoryStore {
 
   bySource(filePath: string, collection?: string): BySourceResult {
     if (collection) this.resolveCollection(collection);
-    this.clearProvenanceCache();
+    const cache = createStalenessCache();
 
     const storedPath = path.isAbsolute(filePath)
       ? path.relative(this.sourceRoot, filePath)
       : filePath;
 
-    const coll = this.collectionFilter(collection);
+    const coll = collectionFilter(collection);
     const propRows = this.db
       .prepare(
         `SELECT DISTINCT p.* FROM propositions p
@@ -495,14 +452,14 @@ export class MemoryStore {
 
     return {
       file_path: storedPath,
-      propositions: propRows.map((p) => this.enrichProposition(p)),
+      propositions: propRows.map((p) => this.enrichProposition(p, cache)),
     };
   }
 
   search(query: string, options?: { limit?: number; collection?: string }): SearchResult {
     const collection = options?.collection;
     if (collection) this.resolveCollection(collection);
-    this.clearProvenanceCache();
+    const cache = createStalenessCache();
     const limit = options?.limit ?? 20;
 
     // Sanitize query: replace bare hyphens with spaces so FTS5 doesn't
@@ -510,7 +467,7 @@ export class MemoryStore {
     // Preserve explicitly quoted phrases and prefix wildcards.
     const sanitized = query.replace(/(?<!["])\b(\w+)-(\w+)\b(?!["])/g, "$1 $2");
 
-    const coll = this.collectionFilter(collection);
+    const coll = collectionFilter(collection);
     const rows = this.db
       .prepare(
         `SELECT p.* FROM propositions p JOIN propositions_fts fts ON p.rowid = fts.rowid WHERE propositions_fts MATCH ?${coll.clause} ORDER BY fts.rank LIMIT ?`,
@@ -518,7 +475,7 @@ export class MemoryStore {
       .all(sanitized, ...coll.params, limit) as PropositionRow[];
 
     const propositions = rows.map((p) => {
-      const enriched = this.enrichProposition(p);
+      const enriched = this.enrichProposition(p, cache);
       const entityRows = this.db
         .prepare(
           `SELECT e.id, e.name, e.kind FROM entities e
@@ -534,17 +491,18 @@ export class MemoryStore {
 
   status(collection?: string): StatusResult {
     if (collection) this.resolveCollection(collection);
-    this.clearProvenanceCache();
-    return this.computeStatus(collection);
+    const cache = createStalenessCache();
+    const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
+    return computeStatus(this.db, stalePropIds, collection);
   }
 
   related(entityIdOrName: string, collection?: string): RelatedResult {
     if (collection) this.resolveCollection(collection);
-    this.clearProvenanceCache();
+    const cache = createStalenessCache();
     const entity = this.findEntity(entityIdOrName);
 
-    const stalePropIds = this.getStalePropositionIds();
-    const validCount = this.countValidForEntity(entity.id, stalePropIds, collection);
+    const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
+    const validCount = countValidForEntity(this.db, entity.id, stalePropIds, collection);
     const totalCount = collection
       ? (
           this.db
@@ -559,7 +517,7 @@ export class MemoryStore {
           }
         ).c;
 
-    const rows = this.getNeighbors(entity.id, stalePropIds, { withSample: true, collection });
+    const rows = getNeighbors(this.db, entity.id, stalePropIds, { withSample: true, collection });
     const neighbors = rows.map((r) => ({ ...r, sample: r.sample ?? "" }));
 
     return {
@@ -574,153 +532,9 @@ export class MemoryStore {
     };
   }
 
-  // --- Provenance validation ---
+  // --- Proposition enrichment (stays on the class — called by every read) ---
 
-  /** Fast path: stat() to get current mtime (~microseconds vs read+hash ~milliseconds). */
-  private getCurrentMtime(filePath: string): number | null {
-    if (this.mtimeCache.has(filePath)) {
-      return this.mtimeCache.get(filePath)!;
-    }
-    const resolvedPath = path.resolve(this.sourceRoot, filePath);
-    const mtime = mtimeOf(resolvedPath);
-    this.mtimeCache.set(filePath, mtime);
-    return mtime;
-  }
-
-  /** Slow path: read + SHA256. Used only as fallback for pre-migration data without mtime. */
-  private getCurrentFileHash(filePath: string): string | null {
-    if (this.hashCache.has(filePath)) {
-      return this.hashCache.get(filePath)!;
-    }
-    const resolvedPath = path.resolve(this.sourceRoot, filePath);
-    const hash = hashFile(resolvedPath);
-    this.hashCache.set(filePath, hash);
-    return hash;
-  }
-
-  /** Check if a source file has changed since registration. */
-  private isFileChanged(filePath: string, storedHash: string, storedMtime: number | null): boolean {
-    if (storedMtime != null) {
-      const currentMtime = this.getCurrentMtime(filePath);
-      if (currentMtime !== null && currentMtime === storedMtime) {
-        return false;
-      }
-    }
-    const currentHash = this.getCurrentFileHash(filePath);
-    return currentHash === null || currentHash !== storedHash;
-  }
-
-  /**
-   * Scan proposition_sources and return the set of propositions that have
-   * at least one drifted source file.
-   */
-  private getStalePropositionIds(): Set<string> {
-    const rows = this.db
-      .prepare("SELECT proposition_id, file_path, content_hash, mtime_ms FROM proposition_sources")
-      .all() as Array<{
-      proposition_id: string;
-      file_path: string;
-      content_hash: string;
-      mtime_ms: number | null;
-    }>;
-
-    const stale = new Set<string>();
-    for (const { proposition_id, file_path, content_hash, mtime_ms } of rows) {
-      if (stale.has(proposition_id)) continue;
-      if (this.isFileChanged(file_path, content_hash, mtime_ms)) {
-        stale.add(proposition_id);
-      }
-    }
-    return stale;
-  }
-
-  private computeStatus(collection?: string): StatusResult {
-    const collWhere = collection ? " WHERE collection = ?" : "";
-    const collParams: unknown[] = collection ? [collection] : [];
-
-    const totalProps = (
-      this.db.prepare(`SELECT COUNT(*) as c FROM propositions${collWhere}`).get(...collParams) as {
-        c: number;
-      }
-    ).c;
-    const totalEntities = collection
-      ? (
-          this.db
-            .prepare(
-              "SELECT COUNT(DISTINCT a.entity_id) as c FROM about a JOIN propositions p ON a.proposition_id = p.id WHERE p.collection = ?",
-            )
-            .get(collection) as { c: number }
-        ).c
-      : (this.db.prepare("SELECT COUNT(*) as c FROM entities").get() as { c: number }).c;
-
-    const stale = this.getStalePropositionIds();
-    let validCount: number;
-
-    if (stale.size === 0) {
-      validCount = totalProps;
-    } else if (!collection) {
-      validCount = totalProps - stale.size;
-    } else {
-      // Count only stale props in this collection
-      const staleParams = [...stale];
-      const placeholders = staleParams.map(() => "?").join(",");
-      const staleInCollection = (
-        this.db
-          .prepare(
-            `SELECT COUNT(*) as c FROM propositions WHERE id IN (${placeholders}) AND collection = ?`,
-          )
-          .get(...staleParams, collection) as { c: number }
-      ).c;
-      validCount = totalProps - staleInCollection;
-    }
-
-    return {
-      total_propositions: totalProps,
-      valid_propositions: validCount,
-      stale_propositions: totalProps - validCount,
-      total_entities: totalEntities,
-    };
-  }
-
-  private countValidForEntity(
-    entityId: string,
-    stalePropIds: Set<string>,
-    collection?: string,
-  ): number {
-    // Fast path: no stale props and no collection filter — skip JOIN
-    if (stalePropIds.size === 0 && !collection) {
-      return (
-        this.db.prepare("SELECT COUNT(*) as c FROM about WHERE entity_id = ?").get(entityId) as {
-          c: number;
-        }
-      ).c;
-    }
-
-    const coll = this.collectionFilter(collection);
-
-    if (stalePropIds.size === 0) {
-      return (
-        this.db
-          .prepare(
-            `SELECT COUNT(*) as c FROM about a JOIN propositions p ON a.proposition_id = p.id WHERE a.entity_id = ?${coll.clause}`,
-          )
-          .get(entityId, ...coll.params) as { c: number }
-      ).c;
-    }
-    const staleParams = [...stalePropIds];
-    const placeholders = staleParams.map(() => "?").join(",");
-    return (
-      this.db
-        .prepare(
-          `SELECT COUNT(*) as c FROM about a
-       JOIN propositions p ON a.proposition_id = p.id
-       WHERE a.entity_id = ? AND a.proposition_id NOT IN (${placeholders})${coll.clause}`,
-        )
-        .get(entityId, ...staleParams, ...coll.params) as { c: number }
-    ).c;
-  }
-
-  private enrichProposition(row: PropositionRow): PropositionInfo {
+  private enrichProposition(row: PropositionRow, cache: StalenessCache): PropositionInfo {
     const propSources = this.db
       .prepare(
         "SELECT file_path, content_hash, mtime_ms FROM proposition_sources WHERE proposition_id = ?",
@@ -730,7 +544,13 @@ export class MemoryStore {
     const sourceFiles = propSources.map((sf) => ({
       path: sf.file_path,
       hash: sf.content_hash,
-      current_match: !this.isFileChanged(sf.file_path, sf.content_hash, sf.mtime_ms),
+      current_match: !isFileChanged(
+        this.sourceRoot,
+        cache,
+        sf.file_path,
+        sf.content_hash,
+        sf.mtime_ms,
+      ),
     }));
 
     const valid = sourceFiles.length === 0 || sourceFiles.every((sf) => sf.current_match);
