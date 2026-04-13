@@ -37,6 +37,15 @@ provenance.
   is no prior state to be "updated" against.
 - **Minimum Node version bumped to `>=22.12.0`** where `node:sqlite` is
   unflagged. Node 20 is dropped from the CI matrix.
+- **Subpath exports narrowed.** `package.json#exports` previously had five
+  entries: `.`, `./core`, `./state`, `./memory`, `./server`. The latter three
+  are dropped. `./core` stays public (engine + schema with no persistence —
+  smaller import for consumers that only need the graph primitives). The
+  root `.` entry still re-exports `TraversalStore`, `MemoryStore`,
+  `createServer`, and `startServer`, so everything the dropped subpaths
+  exposed is still reachable via `import { X } from "freelance-mcp"`.
+  Consumers using `import { X } from "freelance-mcp/state"` (or
+  `./memory`, `./server`) must switch to the root import.
 
 ### Removed
 
