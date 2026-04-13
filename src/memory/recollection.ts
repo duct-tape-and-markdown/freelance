@@ -4,20 +4,18 @@
  * Query-driven recall: pull what's known, read provenance sources,
  * compare against the query, and fill the delta with new propositions.
  * Built programmatically, injected alongside compile-knowledge when memory is enabled.
+ * Agent-facing prose lives in messages.ts.
  */
 
 import { GraphBuilder } from "../builder.js";
 import type { ValidatedGraph } from "../types.js";
+import { recallMessages as M } from "./messages.js";
 
 export const RECOLLECTION_ID = "memory:recall";
 
 export function buildRecollectionWorkflow(): ValidatedGraph {
   return new GraphBuilder(RECOLLECTION_ID, "Recollection")
-    .setDescription(
-      "Query-driven knowledge recall. Searches existing memory, reads provenance sources, " +
-        "identifies gaps between what's known and what the sources say about the query, " +
-        "and emits new propositions to fill the delta.",
-    )
+    .setDescription(M.description)
     .setContext({
       collection: "",
       query: "",
@@ -30,118 +28,84 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
     })
     .node("recalling", {
       type: "action",
-      description: "Search memory for existing knowledge related to the query.",
-      instructions:
-        "Use memory_browse and memory_inspect to find entities and propositions " +
-        "related to the query, passing context.collection as the collection parameter. " +
-        "Catalog what's already known — these are the propositions " +
-        "from prior compilations. Note the source files listed in each entity's " +
-        "inspect response (source_files) — you'll read those next. " +
-        "Update context.recalledEntities and context.recalledPropositions with counts.",
+      description: M.nodes.recalling.description,
+      instructions: M.nodes.recalling.instructions,
       suggestedTools: ["memory_browse", "memory_inspect", "memory_related"],
       edges: [
         {
           target: "sourcing",
-          label: "recalled",
-          description: "Existing knowledge cataloged, proceed to read sources.",
+          label: M.edges.recalled.label,
+          description: M.edges.recalled.description,
         },
       ],
     })
     .node("sourcing", {
       type: "action",
-      description: "Read source files guided by provenance from recalled propositions.",
-      instructions:
-        "Read the source files identified during recall (from source_files on each entity's inspect response). " +
-        "If recall found no prior knowledge, read sources relevant to the query on your own. " +
-        "Focus on understanding what the sources say about the query subject matter — " +
-        "not on indexing the files themselves. After each read, call freelance_context_set " +
-        "to append the file path to context.sourcesReadPaths and increment context.sourcesRead. " +
-        "The path list is your working set — when you fill gaps in the next nodes, cite " +
-        "sources from this list (memory_emit hashes them at emit time).",
+      description: M.nodes.sourcing.description,
+      instructions: M.nodes.sourcing.instructions,
       edges: [
         {
           target: "comparing",
-          label: "sources-read",
+          label: M.edges.sourcesRead.label,
           condition: "context.sourcesRead > 0",
-          description: "Sources read, ready to compare against existing knowledge.",
+          description: M.edges.sourcesRead.description,
         },
       ],
     })
     .node("comparing", {
       type: "decision",
-      description: "Compare existing knowledge against what sources say about the query.",
-      instructions:
-        "This is the core step. Think of a venn diagram: " +
-        "left circle is what existing propositions already capture about the query, " +
-        "right circle is what the source files say about the query. " +
-        "Your job is to identify the right-side crescent — facts the sources reveal " +
-        "about the query that aren't covered by existing propositions. " +
-        "If existing knowledge fully covers the query, set context.coverageSatisfied = true. " +
-        "If there are gaps, leave it false and proceed to fill them.",
+      description: M.nodes.comparing.description,
+      instructions: M.nodes.comparing.instructions,
       edges: [
         {
           target: "complete",
-          label: "fully-covered",
+          label: M.edges.fullyCovered.label,
           condition: "context.coverageSatisfied == true",
-          description: "Existing knowledge already covers the query.",
+          description: M.edges.fullyCovered.description,
         },
         {
           target: "filling",
-          label: "gaps-identified",
+          label: M.edges.gapsIdentified.label,
           condition: "context.coverageSatisfied == false",
-          description: "Delta identified between known propositions and source content.",
+          description: M.edges.gapsIdentified.description,
         },
       ],
     })
     .node("filling", {
       type: "action",
-      description: "Emit new propositions to cover the delta.",
-      instructions:
-        "Emit propositions for the gaps identified in the comparison step, passing " +
-        "context.collection as the collection parameter to memory_emit. " +
-        "Each proposition should be a self-contained claim about 1-2 entities, " +
-        "capturing knowledge the sources reveal about the query that wasn't " +
-        "previously compiled. For each proposition's sources field, cite the file paths " +
-        "from context.sourcesReadPaths that the proposition was actually derived from " +
-        "(memory_emit hashes them at emit time for per-proposition provenance). " +
-        "Don't re-emit what's already known — focus on the delta. " +
-        "Update context.gapsFilled with the number of new propositions emitted.",
+      description: M.nodes.filling.description,
+      instructions: M.nodes.filling.instructions,
       suggestedTools: ["memory_emit"],
       edges: [
         {
           target: "evaluating",
-          label: "gaps-filled",
-          description: "New propositions emitted, evaluate coverage.",
+          label: M.edges.gapsFilled.label,
+          description: M.edges.gapsFilled.description,
         },
       ],
     })
     .node("evaluating", {
       type: "decision",
-      description: "Evaluate whether the query is now adequately covered.",
-      instructions:
-        "Review the full picture: recalled propositions plus newly emitted ones. " +
-        "Does this body of knowledge adequately answer the query? " +
-        "Are there source files you haven't read yet that are relevant? " +
-        "If coverage is adequate, set context.coverageSatisfied = true. " +
-        "If more sources need to be read, leave it false.",
+      description: M.nodes.evaluating.description,
+      instructions: M.nodes.evaluating.instructions,
       edges: [
         {
           target: "complete",
-          label: "coverage-satisfied",
+          label: M.edges.coverageSatisfied.label,
           condition: "context.coverageSatisfied == true",
-          description: "Query is fully covered by existing and new propositions.",
+          description: M.edges.coverageSatisfied.description,
         },
         {
           target: "sourcing",
-          label: "more-sources-needed",
+          label: M.edges.moreSourcesNeeded.label,
           condition: "context.coverageSatisfied == false",
-          description: "Additional sources needed to cover the query.",
+          description: M.edges.moreSourcesNeeded.description,
         },
       ],
     })
     .node("complete", {
       type: "terminal",
-      description: "Recollection complete.",
+      description: M.nodes.complete.description,
     })
     .build();
 }
