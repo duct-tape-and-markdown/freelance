@@ -511,6 +511,127 @@ describe("MemoryStore", () => {
       const result = store.browse({ name: "AuthService" });
       expect(result.entities[0].kind).toBe("class");
     });
+
+    it("surfaces entity_kind_conflict warning when re-cited with different kind", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      // First emit: Auth is a class
+      store.emit(
+        [
+          {
+            content: "Auth validates tokens.",
+            entities: ["Auth"],
+            sources: ["a.ts"],
+            entityKinds: { Auth: "class" },
+          },
+        ],
+        C,
+      );
+
+      // Second emit: Auth is now cited as a function — conflict
+      const r = store.emit(
+        [
+          {
+            content: "Auth also logs.",
+            entities: ["Auth"],
+            sources: ["a.ts"],
+            entityKinds: { Auth: "function" },
+          },
+        ],
+        C,
+      );
+
+      expect(r.warnings).toBeDefined();
+      expect(r.warnings).toHaveLength(1);
+      expect(r.warnings![0]).toEqual({
+        type: "entity_kind_conflict",
+        entity: "Auth",
+        existingKind: "class",
+        providedKind: "function",
+      });
+
+      // Existing kind still wins (first-wins, not reconciled)
+      expect(store.browse({ name: "Auth" }).entities[0].kind).toBe("class");
+    });
+
+    it("no warning when kind matches existing", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.emit(
+        [
+          {
+            content: "Auth validates.",
+            entities: ["Auth"],
+            sources: ["a.ts"],
+            entityKinds: { Auth: "class" },
+          },
+        ],
+        C,
+      );
+      const r = store.emit(
+        [
+          {
+            content: "Auth also logs.",
+            entities: ["Auth"],
+            sources: ["a.ts"],
+            entityKinds: { Auth: "class" },
+          },
+        ],
+        C,
+      );
+      expect(r.warnings).toBeUndefined();
+    });
+
+    it("no warning when new emit omits kind (existing kind stays)", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.emit(
+        [
+          {
+            content: "Auth validates.",
+            entities: ["Auth"],
+            sources: ["a.ts"],
+            entityKinds: { Auth: "class" },
+          },
+        ],
+        C,
+      );
+      const r = store.emit(
+        [{ content: "Auth also logs.", entities: ["Auth"], sources: ["a.ts"] }],
+        C,
+      );
+      expect(r.warnings).toBeUndefined();
+    });
+
+    it("conflict warning fires on normalized-name match too", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.emit(
+        [
+          {
+            content: "AuthService exists.",
+            entities: ["AuthService"],
+            sources: ["a.ts"],
+            entityKinds: { AuthService: "class" },
+          },
+        ],
+        C,
+      );
+      const r = store.emit(
+        [
+          {
+            content: "authservice also logs.",
+            entities: ["authservice"],
+            sources: ["a.ts"],
+            entityKinds: { authservice: "interface" },
+          },
+        ],
+        C,
+      );
+      expect(r.warnings).toHaveLength(1);
+      expect(r.warnings![0]).toEqual({
+        type: "entity_kind_conflict",
+        entity: "AuthService",
+        existingKind: "class",
+        providedKind: "interface",
+      });
+    });
   });
 
   describe("neighbors", () => {

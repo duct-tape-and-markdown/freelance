@@ -92,6 +92,26 @@ provenance.
   protecting a property (in-flight definition pinning) the JSON-file
   persistence model already provides and the synchronous engine never
   actually exposed to race conditions.
+- **`propositions_au` AFTER UPDATE trigger** in the memory schema. It
+  was defined to keep the FTS mirror in sync on UPDATEs of
+  `propositions.content`, but `memory_emit` uses `ON CONFLICT DO
+  NOTHING` and nothing else UPDATEs that column, so the trigger was
+  dormant since `d1af397`. Older databases get the trigger dropped
+  explicitly on next open via `DROP TRIGGER IF EXISTS`, so the schema
+  state is deterministic.
+
+### Added
+
+- **`EmitResult.warnings`** — `memory_emit` now returns a `warnings`
+  array alongside the existing result fields when non-fatal conflicts
+  are surfaced. Currently the only warning type is
+  `entity_kind_conflict`: emitted when a proposition cites an entity
+  with a `kind` that differs from the entity's previously recorded
+  kind. The store keeps the first-recorded kind (first-wins, no
+  reconciliation) and surfaces the disagreement so the caller can
+  decide what to do — re-emit with a correction, escalate to a user,
+  ignore. Aligns with the broader design principle that the store
+  reports ground truth and the workflow/agent layer reconciles.
 
 ### Changed
 

@@ -34,6 +34,7 @@ import type {
   CollectionConfig,
   EmitProposition,
   EmitResult,
+  EmitWarning,
   EntityInfo,
   EntityRow,
   InspectResult,
@@ -150,6 +151,7 @@ export class MemoryStore {
       entities_created: 0,
       propositions: [],
     };
+    const warnings: EmitWarning[] = [];
 
     // DO NOTHING (not DO UPDATE) — if an existing row matches on
     // (content_hash, collection) the insert becomes a no-op and returns
@@ -213,7 +215,7 @@ export class MemoryStore {
 
       for (const entityName of prop.entities) {
         const kind = prop.entityKinds?.[entityName];
-        const resolved = this.resolveEntity(entityName, kind);
+        const resolved = this.resolveEntity(entityName, kind, warnings);
         propResult.entities.push(resolved);
         insertAbout.run(propId, resolved.id);
         if (resolved.resolution === "created") {
@@ -226,20 +228,43 @@ export class MemoryStore {
       result.propositions.push(propResult);
     }
 
+    if (warnings.length > 0) {
+      result.warnings = warnings;
+    }
     return result;
   }
 
   // --- Entity resolution ---
 
+  /**
+   * Resolve an entity by name with a provided kind, creating it if missing.
+   *
+   * Kind semantics:
+   * - If the entity doesn't exist: create it with the given kind.
+   * - If the entity exists with a null kind and a kind is provided:
+   *   backfill the kind.
+   * - If the entity exists with a non-null kind that differs from the
+   *   provided kind: keep the existing kind (first-wins) and push an
+   *   `entity_kind_conflict` warning for the caller. The store does not
+   *   reconcile — surfacing the conflict is the feature.
+   */
   private resolveEntity(
     name: string,
-    kind?: string,
+    kind: string | undefined,
+    warnings: EmitWarning[],
   ): { id: string; name: string; resolution: "exact" | "normalized" | "created" } {
     const exact = this.db.prepare("SELECT id, name, kind FROM entities WHERE name = ?").get(name) as
       | EntityRow
       | undefined;
     if (exact) {
-      if (kind && !exact.kind) {
+      if (kind && exact.kind && exact.kind !== kind) {
+        warnings.push({
+          type: "entity_kind_conflict",
+          entity: exact.name,
+          existingKind: exact.kind,
+          providedKind: kind,
+        });
+      } else if (kind && !exact.kind) {
         this.db.prepare("UPDATE entities SET kind = ? WHERE id = ?").run(kind, exact.id);
       }
       return { id: exact.id, name: exact.name, resolution: "exact" };
@@ -250,7 +275,14 @@ export class MemoryStore {
       .prepare("SELECT id, name, kind FROM entities WHERE LOWER(TRIM(name)) = ?")
       .get(normalized) as EntityRow | undefined;
     if (normMatch) {
-      if (kind && !normMatch.kind) {
+      if (kind && normMatch.kind && normMatch.kind !== kind) {
+        warnings.push({
+          type: "entity_kind_conflict",
+          entity: normMatch.name,
+          existingKind: normMatch.kind,
+          providedKind: kind,
+        });
+      } else if (kind && !normMatch.kind) {
         this.db.prepare("UPDATE entities SET kind = ? WHERE id = ?").run(kind, normMatch.id);
       }
       return { id: normMatch.id, name: normMatch.name, resolution: "normalized" };

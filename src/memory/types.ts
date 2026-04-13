@@ -39,7 +39,27 @@ export interface EmitResult {
     status: "created" | "deduplicated";
     entities: Array<{ id: string; name: string; resolution: "exact" | "normalized" | "created" }>;
   }>;
+  /**
+   * Non-fatal observations surfaced during the emit. Not reconciled by
+   * the store — the caller decides what to do (re-emit with a correction,
+   * mark the new proposition stale, ignore, escalate to a user).
+   */
+  warnings?: EmitWarning[];
 }
+
+/**
+ * An `entity_kind_conflict` is emitted when a proposition cites an entity
+ * with a `kind` that differs from the entity's existing stored kind.
+ * Before this change the store silently kept the first-recorded kind; now
+ * the second emit's kind is still discarded (first-wins), but the
+ * conflict is reported so the caller can reconcile explicitly.
+ */
+export type EmitWarning = {
+  type: "entity_kind_conflict";
+  entity: string;
+  existingKind: string;
+  providedKind: string;
+};
 
 export interface EntityInfo {
   id: string;
