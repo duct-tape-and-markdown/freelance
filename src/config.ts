@@ -38,7 +38,7 @@ const configSchema = z.object({
   memory: memorySchema,
 });
 
-export type FreelanceConfigFile = z.infer<typeof configSchema>;
+type FreelanceConfigFile = z.infer<typeof configSchema>;
 
 /** Resolved config with provenance tracking. */
 export interface FreelanceConfig {

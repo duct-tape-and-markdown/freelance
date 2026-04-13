@@ -9,7 +9,7 @@ export const GUIDE_TOPICS = [
   "anti-patterns",
 ] as const;
 
-export type GuideTopic = (typeof GUIDE_TOPICS)[number];
+type GuideTopic = (typeof GUIDE_TOPICS)[number];
 
 const GUIDE_CONTENT: Record<GuideTopic, string> = {
   basics: `# Graph Basics

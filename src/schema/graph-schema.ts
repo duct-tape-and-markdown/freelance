@@ -78,7 +78,7 @@ const contextFieldDescriptorSchema = z.object({
   default: z.unknown().default(null),
 });
 
-export type ContextFieldDescriptor = z.infer<typeof contextFieldDescriptorSchema>;
+type ContextFieldDescriptor = z.infer<typeof contextFieldDescriptorSchema>;
 
 /** Check if a context value is a typed descriptor (vs a plain scalar) */
 export function isContextFieldDescriptor(v: unknown): v is ContextFieldDescriptor {

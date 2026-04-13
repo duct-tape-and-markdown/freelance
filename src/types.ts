@@ -212,13 +212,6 @@ export interface TraversalInfo {
   readonly stackDepth: number;
 }
 
-export interface SerializedTraversal {
-  traversalId: string;
-  stack: SessionState[];
-  createdAt: string;
-  lastUpdated: string;
-}
-
 export interface TraversalListResult {
   readonly graphs: GraphListResult["graphs"];
   readonly activeTraversals: readonly TraversalInfo[];

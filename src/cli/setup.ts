@@ -107,13 +107,13 @@ export function resolveMemoryConfig(
 
 // --- CLI setup helpers ---
 
-export interface CliSetupOptions {
+interface CliSetupOptions {
   workflows?: string | string[];
   maxDepth?: number;
   sourceRoot?: string;
 }
 
-export interface CliSetup {
+interface CliSetup {
   graphs: Map<string, ValidatedGraph>;
   graphsDirs: string[];
   sourceRoot: string | undefined;

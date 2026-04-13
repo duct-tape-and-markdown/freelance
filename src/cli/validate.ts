@@ -28,7 +28,7 @@ interface ValidateResult {
   fixed?: number;
 }
 
-export interface ValidateOptions {
+interface ValidateOptions {
   checkSources?: boolean;
   fix?: boolean;
   /** Base path for resolving source references. Defaults to parent of graph directory. */

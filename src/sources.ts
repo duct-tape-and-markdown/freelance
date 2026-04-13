@@ -32,40 +32,40 @@ export function hashContent(content: string): string {
 
 // --- Types ---
 
-export interface SourceRef {
+interface SourceRef {
   path: string;
   section?: string;
 }
 
-export interface HashedSource {
+interface HashedSource {
   path: string;
   section?: string;
   hash: string;
 }
 
-export interface SourceHashResult {
+interface SourceHashResult {
   hash: string;
   sources: HashedSource[];
 }
 
-export interface DriftedSource {
+interface DriftedSource {
   path: string;
   section?: string;
   expected: string;
   actual: string;
 }
 
-export interface SourceCheckResult {
+interface SourceCheckResult {
   valid: boolean;
   drifted: DriftedSource[];
 }
 
-export interface NodeSourceWarning {
+interface NodeSourceWarning {
   node: string;
   drifted: Array<{ path: string; section?: string }>;
 }
 
-export interface SourceValidationResult {
+interface SourceValidationResult {
   valid: boolean;
   warnings: NodeSourceWarning[];
 }

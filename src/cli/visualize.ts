@@ -7,7 +7,7 @@ import { cli, EXIT, fatal, info, outputJson } from "./output.js";
 
 type Format = "mermaid" | "dot";
 
-export interface VisualizeOptions {
+interface VisualizeOptions {
   format: Format;
   output?: string;
   open?: boolean;

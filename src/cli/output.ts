@@ -11,7 +11,7 @@ export const EXIT = {
 
 // Global CLI state — set via setCli() from index.ts before any command runs.
 // Exported as readonly; only setCli() can mutate it.
-export interface CliState {
+interface CliState {
   json: boolean;
   quiet: boolean;
   verbose: boolean;

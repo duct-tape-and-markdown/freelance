@@ -78,7 +78,7 @@ export function resolveSourceRoot(
   return undefined;
 }
 
-export interface GracefulLoadResult {
+interface GracefulLoadResult {
   graphs: Map<string, ValidatedGraph>;
   errors: Array<{ file: string; message: string }>;
 }

@@ -3,7 +3,7 @@ import type { CollectingLoadResult } from "./loader.js";
 import { loadGraphsCollecting } from "./loader.js";
 import type { ValidatedGraph } from "./types.js";
 
-export interface WatcherOptions {
+interface WatcherOptions {
   /** Directory or directories containing *.workflow.yaml files */
   graphsDir: string | string[];
   /** Called with new validated graphs on successful reload */
