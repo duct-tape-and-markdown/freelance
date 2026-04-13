@@ -1,23 +1,26 @@
 import { EngineError } from "../errors.js";
 import { evaluate } from "../evaluator.js";
 import { resolveContextDefaults } from "../loader.js";
-import { cloneContext, toNodeInfo } from "./helpers.js";
-import { evaluateTransitions } from "./transitions.js";
 import type {
-  ValidatedGraph,
+  AdvanceSuccessResult,
   NodeDefinition,
   SessionState,
-  AdvanceSuccessResult,
+  ValidatedGraph,
 } from "../types.js";
+import { cloneContext, toNodeInfo } from "./helpers.js";
+import { evaluateTransitions } from "./transitions.js";
 
-export function maybePushSubgraph(
-  stack: SessionState[],
-  graphs: Map<string, ValidatedGraph>,
-  previousNode: string,
-  edge: string,
-  newNodeDef: NodeDefinition,
-  maxDepth: number
-): AdvanceSuccessResult {
+interface PushSubgraphArgs {
+  stack: SessionState[];
+  graphs: Map<string, ValidatedGraph>;
+  previousNode: string;
+  edge: string;
+  newNodeDef: NodeDefinition;
+  maxDepth: number;
+}
+
+export function maybePushSubgraph(args: PushSubgraphArgs): AdvanceSuccessResult {
+  const { stack, graphs, previousNode, edge, newNodeDef, maxDepth } = args;
   const parentSession = stack[stack.length - 1];
   const subgraph = newNodeDef.subgraph!;
 
@@ -29,7 +32,11 @@ export function maybePushSubgraph(
       condMet = false;
     }
     if (!condMet) {
-      const parentDef = graphs.get(parentSession.graphId)!.definition;
+      const parentGraph = graphs.get(parentSession.graphId);
+      if (!parentGraph) {
+        throw new EngineError(`Graph "${parentSession.graphId}" not found`, "GRAPH_NOT_FOUND");
+      }
+      const parentDef = parentGraph.definition;
       return {
         status: "advanced",
         isError: false,
@@ -47,7 +54,7 @@ export function maybePushSubgraph(
   if (stack.length >= maxDepth) {
     throw new EngineError(
       `Maximum stack depth (${maxDepth}) exceeded. Cannot push subgraph '${subgraph.graphId}'. Simplify the workflow or increase maxDepth.`,
-      "STACK_DEPTH_EXCEEDED"
+      "STACK_DEPTH_EXCEEDED",
     );
   }
 
@@ -55,7 +62,7 @@ export function maybePushSubgraph(
   if (!childGraph) {
     throw new EngineError(
       `Subgraph '${subgraph.graphId}' not found in loaded graphs.`,
-      "GRAPH_NOT_FOUND"
+      "GRAPH_NOT_FOUND",
     );
   }
 
@@ -108,7 +115,7 @@ export function popSubgraph(
   stack: SessionState[],
   graphs: Map<string, ValidatedGraph>,
   previousNode: string,
-  edge: string
+  edge: string,
 ): AdvanceSuccessResult {
   const childSession = stack[stack.length - 1];
   const completedGraphId = childSession.graphId;
@@ -118,10 +125,7 @@ export function popSubgraph(
   const parentSession = stack[stack.length - 1];
   const parentGraph = graphs.get(parentSession.graphId);
   if (!parentGraph) {
-    throw new EngineError(
-      `Graph "${parentSession.graphId}" not found`,
-      "GRAPH_NOT_FOUND"
-    );
+    throw new EngineError(`Graph "${parentSession.graphId}" not found`, "GRAPH_NOT_FOUND");
   }
   const parentDef = parentGraph.definition;
   const parentNodeDef = parentDef.nodes[parentSession.currentNode];

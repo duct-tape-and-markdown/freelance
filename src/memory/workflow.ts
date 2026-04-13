@@ -2,88 +2,73 @@
  * Sealed compile-knowledge workflow.
  *
  * Built programmatically, injected into the graphs map when memory is enabled.
- * Not user-editable.
+ * Not user-editable. Agent-facing prose lives in messages.ts.
  */
 
 import { GraphBuilder } from "../builder.js";
 import type { ValidatedGraph } from "../types.js";
+import { compileMessages as M } from "./messages.js";
 
 export const COMPILE_KNOWLEDGE_ID = "memory:compile";
 
 export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
   return new GraphBuilder(COMPILE_KNOWLEDGE_ID, "Compile Knowledge")
-    .setDescription(
-      "Read source files, reason about them, and emit propositions to Memory. " +
-      "Use this workflow to build persistent knowledge about the codebase."
-    )
+    .setDescription(M.description)
     .setContext({
       collection: "",
       query: "",
-      filesRead: 0,
+      filesReadPaths: [],
       propositionsEmitted: 0,
       coverageSatisfied: false,
     })
     .node("exploring", {
       type: "action",
-      description: "Read source files relevant to the query.",
-      instructions:
-        "Read files related to the compilation query using your native Read tool. " +
-        "The PreToolUse hook will call memory_register_source automatically (Claude Code), " +
-        "or call memory_register_source explicitly for each file you read. " +
-        "Update context.filesRead with the number of files read so far.",
-      suggestedTools: ["memory_register_source"],
+      description: M.nodes.exploring.description,
+      instructions: M.nodes.exploring.instructions,
       edges: [
         {
           target: "compiling",
-          label: "files-read",
-          condition: "context.filesRead > 0",
-          description: "At least one source file has been read and registered.",
+          label: M.edges.filesRead.label,
+          condition: "len(context.filesReadPaths) > 0",
+          description: M.edges.filesRead.description,
         },
       ],
     })
     .node("compiling", {
       type: "action",
-      description: "Emit propositions about what you learned from the source files.",
-      instructions:
-        "Reason about what you read. Write self-contained propositions in natural prose, " +
-        "each about 1-2 entities. Use memory_emit to write them to Memory, passing " +
-        "context.collection as the collection parameter. " +
-        "Update context.propositionsEmitted with the total emitted this session.",
+      description: M.nodes.compiling.description,
+      instructions: M.nodes.compiling.instructions,
       suggestedTools: ["memory_emit"],
       edges: [
         {
           target: "evaluating",
-          label: "propositions-emitted",
-          description: "Propositions have been written to memory.",
+          label: M.edges.propositionsEmitted.label,
+          description: M.edges.propositionsEmitted.description,
         },
       ],
     })
     .node("evaluating", {
       type: "decision",
-      description: "Check coverage — are there areas not yet compiled?",
-      instructions:
-        "Review what you've compiled so far against the original query. " +
-        "Are there source files you haven't read yet that are relevant? " +
-        "Are there entities or behaviors you noticed but haven't emitted propositions about? " +
-        "Set context.coverageSatisfied to true if coverage is adequate.",
+      description: M.nodes.evaluating.description,
+      instructions: M.nodes.evaluating.instructions,
       edges: [
         {
           target: "complete",
-          label: "coverage-satisfied",
+          label: M.edges.coverageSatisfied.label,
           condition: "context.coverageSatisfied == true",
-          description: "All relevant source material has been compiled.",
+          description: M.edges.coverageSatisfied.description,
         },
         {
           target: "exploring",
-          label: "gaps-remain",
+          label: M.edges.gapsRemain.label,
           condition: "context.coverageSatisfied == false",
-          description: "More source files need to be read.",
+          description: M.edges.gapsRemain.description,
         },
       ],
     })
     .node("complete", {
       type: "terminal",
-      description: "Compilation session complete.",
+      description: M.nodes.complete.description,
     })
     .build();
 }

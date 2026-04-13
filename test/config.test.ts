@@ -1,6 +1,6 @@
-import { describe, it, expect, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { loadConfig, loadConfigFromDirs, updateLocalConfig } from "../src/config.js";
 import { tmpFreelanceDir } from "./helpers.js";
 
@@ -29,17 +29,17 @@ describe("loadConfig", () => {
 
   it("reads config.yml", () => {
     const dir = makeDir();
-    fs.writeFileSync(path.join(dir, "config.yml"), `
+    fs.writeFileSync(
+      path.join(dir, "config.yml"),
+      `
 memory:
-  ignore:
-    - "**/node_modules/**"
   collections:
     - name: default
       description: General
       paths: [""]
-`);
+`,
+    );
     const config = loadConfig(dir);
-    expect(config.memory.ignore).toEqual(["**/node_modules/**"]);
     expect(config.memory.collections).toHaveLength(1);
     expect(config.memory.collections![0].name).toBe("default");
     expect(config.sources).toHaveLength(1);
@@ -50,37 +50,46 @@ memory:
     const pluginDir = path.join(path.dirname(dir), "plugin-wf");
     fs.mkdirSync(pluginDir, { recursive: true });
 
-    fs.writeFileSync(path.join(dir, "config.yml"), `
+    fs.writeFileSync(
+      path.join(dir, "config.yml"),
+      `
 memory:
-  ignore:
-    - "**/dist/**"
-`);
-    fs.writeFileSync(path.join(dir, "config.local.yml"), `
+  enabled: true
+`,
+    );
+    fs.writeFileSync(
+      path.join(dir, "config.local.yml"),
+      `
 workflows:
   - ${pluginDir}
 memory:
   dir: /tmp/persistent
-  ignore:
-    - "**/cache/**"
-`);
+`,
+    );
     const config = loadConfig(dir);
     expect(config.workflows).toEqual([pluginDir]);
     expect(config.memory.dir).toBe("/tmp/persistent");
-    expect(config.memory.ignore).toEqual(["**/dist/**", "**/cache/**"]);
+    expect(config.memory.enabled).toBe(true);
     expect(config.sources).toHaveLength(2);
   });
 
   it("local scalars override base scalars", () => {
     const dir = makeDir();
-    fs.writeFileSync(path.join(dir, "config.yml"), `
+    fs.writeFileSync(
+      path.join(dir, "config.yml"),
+      `
 memory:
   enabled: true
   dir: /base/path
-`);
-    fs.writeFileSync(path.join(dir, "config.local.yml"), `
+`,
+    );
+    fs.writeFileSync(
+      path.join(dir, "config.local.yml"),
+      `
 memory:
   dir: /local/path
-`);
+`,
+    );
     const config = loadConfig(dir);
     expect(config.memory.dir).toBe("/local/path");
     expect(config.memory.enabled).toBe(true);
@@ -92,10 +101,13 @@ memory:
     const relTarget = path.join(parent, "relative-wf");
     fs.mkdirSync(relTarget, { recursive: true });
 
-    fs.writeFileSync(path.join(dir, "config.yml"), `
+    fs.writeFileSync(
+      path.join(dir, "config.yml"),
+      `
 workflows:
   - ../relative-wf
-`);
+`,
+    );
     const config = loadConfig(dir);
     expect(config.workflows).toEqual([relTarget]);
   });
@@ -114,19 +126,23 @@ describe("loadConfigFromDirs", () => {
     const dir1 = makeDir();
     const dir2 = makeDir();
 
-    fs.writeFileSync(path.join(dir1, "config.yml"), `
-memory:
-  ignore:
-    - "*.log"
-`);
-    fs.writeFileSync(path.join(dir2, "config.yml"), `
-memory:
-  ignore:
-    - "*.tmp"
-`);
+    fs.writeFileSync(
+      path.join(dir1, "config.yml"),
+      `
+workflows:
+  - /a
+`,
+    );
+    fs.writeFileSync(
+      path.join(dir2, "config.yml"),
+      `
+workflows:
+  - /b
+`,
+    );
 
     const config = loadConfigFromDirs([dir1, dir2]);
-    expect(config.memory.ignore).toEqual(["*.log", "*.tmp"]);
+    expect(config.workflows).toEqual(["/a", "/b"]);
     expect(config.sources).toHaveLength(2);
   });
 
@@ -151,10 +167,13 @@ describe("updateLocalConfig", () => {
 
   it("preserves existing values when updating", () => {
     const dir = makeDir();
-    fs.writeFileSync(path.join(dir, "config.local.yml"), `
+    fs.writeFileSync(
+      path.join(dir, "config.local.yml"),
+      `
 workflows:
   - /existing/path
-`);
+`,
+    );
     updateLocalConfig(dir, (c) => ({
       ...c,
       memory: { dir: "/persistent" },

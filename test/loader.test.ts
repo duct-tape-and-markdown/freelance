@@ -1,8 +1,14 @@
-import { describe, it, expect, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadGraphs, loadGraphsLayered, loadGraphsCollecting, findGraphFiles, resolveContextDefaults } from "../src/loader.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  findGraphFiles,
+  loadGraphs,
+  loadGraphsCollecting,
+  loadGraphsLayered,
+  resolveContextDefaults,
+} from "../src/loader.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
@@ -16,10 +22,7 @@ function loadSingleFixture(filename: string) {
   const fs = require("node:fs");
   const os = require("node:os");
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "graph-test-"));
-  fs.copyFileSync(
-    path.join(FIXTURES_DIR, filename),
-    path.join(tmpDir, filename)
-  );
+  fs.copyFileSync(path.join(FIXTURES_DIR, filename), path.join(tmpDir, filename));
   return tmpDir;
 }
 
@@ -156,11 +159,11 @@ describe("loadGraphs — edge cases", () => {
     // Copy one valid and one invalid
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(tmpDir, "valid-simple.workflow.yaml")
+      path.join(tmpDir, "valid-simple.workflow.yaml"),
     );
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "invalid-orphan.workflow.yaml"),
-      path.join(tmpDir, "invalid-orphan.workflow.yaml")
+      path.join(tmpDir, "invalid-orphan.workflow.yaml"),
     );
     const graphs = loadGraphs(tmpDir);
     expect(graphs.size).toBe(1);
@@ -178,11 +181,11 @@ describe("findGraphFiles — recursive scanning", () => {
     fs.mkdirSync(subDir);
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(tmpDir, "top-level.workflow.yaml")
+      path.join(tmpDir, "top-level.workflow.yaml"),
     );
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-branching.workflow.yaml"),
-      path.join(subDir, "nested.workflow.yaml")
+      path.join(subDir, "nested.workflow.yaml"),
     );
 
     const files = findGraphFiles(tmpDir);
@@ -199,7 +202,7 @@ describe("findGraphFiles — recursive scanning", () => {
     fs.mkdirSync(deepDir, { recursive: true });
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(deepDir, "deep.workflow.yaml")
+      path.join(deepDir, "deep.workflow.yaml"),
     );
 
     const files = findGraphFiles(tmpDir);
@@ -215,7 +218,7 @@ describe("findGraphFiles — recursive scanning", () => {
     fs.writeFileSync(path.join(tmpDir, "config.yaml"), "key: value");
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(tmpDir, "valid.workflow.yaml")
+      path.join(tmpDir, "valid.workflow.yaml"),
     );
 
     const files = findGraphFiles(tmpDir);
@@ -242,7 +245,7 @@ describe("loadGraphs — recursive loading", () => {
     fs.mkdirSync(subDir);
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(subDir, "valid-simple.workflow.yaml")
+      path.join(subDir, "valid-simple.workflow.yaml"),
     );
 
     const graphs = loadGraphs(tmpDir);
@@ -262,7 +265,7 @@ describe("loadGraphsLayered", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-single-"));
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(tmpDir, "valid-simple.workflow.yaml")
+      path.join(tmpDir, "valid-simple.workflow.yaml"),
     );
     const graphs = loadGraphsLayered([tmpDir]);
     expect(graphs.size).toBe(1);
@@ -277,11 +280,11 @@ describe("loadGraphsLayered", () => {
     // Both have valid-simple — dir2 should shadow dir1
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(dir1, "valid-simple.workflow.yaml")
+      path.join(dir1, "valid-simple.workflow.yaml"),
     );
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(dir2, "valid-simple.workflow.yaml")
+      path.join(dir2, "valid-simple.workflow.yaml"),
     );
     const graphs = loadGraphsLayered([dir1, dir2]);
     expect(graphs.size).toBe(1);
@@ -296,7 +299,7 @@ describe("loadGraphsLayered", () => {
     const dir1 = fs.mkdtempSync(path.join(os.tmpdir(), "layered-real-"));
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(dir1, "valid-simple.workflow.yaml")
+      path.join(dir1, "valid-simple.workflow.yaml"),
     );
     const graphs = loadGraphsLayered(["/tmp/nonexistent-xyz", dir1]);
     expect(graphs.size).toBe(1);
@@ -311,7 +314,7 @@ describe("loadGraphsLayered", () => {
     const validDir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-valid-"));
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(validDir, "valid-simple.workflow.yaml")
+      path.join(validDir, "valid-simple.workflow.yaml"),
     );
     const graphs = loadGraphsLayered([emptyDir, validDir]);
     expect(graphs.size).toBe(1);
@@ -325,7 +328,7 @@ describe("loadGraphsLayered", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-allfail-"));
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "invalid-orphan.workflow.yaml"),
-      path.join(dir, "invalid-orphan.workflow.yaml")
+      path.join(dir, "invalid-orphan.workflow.yaml"),
     );
     expect(() => loadGraphsLayered([dir])).toThrow(/No valid graphs found/i);
     fs.rmSync(dir, { recursive: true, force: true });
@@ -336,11 +339,11 @@ describe("loadGraphsLayered", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-mixed-"));
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(dir, "valid-simple.workflow.yaml")
+      path.join(dir, "valid-simple.workflow.yaml"),
     );
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "invalid-orphan.workflow.yaml"),
-      path.join(dir, "invalid-orphan.workflow.yaml")
+      path.join(dir, "invalid-orphan.workflow.yaml"),
     );
     const graphs = loadGraphsLayered([dir]);
     expect(graphs.size).toBe(1);
@@ -355,7 +358,7 @@ describe("context enums — static validation", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "enum-valid-"));
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-enum.workflow.yaml"),
-      path.join(dir, "valid-enum.workflow.yaml")
+      path.join(dir, "valid-enum.workflow.yaml"),
     );
     const graphs = loadGraphs(dir);
     expect(graphs.has("valid-enum")).toBe(true);
@@ -366,7 +369,7 @@ describe("context enums — static validation", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "enum-invalid-"));
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "invalid-enum-mismatch.workflow.yaml"),
-      path.join(dir, "invalid-enum-mismatch.workflow.yaml")
+      path.join(dir, "invalid-enum-mismatch.workflow.yaml"),
     );
     expect(() => loadGraphs(dir)).toThrow("raceSpecific");
     expect(() => loadGraphs(dir)).toThrow("not in the declared enum");
@@ -377,7 +380,7 @@ describe("context enums — static validation", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "enum-compat-"));
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(dir, "valid-simple.workflow.yaml")
+      path.join(dir, "valid-simple.workflow.yaml"),
     );
     const graphs = loadGraphs(dir);
     expect(graphs.has("valid-simple")).toBe(true);
@@ -413,7 +416,7 @@ describe("loadGraphsCollecting", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "collecting-test-"));
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(tmpDir, "valid-simple.workflow.yaml")
+      path.join(tmpDir, "valid-simple.workflow.yaml"),
     );
     try {
       const { graphs, errors } = loadGraphsCollecting([tmpDir]);
@@ -428,11 +431,11 @@ describe("loadGraphsCollecting", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "collecting-test-"));
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(tmpDir, "valid-simple.workflow.yaml")
+      path.join(tmpDir, "valid-simple.workflow.yaml"),
     );
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "invalid-no-edges.workflow.yaml"),
-      path.join(tmpDir, "invalid-no-edges.workflow.yaml")
+      path.join(tmpDir, "invalid-no-edges.workflow.yaml"),
     );
     try {
       const { graphs, errors } = loadGraphsCollecting([tmpDir]);

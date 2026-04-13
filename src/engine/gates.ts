@@ -1,21 +1,16 @@
 import { evaluate } from "../evaluator.js";
-import { validateReturnSchema } from "./returns.js";
-import { evaluateWaitConditions, checkWaitTimeout } from "./wait.js";
+import type { AdvanceErrorResult, NodeDefinition, SessionState, SourceBinding } from "../types.js";
 import { cloneContext } from "./helpers.js";
+import { validateReturnSchema } from "./returns.js";
 import { evaluateTransitions } from "./transitions.js";
-import type {
-  NodeDefinition,
-  SourceBinding,
-  SessionState,
-  AdvanceErrorResult,
-} from "../types.js";
+import { checkWaitTimeout, evaluateWaitConditions } from "./wait.js";
 
-export function makeAdvanceError(
+function makeAdvanceError(
   currentNode: string,
   reason: string,
   nodeDef: NodeDefinition,
   context: Record<string, unknown>,
-  graphSources?: readonly SourceBinding[]
+  graphSources?: readonly SourceBinding[],
 ): AdvanceErrorResult {
   return {
     status: "error",
@@ -32,7 +27,7 @@ export function makeAdvanceError(
 export function checkWaitBlocking(
   session: SessionState,
   nodeDef: NodeDefinition,
-  graphSources?: readonly SourceBinding[]
+  graphSources?: readonly SourceBinding[],
 ): AdvanceErrorResult | null {
   if (nodeDef.type !== "wait" || !nodeDef.waitOn) return null;
 
@@ -49,7 +44,7 @@ export function checkWaitBlocking(
     `Waiting for external signals: ${unsatisfied.map((w) => `${w.key} (${w.type})`).join(", ")}`,
     nodeDef,
     session.context,
-    graphSources
+    graphSources,
   );
 }
 
@@ -57,7 +52,7 @@ export function checkWaitBlocking(
 export function checkReturnSchema(
   session: SessionState,
   nodeDef: NodeDefinition,
-  graphSources?: readonly SourceBinding[]
+  graphSources?: readonly SourceBinding[],
 ): AdvanceErrorResult | null {
   if (!nodeDef.returns) return null;
 
@@ -69,7 +64,7 @@ export function checkReturnSchema(
     `Return schema violation: ${violation}`,
     nodeDef,
     session.context,
-    graphSources
+    graphSources,
   );
 }
 
@@ -77,7 +72,7 @@ export function checkReturnSchema(
 export function checkValidations(
   session: SessionState,
   nodeDef: NodeDefinition,
-  graphSources?: readonly SourceBinding[]
+  graphSources?: readonly SourceBinding[],
 ): AdvanceErrorResult | null {
   if (!nodeDef.validations || nodeDef.validations.length === 0) return null;
 
@@ -94,7 +89,7 @@ export function checkValidations(
         `Validation failed: ${v.message}`,
         nodeDef,
         session.context,
-        graphSources
+        graphSources,
       );
     }
   }
@@ -107,7 +102,7 @@ export function checkEdgeCondition(
   nodeDef: NodeDefinition,
   edgeCondition: string,
   edgeLabel: string,
-  graphSources?: readonly SourceBinding[]
+  graphSources?: readonly SourceBinding[],
 ): AdvanceErrorResult | null {
   let condMet: boolean;
   try {
@@ -122,6 +117,6 @@ export function checkEdgeCondition(
     `Edge "${edgeLabel}" condition not met: ${edgeCondition}`,
     nodeDef,
     session.context,
-    graphSources
+    graphSources,
   );
 }

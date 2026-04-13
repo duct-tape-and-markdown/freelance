@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { GraphBuilder } from "../src/builder.js";
 
 describe("GraphBuilder", () => {
@@ -44,7 +44,10 @@ describe("GraphBuilder", () => {
       .node("a", {
         type: "decision",
         description: "Decision node",
-        edges: [{ target: "b", label: "to-b" }, { target: "c", label: "to-c" }],
+        edges: [
+          { target: "b", label: "to-b" },
+          { target: "c", label: "to-c" },
+        ],
       })
       .node("b", {
         description: "The real start",
@@ -152,7 +155,7 @@ describe("GraphBuilder", () => {
           description: "Start",
           edges: [{ target: "nonexistent" }],
         })
-        .build()
+        .build(),
     ).toThrow("nonexistent");
   });
 
@@ -166,14 +169,12 @@ describe("GraphBuilder", () => {
         })
         .node("done", { type: "terminal", description: "End" })
         .node("orphan", { type: "terminal", description: "Unreachable" })
-        .build()
+        .build(),
     ).toThrow("unreachable");
   });
 
   it("rejects empty builder", () => {
-    expect(() =>
-      new GraphBuilder("test-empty").build()
-    ).toThrow("no nodes added");
+    expect(() => new GraphBuilder("test-empty").build()).toThrow("no nodes added");
   });
 
   it("validates expressions at build time", () => {
@@ -185,7 +186,7 @@ describe("GraphBuilder", () => {
           edges: [{ target: "done", condition: "context.foo === true" }],
         })
         .node("done", { type: "terminal", description: "End" })
-        .build()
+        .build(),
     ).toThrow();
   });
 });

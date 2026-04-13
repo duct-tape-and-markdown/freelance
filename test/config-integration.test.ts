@@ -3,14 +3,13 @@
  * exercise the full path from config files through to resolution.
  */
 
-import { describe, it, expect, afterEach } from "vitest";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { loadConfig, loadConfigFromDirs, updateLocalConfig } from "../src/config.js";
-import { resolveDefaultGraphsDirs } from "../src/graph-resolution.js";
-import { resolveMemoryConfig, ensureStateDir } from "../src/cli/setup.js";
+import { afterEach, describe, expect, it } from "vitest";
 import { configSetLocal } from "../src/cli/config.js";
+import { ensureStateDir, resolveMemoryConfig } from "../src/cli/setup.js";
+import { loadConfig, loadConfigFromDirs } from "../src/config.js";
+import { resolveDefaultGraphsDirs } from "../src/graph-resolution.js";
 import { tmpFreelanceDir, withTmpEnv } from "./helpers.js";
 
 const cleanup: string[] = [];
@@ -70,7 +69,7 @@ describe("plugin hook flow", () => {
 
   it("set-local workflows is idempotent across multiple hook runs", () => {
     const freelanceDir = makeDir("plugin-idem-");
-    const pluginDir = "/tmp/plugin-wf-" + Date.now();
+    const pluginDir = `/tmp/plugin-wf-${Date.now()}`;
 
     // Simulate hook running on three separate sessions
     configSetLocal("workflows", pluginDir, { workflows: freelanceDir });
@@ -105,10 +104,7 @@ describe("config + memory resolution", () => {
     const configDir = path.join(path.dirname(freelanceDir), "config-mem");
     const cliDir = path.join(path.dirname(freelanceDir), "cli-mem");
 
-    fs.writeFileSync(
-      path.join(freelanceDir, "config.local.yml"),
-      `memory:\n  dir: ${configDir}\n`,
-    );
+    fs.writeFileSync(path.join(freelanceDir, "config.local.yml"), `memory:\n  dir: ${configDir}\n`);
 
     const memConfig = resolveMemoryConfig([freelanceDir], { memoryDir: cliDir });
     expect(memConfig).not.toBeNull();
@@ -119,24 +115,6 @@ describe("config + memory resolution", () => {
       if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true });
     }
   });
-
-  it("memory ignore patterns merge from config.yml and config.local.yml", () => {
-    const freelanceDir = makeDir("mem-ignore-merge-");
-    fs.writeFileSync(path.join(freelanceDir, "config.yml"), `
-memory:
-  ignore:
-    - "**/node_modules/**"
-`);
-    fs.writeFileSync(path.join(freelanceDir, "config.local.yml"), `
-memory:
-  ignore:
-    - "**/vendor/**"
-`);
-
-    const memConfig = resolveMemoryConfig([freelanceDir], {});
-    expect(memConfig).not.toBeNull();
-    expect(memConfig!.ignore).toEqual(["**/node_modules/**", "**/vendor/**"]);
-  });
 });
 
 describe("multi-dir config merge", () => {
@@ -144,31 +122,39 @@ describe("multi-dir config merge", () => {
     const projectDir = makeDir("project-");
     const userDir = makeDir("user-");
 
-    fs.writeFileSync(path.join(projectDir, "config.yml"), `
+    fs.writeFileSync(
+      path.join(projectDir, "config.yml"),
+      `
 memory:
-  ignore:
-    - "**/dist/**"
   collections:
     - name: project
       description: Project knowledge
       paths: ["src/"]
-`);
-    fs.writeFileSync(path.join(userDir, "config.yml"), `
+`,
+    );
+    fs.writeFileSync(
+      path.join(userDir, "config.yml"),
+      `
 memory:
-  ignore:
-    - "**/cache/**"
-`);
-    fs.writeFileSync(path.join(userDir, "config.local.yml"), `
+  collections:
+    - name: user
+      description: User knowledge
+      paths: [""]
+`,
+    );
+    fs.writeFileSync(
+      path.join(userDir, "config.local.yml"),
+      `
 memory:
   dir: /tmp/user-persistent
-`);
+`,
+    );
 
     const config = loadConfigFromDirs([projectDir, userDir]);
 
-    // Arrays concatenate
-    expect(config.memory.ignore).toEqual(["**/dist/**", "**/cache/**"]);
-    expect(config.memory.collections).toHaveLength(1);
-    expect(config.memory.collections![0].name).toBe("project");
+    // Arrays concatenate across directories
+    expect(config.memory.collections).toHaveLength(2);
+    expect(config.memory.collections!.map((c) => c.name)).toEqual(["project", "user"]);
 
     // Scalar from user's local overrides
     expect(config.memory.dir).toBe("/tmp/user-persistent");

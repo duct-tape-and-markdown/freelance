@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [20, 22, 24]
+        node-version: [22, 24]
 
     steps:
       - uses: actions/checkout@v6
@@ -23,24 +23,58 @@ jobs:
 
       - run: npm ci
 
+      - name: Lint and format check
+        run: npm run check
+
       - run: npm run build
 
       - name: Test with coverage
-        run: >-
-          npx vitest run --coverage --coverage.reporter=text
-          --coverage.thresholds.lines=90
-          --coverage.exclude='src/index.ts'
-          --coverage.exclude='src/proxy.ts'
-          --coverage.exclude='src/daemon.ts'
-          --coverage.exclude='src/**/index.ts'
+        run: npm run test:coverage
 
       - name: Validate test fixtures
-        run: node dist/index.js validate ./test/fixtures-valid/
+        run: node dist/bin.js validate ./test/fixtures-valid/
 
       - name: CLI smoke test
         run: |
-          node dist/index.js --help
-          node dist/index.js visualize ./test/fixtures-valid/valid-simple.workflow.yaml --format mermaid
+          node dist/bin.js --help
+          node dist/bin.js visualize ./test/fixtures-valid/valid-simple.workflow.yaml --format mermaid
 
-      - name: Package dry-run
-        run: npm pack --dry-run
+      - name: arethetypeswrong
+        run: >-
+          npx -y @arethetypeswrong/cli
+          --ignore-rules cjs-resolves-to-esm no-resolution
+          --pack .
+
+      - name: Pack
+        id: pack
+        run: |
+          # --ignore-scripts so the `prepare` lifecycle (simple-git-hooks setup)
+          # doesn't pollute stdout when we capture the tarball filename.
+          # Runs AFTER attw: attw --pack . deletes the tarball it creates during
+          # cleanup, which would also wipe ours since they share a filename.
+          npm pack --ignore-scripts --silent > /dev/null
+          echo "tarball=$(ls freelance-mcp-*.tgz | head -1)" >> "$GITHUB_OUTPUT"
+
+      - name: publint
+        run: npx -y publint "${{ steps.pack.outputs.tarball }}"
+
+      - name: Install and smoke test the tarball
+        run: |
+          TEMPDIR="$(mktemp -d)"
+          cd "$TEMPDIR"
+          npm init -y > /dev/null
+          npm install "$GITHUB_WORKSPACE/${{ steps.pack.outputs.tarball }}"
+          # Library import — asserts pure side-effect-free import and expected export surface
+          node --input-type=module -e "
+          import * as pkg from 'freelance-mcp';
+          const keys = Object.keys(pkg);
+          if (keys.length < 5) {
+            console.error('Library exports missing:', keys);
+            process.exit(1);
+          }
+          console.log('Library ok:', keys.length, 'exports');
+          "
+          # Bin must be executable and able to validate a real graph
+          ./node_modules/.bin/freelance --help > /dev/null
+          ./node_modules/.bin/freelance validate "$GITHUB_WORKSPACE/test/fixtures-valid/" > /dev/null
+          echo "Tarball install smoke test ok"

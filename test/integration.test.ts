@@ -1,10 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadGraphs } from "../src/loader.js";
 import { createServer } from "../src/server.js";
 import type { ValidatedGraph } from "../src/types.js";
@@ -26,10 +25,7 @@ function parse(result: Awaited<ReturnType<Client["callTool"]>>): any {
 
 // Helper to set up client+server pair for spec example graphs
 async function setup() {
-  const graphs = loadFixtures(
-    "data-pipeline.workflow.yaml",
-    "change-request.workflow.yaml"
-  );
+  const graphs = loadFixtures("data-pipeline.workflow.yaml", "change-request.workflow.yaml");
   const { server } = createServer(graphs);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "1.0.0" });
@@ -57,7 +53,10 @@ async function start(client: Client, graphId: string) {
 }
 
 async function advance(client: Client, edge: string, contextUpdates?: Record<string, unknown>) {
-  return callTool(client, "freelance_advance", { edge, ...(contextUpdates ? { contextUpdates } : {}) });
+  return callTool(client, "freelance_advance", {
+    edge,
+    ...(contextUpdates ? { contextUpdates } : {}),
+  });
 }
 
 async function ctxSet(client: Client, updates: Record<string, unknown>) {

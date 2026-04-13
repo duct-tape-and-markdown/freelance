@@ -2,11 +2,16 @@ import type { NodeDefinition, ReturnField } from "../types.js";
 
 export function checkType(value: unknown, expectedType: ReturnField["type"]): boolean {
   switch (expectedType) {
-    case "boolean": return typeof value === "boolean";
-    case "string": return typeof value === "string";
-    case "number": return typeof value === "number";
-    case "array": return Array.isArray(value);
-    case "object": return typeof value === "object" && !Array.isArray(value) && value !== null;
+    case "boolean":
+      return typeof value === "boolean";
+    case "string":
+      return typeof value === "string";
+    case "number":
+      return typeof value === "number";
+    case "array":
+      return Array.isArray(value);
+    case "object":
+      return typeof value === "object" && !Array.isArray(value) && value !== null;
   }
 }
 
@@ -19,7 +24,7 @@ function actualType(value: unknown): string {
 
 export function validateReturnSchema(
   returns: NonNullable<NodeDefinition["returns"]>,
-  context: Record<string, unknown>
+  context: Record<string, unknown>,
 ): string | null {
   if (returns.required) {
     for (const [key, field] of Object.entries(returns.required)) {

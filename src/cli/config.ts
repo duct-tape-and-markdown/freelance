@@ -8,7 +8,7 @@
 import path from "node:path";
 import { loadConfig, loadConfigFromDirs, updateLocalConfig } from "../config.js";
 import { resolveGraphsDirs } from "../graph-resolution.js";
-import { cli, info, outputJson, fatal, EXIT } from "./output.js";
+import { cli, EXIT, fatal, info, outputJson } from "./output.js";
 
 // --- config show ---
 
@@ -49,9 +49,6 @@ export function configShow(opts: { workflows?: string | string[] }): void {
   info(`    enabled: ${config.memory.enabled ?? "true (default)"}`);
   if (config.memory.dir) {
     info(`    dir: ${config.memory.dir}`);
-  }
-  if (config.memory.ignore?.length) {
-    info(`    ignore: ${config.memory.ignore.join(", ")}`);
   }
   if (config.memory.collections?.length) {
     info(`    collections: ${config.memory.collections.map((c) => c.name).join(", ")}`);

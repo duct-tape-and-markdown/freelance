@@ -6,56 +6,56 @@
  * and schema types without pulling in better-sqlite3.
  */
 
+export type { NodeInput } from "../builder.js";
 // Graph construction and loading
 export { GraphBuilder } from "../builder.js";
-export type { NodeInput } from "../builder.js";
-export { loadSingleGraph, loadGraphs, validateAndBuild, resolveContextDefaults } from "../loader.js";
-
 // Graph engine
 export { GraphEngine } from "../engine/index.js";
-
-// Schema
-export {
-  graphDefinitionSchema,
-  nodeDefinitionSchema,
-  edgeDefinitionSchema,
-  validationRuleSchema,
-  sourceBindingSchema,
-} from "../schema/graph-schema.js";
-
-// Expression evaluator
-export { evaluate, validateExpression } from "../evaluator.js";
-
-// Source hashing
-export { hashContent, hashSource, hashSources, checkSourcesDetailed } from "../sources.js";
-
 // Errors
 export { EngineError } from "../errors.js";
+// Expression evaluator
+export { evaluate, validateExpression } from "../evaluator.js";
+export {
+  loadGraphs,
+  loadSingleGraph,
+  resolveContextDefaults,
+  validateAndBuild,
+} from "../loader.js";
+// Schema
+export {
+  edgeDefinitionSchema,
+  graphDefinitionSchema,
+  nodeDefinitionSchema,
+  sourceBindingSchema,
+  validationRuleSchema,
+} from "../schema/graph-schema.js";
+// Source hashing
+export { checkSourcesDetailed, hashContent, hashSource, hashSources } from "../sources.js";
 
 // Types
 export type {
-  ValidatedGraph,
-  GraphDefinition,
-  NodeDefinition,
-  EdgeDefinition,
-  ValidationRule,
-  SubgraphDefinition,
-  ReturnSchema,
-  SourceBinding,
-  WaitOnEntry,
-  StartResult,
+  AdvanceErrorResult,
   AdvanceResult,
   AdvanceSuccessResult,
-  AdvanceErrorResult,
   ContextSetResult,
-  InspectResult,
-  InspectPositionResult,
-  InspectHistoryResult,
+  EdgeDefinition,
+  GraphDefinition,
   InspectFullResult,
-  ResetResult,
-  SessionState,
-  TransitionInfo,
+  InspectHistoryResult,
+  InspectPositionResult,
+  InspectResult,
+  NodeDefinition,
   NodeInfo,
+  ResetResult,
+  ReturnSchema,
+  SessionState,
+  SourceBinding,
+  StartResult,
+  SubgraphDefinition,
+  TransitionInfo,
   TraversalInfo,
   TraversalListResult,
+  ValidatedGraph,
+  ValidationRule,
+  WaitOnEntry,
 } from "../types.js";

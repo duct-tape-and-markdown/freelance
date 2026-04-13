@@ -4,12 +4,17 @@
  * guide, distill, sources — these operate on graph definitions and source files.
  */
 
-import { cli, info, outputJson } from "./output.js";
-import { getGuide } from "../guide.js";
 import { getDistillPrompt } from "../distill.js";
-import { hashSources, checkSourcesDetailed, validateGraphSources, getDetailedDrift } from "../sources.js";
+import { getGuide } from "../guide.js";
 import { findGraphFiles, loadSingleGraph } from "../loader.js";
 import type { SourceOptions } from "../sources.js";
+import {
+  checkSourcesDetailed,
+  getDetailedDrift,
+  hashSources,
+  validateGraphSources,
+} from "../sources.js";
+import { cli, info, outputJson } from "./output.js";
 
 function handleError(e: unknown): never {
   const message = e instanceof Error ? e.message : String(e);
@@ -69,17 +74,18 @@ export function sourcesHash(sourceOpts: SourceOptions, paths: string[]): void {
 export function sourcesCheck(sourceOpts: SourceOptions, paths: string[]): void {
   try {
     // Expect path:hash or path:section:hash format
-    const sources = paths.map((p) => {
+    const sources: Array<{ path: string; section?: string; hash: string }> = [];
+    for (const p of paths) {
       const parts = p.split(":");
       if (parts.length === 3) {
-        return { path: parts[0], section: parts[1], hash: parts[2] };
+        sources.push({ path: parts[0], section: parts[1], hash: parts[2] });
+      } else if (parts.length === 2) {
+        sources.push({ path: parts[0], hash: parts[1] });
+      } else {
+        info(`Error: invalid format "${p}" — expected path:hash or path:section:hash`);
+        process.exit(1);
       }
-      if (parts.length === 2) {
-        return { path: parts[0], hash: parts[1] };
-      }
-      info(`Error: invalid format "${p}" — expected path:hash or path:section:hash`);
-      process.exit(1);
-    });
+    }
     const result = checkSourcesDetailed(sources, sourceOpts);
     if (cli.json) {
       outputJson(result);
@@ -89,7 +95,9 @@ export function sourcesCheck(sourceOpts: SourceOptions, paths: string[]): void {
       } else {
         info("Drifted sources:");
         for (const d of result.drifted) {
-          info(`  ${d.path}${d.section ? `:${d.section}` : ""}  expected=${d.expected} actual=${d.actual}`);
+          info(
+            `  ${d.path}${d.section ? `:${d.section}` : ""}  expected=${d.expected} actual=${d.actual}`,
+          );
         }
       }
     }
@@ -98,7 +106,11 @@ export function sourcesCheck(sourceOpts: SourceOptions, paths: string[]): void {
   }
 }
 
-export function sourcesValidate(graphsDirs: string[], sourceOpts: SourceOptions, graphId?: string): void {
+export function sourcesValidate(
+  graphsDirs: string[],
+  sourceOpts: SourceOptions,
+  graphId?: string,
+): void {
   try {
     if (graphsDirs.length === 0) {
       info("Error: no graph directories found.");
@@ -118,9 +130,7 @@ export function sourcesValidate(graphsDirs: string[], sourceOpts: SourceOptions,
       }
     }
 
-    const targets = graphId
-      ? fileMap.has(graphId) ? [graphId] : []
-      : [...fileMap.keys()];
+    const targets = graphId ? (fileMap.has(graphId) ? [graphId] : []) : [...fileMap.keys()];
 
     if (targets.length === 0) {
       info(graphId ? `Error: graph not found: ${graphId}` : "No graphs loaded.");
@@ -155,7 +165,9 @@ export function sourcesValidate(graphsDirs: string[], sourceOpts: SourceOptions,
         for (const d of drift) {
           info(`${d.graphId} / ${d.node}:`);
           for (const s of d.drifted) {
-            info(`  ${s.path}${s.section ? `:${s.section}` : ""}  expected=${s.expected} actual=${s.actual}`);
+            info(
+              `  ${s.path}${s.section ? `:${s.section}` : ""}  expected=${s.expected} actual=${s.actual}`,
+            );
           }
         }
       }

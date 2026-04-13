@@ -1,12 +1,8 @@
-/**
- * CLI handlers for memory subcommands.
- *
- * Operates directly on MemoryStore (SQLite) — no daemon required.
- */
+/** CLI handlers for memory subcommands. Operates directly on MemoryStore. */
 
 import fs from "node:fs";
-import { cli, info, outputJson } from "./output.js";
 import type { MemoryStore } from "../memory/index.js";
+import { cli, info, outputJson } from "./output.js";
 
 function handleError(e: unknown): never {
   const message = e instanceof Error ? e.message : String(e);
@@ -24,7 +20,9 @@ export function memoryStatus(store: MemoryStore, collection?: string): void {
     if (cli.json) {
       outputJson(result);
     } else {
-      info(`Propositions: ${result.total_propositions} total, ${result.valid_propositions} valid, ${result.stale_propositions} stale`);
+      info(
+        `Propositions: ${result.total_propositions} total, ${result.valid_propositions} valid, ${result.stale_propositions} stale`,
+      );
       info(`Entities: ${result.total_entities}`);
       if (collection) info(`Collection: ${collection}`);
     }
@@ -53,7 +51,9 @@ export function memoryBrowse(
         return;
       }
       for (const e of result.entities) {
-        info(`  ${e.name}${e.kind ? ` (${e.kind})` : ""}  ${e.valid_proposition_count} propositions`);
+        info(
+          `  ${e.name}${e.kind ? ` (${e.kind})` : ""}  ${e.valid_proposition_count} propositions`,
+        );
       }
       info(`\n${result.entities.length} entities (total: ${result.total})`);
     }
@@ -158,19 +158,6 @@ export function memoryBySource(store: MemoryStore, filePath: string, collection?
   }
 }
 
-export function memoryRegister(store: MemoryStore, filePath: string): void {
-  try {
-    const result = store.registerSource(filePath);
-    if (cli.json) {
-      outputJson(result);
-    } else {
-      info(`Registered: ${filePath}`);
-    }
-  } catch (e) {
-    handleError(e);
-  }
-}
-
 export function memoryEmit(store: MemoryStore, file: string, collection: string): void {
   try {
     // Read JSON from file or stdin
@@ -181,31 +168,25 @@ export function memoryEmit(store: MemoryStore, file: string, collection: string)
       raw = fs.readFileSync(file, "utf-8");
     }
 
-    const propositions = JSON.parse(raw) as Array<{
+    let propositions: Array<{
       content: string;
       entities: string[];
       sources: string[];
       entityKinds?: Record<string, string>;
     }>;
+    try {
+      propositions = JSON.parse(raw);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const source = file === "-" ? "stdin" : file;
+      throw new Error(`${source} must contain valid JSON: ${msg}`);
+    }
 
     const result = store.emit(propositions, collection);
     if (cli.json) {
       outputJson(result);
     } else {
       info(`Emitted ${result.created} propositions (${result.deduplicated} deduplicated)`);
-    }
-  } catch (e) {
-    handleError(e);
-  }
-}
-
-export function memoryEnd(store: MemoryStore): void {
-  try {
-    const result = store.end();
-    if (cli.json) {
-      outputJson(result);
-    } else {
-      info(`Session ended: ${result.propositions_emitted} propositions, ${result.entities_referenced} entities, ${result.files_registered} files`);
     }
   } catch (e) {
     handleError(e);

@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { configShow, configSetLocal } from "../src/cli/config.js";
-import { loadConfig } from "../src/config.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { configSetLocal, configShow } from "../src/cli/config.js";
 import { setCli } from "../src/cli/output.js";
+import { loadConfig } from "../src/config.js";
 import { tmpFreelanceDir } from "./helpers.js";
 
 let stderrOutput: string[];
@@ -34,20 +34,20 @@ afterEach(() => {
 describe("configShow", () => {
   it("shows resolved config from a directory", () => {
     const dir = makeDir("show-");
-    fs.writeFileSync(path.join(dir, "config.yml"), `
+    fs.writeFileSync(
+      path.join(dir, "config.yml"),
+      `
 memory:
-  ignore:
-    - "**/dist/**"
   collections:
     - name: default
       description: General
       paths: [""]
-`);
+`,
+    );
     configShow({ workflows: dir });
     const output = stderrOutput.join("");
     expect(output).toContain("Graph directories:");
     expect(output).toContain(dir);
-    expect(output).toContain("ignore:");
     expect(output).toContain("collections: default");
     expect(output).toContain("Loaded from:");
   });
@@ -81,10 +81,13 @@ memory:
     const dir = makeDir("show-wf-");
     const extraDir = path.join(path.dirname(dir), "extra");
     fs.mkdirSync(extraDir, { recursive: true });
-    fs.writeFileSync(path.join(dir, "config.yml"), `
+    fs.writeFileSync(
+      path.join(dir, "config.yml"),
+      `
 workflows:
   - ${extraDir}
-`);
+`,
+    );
     configShow({ workflows: dir });
     const output = stderrOutput.join("");
     expect(output).toContain("Additional workflows");
@@ -145,7 +148,9 @@ describe("configSetLocal", () => {
       throw new Error("process.exit");
     }) as never);
 
-    expect(() => configSetLocal("memory.enabled", "yes", { workflows: dir })).toThrow("process.exit");
+    expect(() => configSetLocal("memory.enabled", "yes", { workflows: dir })).toThrow(
+      "process.exit",
+    );
     expect(exitSpy).toHaveBeenCalledWith(2);
   });
 

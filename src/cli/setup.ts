@@ -6,18 +6,17 @@
  * entry point in index.ts.
  */
 
-import path from "node:path";
 import fs from "node:fs";
-import { TraversalStore } from "../state/index.js";
-import { openStateDatabase } from "../state/index.js";
-import { MemoryStore } from "../memory/index.js";
-import { resolveGraphsDirs, resolveSourceRoot, loadGraphsGraceful } from "../graph-resolution.js";
-import { loadConfigFromDirs } from "../config.js";
+import path from "node:path";
 import type { FreelanceConfig } from "../config.js";
-import { extractSection } from "../section-resolver.js";
-import type { ValidatedGraph } from "../types.js";
-import type { SourceOptions } from "../sources.js";
+import { loadConfigFromDirs } from "../config.js";
+import { loadGraphsGraceful, resolveGraphsDirs, resolveSourceRoot } from "../graph-resolution.js";
 import type { MemoryConfig } from "../memory/index.js";
+import { MemoryStore } from "../memory/index.js";
+import { extractSection } from "../section-resolver.js";
+import type { SourceOptions } from "../sources.js";
+import { openStateStore, TraversalStore } from "../state/index.js";
+import type { ValidatedGraph } from "../types.js";
 
 // --- State directory resolution ---
 
@@ -55,16 +54,17 @@ export function ensureStateDir(graphsDir: string): string {
 }
 
 /**
- * Resolve the state DB path without creating directories.
- * Use ensureStateDir() before opening the DB for writes.
+ * Resolve the traversals directory. The JsonDirectoryStateStore
+ * constructor creates the dir if missing, so callers don't need to
+ * ensureStateDir first.
  */
-export function resolveStateDb(graphsDirs: string[]): string {
+export function resolveStateDir(graphsDirs: string[]): string {
   for (const dir of graphsDirs) {
     if (fs.existsSync(dir)) {
-      return path.join(stateDir(dir), "state.db");
+      return path.join(stateDir(dir), "traversals");
     }
   }
-  return path.join(stateDir(graphsDirs[0] ?? ".freelance"), "state.db");
+  return path.join(stateDir(graphsDirs[0] ?? ".freelance"), "traversals");
 }
 
 // --- Memory config resolution ---
@@ -101,20 +101,19 @@ export function resolveMemoryConfig(
   return {
     enabled: true,
     db: dbPath,
-    ignore: cfg.memory.ignore,
     collections: cfg.memory.collections,
   };
 }
 
 // --- CLI setup helpers ---
 
-export interface CliSetupOptions {
+interface CliSetupOptions {
   workflows?: string | string[];
   maxDepth?: number;
   sourceRoot?: string;
 }
 
-export interface CliSetup {
+interface CliSetup {
   graphs: Map<string, ValidatedGraph>;
   graphsDirs: string[];
   sourceRoot: string | undefined;
@@ -136,13 +135,16 @@ export function loadGraphSetup(opts: CliSetupOptions): CliSetup {
 }
 
 /** Create a TraversalStore for CLI traversal commands. */
-export function createTraversalStore(opts: CliSetupOptions): { store: TraversalStore; setup: CliSetup } {
+export function createTraversalStore(opts: CliSetupOptions): {
+  store: TraversalStore;
+  setup: CliSetup;
+} {
   const setup = loadGraphSetup(opts);
   ensureStateDir(setup.graphsDirs[0] ?? ".freelance");
-  const stateDb = resolveStateDb(setup.graphsDirs);
-  const db = openStateDatabase(stateDb);
+  const traversalsDir = resolveStateDir(setup.graphsDirs);
+  const backend = openStateStore(traversalsDir);
   const maxDepth = opts.maxDepth ?? 5;
-  const store = new TraversalStore(db, setup.graphs, { maxDepth });
+  const store = new TraversalStore(backend, setup.graphs, { maxDepth });
   return { store, setup };
 }
 
@@ -154,6 +156,6 @@ export function createMemoryStore(opts: CliSetupOptions): { store: MemoryStore; 
   if (!memConfig) {
     throw new Error("Memory is disabled. Enable it in config.yml or remove --no-memory.");
   }
-  const store = new MemoryStore(memConfig.db, setup.sourceRoot, memConfig.ignore, memConfig.collections);
+  const store = new MemoryStore(memConfig.db, setup.sourceRoot, memConfig.collections);
   return { store, setup };
 }

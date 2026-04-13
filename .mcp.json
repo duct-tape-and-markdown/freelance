@@ -2,7 +2,7 @@
   "mcpServers": {
     "freelance": {
       "command": "node",
-      "args": ["dist/index.js", "mcp"]
+      "args": ["dist/bin.js", "mcp"]
     }
   }
 }

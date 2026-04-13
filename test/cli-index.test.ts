@@ -1,27 +1,15 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mock heavy dependencies to prevent real server/daemon starts
+// Mock heavy dependencies to prevent real server starts
 vi.mock("../src/server.js", () => ({ startServer: vi.fn(async () => {}) }));
-vi.mock("../src/daemon.js", () => ({
-  startDaemon: vi.fn(async () => {}),
-  createDaemon: vi.fn(),
-}));
-vi.mock("../src/proxy.js", () => ({ startProxy: vi.fn(async () => {}) }));
 vi.mock("../src/cli/validate.js", () => ({ validate: vi.fn() }));
 vi.mock("../src/cli/visualize.js", () => ({ visualize: vi.fn() }));
-// inspect command now uses traversal store directly (no separate mock needed)
 vi.mock("../src/cli/init.js", () => ({
   init: vi.fn(async () => {}),
   initInteractive: vi.fn(async () => {}),
   INIT_DEFAULTS: { starter: "blank", hooks: false, dryRun: false },
 }));
-vi.mock("../src/cli/daemon.js", () => ({
-  daemonStop: vi.fn(),
-  daemonStatus: vi.fn(),
-  checkRunningDaemon: vi.fn(() => null),
-}));
 vi.mock("../src/cli/traversals.js", () => ({
-  parseDaemonConnect: vi.fn(() => ({ host: "127.0.0.1", port: 7433 })),
   traversalStatus: vi.fn(),
   traversalStart: vi.fn(),
   traversalAdvance: vi.fn(),
@@ -36,9 +24,7 @@ vi.mock("../src/cli/memory.js", () => ({
   memorySearch: vi.fn(),
   memoryRelated: vi.fn(),
   memoryBySource: vi.fn(),
-  memoryRegister: vi.fn(),
   memoryEmit: vi.fn(),
-  memoryEnd: vi.fn(),
 }));
 vi.mock("../src/cli/stateless.js", () => ({
   guideShow: vi.fn(),
@@ -63,7 +49,7 @@ vi.mock("../src/cli/setup.js", () => ({
     sourceOpts: {},
   })),
   ensureStateDir: vi.fn((dir: string) => `${dir}/.state`),
-  resolveStateDb: vi.fn(() => ":memory:"),
+  resolveStateDir: vi.fn(() => ":memory:"),
   resolveMemoryConfig: vi.fn((_dirs: string[], opts: { memoryDir?: string; memory?: boolean }) => {
     if (opts.memory === false) return null;
     const db = opts.memoryDir ? `${opts.memoryDir}/memory.db` : "/tmp/test-memory.db";
@@ -81,7 +67,8 @@ let exitSpy: any;
 let stderrSpy: any;
 let stdoutSpy: any;
 
-import { program } from "../src/index.js";
+import { program } from "../src/cli/program.js";
+
 // Graph resolution tests live in test/graph-resolution.test.ts (canonical location)
 
 beforeEach(() => {
@@ -100,13 +87,27 @@ describe("program commands", () => {
   it("validate command calls validate function", async () => {
     const { validate } = await import("../src/cli/validate.js");
     await program.parseAsync(["node", "freelance", "validate", "/tmp/test"]);
-    expect(validate).toHaveBeenCalledWith("/tmp/test", { checkSources: undefined, fix: undefined, basePath: undefined });
+    expect(validate).toHaveBeenCalledWith("/tmp/test", {
+      checkSources: undefined,
+      fix: undefined,
+      basePath: undefined,
+    });
   });
 
   it("visualize command calls visualize function", async () => {
     const { visualize } = await import("../src/cli/visualize.js");
-    await program.parseAsync(["node", "freelance", "visualize", "/tmp/test.workflow.yaml", "--format", "dot"]);
-    expect(visualize).toHaveBeenCalledWith("/tmp/test.workflow.yaml", expect.objectContaining({ format: "dot" }));
+    await program.parseAsync([
+      "node",
+      "freelance",
+      "visualize",
+      "/tmp/test.workflow.yaml",
+      "--format",
+      "dot",
+    ]);
+    expect(visualize).toHaveBeenCalledWith(
+      "/tmp/test.workflow.yaml",
+      expect.objectContaining({ format: "dot" }),
+    );
   });
 
   it("inspect command calls traversalInspect", async () => {
@@ -129,7 +130,7 @@ describe("program commands", () => {
 
   it("completion with invalid shell calls fatal", async () => {
     await expect(
-      program.parseAsync(["node", "freelance", "completion", "powershell"])
+      program.parseAsync(["node", "freelance", "completion", "powershell"]),
     ).rejects.toThrow("process.exit");
   });
 
@@ -147,22 +148,6 @@ describe("program commands", () => {
     const { validate } = await import("../src/cli/validate.js");
     await program.parseAsync(["node", "freelance", "--json", "--quiet", "validate", "/tmp"]);
     expect(validate).toHaveBeenCalled();
-  });
-
-  it("daemon stop calls daemonStop", async () => {
-    const { daemonStop } = await import("../src/cli/daemon.js");
-    try {
-      await program.parseAsync(["node", "freelance", "daemon", "stop"]);
-    } catch {
-      // daemonStop calls fatal which throws
-    }
-    expect(daemonStop).toHaveBeenCalled();
-  });
-
-  it("daemon status calls daemonStatus", async () => {
-    const { daemonStatus } = await import("../src/cli/daemon.js");
-    await program.parseAsync(["node", "freelance", "daemon", "status"]);
-    expect(daemonStatus).toHaveBeenCalled();
   });
 
   it("mcp standalone loads graphs and starts server", async () => {
@@ -183,7 +168,14 @@ describe("program commands", () => {
 
   it("mcp --no-memory disables memory", async () => {
     const { startServer } = await import("../src/server.js");
-    await program.parseAsync(["node", "freelance", "mcp", "--workflows", "/tmp/fake", "--no-memory"]);
+    await program.parseAsync([
+      "node",
+      "freelance",
+      "mcp",
+      "--workflows",
+      "/tmp/fake",
+      "--no-memory",
+    ]);
     const call = (startServer as ReturnType<typeof vi.fn>).mock.calls.at(-1);
     const opts = call?.[1];
     expect(opts?.memory).toBeUndefined();
@@ -191,41 +183,27 @@ describe("program commands", () => {
 
   it("mcp --memory-dir overrides DB path", async () => {
     const { startServer } = await import("../src/server.js");
-    const tmpDir = "/tmp/freelance-test-memdir-" + Date.now();
-    await program.parseAsync(["node", "freelance", "mcp", "--workflows", "/tmp/fake", "--memory-dir", tmpDir]);
+    const tmpDir = `/tmp/freelance-test-memdir-${Date.now()}`;
+    await program.parseAsync([
+      "node",
+      "freelance",
+      "mcp",
+      "--workflows",
+      "/tmp/fake",
+      "--memory-dir",
+      tmpDir,
+    ]);
     const call = (startServer as ReturnType<typeof vi.fn>).mock.calls.at(-1);
     const opts = call?.[1];
     expect(opts?.memory?.enabled).toBe(true);
     expect(opts?.memory?.db).toBe(`${tmpDir}/memory.db`);
     // Clean up
     const fs = await import("node:fs");
-    try { fs.rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
-  });
-
-  it("mcp --connect starts proxy", async () => {
-    const { startProxy } = await import("../src/proxy.js");
-    await program.parseAsync(["node", "freelance", "mcp", "--connect", "localhost:8080"]);
-    expect(startProxy).toHaveBeenCalled();
-  });
-
-  it("daemon start loads graphs and starts daemon", async () => {
-    const { startDaemon } = await import("../src/daemon.js");
-    await program.parseAsync(["node", "freelance", "daemon", "start", "--workflows", "/tmp/fake", "--port", "9999"]);
-    expect(startDaemon).toHaveBeenCalled();
-  });
-
-  it("daemon start exits when already running", async () => {
-    const { checkRunningDaemon } = await import("../src/cli/daemon.js");
-    (checkRunningDaemon as ReturnType<typeof vi.fn>).mockReturnValueOnce({ pid: 1234, port: 7433 });
-    await expect(
-      program.parseAsync(["node", "freelance", "daemon", "start", "--workflows", "/tmp/fake"])
-    ).rejects.toThrow("process.exit");
-  });
-
-  it("daemon start with invalid port calls fatal", async () => {
-    await expect(
-      program.parseAsync(["node", "freelance", "daemon", "start", "--workflows", "/tmp/fake", "--port", "99999"])
-    ).rejects.toThrow("process.exit");
+    try {
+      fs.rmSync(tmpDir, { recursive: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it("status command calls traversalStatus", async () => {

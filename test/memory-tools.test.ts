@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadGraphs } from "../src/loader.js";
 import { createServer } from "../src/server.js";
 import type { ValidatedGraph } from "../src/types.js";
@@ -37,7 +37,7 @@ describe("Memory MCP tools", () => {
     const { server, memoryStore, manager } = createServer(graphs, {
       memory: { enabled: true, db: dbPath },
       sourceRoot: tmpDir,
-      stateDb: path.join(tmpDir, "state.db"),
+      stateDir: path.join(tmpDir, "traversals"),
     });
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -58,7 +58,7 @@ describe("Memory MCP tools", () => {
     await cleanup();
   });
 
-  it("registers 9 memory tools (no memory_begin)", async () => {
+  it("registers 7 memory tools", async () => {
     const tools = await client.listTools();
     const memTools = tools.tools.filter((t) => t.name.startsWith("memory_"));
     const names = memTools.map((t) => t.name).sort();
@@ -66,9 +66,7 @@ describe("Memory MCP tools", () => {
       "memory_browse",
       "memory_by_source",
       "memory_emit",
-      "memory_end",
       "memory_inspect",
-      "memory_register_source",
       "memory_related",
       "memory_search",
       "memory_status",
@@ -76,15 +74,6 @@ describe("Memory MCP tools", () => {
   });
 
   it("write tools blocked without active memory traversal", async () => {
-    // memory_register_source should be blocked
-    const regResult = await client.callTool({
-      name: "memory_register_source",
-      arguments: { filePath: "auth.ts" },
-    });
-    expect(regResult.isError).toBeTruthy();
-    const regErr = parseContent(regResult) as { error: string };
-    expect(regErr.error).toContain("active memory workflow traversal");
-
     // memory_emit should be blocked
     const emitResult = await client.callTool({
       name: "memory_emit",
@@ -96,12 +85,6 @@ describe("Memory MCP tools", () => {
     expect(emitResult.isError).toBeTruthy();
     const emitErr = parseContent(emitResult) as { error: string };
     expect(emitErr.error).toContain("active memory workflow traversal");
-
-    // memory_end should be blocked
-    const endResult = await client.callTool({ name: "memory_end", arguments: {} });
-    expect(endResult.isError).toBeTruthy();
-    const endErr = parseContent(endResult) as { error: string };
-    expect(endErr.error).toContain("active memory workflow traversal");
   });
 
   it("read tools available without active memory traversal", async () => {
@@ -129,36 +112,28 @@ describe("Memory MCP tools", () => {
     });
     expect(startResult.isError).toBeFalsy();
 
-    // Register source — session created lazily
-    const regResult = await client.callTool({
-      name: "memory_register_source",
-      arguments: { filePath: "auth.ts" },
-    });
-    expect(regResult.isError).toBeFalsy();
-    const reg = parseContent(regResult) as { status: string };
-    expect(reg.status).toBe("registered");
-
-    // Emit
+    // Emit — memory_emit hashes sources at emit time, no pre-registration needed
     const emitResult = await client.callTool({
       name: "memory_emit",
       arguments: {
         collection: "default",
         propositions: [
-          { content: "Auth validates JWT tokens using RS256.", entities: ["Auth"], sources: ["auth.ts"] },
-          { content: "Auth returns 401 for expired tokens.", entities: ["Auth"], sources: ["auth.ts"] },
+          {
+            content: "Auth validates JWT tokens using RS256.",
+            entities: ["Auth"],
+            sources: ["auth.ts"],
+          },
+          {
+            content: "Auth returns 401 for expired tokens.",
+            entities: ["Auth"],
+            sources: ["auth.ts"],
+          },
         ],
       },
     });
     expect(emitResult.isError).toBeFalsy();
     const emit = parseContent(emitResult) as { created: number };
     expect(emit.created).toBe(2);
-
-    // End
-    const endResult = await client.callTool({ name: "memory_end", arguments: {} });
-    expect(endResult.isError).toBeFalsy();
-    const end = parseContent(endResult) as { propositions_emitted: number; files_registered: number };
-    expect(end.propositions_emitted).toBe(2);
-    expect(end.files_registered).toBe(1);
 
     // Browse
     const browseResult = await client.callTool({ name: "memory_browse", arguments: {} });
@@ -173,21 +148,23 @@ describe("Memory MCP tools", () => {
     });
     const inspect = parseContent(inspectResult) as {
       propositions: Array<{ valid: boolean }>;
-      source_sessions: Array<{ files: string[] }>;
+      source_files: string[];
     };
     expect(inspect.propositions).toHaveLength(2);
     expect(inspect.propositions[0].valid).toBe(true);
-    expect(inspect.source_sessions).toHaveLength(1);
-    expect(inspect.source_sessions[0].files).toEqual(["auth.ts"]);
+    expect(inspect.source_files).toEqual(["auth.ts"]);
 
     // Status
     const statusResult = await client.callTool({ name: "memory_status", arguments: {} });
-    const status = parseContent(statusResult) as { total_propositions: number; valid_propositions: number };
+    const status = parseContent(statusResult) as {
+      total_propositions: number;
+      valid_propositions: number;
+    };
     expect(status.total_propositions).toBe(2);
     expect(status.valid_propositions).toBe(2);
   });
 
-  it("emit rejected without registered source (within active traversal)", async () => {
+  it("emit rejects missing source file (within active traversal)", async () => {
     // Start memory traversal
     await client.callTool({
       name: "freelance_start",
@@ -196,11 +173,14 @@ describe("Memory MCP tools", () => {
 
     const emitResult = await client.callTool({
       name: "memory_emit",
-      arguments: { collection: "default", propositions: [{ content: "test", entities: ["Foo"], sources: ["a.ts"] }] },
+      arguments: {
+        collection: "default",
+        propositions: [{ content: "test", entities: ["Foo"], sources: ["nonexistent.ts"] }],
+      },
     });
     expect(emitResult.isError).toBeTruthy();
     const err = parseContent(emitResult) as { error: string };
-    expect(err.error).toContain("Register a source file first");
+    expect(err.error).toContain("Cannot read source file");
   });
 
   it("sealed compile-knowledge workflow is available", async () => {

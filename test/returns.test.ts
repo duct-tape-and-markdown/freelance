@@ -1,10 +1,10 @@
-import { describe, it, expect } from "vitest";
-import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
-import { loadGraphs } from "../src/loader.js";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
 import { GraphEngine } from "../src/engine/index.js";
-import type { ValidatedGraph, AdvanceErrorResult } from "../src/types.js";
+import { loadGraphs } from "../src/loader.js";
+import type { ValidatedGraph } from "../src/types.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
@@ -38,7 +38,7 @@ describe("return schema — engine validation", () => {
     const engine = makeEngine("valid-returns.workflow.yaml");
     engine.start("valid-returns");
     engine.contextSet({
-      filesChanged: "not-an-array",  // should be array
+      filesChanged: "not-an-array", // should be array
       testsWritten: true,
     });
 
@@ -55,7 +55,7 @@ describe("return schema — engine validation", () => {
     const engine = makeEngine("valid-returns.workflow.yaml");
     engine.start("valid-returns");
     engine.contextSet({
-      filesChanged: ["valid.ts", 42],  // 42 is not a string
+      filesChanged: ["valid.ts", 42], // 42 is not a string
       testsWritten: true,
     });
 
@@ -74,7 +74,7 @@ describe("return schema — engine validation", () => {
     engine.contextSet({
       filesChanged: ["file.ts"],
       testsWritten: true,
-      scopeNotes: 42,  // should be string
+      scopeNotes: 42, // should be string
     });
 
     const result = engine.advance("done");
@@ -166,7 +166,7 @@ describe("return schema — engine validation", () => {
     engine.contextSet({
       filesChanged: ["file.ts"],
       testsWritten: true,
-      metrics: [1, 2, 3],  // array, not object
+      metrics: [1, 2, 3], // array, not object
     });
 
     const result = engine.advance("done");
@@ -203,7 +203,7 @@ describe("return schema — engine validation", () => {
 
     engine.contextSet({
       reviewPassed: true,
-      reviewComments: ["good", 42],  // 42 is not a string
+      reviewComments: ["good", 42], // 42 is not a string
     });
 
     const result = engine.advance("approved");
@@ -332,7 +332,7 @@ nodes:
     const graphs = loadFixtures("valid-returns.workflow.yaml");
     expect(graphs.has("valid-returns")).toBe(true);
     const def = graphs.get("valid-returns")!.definition;
-    const implementNode = def.nodes["implement"];
+    const implementNode = def.nodes.implement;
     expect(implementNode.returns).toBeDefined();
     expect(implementNode.returns!.required!.filesChanged.type).toBe("array");
   });

@@ -1,22 +1,32 @@
 import { EngineError } from "../errors.js";
 import { resolveContextDefaults } from "../loader.js";
-import { cloneContext, toNodeInfo } from "./helpers.js";
-import { evaluateTransitions } from "./transitions.js";
-import { checkWaitBlocking, checkReturnSchema, checkValidations, checkEdgeCondition } from "./gates.js";
-import { maybePushSubgraph, popSubgraph } from "./subgraph.js";
-import { applyContextUpdates, enforceStrictContext, buildContextSetResult, buildInspectResult } from "./state.js";
-import { evaluateWaitConditions, computeTimeoutAt } from "./wait.js";
 import type {
-  ValidatedGraph,
-  GraphListResult,
-  StartResult,
   AdvanceResult,
   AdvanceSuccessResult,
   ContextSetResult,
+  GraphListResult,
   InspectResult,
   ResetResult,
   SessionState,
+  StartResult,
+  ValidatedGraph,
 } from "../types.js";
+import {
+  applyContextUpdates,
+  buildContextSetResult,
+  buildInspectResult,
+  enforceStrictContext,
+} from "./context.js";
+import {
+  checkEdgeCondition,
+  checkReturnSchema,
+  checkValidations,
+  checkWaitBlocking,
+} from "./gates.js";
+import { cloneContext, toNodeInfo } from "./helpers.js";
+import { maybePushSubgraph, popSubgraph } from "./subgraph.js";
+import { evaluateTransitions } from "./transitions.js";
+import { computeTimeoutAt, evaluateWaitConditions } from "./wait.js";
 
 export class GraphEngine {
   private stack: SessionState[] = [];
@@ -24,7 +34,7 @@ export class GraphEngine {
 
   constructor(
     private graphs: Map<string, ValidatedGraph>,
-    options?: { maxDepth?: number }
+    options?: { maxDepth?: number },
   ) {
     this.maxDepth = options?.maxDepth ?? 5;
   }
@@ -39,23 +49,17 @@ export class GraphEngine {
     return { graphs };
   }
 
-  start(
-    graphId: string,
-    initialContext?: Record<string, unknown>
-  ): StartResult {
+  start(graphId: string, initialContext?: Record<string, unknown>): StartResult {
     if (this.stack.length > 0) {
       throw new EngineError(
         "A traversal is already active. Call reset() first.",
-        "TRAVERSAL_ACTIVE"
+        "TRAVERSAL_ACTIVE",
       );
     }
 
     const graph = this.graphs.get(graphId);
     if (!graph) {
-      throw new EngineError(
-        `Graph "${graphId}" not found`,
-        "GRAPH_NOT_FOUND"
-      );
+      throw new EngineError(`Graph "${graphId}" not found`, "GRAPH_NOT_FOUND");
     }
 
     const def = graph.definition;
@@ -87,10 +91,7 @@ export class GraphEngine {
     } satisfies StartResult;
   }
 
-  advance(
-    edge: string,
-    contextUpdates?: Record<string, unknown>
-  ): AdvanceResult {
+  advance(edge: string, contextUpdates?: Record<string, unknown>): AdvanceResult {
     const session = this.requireSession();
     const def = this.currentGraphDef();
     const currentNodeDef = def.nodes[session.currentNode];
@@ -115,7 +116,7 @@ export class GraphEngine {
     if (!currentNodeDef.edges) {
       throw new EngineError(
         `Node "${session.currentNode}" is a terminal node with no outgoing edges`,
-        "NO_EDGES"
+        "NO_EDGES",
       );
     }
     const edgeDef = currentNodeDef.edges.find((e) => e.label === edge);
@@ -123,12 +124,18 @@ export class GraphEngine {
       throw new EngineError(
         `Edge "${edge}" not found on node "${session.currentNode}". ` +
           `Available edges: ${currentNodeDef.edges.map((e: { label: string }) => e.label).join(", ")}`,
-        "EDGE_NOT_FOUND"
+        "EDGE_NOT_FOUND",
       );
     }
 
     if (edgeDef.condition) {
-      const condBlock = checkEdgeCondition(session, currentNodeDef, edgeDef.condition, edge, sources);
+      const condBlock = checkEdgeCondition(
+        session,
+        currentNodeDef,
+        edgeDef.condition,
+        edge,
+        sources,
+      );
       if (condBlock) return condBlock;
     }
 
@@ -152,7 +159,14 @@ export class GraphEngine {
       return popSubgraph(this.stack, this.graphs, previousNode, edge);
     }
     if (!isTerminal && !isWait && newNodeDef.subgraph) {
-      return maybePushSubgraph(this.stack, this.graphs, previousNode, edge, newNodeDef, this.maxDepth);
+      return maybePushSubgraph({
+        stack: this.stack,
+        graphs: this.graphs,
+        previousNode,
+        edge,
+        newNodeDef,
+        maxDepth: this.maxDepth,
+      });
     }
 
     // Wait node arrival
@@ -189,10 +203,7 @@ export class GraphEngine {
       context: cloneContext(session.context),
       ...(isTerminal
         ? {
-            traversalHistory: [
-              ...session.history.map((h) => h.node),
-              session.currentNode,
-            ],
+            traversalHistory: [...session.history.map((h) => h.node), session.currentNode],
           }
         : {}),
       ...(def.sources?.length ? { graphSources: def.sources } : {}),
@@ -252,8 +263,7 @@ export class GraphEngine {
       status: "reset",
       previousGraph: prev.graphId,
       previousNode: prev.node,
-      message:
-        "Traversal cleared. Call freelance_start to begin a new workflow.",
+      message: "Traversal cleared. Call freelance_start to begin a new workflow.",
     } satisfies ResetResult;
   }
 
@@ -279,10 +289,7 @@ export class GraphEngine {
 
   private requireSession(): SessionState {
     if (this.stack.length === 0) {
-      throw new EngineError(
-        "No traversal active. Call start() first.",
-        "NO_TRAVERSAL"
-      );
+      throw new EngineError("No traversal active. Call start() first.", "NO_TRAVERSAL");
     }
     return this.activeSession();
   }
@@ -290,10 +297,7 @@ export class GraphEngine {
   private currentGraphDef() {
     const graph = this.graphs.get(this.activeSession().graphId);
     if (!graph) {
-      throw new EngineError(
-        `Graph "${this.activeSession().graphId}" not found`,
-        "GRAPH_NOT_FOUND"
-      );
+      throw new EngineError(`Graph "${this.activeSession().graphId}" not found`, "GRAPH_NOT_FOUND");
     }
     return graph.definition;
   }

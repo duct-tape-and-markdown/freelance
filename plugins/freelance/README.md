@@ -7,14 +7,14 @@ Graph-based workflow enforcement for AI coding agents.
 ### From this repo (marketplace)
 
 ```
-/plugin marketplace add duct-tape-and-markdown/freelance --path plugin
+/plugin marketplace add duct-tape-and-markdown/freelance
 /plugin install freelance@freelance-plugins
 ```
 
 ### Local development
 
 ```bash
-claude --plugin-dir ./plugin
+claude --plugin-dir ./plugins/freelance
 ```
 
 ## What's Included

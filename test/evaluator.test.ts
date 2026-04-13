@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { evaluate, EvaluatorError, extractPropertyComparisons } from "../src/evaluator.js";
+import { describe, expect, it } from "vitest";
+import { EvaluatorError, evaluate, extractPropertyComparisons } from "../src/evaluator.js";
 
 describe("evaluate — basic equality", () => {
   it("context.value == true with true", () => {
@@ -96,10 +96,22 @@ describe("evaluate — nested property access", () => {
 
 describe("evaluate — parentheses", () => {
   it("(a || b) && c — true", () => {
-    expect(evaluate("(context.a == true || context.b == true) && context.c == true", { a: false, b: true, c: true })).toBe(true);
+    expect(
+      evaluate("(context.a == true || context.b == true) && context.c == true", {
+        a: false,
+        b: true,
+        c: true,
+      }),
+    ).toBe(true);
   });
   it("(a || b) && c — false", () => {
-    expect(evaluate("(context.a == true || context.b == true) && context.c == true", { a: false, b: true, c: false })).toBe(false);
+    expect(
+      evaluate("(context.a == true || context.b == true) && context.c == true", {
+        a: false,
+        b: true,
+        c: false,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -170,10 +182,20 @@ describe("evaluate — expressions from spec examples", () => {
     expect(evaluate("context.remainingItems == 0", { remainingItems: 0 })).toBe(true);
   });
   it("cycleCount < 3 && remainingItems > 0 — true", () => {
-    expect(evaluate("context.cycleCount < 3 && context.remainingItems > 0", { cycleCount: 1, remainingItems: 3 })).toBe(true);
+    expect(
+      evaluate("context.cycleCount < 3 && context.remainingItems > 0", {
+        cycleCount: 1,
+        remainingItems: 3,
+      }),
+    ).toBe(true);
   });
   it("cycleCount < 3 && remainingItems > 0 — false", () => {
-    expect(evaluate("context.cycleCount < 3 && context.remainingItems > 0", { cycleCount: 3, remainingItems: 3 })).toBe(false);
+    expect(
+      evaluate("context.cycleCount < 3 && context.remainingItems > 0", {
+        cycleCount: 3,
+        remainingItems: 3,
+      }),
+    ).toBe(false);
   });
   it("context.verificationPassed == true", () => {
     expect(evaluate("context.verificationPassed == true", { verificationPassed: true })).toBe(true);
@@ -188,10 +210,20 @@ describe("evaluate — expressions from spec examples", () => {
     expect(evaluate("context.changeType == 'standard'", { changeType: "standard" })).toBe(true);
   });
   it("testsPass == false || lintPass == false — one fails", () => {
-    expect(evaluate("context.testsPass == false || context.lintPass == false", { testsPass: false, lintPass: true })).toBe(true);
+    expect(
+      evaluate("context.testsPass == false || context.lintPass == false", {
+        testsPass: false,
+        lintPass: true,
+      }),
+    ).toBe(true);
   });
   it("testsPass == false || lintPass == false — both pass", () => {
-    expect(evaluate("context.testsPass == false || context.lintPass == false", { testsPass: true, lintPass: true })).toBe(false);
+    expect(
+      evaluate("context.testsPass == false || context.lintPass == false", {
+        testsPass: true,
+        lintPass: true,
+      }),
+    ).toBe(false);
   });
   it("context.outputUrl != null — has value", () => {
     expect(evaluate("context.outputUrl != null", { outputUrl: "https://example.com" })).toBe(true);
@@ -200,10 +232,17 @@ describe("evaluate — expressions from spec examples", () => {
     expect(evaluate("context.outputUrl != null", { outputUrl: null })).toBe(false);
   });
   it("context.scopeQuestionRaised == true", () => {
-    expect(evaluate("context.scopeQuestionRaised == true", { scopeQuestionRaised: true })).toBe(true);
+    expect(evaluate("context.scopeQuestionRaised == true", { scopeQuestionRaised: true })).toBe(
+      true,
+    );
   });
   it("reviewApproved || !touchesSensitiveArea", () => {
-    expect(evaluate("context.reviewApproved == true || context.touchesSensitiveArea == false", { reviewApproved: false, touchesSensitiveArea: false })).toBe(true);
+    expect(
+      evaluate("context.reviewApproved == true || context.touchesSensitiveArea == false", {
+        reviewApproved: false,
+        touchesSensitiveArea: false,
+      }),
+    ).toBe(true);
   });
 });
 
@@ -248,5 +287,72 @@ describe("extractPropertyComparisons", () => {
   it("returns empty for invalid expressions", () => {
     const result = extractPropertyComparisons("not valid {{}}");
     expect(result).toHaveLength(0);
+  });
+});
+
+describe("evaluate — len() builtin", () => {
+  it("len(array) returns element count", () => {
+    expect(evaluate("len(context.items) == 3", { items: ["a", "b", "c"] })).toBe(true);
+  });
+
+  it("len(empty array) is 0", () => {
+    expect(evaluate("len(context.items) == 0", { items: [] })).toBe(true);
+  });
+
+  it("len(array) > 0 with non-empty array", () => {
+    expect(evaluate("len(context.items) > 0", { items: ["x"] })).toBe(true);
+  });
+
+  it("len(array) > 0 with empty array", () => {
+    expect(evaluate("len(context.items) > 0", { items: [] })).toBe(false);
+  });
+
+  it("len(string) returns character count", () => {
+    expect(evaluate("len(context.name) == 5", { name: "hello" })).toBe(true);
+  });
+
+  it("len(empty string) is 0", () => {
+    expect(evaluate("len(context.name) == 0", { name: "" })).toBe(true);
+  });
+
+  it("len(missing property) is 0", () => {
+    expect(evaluate("len(context.nothing) == 0", {})).toBe(true);
+  });
+
+  it("len(null) is 0", () => {
+    expect(evaluate("len(context.value) == 0", { value: null })).toBe(true);
+  });
+
+  it("len(number) is 0 (non-sequence)", () => {
+    expect(evaluate("len(context.value) == 0", { value: 42 })).toBe(true);
+  });
+
+  it("len(boolean) is 0 (non-sequence)", () => {
+    expect(evaluate("len(context.value) == 0", { value: true })).toBe(true);
+  });
+
+  it("len composes with logical operators", () => {
+    expect(evaluate("len(context.a) > 0 && len(context.b) > 0", { a: [1], b: ["x"] })).toBe(true);
+    expect(evaluate("len(context.a) > 0 && len(context.b) > 0", { a: [1], b: [] })).toBe(false);
+  });
+
+  it("len on nested property", () => {
+    expect(evaluate("len(context.data.items) == 2", { data: { items: [1, 2] } })).toBe(true);
+  });
+
+  it("rejects unknown functions at tokenize time", () => {
+    expect(() => evaluate("foo(context.x) == 0", { x: [] })).toThrow(EvaluatorError);
+  });
+
+  it("rejects missing opening paren", () => {
+    expect(() => evaluate("len context.x", { x: [] })).toThrow(EvaluatorError);
+  });
+
+  it("rejects missing closing paren", () => {
+    expect(() => evaluate("len(context.x", { x: [] })).toThrow(EvaluatorError);
+  });
+
+  it("rejects empty argument", () => {
+    expect(() => evaluate("len()", {})).toThrow(EvaluatorError);
   });
 });

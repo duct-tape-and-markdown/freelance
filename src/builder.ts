@@ -6,10 +6,10 @@
  * and graphlib topology checks.
  */
 
-import { graphDefinitionSchema } from "./schema/graph-schema.js";
-import type { GraphDefinition, NodeDefinition, EdgeDefinition } from "./schema/graph-schema.js";
-import type { ValidatedGraph } from "./types.js";
 import { validateAndBuild } from "./loader.js";
+import type { EdgeDefinition, GraphDefinition, NodeDefinition } from "./schema/graph-schema.js";
+import { graphDefinitionSchema } from "./schema/graph-schema.js";
+import type { ValidatedGraph } from "./types.js";
 
 export interface NodeInput {
   type?: NodeDefinition["type"];
@@ -97,14 +97,16 @@ export class GraphBuilder {
     // Convert NodeInput map to the schema's record format
     const nodes: Record<string, unknown> = {};
     for (const [id, input] of this.nodes) {
-      const edges = input.edges?.map((e): EdgeDefinition => ({
-        target: e.target,
-        label: e.label ?? e.target,
-        condition: e.condition,
-        description: e.description,
-        default: e.default,
-        nextStepHint: e.nextStepHint,
-      }));
+      const edges = input.edges?.map(
+        (e): EdgeDefinition => ({
+          target: e.target,
+          label: e.label ?? e.target,
+          condition: e.condition,
+          description: e.description,
+          default: e.default,
+          nextStepHint: e.nextStepHint,
+        }),
+      );
 
       nodes[id] = {
         type: input.type ?? (edges && edges.length > 0 ? "action" : "terminal"),

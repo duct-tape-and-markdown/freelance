@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { validate } from "../src/cli/validate.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setCli } from "../src/cli/output.js";
+import { validate } from "../src/cli/validate.js";
 import { hashContent } from "../src/sources.js";
 
 function tmpDir(): string {
@@ -247,7 +247,9 @@ nodes:
       // No doc.md file exists
       writeGraphWithSources(dir, "0000000000000000");
 
-      expect(() => validate(dir, { checkSources: true, fix: true, basePath: dir })).toThrow("process.exit");
+      expect(() => validate(dir, { checkSources: true, fix: true, basePath: dir })).toThrow(
+        "process.exit",
+      );
       // Should still report drift since it couldn't fix
       const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
       expect(stderr).toContain("DRIFT");

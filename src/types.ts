@@ -3,16 +3,22 @@ import type { Graph } from "@dagrejs/graphlib";
 // Re-export schema types — single source of truth in schema/graph-schema.ts
 export type {
   EdgeDefinition,
-  ValidationRule,
-  SubgraphDefinition,
+  GraphDefinition,
+  NodeDefinition,
   ReturnField,
   ReturnSchema,
-  WaitOnEntry,
   SourceBinding,
-  NodeDefinition,
-  GraphDefinition,
+  SubgraphDefinition,
+  ValidationRule,
+  WaitOnEntry,
 } from "./schema/graph-schema.js";
-import type { GraphDefinition, NodeDefinition, ReturnSchema, SourceBinding } from "./schema/graph-schema.js";
+
+import type {
+  GraphDefinition,
+  NodeDefinition,
+  ReturnSchema,
+  SourceBinding,
+} from "./schema/graph-schema.js";
 
 export interface ValidatedGraph {
   readonly definition: GraphDefinition;
@@ -204,13 +210,6 @@ export interface TraversalInfo {
   readonly currentNode: string;
   readonly lastUpdated: string;
   readonly stackDepth: number;
-}
-
-export interface SerializedTraversal {
-  traversalId: string;
-  stack: SessionState[];
-  createdAt: string;
-  lastUpdated: string;
 }
 
 export interface TraversalListResult {

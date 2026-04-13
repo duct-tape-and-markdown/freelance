@@ -1,13 +1,13 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 import { loadSingleGraph } from "../loader.js";
 import type { GraphDefinition } from "../types.js";
-import { cli, outputJson, info, fatal, EXIT } from "./output.js";
+import { cli, EXIT, fatal, info, outputJson } from "./output.js";
 
 type Format = "mermaid" | "dot";
 
-export interface VisualizeOptions {
+interface VisualizeOptions {
   format: Format;
   output?: string;
   open?: boolean;
@@ -22,12 +22,7 @@ function dotNodeDef(nodeId: string, type: string, label: string): string {
     wait: "box",
   };
   const shape = shapes[type] ?? "box";
-  const style =
-    type === "gate"
-      ? `, style="bold"`
-      : type === "wait"
-        ? `, style="dashed"`
-        : "";
+  const style = type === "gate" ? `, style="bold"` : type === "wait" ? `, style="dashed"` : "";
   return `  "${nodeId}" [label="${label}", shape=${shape}${style}];`;
 }
 
@@ -58,7 +53,7 @@ function toMermaid(def: GraphDefinition): string {
     }
   }
 
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}\n`;
 }
 
 function toDot(def: GraphDefinition): string {
@@ -87,11 +82,15 @@ function toDot(def: GraphDefinition): string {
   }
 
   lines.push("}");
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}\n`;
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function toHtml(mermaidCode: string, title: string): string {
@@ -123,17 +122,17 @@ function loadDefinition(filePath: string): GraphDefinition {
   }
 
   if (!resolved.endsWith(".workflow.yaml")) {
-    fatal(`File must have .workflow.yaml extension: ${path.basename(resolved)}`, EXIT.INVALID_USAGE);
+    fatal(
+      `File must have .workflow.yaml extension: ${path.basename(resolved)}`,
+      EXIT.INVALID_USAGE,
+    );
   }
 
   try {
     const { definition } = loadSingleGraph(resolved);
     return definition;
   } catch (err) {
-    fatal(
-      `Failed to load graph: ${err instanceof Error ? err.message : err}`,
-      EXIT.GRAPH_ERROR
-    );
+    fatal(`Failed to load graph: ${err instanceof Error ? err.message : err}`, EXIT.GRAPH_ERROR);
   }
 }
 
@@ -160,19 +159,11 @@ export function visualize(filePath: string, options: VisualizeOptions): void {
   if (options.open) {
     const mermaidCode = format === "dot" ? toMermaid(definition) : diagram;
     const html = toHtml(mermaidCode, definition.name);
-    const tmpFile = path.join(
-      process.env.TMPDIR ?? "/tmp",
-      `freelance-${definition.id}.html`
-    );
+    const tmpFile = path.join(process.env.TMPDIR ?? "/tmp", `freelance-${definition.id}.html`);
     fs.writeFileSync(tmpFile, html);
 
     const platform = process.platform;
-    const cmd =
-      platform === "darwin"
-        ? "open"
-        : platform === "win32"
-          ? "start"
-          : "xdg-open";
+    const cmd = platform === "darwin" ? "open" : platform === "win32" ? "start" : "xdg-open";
     try {
       execFileSync(cmd, [tmpFile]);
       info(`Opened in browser: ${tmpFile}`);

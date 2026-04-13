@@ -8,6 +8,15 @@ Graph-based workflow enforcement for AI coding agents.
 - `npm test` — run all tests
 - `npm run dev` — run in development mode
 
+## Code navigation
+
+Prefer AST-aware tools over plain text search when exploring or refactoring TypeScript:
+
+- **LSP tool** (`LSP`) — use for semantic queries: `goToDefinition`, `findReferences`, `hover`, `documentSymbol`, `workspaceSymbol`, `goToImplementation`, and call hierarchy (`prepareCallHierarchy` / `incomingCalls` / `outgoingCalls`). Better than Grep for "where is X used" or "what does this type resolve to".
+- **ast-grep** (`sg` on PATH) — use for structural search/rewrite: `sg run -p '<pattern>' -l ts src/`. Better than Grep when the match depends on syntax shape rather than a literal string (e.g. call sites of a specific method, JSX props, type annotations).
+
+Fall back to Grep only for literal strings, comments, or non-code files.
+
 ## Running
 
 ### Configuration
@@ -18,7 +27,7 @@ Two config files in `.freelance/`, same schema, layered:
 
 Precedence: CLI flags > env vars > config.local.yml > config.yml > defaults
 
-Schema: `workflows` (string[]), `memory.enabled` (bool), `memory.dir` (string), `memory.ignore` (string[]), `memory.collections` (CollectionConfig[])
+Schema: `workflows` (string[]), `memory.enabled` (bool), `memory.dir` (string), `memory.collections` (CollectionConfig[])
 
 Arrays concatenate across files. Scalars use highest-precedence value.
 
@@ -52,9 +61,6 @@ freelance mcp
 # Start standalone with explicit directories
 freelance mcp --workflows ./graphs --workflows ~/.freelance
 
-# NOTE: daemon mode exists but is hidden/untested — not yet public
-# Commands: daemon start|stop|status, mcp --connect
-
 # Project setup
 freelance init
 ```
@@ -83,18 +89,18 @@ Override with `--source-root <path>` (CLI) or `sourceRoot` (ServerOptions).
   - `wait.ts` — Wait condition evaluation and timeout handling
   - `returns.ts` — Return schema validation
   - `helpers.ts` — Shared utilities (cloneContext, toNodeInfo)
-- `src/state/` — Stateless traversal store backed by SQLite
+- `src/state/` — Stateless traversal store (JSON files on disk)
   - `traversal-store.ts` — Multi-traversal management, loads/saves state per operation
-  - `db.ts` — SQLite schema for traversal state
+  - `db.ts` — StateStore interface + JSON-directory and in-memory backends
 - `src/builder.ts` — Programmatic workflow graph construction (GraphBuilder)
 - `src/config.ts` — Unified config loader (config.yml + config.local.yml schema, merging, writing)
 - `src/graph-resolution.ts` — Graph directory resolution and loading (env var, project, user, config cascading)
-- `src/daemon.ts` — HTTP daemon server wrapping TraversalStore, PID file management, shutdown handlers
-- `src/proxy.ts` — MCP proxy that bridges stdio to daemon HTTP API
-- `src/server.ts` — MCP tool surface (12+ tools: traversal, guide, distill, sources, validate, plus memory)
-- `src/cli/` — CLI subcommand handlers (init, validate, visualize, daemon, traversals, stateless, memory, config, output, setup)
+- `src/server.ts` — MCP tool surface (21 tools: traversal, guide, distill, sources, validate, plus memory)
+- `src/cli/` — CLI subcommand handlers (init, validate, visualize, traversals, stateless, memory, config, output, setup)
+  - `cli/program.ts` — Commander program construction (imported by `bin.ts`)
   - `cli/clients.ts` — Client detection (claude-code, cursor, windsurf, cline) and display helpers
-- `src/index.ts` — CLI entry point (Commander.js, command dispatch only)
+- `src/index.ts` — Pure library entry (re-exports, no side effects)
+- `src/bin.ts` — CLI bin entry (shebang, imports and runs `program`)
 - `templates/` — Starter graph templates and shell completions
 
 ## Graph definitions

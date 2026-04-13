@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
-import { loadGraphs } from "../src/loader.js";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
 import { GraphEngine } from "../src/engine/index.js";
 import { EngineError } from "../src/errors.js";
+import { loadGraphs } from "../src/loader.js";
 import type { ValidatedGraph } from "../src/types.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");

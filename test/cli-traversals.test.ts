@@ -1,15 +1,16 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { parseDaemonConnect } from "../src/cli/traversals.js";
-import {
-  traversalStatus, traversalStart, traversalAdvance,
-  traversalContextSet, traversalInspect, traversalReset,
-} from "../src/cli/traversals.js";
-import { setCli } from "../src/cli/output.js";
-import { TraversalStore } from "../src/state/index.js";
-import { openStateDatabase } from "../src/state/index.js";
-import { loadSingleGraph } from "../src/loader.js";
-import type { ValidatedGraph } from "../src/types.js";
 import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setCli } from "../src/cli/output.js";
+import {
+  traversalContextSet,
+  traversalInspect,
+  traversalReset,
+  traversalStart,
+  traversalStatus,
+} from "../src/cli/traversals.js";
+import { loadSingleGraph } from "../src/loader.js";
+import { openStateStore, TraversalStore } from "../src/state/index.js";
+import type { ValidatedGraph } from "../src/types.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let exitSpy: any;
@@ -29,37 +30,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("parseDaemonConnect", () => {
-  it("returns defaults when no connect option", () => {
-    expect(parseDaemonConnect({})).toEqual({ host: "127.0.0.1", port: 7433 });
-  });
-
-  it("parses host only (no colon)", () => {
-    expect(parseDaemonConnect({ connect: "myhost" })).toEqual({ host: "myhost", port: 7433 });
-  });
-
-  it("parses host:port", () => {
-    expect(parseDaemonConnect({ connect: "myhost:8080" })).toEqual({ host: "myhost", port: 8080 });
-  });
-
-  it("defaults host to 127.0.0.1 when only :port given", () => {
-    expect(parseDaemonConnect({ connect: ":9000" })).toEqual({ host: "127.0.0.1", port: 9000 });
-  });
-
-  it("calls fatal for invalid port (NaN)", () => {
-    expect(() => parseDaemonConnect({ connect: "host:abc" })).toThrow("process.exit");
-    expect(exitSpy).toHaveBeenCalledWith(2);
-  });
-
-  it("calls fatal for port 0", () => {
-    expect(() => parseDaemonConnect({ connect: "host:0" })).toThrow("process.exit");
-  });
-
-  it("calls fatal for port > 65535", () => {
-    expect(() => parseDaemonConnect({ connect: "host:99999" })).toThrow("process.exit");
-  });
-});
-
 // --- Direct store-based CLI tests ---
 
 function createTestStore(): TraversalStore {
@@ -67,7 +37,7 @@ function createTestStore(): TraversalStore {
   const fixture = path.resolve("test/fixtures/valid-branching.workflow.yaml");
   const loaded = loadSingleGraph(fixture);
   const graphs = new Map<string, ValidatedGraph>([[loaded.id, loaded]]);
-  const db = openStateDatabase(":memory:");
+  const db = openStateStore(":memory:");
   return new TraversalStore(db, graphs, { maxDepth: 5 });
 }
 

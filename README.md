@@ -78,7 +78,7 @@ When you query memory, it checks whether the source files on disk still match. M
 
 **Recollection** — When a new question comes in, the agent searches existing memory, reads the provenance sources, and identifies the delta — what the sources say about the question that existing propositions don't cover. Only that gap gets compiled. Each query makes the knowledge base denser from a different angle, without re-deriving what's already there.
 
-**Source provenance** — Each proposition can be linked to the specific source files it was derived from. Validity is checked per-proposition when file-level attribution is present, falling back to session-level when it's not. Propositions from a prior session aren't hidden when stale — they're returned with a confidence signal so the agent can decide whether to re-verify.
+**Source provenance** — Every proposition records the specific source files it was derived from, their content hashes, and their mtime at emit time. Validity is checked per-proposition on read: if any of a prop's source files have drifted, the prop is marked stale. Stale propositions aren't hidden — they're returned with a confidence signal so the agent can decide whether to re-verify.
 
 **Git branching for free** — Switch branches, files change on disk, different propositions light up as valid or stale. Merge the branch, files converge, knowledge converges. No scope model, no branch tracking — just hash checks on read.
 
@@ -94,14 +94,19 @@ Two sealed workflows are auto-injected: `memory:compile` (read sources, emit pro
 
 ### Memory tools
 
+Write tools (gated by an active `memory:compile` or `memory:recall` traversal):
+
 | Tool | Description |
 |------|-------------|
-| `memory_register_source` | Register a file as a provenance source (hashes content) |
-| `memory_emit` | Write propositions with optional per-file source attribution |
-| `memory_end` | Close the active compilation session |
+| `memory_emit` | Write propositions with required per-file source attribution |
+
+Read tools (available anytime):
+
+| Tool | Description |
+|------|-------------|
 | `memory_browse` | Find entities by name or kind |
-| `memory_inspect` | Full entity details with propositions and validity |
-| `memory_by_source` | All propositions linked to a source file |
+| `memory_inspect` | Full entity details with propositions, neighbors, and deduped source files |
+| `memory_by_source` | All propositions derived from a specific source file |
 | `memory_related` | Entity graph navigation — co-occurring entities with connection strength |
 | `memory_search` | Full-text search across proposition content (FTS5) |
 | `memory_status` | Knowledge graph health: total, valid, stale counts |
@@ -200,7 +205,7 @@ Manual configuration (e.g., `.mcp.json` for Claude Code):
 
 ## CLI
 
-Every MCP tool has a CLI equivalent. Commands operate directly on SQLite — no daemon or MCP client required.
+Every MCP tool has a CLI equivalent. Commands operate directly on the local state store — no daemon or MCP client required.
 
 ```
 # Setup
@@ -223,9 +228,8 @@ freelance memory inspect <entity>         # Full entity details
 freelance memory search <query>           # Full-text search
 freelance memory related <entity>         # Co-occurring entities
 freelance memory by-source <file>         # Propositions from a source file
-freelance memory register <file>          # Register a provenance source
+freelance memory register <file>          # Hash a file (stateless echo)
 freelance memory emit <file>              # Write propositions from JSON
-freelance memory end                      # Close compilation session
 
 # Graph tools
 freelance guide [topic]                   # Authoring guidance

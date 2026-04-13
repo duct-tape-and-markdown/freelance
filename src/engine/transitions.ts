@@ -3,7 +3,7 @@ import type { NodeDefinition, TransitionInfo } from "../types.js";
 
 export function evaluateTransitions(
   node: NodeDefinition,
-  context: Record<string, unknown>
+  context: Record<string, unknown>,
 ): TransitionInfo[] {
   if (!node.edges) return [];
 
@@ -44,9 +44,7 @@ export function evaluateTransitions(
 
   const anyConditionalMet = results.some(
     (r) =>
-      !r.isDefault &&
-      r.conditionMet &&
-      node.edges!.find((e) => e.label === r.label)?.condition
+      !r.isDefault && r.conditionMet && node.edges!.find((e) => e.label === r.label)?.condition,
   );
 
   for (const r of results) {

@@ -7,8 +7,8 @@
  * break — that's the point.
  */
 
-import { describe, it, expect } from "vitest";
 import path from "node:path";
+import { describe, expect, it } from "vitest";
 import { extractSection } from "../src/section-resolver.js";
 import { hashContent } from "../src/sources.js";
 

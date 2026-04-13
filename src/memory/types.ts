@@ -15,7 +15,6 @@ export interface PropositionRow {
   id: string;
   content: string;
   content_hash: string;
-  session_id: string;
   collection: string;
   created_at: string;
 }
@@ -40,7 +39,27 @@ export interface EmitResult {
     status: "created" | "deduplicated";
     entities: Array<{ id: string; name: string; resolution: "exact" | "normalized" | "created" }>;
   }>;
+  /**
+   * Non-fatal observations surfaced during the emit. Not reconciled by
+   * the store — the caller decides what to do (re-emit with a correction,
+   * mark the new proposition stale, ignore, escalate to a user).
+   */
+  warnings?: EmitWarning[];
 }
+
+/**
+ * An `entity_kind_conflict` is emitted when a proposition cites an entity
+ * with a `kind` that differs from the entity's existing stored kind.
+ * Before this change the store silently kept the first-recorded kind; now
+ * the second emit's kind is still discarded (first-wins), but the
+ * conflict is reported so the caller can reconcile explicitly.
+ */
+export type EmitWarning = {
+  type: "entity_kind_conflict";
+  entity: string;
+  existingKind: string;
+  providedKind: string;
+};
 
 export interface EntityInfo {
   id: string;
@@ -50,15 +69,9 @@ export interface EntityInfo {
   valid_proposition_count: number;
 }
 
-export interface SourceSession {
-  id: string;
-  files: string[];
-}
-
 export interface PropositionInfo {
   id: string;
   content: string;
-  session_id: string;
   created_at: string;
   valid: boolean;
   collection: string;
@@ -77,7 +90,8 @@ export interface InspectResult {
   entity: EntityInfo;
   propositions: PropositionInfo[];
   neighbors: NeighborEntity[];
-  source_sessions: SourceSession[];
+  /** Deduped list of source file paths referenced by any of this entity's propositions. */
+  source_files: string[];
 }
 
 export interface RelatedResult {
@@ -97,9 +111,11 @@ export interface BySourceResult {
 
 export interface SearchResult {
   query: string;
-  propositions: Array<PropositionInfo & {
-    entities: Array<{ id: string; name: string; kind: string | null }>;
-  }>;
+  propositions: Array<
+    PropositionInfo & {
+      entities: Array<{ id: string; name: string; kind: string | null }>;
+    }
+  >;
 }
 
 export interface StatusResult {
@@ -107,22 +123,6 @@ export interface StatusResult {
   valid_propositions: number;
   stale_propositions: number;
   total_entities: number;
-  total_sessions: number;
-  active_session: string | null;
-}
-
-export interface EndResult {
-  session_id: string;
-  propositions_emitted: number;
-  entities_referenced: number;
-  files_registered: number;
-  duration_ms: number;
-}
-
-export interface RegisterSourceResult {
-  file_path: string;
-  content_hash: string;
-  status: "registered" | "updated" | "skipped";
 }
 
 export interface CollectionConfig {
@@ -134,6 +134,5 @@ export interface CollectionConfig {
 export interface MemoryConfig {
   enabled: boolean;
   db: string;
-  ignore?: string[];
   collections?: CollectionConfig[];
 }

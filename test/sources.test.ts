@@ -1,14 +1,14 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { GraphDefinition } from "../src/schema/graph-schema.js";
 import {
+  checkSourcesDetailed,
   hashSource,
   hashSources,
-  checkSourcesDetailed,
   validateGraphSources,
 } from "../src/sources.js";
-import type { GraphDefinition } from "../src/schema/graph-schema.js";
 
 let tmpDir: string;
 let fileA: string;
@@ -51,7 +51,7 @@ describe("hashSource", () => {
   });
 
   it("uses section resolver when section is provided", () => {
-    const resolver = (filePath: string, section: string) => {
+    const resolver = (_filePath: string, section: string) => {
       if (section === "A") return "Content of section A.";
       return null;
     };

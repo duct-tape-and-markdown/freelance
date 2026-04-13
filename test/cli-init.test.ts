@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { init, type InitOptions } from "../src/cli/init.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { type InitOptions, init } from "../src/cli/init.js";
 import { setCli } from "../src/cli/output.js";
 
 function tmpDir(): string {
@@ -104,7 +104,7 @@ describe("CLI init", () => {
     const mcpJson = path.join(workDir, ".mcp.json");
     fs.writeFileSync(
       mcpJson,
-      JSON.stringify({ mcpServers: { other: { command: "other-tool" } } }, null, 2)
+      JSON.stringify({ mcpServers: { other: { command: "other-tool" } } }, null, 2),
     );
 
     await init(defaults());
@@ -274,7 +274,7 @@ describe("CLI init", () => {
   it("CLAUDE.md skipped when existing content contains 'Freelance'", async () => {
     fs.writeFileSync(
       path.join(workDir, "CLAUDE.md"),
-      "# My Project\n\nThis project uses Freelance for workflow enforcement.\n"
+      "# My Project\n\nThis project uses Freelance for workflow enforcement.\n",
     );
     await init(defaults());
     const content = fs.readFileSync(path.join(workDir, "CLAUDE.md"), "utf-8");
@@ -286,7 +286,7 @@ describe("CLI init", () => {
     const mcpJson = path.join(workDir, ".mcp.json");
     fs.writeFileSync(
       mcpJson,
-      JSON.stringify({ customKey: "preserved", settings: { debug: true } }, null, 2)
+      JSON.stringify({ customKey: "preserved", settings: { debug: true } }, null, 2),
     );
     await init(defaults());
     const config = JSON.parse(fs.readFileSync(mcpJson, "utf-8"));
@@ -361,7 +361,7 @@ describe("CLI init", () => {
     fs.mkdirSync(settingsDir, { recursive: true });
     fs.writeFileSync(
       path.join(settingsDir, "settings.json"),
-      JSON.stringify({ customSetting: true }, null, 2)
+      JSON.stringify({ customSetting: true }, null, 2),
     );
     await init(defaults({ hooks: true }));
     const settings = JSON.parse(fs.readFileSync(path.join(settingsDir, "settings.json"), "utf-8"));
@@ -418,7 +418,9 @@ describe("initInteractive", () => {
     originalCwd = process.cwd();
     workDir = fs.mkdtempSync(path.join(os.tmpdir(), "init-interactive-"));
     process.chdir(workDir);
-    vi.spyOn(process, "exit").mockImplementation((() => { throw new Error("process.exit"); }) as never);
+    vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit");
+    }) as never);
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     setCli({ json: false, quiet: false, verbose: false, noColor: false });

@@ -1,10 +1,9 @@
 import fs from "node:fs";
-import path from "node:path";
-import { loadGraphsCollecting } from "./loader.js";
 import type { CollectingLoadResult } from "./loader.js";
+import { loadGraphsCollecting } from "./loader.js";
 import type { ValidatedGraph } from "./types.js";
 
-export interface WatcherOptions {
+interface WatcherOptions {
   /** Directory or directories containing *.workflow.yaml files */
   graphsDir: string | string[];
   /** Called with new validated graphs on successful reload */
@@ -60,7 +59,7 @@ export function watchGraphs(options: WatcherOptions): () => void {
         if (graphDebounce) clearTimeout(graphDebounce);
         graphDebounce = setTimeout(reload, debounceMs);
       }
-    })
+    }),
   );
 
   return () => {

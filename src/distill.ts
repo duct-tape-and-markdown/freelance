@@ -129,7 +129,7 @@ Summarize:
 3. Nodes added, removed, or significantly changed
 4. What to watch for on the next run`;
 
-export type DistillMode = "distill" | "refine";
+type DistillMode = "distill" | "refine";
 
 export function getDistillPrompt(mode: DistillMode = "distill"): { content: string } {
   return { content: mode === "refine" ? REFINE_PROMPT : DISTILL_PROMPT };

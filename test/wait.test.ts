@@ -1,10 +1,10 @@
-import { describe, it, expect } from "vitest";
-import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
-import { loadGraphs } from "../src/loader.js";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
 import { GraphEngine } from "../src/engine/index.js";
-import type { ValidatedGraph, AdvanceSuccessResult, InspectPositionResult } from "../src/types.js";
+import { loadGraphs } from "../src/loader.js";
+import type { AdvanceSuccessResult, InspectPositionResult, ValidatedGraph } from "../src/types.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
@@ -277,11 +277,7 @@ describe("wait nodes — timeout", () => {
     // Trigger timeout check via advance
     engine.contextSet({ ciPassed: false, coverageReport: "n/a" });
     engine.advance("failed");
-
-    // _waitTimedOut should have been set
-    const inspectStack = engine.getStack();
-    // We advanced to fix-ci, so check context there
-    // Actually the advance succeeded and moved us — let's check via different approach
+    // _waitTimedOut should have been set — we advanced to fix-ci
   });
 
   it("does not timeout before duration elapses", () => {

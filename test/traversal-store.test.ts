@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
-import { loadGraphs } from "../src/loader.js";
-import { TraversalStore, openStateDatabase } from "../src/state/index.js";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EngineError } from "../src/errors.js";
+import { loadGraphs } from "../src/loader.js";
+import { openStateStore, TraversalStore } from "../src/state/index.js";
 import type { ValidatedGraph } from "../src/types.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
@@ -17,7 +17,7 @@ function loadFixtures(...files: string[]): Map<string, ValidatedGraph> {
   return loadGraphs(tmpDir);
 }
 
-describe("TraversalStore — stateless SQLite", () => {
+describe("TraversalStore — stateless JSON", () => {
   let graphs: Map<string, ValidatedGraph>;
   let tmpDir: string;
   let store: TraversalStore;
@@ -25,7 +25,7 @@ describe("TraversalStore — stateless SQLite", () => {
   beforeEach(() => {
     graphs = loadFixtures("valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ts-db-test-"));
-    store = new TraversalStore(openStateDatabase(path.join(tmpDir, "state.db")), graphs);
+    store = new TraversalStore(openStateStore(path.join(tmpDir, "traversals")), graphs);
   });
 
   afterEach(() => {
@@ -42,7 +42,7 @@ describe("TraversalStore — stateless SQLite", () => {
     expect(r1.traversalId).not.toBe(r2.traversalId);
   });
 
-  it("lists active traversals from database", () => {
+  it("lists active traversals from disk", () => {
     expect(store.listTraversals()).toHaveLength(0);
 
     store.createTraversal("valid-simple");
@@ -56,7 +56,7 @@ describe("TraversalStore — stateless SQLite", () => {
     expect(list[0].currentNode).toBeDefined();
   });
 
-  it("advances traversal through SQLite round-trip", () => {
+  it("advances traversal through store round-trip", () => {
     const t = store.createTraversal("valid-simple");
     store.contextSet(t.traversalId, { taskStarted: true });
     const adv = store.advance(t.traversalId, "work-done");
@@ -120,7 +120,7 @@ describe("TraversalStore — stateless SQLite", () => {
     expect(() => store.resolveTraversalId()).toThrow(EngineError);
   });
 
-  it("inspect works through SQLite round-trip", () => {
+  it("inspect works through store round-trip", () => {
     const t = store.createTraversal("valid-simple");
     const inspect = store.inspect(t.traversalId, "position");
     expect("currentNode" in inspect && inspect.currentNode).toBe("start");
@@ -128,8 +128,8 @@ describe("TraversalStore — stateless SQLite", () => {
 
   describe("multi-process access", () => {
     it("second store instance sees traversals from first", () => {
-      const dbPath = path.join(tmpDir, "state.db");
-      const store2 = new TraversalStore(openStateDatabase(dbPath), graphs);
+      const dir = path.join(tmpDir, "traversals");
+      const store2 = new TraversalStore(openStateStore(dir), graphs);
 
       const t = store.createTraversal("valid-simple");
 
@@ -150,16 +150,16 @@ describe("TraversalStore — stateless SQLite", () => {
       store2.close();
     });
 
-    it("survives process restart (new store from same db)", () => {
-      const dbPath = path.join(tmpDir, "state.db");
+    it("survives process restart (new store from same dir)", () => {
+      const dir = path.join(tmpDir, "traversals");
 
       const t = store.createTraversal("valid-simple");
       store.contextSet(t.traversalId, { taskStarted: true });
       store.advance(t.traversalId, "work-done");
       store.close();
 
-      // "Restart" — new store from same database
-      const store2 = new TraversalStore(openStateDatabase(dbPath), graphs);
+      // "Restart" — new store from same directory
+      const store2 = new TraversalStore(openStateStore(dir), graphs);
       const list = store2.listTraversals();
       expect(list).toHaveLength(1);
       expect(list[0].currentNode).toBe("review");
@@ -174,7 +174,7 @@ describe("TraversalStore — stateless SQLite", () => {
       store2.close();
 
       // Reassign so afterEach doesn't double-close
-      store = new TraversalStore(openStateDatabase(path.join(tmpDir, "state.db")), graphs);
+      store = new TraversalStore(openStateStore(path.join(tmpDir, "traversals")), graphs);
     });
   });
 

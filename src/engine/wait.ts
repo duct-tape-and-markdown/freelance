@@ -1,4 +1,4 @@
-import type { NodeDefinition, WaitOnEntry, WaitCondition, SessionState } from "../types.js";
+import type { NodeDefinition, SessionState, WaitCondition, WaitOnEntry } from "../types.js";
 import { checkType } from "./returns.js";
 
 function parseDuration(duration: string): number | null {
@@ -13,7 +13,7 @@ function parseDuration(duration: string): number | null {
 
 export function evaluateWaitConditions(
   waitOn: WaitOnEntry[],
-  context: Record<string, unknown>
+  context: Record<string, unknown>,
 ): WaitCondition[] {
   return waitOn.map((entry) => {
     const value = context[entry.key];
