@@ -44,6 +44,8 @@
     "dev": "tsx src/bin.ts",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "check": "biome check",
+    "check:fix": "biome check --write",
     "sync-plugin-version": "node scripts/sync-plugin-version.mjs",
     "version": "npm run sync-plugin-version && git add plugins/freelance/.claude-plugin/plugin.json",
     "prepublishOnly": "npm run sync-plugin-version && npm run build && npm test"
@@ -83,6 +85,7 @@
     "@inquirer/prompts": "^8.3.2"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.11",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.5.0",
     "@types/picomatch": "^4.0.3",
