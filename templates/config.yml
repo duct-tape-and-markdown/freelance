@@ -1,0 +1,27 @@
+# Freelance configuration — team-shared, committed to source control.
+# Machine-specific overrides (paths, toggles) go in config.local.yml,
+# which is gitignored automatically.
+#
+# Schema: https://github.com/duct-tape-and-markdown/freelance#configuration
+
+memory:
+  # Whether the memory store is enabled. Defaults to true when omitted.
+  enabled: true
+
+  # Collections partition the knowledge graph. Each proposition is
+  # emitted into exactly one collection; queries can filter by
+  # collection or search across all.
+  #
+  # Custom collections MUST be declared here before a workflow can emit
+  # to them — referencing an unknown collection at emit time errors out
+  # with `Unknown collection "<name>". Available: ...`. Uncomment and
+  # edit the examples below to add your own.
+  collections:
+    - name: default
+      description: General project knowledge
+    # - name: architecture
+    #   description: High-level design decisions and constraints
+    #   paths: [docs/architecture/]
+    # - name: api
+    #   description: Public API surface and usage patterns
+    #   paths: [src/api/, docs/api/]

@@ -279,6 +279,15 @@ export async function init(options: InitOptions): Promise<void> {
     }
   }
 
+  // 2b. Starter config.yml — surfaces the memory.collections schema so
+  // users don't have to discover it by hitting "Unknown collection" errors.
+  const configDest = path.join(graphsDir, "config.yml");
+  if (!fs.existsSync(configDest)) {
+    actions.push({ verb: "create", target: `${graphsDisplayPath}/config.yml` });
+  } else {
+    actions.push({ verb: "skip", target: "config.yml", detail: "already exists" });
+  }
+
   // 3. MCP config
   if (client === "manual") {
     actions.push({ verb: "configure", target: "stdout", detail: "print config snippet" });
@@ -378,6 +387,20 @@ export async function init(options: InitOptions): Promise<void> {
       filesCreated.push(destFile);
     } else {
       results.push(`Skipped ${starter}.workflow.yaml (already exists)`);
+    }
+  }
+
+  // 2b. Copy starter config.yml
+  {
+    const templatesDir = getTemplatesDir();
+    const configTemplate = path.join(templatesDir, "config.yml");
+    const configDest = path.join(graphsDir, "config.yml");
+    if (!fs.existsSync(configDest) && fs.existsSync(configTemplate)) {
+      fs.copyFileSync(configTemplate, configDest);
+      results.push(`Created ${graphsDisplayPath}/config.yml`);
+      filesCreated.push(configDest);
+    } else if (fs.existsSync(configDest)) {
+      results.push("Skipped config.yml (already exists)");
     }
   }
 
