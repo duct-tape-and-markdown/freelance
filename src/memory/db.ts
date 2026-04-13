@@ -32,7 +32,18 @@ function wrap(inner: DatabaseSync): Db {
   return {
     prepare: (sql: string) => wrapStmt(inner.prepare(sql)),
     exec: (sql: string) => inner.exec(sql),
-    close: () => inner.close(),
+    close: () => {
+      // Truncate the WAL before closing so `memory.db-wal` / `memory.db-shm`
+      // don't linger on disk. Without this, the sidecar files persist after
+      // the process exits and can grow indefinitely between checkpoints.
+      try {
+        inner.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      } catch {
+        // Checkpoint failure shouldn't block close — the WAL stays on disk
+        // but SQLite will recover from it on next open.
+      }
+      inner.close();
+    },
   };
 }
 
@@ -116,6 +127,11 @@ export function openDatabase(dbPath: string): Db {
   inner.exec("PRAGMA journal_mode = WAL");
   inner.exec("PRAGMA foreign_keys = ON");
   inner.exec("PRAGMA busy_timeout = 5000");
+  // Default auto-checkpoint is 1000 pages (≈4 MB at 4 KB pages). We saw a
+  // 385 KB database with a 4.25 MB WAL in the wild, which is exactly that
+  // threshold. Tighten to 200 pages (≈800 KB) so the WAL is recycled more
+  // aggressively during long-running sessions.
+  inner.exec("PRAGMA wal_autocheckpoint = 200");
   const db = wrap(inner);
   checkSchemaCompatibility(db);
   inner.exec(SCHEMA_SQL);

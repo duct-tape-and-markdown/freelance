@@ -124,13 +124,70 @@ export async function startServer(
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  const shutdown = async () => {
-    if (stopWatcher) stopWatcher();
-    if (memoryStore) memoryStore.close();
-    manager.close();
-    await server.close();
-    process.exit(0);
+  // Lifecycle breadcrumbs on stderr. By MCP stdio convention, stderr is
+  // forwarded to the client's MCP log and not shown to the user. A matching
+  // start/shutdown pair makes a rapid respawn loop visible in the log —
+  // alternating lines with reason codes distinguish clean disconnects,
+  // crashes, and orphans that never shut down. Keep them one-line and
+  // unstructured to match how other MCP servers behave.
+  process.stderr.write(`freelance-mcp ${VERSION} started pid=${process.pid}\n`);
+
+  let shuttingDown = false;
+  const shutdown = (reason: string, exitCode = 0) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    process.stderr.write(
+      `freelance-mcp shutdown pid=${process.pid} reason=${reason}\n`,
+    );
+    void (async () => {
+      try {
+        if (stopWatcher) stopWatcher();
+        if (memoryStore) memoryStore.close();
+        manager.close();
+        await server.close();
+      } finally {
+        process.exit(exitCode);
+      }
+    })();
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", () => shutdown("sigint"));
+  process.on("SIGTERM", () => shutdown("sigterm"));
+  process.on("SIGHUP", () => shutdown("sighup"));
+
+  // Crash-path cleanup. Without these, a thrown error escaping the event
+  // loop would terminate the process without running memoryStore.close() —
+  // and that clean close is exactly what unlinks the memory.db-wal and
+  // memory.db-shm sidecar files. Skipping it is how orphaned WAL files
+  // appear on disk.
+  process.on("uncaughtException", (err) => {
+    process.stderr.write(`Freelance: uncaught exception: ${err.stack ?? err}\n`);
+    shutdown("uncaught-exception", 1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    process.stderr.write(`Freelance: unhandled rejection: ${String(reason)}\n`);
+    shutdown("unhandled-rejection", 1);
+  });
+
+  // Parent-disconnect watchdog. The MCP stdio transport listens for `data`
+  // and `error` on stdin but never exits when the stream ends, so a child
+  // freelance-mcp process can outlive a parent that exited without sending
+  // a signal (e.g. a backgrounded shell). That orphan then holds file
+  // handles on memory.db and its WAL sidecar — on Windows this makes those
+  // files undeletable. Treat every flavor of parent disconnect as a
+  // shutdown request:
+  //
+  //   - `end`/`close`: clean EOF (parent closed its write end)
+  //   - `error` with EBADF/EPIPE: fd revoked (macOS terminal close)
+  process.stdin.on("end", () => shutdown("stdin-end"));
+  process.stdin.on("close", () => shutdown("stdin-close"));
+  process.stdin.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EBADF" || err.code === "EPIPE") {
+      shutdown(`stdin-${err.code.toLowerCase()}`);
+    }
+  });
+  process.stdout.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EBADF" || err.code === "EPIPE") {
+      shutdown(`stdout-${err.code.toLowerCase()}`);
+    }
+  });
 }

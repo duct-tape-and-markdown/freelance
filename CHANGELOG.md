@@ -5,14 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.3.0] - 2026-04-12
+## [1.3.0] - 2026-04-13
 
 A consolidation release that pays down substantial architectural debt. Removes
 the hidden daemon/proxy surface, drops the `better-sqlite3` native dependency
 in favor of JSON files (for traversal state) and `node:sqlite` (for memory),
 splits the library entry cleanly from the CLI bin, and removes the session
 machinery from the memory store in favor of strictly per-proposition
-provenance.
+provenance. Also hardens the stdio server lifecycle so parent-disconnect,
+crashes, and respawn loops no longer leave orphaned processes or WAL sidecar
+files on disk.
+
+First shipped as `1.3.0-beta.0` on the `beta` dist-tag while the breaking
+changes bake; promoted to `latest` once the beta window closes.
 
 `npx freelance-mcp@latest mcp` no longer has a native compile step.
 
@@ -216,9 +221,36 @@ provenance.
   from main's #43, now implemented over the `StateStore.list()` interface
   instead of a SQL query. Used to gate memory-write tools and the
   `memory-register` hot path.
+- **Lifecycle breadcrumbs on stderr.** `startServer` now writes a one-line
+  `freelance-mcp <version> started pid=<pid>` on startup and a matching
+  `freelance-mcp shutdown pid=<pid> reason=<reason>` from inside the
+  idempotent shutdown path. Reasons cover every exit route — `sigint`,
+  `sigterm`, `sighup`, `stdin-end`, `stdin-close`, `stdin-ebadf`,
+  `stdin-epipe`, `stdout-ebadf`, `stdout-epipe`, `uncaught-exception`,
+  `unhandled-rejection`. By MCP stdio convention, stderr is forwarded to
+  the client's MCP log and not shown to the user, so a rapid respawn loop
+  becomes a readable timeline in the log (and stale cached versions become
+  obvious from the version string).
 
 ### Fixed
 
+- **MCP stdio server no longer orphans on parent disconnect.** When a parent
+  process exited without sending `SIGINT`/`SIGTERM` (e.g. a backgrounded
+  shell that then exited, a macOS terminal close revoking the fd, an MCP
+  client crashing), the stdio server kept running indefinitely — holding
+  file handles on `memory.db` and its WAL sidecar. On Windows this made
+  `memory.db{,-shm,-wal}` undeletable with cryptic `EBUSY` errors. All
+  disconnect flavors now funnel into a single idempotent `shutdown()`:
+  `SIGINT`/`SIGTERM`/`SIGHUP`, `process.stdin` `end`/`close`,
+  `process.stdin`/`process.stdout` `error` with `EBADF`/`EPIPE`, plus
+  `uncaughtException` and `unhandledRejection` so thrown errors take the
+  clean path instead of killing the process mid-write.
+- **`memory.db-wal` / `memory.db-shm` sidecar cleanup.** The memory database
+  now runs `PRAGMA wal_checkpoint(TRUNCATE)` before closing so the sidecar
+  files don't linger after the process exits. Also tightens
+  `wal_autocheckpoint` from the 1000-page default (≈4 MB) to 200 pages
+  (≈800 KB), so long-running sessions recycle the WAL more aggressively —
+  matching an in-the-wild observation of a 385 KB DB with a 4.25 MB WAL.
 - **`npx freelance-mcp mcp` no longer has a native compile step** and
   cannot fail with `better-sqlite3` install errors.
 - **`npm run dev` (tsx) now works for commands that reach the loader.**
