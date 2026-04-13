@@ -32,7 +32,7 @@ export function registerMemoryTools(
 
   server.tool(
     "memory_register_source",
-    "Hash one or more source files and return their content hashes. This is a stateless echo — it exists so the compile-knowledge workflow can require that agents prove they read a file before emitting propositions about it. The hash is for the agent's own bookkeeping; nothing is persisted here.",
+    "Hash one or more source files and return their content hashes. Optional for most workflows — memory_emit automatically hashes source files at emit time, so you don't need to pre-register. Call this when you want a file's current hash for your own bookkeeping (e.g. to compare against an earlier recorded value, or to cite a hash in a discussion without re-reading the file). Persists nothing; each call is independent. Gated: requires an active memory:compile or memory:recall traversal.",
     {
       filePath: z
         .union([z.string().min(1), z.array(z.string().min(1)).min(1)])
@@ -53,7 +53,7 @@ export function registerMemoryTools(
 
   server.tool(
     "memory_emit",
-    "Write propositions to memory. Each proposition is a self-contained claim about 1-2 entities, written in natural prose, with its own source file list. Sources are hashed at emit time and attached per-proposition for staleness tracking. Deduplicates by content hash within a collection.",
+    "Write propositions to the knowledge graph. Each proposition is a self-contained claim in natural prose, scoped to 1-2 named entities, with its own list of source file paths it was derived from. Sources are hashed at emit time and attached per-proposition — staleness is later computed per-proposition against current file state on every read. Deduplication is by content hash within a collection (emitting the same content twice is a no-op). Entities are resolved by exact name, then case-insensitive name, created if missing; pass entityKinds to tag new entities at creation time. Gated: requires an active memory:compile or memory:recall traversal.",
     {
       collection: z.string().min(1).describe("Target collection for these propositions"),
       propositions: z
@@ -99,7 +99,7 @@ export function registerMemoryTools(
 
   server.tool(
     "memory_browse",
-    "Find entities by name, kind, or partial match. Returns entities with valid proposition counts. Stale entities can be refreshed by re-registering their source files via memory_register_source.",
+    "Find entities by name (partial, case-insensitive), kind, or both. Returns each entity with its total proposition count and its valid (non-stale) count. Stale propositions happen when source files drift on disk — to refresh, re-run the memory:compile workflow against the changed sources. Use this for 'what entities exist matching X?'; use memory_search instead for 'what propositions mention X?'. Optional collection filter scopes results to one named collection.",
     {
       collection: z.string().optional().describe("Collection to filter by (omit for all)"),
       name: z.string().optional().describe("Partial name match (case-insensitive)"),
@@ -118,7 +118,7 @@ export function registerMemoryTools(
 
   server.tool(
     "memory_inspect",
-    "Full entity details — valid propositions, neighbors, and the deduped list of source files that produced any of this entity's propositions. Stale propositions can be refreshed by re-running the compile workflow on their source files.",
+    "Full details for a single entity: valid propositions about it (ordered by creation time), co-occurring neighbor entities via shared propositions, and the deduped list of source files that produced any of its propositions. Entity can be specified by id, exact name, or case-insensitive name (resolved in that priority). Use source_files to navigate to provenance, or neighbors to explore the knowledge graph sideways. Stale propositions are refreshed by re-running memory:compile against the changed sources. Optional collection filter.",
     {
       collection: z.string().optional().describe("Collection to filter by (omit for all)"),
       entity: z.string().min(1).describe("Entity ID or name"),
@@ -134,7 +134,7 @@ export function registerMemoryTools(
 
   server.tool(
     "memory_by_source",
-    "All propositions derived from a specific source file. Shows valid and stale.",
+    "Return every proposition whose sources list includes the given file path. Use this to audit what claims a file produced — e.g. after editing a file, see which propositions are now stale and may need re-compilation; or before deleting a file, see what knowledge depends on it. Both valid and stale propositions are included (each has a valid flag). Path may be relative to the source root or absolute. Optional collection filter.",
     {
       collection: z.string().optional().describe("Collection to filter by (omit for all)"),
       filePath: z.string().min(1).describe("File path (relative to source root or absolute)"),
@@ -150,7 +150,7 @@ export function registerMemoryTools(
 
   server.tool(
     "memory_search",
-    "Full-text search across proposition content. Returns matching propositions with their entities and validity status. Use FTS5 query syntax: plain words for OR, double-quoted phrases for exact match, prefix* for prefix search. If your search returns no results but you later discover the answer through other means, consider starting the memory:compile workflow to capture what you learned — a search miss is a signal that memory has a gap worth filling.",
+    "Full-text search across proposition content via SQLite FTS5, ranked by relevance. Returns matching propositions with their entities and validity status. Query syntax: plain words separated by spaces are OR'd; \"double-quoted phrases\" match exact sequences; prefix* matches word prefixes. Use this for 'what propositions mention X?'; use memory_browse instead for 'what entities exist matching X?'. If a search misses but you later discover the answer through other means, that's a signal memory has a gap — consider running memory:compile against the relevant sources to fill it. Optional collection filter.",
     {
       collection: z.string().optional().describe("Collection to filter by (omit for all)"),
       query: z
@@ -170,7 +170,7 @@ export function registerMemoryTools(
 
   server.tool(
     "memory_related",
-    "Show entities related to a given entity via shared propositions. Returns co-occurring entities ranked by connection strength, each with a sample proposition showing the relationship. Use during recall to navigate the knowledge graph without inspecting entities one at a time.",
+    "Show entities related to a given one via shared propositions — two entities are 'related' if at least one proposition names both. Returns neighbors ranked by count of valid shared propositions, each with a sample proposition showing the relationship in context. Use this to navigate the knowledge graph sideways during recall: start from a known entity, follow co-occurrences, jump to adjacent concepts without inspecting each entity individually. Optional collection filter.",
     {
       collection: z.string().optional().describe("Collection to filter by (omit for all)"),
       entity: z.string().min(1).describe("Entity ID or name"),
@@ -186,7 +186,7 @@ export function registerMemoryTools(
 
   server.tool(
     "memory_status",
-    "Total propositions, valid count, stale count, entity count. Optionally scoped to a collection.",
+    "Health check for the knowledge graph: total propositions, valid (non-stale) count, stale count, and total entities. Optional collection filter scopes all counts to one named collection (omit for aggregate across all collections). A high stale count means source files have drifted — consider running memory:compile to refresh. A low stale count means memory is current. Useful at session start (how much knowledge is here?), after file edits (what did my changes invalidate?), or before a recall workflow (is this worth querying?).",
     {
       collection: z
         .string()

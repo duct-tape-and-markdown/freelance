@@ -9,7 +9,7 @@ export function registerSourcesHashTool(server: McpServer, deps: FreelanceToolDe
 
   server.tool(
     "freelance_sources_hash",
-    "Hash one or more source locations for provenance stamping. Used when authoring graphs with source bindings. If section is provided and a section resolver is configured, hashes only that section's content; otherwise hashes the entire file.",
+    "Hash source files (or sections of files) to generate content hashes for graph source bindings. This is an authoring-time tool: when you're writing a workflow node that references a doc or file as provenance, you stamp the current hash here so freelance_sources_check can later detect drift. Each source is a {path, section?} pair; if section is provided and a section resolver is configured (e.g. Markdown heading extraction), only that section's content is hashed — otherwise the full file. Not used at runtime; provenance validation is a build concern.",
     {
       sources: z
         .array(

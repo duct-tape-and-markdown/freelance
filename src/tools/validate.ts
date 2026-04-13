@@ -11,7 +11,7 @@ export function registerValidateTool(server: McpServer, deps: FreelanceToolDeps)
 
   server.tool(
     "freelance_validate",
-    "Validate workflow graph definitions for structural errors. Scans configured graph directories and reports schema, expression, and topology errors. Use this to diagnose why a graph isn't appearing in freelance_list.",
+    "Validate workflow graph definitions for structural errors. Walks configured graphsDirs, parses every .workflow.yaml, and reports schema errors (missing fields, wrong types), expression errors (invalid edge conditions or validation rules), topology errors (unreachable nodes, cycles without a breaking node, invalid subgraph references), and return schema errors. This is authoring-time validation — runtime conditions are checked by the engine at advance time. Use it to diagnose why a graph isn't appearing in freelance_list, or to validate a new graph before it ships.",
     {
       graphId: z.string().optional(),
     },

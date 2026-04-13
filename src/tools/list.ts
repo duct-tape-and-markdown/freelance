@@ -7,7 +7,7 @@ export function registerListTool(server: McpServer, deps: FreelanceToolDeps): vo
 
   server.tool(
     "freelance_list",
-    "List all available workflow graphs and active traversals. Call this to discover which graphs are loaded and can be started. If any graphs failed to load, loadErrors will be present — use freelance_validate for details.",
+    "Discover what Freelance workflows are available. Returns the set of loaded graph definitions (each with id, name, version, nodeCount) plus any active traversals already running. Call this first in any session that might use Freelance — it's the cheapest way to answer 'what can I run?' and 'am I already mid-workflow?' If any .workflow.yaml files failed to load, the result includes a loadErrors array; call freelance_validate for the specific parse or topology errors.",
     {},
     () => {
       try {
