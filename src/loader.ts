@@ -1,19 +1,25 @@
+/**
+ * Public loader API. Orchestrates the three-phase graph loading
+ * pipeline — YAML parse + Zod schema → pre-build validation
+ * (graph-validation.ts) → graphlib construction + topology checks
+ * (graph-construction.ts) — and exposes the multi-file loaders
+ * that every caller uses.
+ */
+
 import fs from "node:fs";
-// @dagrejs/graphlib is a CJS bundle with `cjs-module-lexer` named-export
-// hints. Node's native ESM loader reads those hints and lets us import
-// named exports, but `tsx` does not — `import { Graph, alg }` works under
-// `node dist/...` and fails under `tsx src/...`. createRequire forces CJS
-// semantics under both loaders.
-import { createRequire } from "node:module";
 import path from "node:path";
 import yaml from "js-yaml";
+import { buildAndValidateGraph } from "./graph-construction.js";
+import { validateExpressions, validateReturnSchemas } from "./graph-validation.js";
 
-const { Graph, alg } = createRequire(import.meta.url)(
-  "@dagrejs/graphlib",
-) as typeof import("@dagrejs/graphlib");
+// @dagrejs/graphlib is a CJS bundle with `cjs-module-lexer` named-export
+// hints. Node's native ESM loader reads those hints and lets us import
+// named exports, but `tsx` does not — `import { Graph }` works under
+// `node dist/...` and fails under `tsx src/...`. We don't need the runtime
+// Graph export here (graph-construction.ts owns construction); importing
+// only the type keeps this file free of the CJS/ESM dance.
 type Graph = import("@dagrejs/graphlib").Graph;
 
-import { extractPropertyComparisons, validateExpression } from "./evaluator.js";
 import type { GraphDefinition } from "./schema/graph-schema.js";
 import { graphDefinitionSchema, isContextFieldDescriptor } from "./schema/graph-schema.js";
 import type { ValidatedGraph } from "./types.js";
@@ -55,6 +61,18 @@ export function validateAndBuild(def: GraphDefinition, source: string): Graph {
   validateReturnSchemas(def, source);
   validateExpressions(def, source);
   return buildAndValidateGraph(def, source);
+}
+
+/**
+ * Resolve context field descriptors to their default values.
+ * Plain scalars pass through unchanged; descriptors are replaced by their default.
+ */
+export function resolveContextDefaults(context: Record<string, unknown>): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(context)) {
+    resolved[key] = isContextFieldDescriptor(value) ? (value.default ?? null) : value;
+  }
+  return resolved;
 }
 
 /**
@@ -242,271 +260,6 @@ export function loadGraphsLayered(directories: string[]): Map<string, ValidatedG
   validateCrossGraphRefs(results);
 
   return results;
-}
-
-/**
- * Validate return schema structure on nodes.
- * - items only valid on array type
- * - required/optional keys must not overlap
- * - terminal nodes must not have returns
- */
-function validateReturnSchemas(def: GraphDefinition, filePath: string): void {
-  for (const [nodeId, node] of Object.entries(def.nodes)) {
-    if (!node.returns) continue;
-
-    if (node.type === "terminal") {
-      throw new Error(
-        `[${filePath}] Node "${nodeId}": terminal node must not have a returns schema`,
-      );
-    }
-
-    const requiredKeys = new Set(Object.keys(node.returns.required ?? {}));
-    const optionalKeys = new Set(Object.keys(node.returns.optional ?? {}));
-
-    for (const key of optionalKeys) {
-      if (requiredKeys.has(key)) {
-        throw new Error(
-          `[${filePath}] Node "${nodeId}": returns key "${key}" appears in both required and optional`,
-        );
-      }
-    }
-
-    const allFields = {
-      ...(node.returns.required ?? {}),
-      ...(node.returns.optional ?? {}),
-    };
-
-    for (const [key, field] of Object.entries(allFields)) {
-      if (field.items && field.type !== "array") {
-        throw new Error(
-          `[${filePath}] Node "${nodeId}": returns key "${key}" has "items" but type is "${field.type}" (items only valid on array type)`,
-        );
-      }
-    }
-  }
-}
-
-/**
- * Extract enum constraints from context field descriptors.
- * Returns a map of field name → set of allowed string values.
- */
-function extractContextEnums(def: GraphDefinition): Map<string, Set<string>> {
-  const enums = new Map<string, Set<string>>();
-  if (!def.context) return enums;
-  for (const [key, value] of Object.entries(def.context)) {
-    if (isContextFieldDescriptor(value) && value.enum) {
-      enums.set(key, new Set(value.enum.map(String)));
-    }
-  }
-  return enums;
-}
-
-/**
- * Resolve context field descriptors to their default values.
- * Plain scalars pass through unchanged; descriptors are replaced by their default.
- */
-export function resolveContextDefaults(context: Record<string, unknown>): Record<string, unknown> {
-  const resolved: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(context)) {
-    resolved[key] = isContextFieldDescriptor(value) ? (value.default ?? null) : value;
-  }
-  return resolved;
-}
-
-/**
- * Check an expression's string literals against declared context enums.
- * Throws if a literal is not in the declared enum for that field.
- */
-function checkEnumCompliance(
-  expr: string,
-  enumMap: Map<string, Set<string>>,
-  location: string,
-): void {
-  if (enumMap.size === 0) return;
-  const comparisons = extractPropertyComparisons(expr);
-  for (const { property, literal } of comparisons) {
-    const allowed = enumMap.get(property);
-    if (allowed && !allowed.has(literal)) {
-      throw new Error(
-        `${location} references context.${property} with value '${literal}' ` +
-          `which is not in the declared enum [${[...allowed].join(", ")}]`,
-      );
-    }
-  }
-}
-
-/**
- * Parse-check all expressions in edge conditions and validation rules.
- * Catches malformed expressions at load time, not at traversal time.
- * Also checks string literals against declared context enums.
- */
-function validateExpressions(def: GraphDefinition, filePath: string): void {
-  const enumMap = extractContextEnums(def);
-
-  for (const [nodeId, node] of Object.entries(def.nodes)) {
-    if (node.validations) {
-      for (const v of node.validations) {
-        try {
-          validateExpression(v.expr);
-          checkEnumCompliance(v.expr, enumMap, `[${filePath}] Node "${nodeId}": validation`);
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          throw new Error(
-            `[${filePath}] Node "${nodeId}": invalid validation expression "${v.expr}": ${msg}`,
-          );
-        }
-      }
-    }
-    if (node.edges) {
-      for (const edge of node.edges) {
-        if (edge.condition) {
-          try {
-            validateExpression(edge.condition);
-            checkEnumCompliance(
-              edge.condition,
-              enumMap,
-              `[${filePath}] Node "${nodeId}": edge "${edge.label}"`,
-            );
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            throw new Error(
-              `[${filePath}] Node "${nodeId}": edge "${edge.label}" has invalid condition "${edge.condition}": ${msg}`,
-            );
-          }
-        }
-      }
-    }
-    // Validate subgraph condition expression
-    if (node.subgraph?.condition) {
-      try {
-        validateExpression(node.subgraph.condition);
-        checkEnumCompliance(
-          node.subgraph.condition,
-          enumMap,
-          `[${filePath}] Node "${nodeId}": subgraph condition`,
-        );
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        throw new Error(
-          `[${filePath}] Node "${nodeId}": invalid subgraph condition "${node.subgraph.condition}": ${msg}`,
-        );
-      }
-    }
-  }
-}
-
-function buildAndValidateGraph(def: GraphDefinition, filePath: string): Graph {
-  const g = new Graph({ directed: true });
-  const nodeIds = Object.keys(def.nodes);
-
-  // Add all nodes
-  for (const nodeId of nodeIds) {
-    g.setNode(nodeId, def.nodes[nodeId]);
-  }
-
-  // Validate startNode exists
-  if (!def.nodes[def.startNode]) {
-    throw new Error(`[${filePath}] startNode "${def.startNode}" is not defined in nodes`);
-  }
-
-  for (const [nodeId, node] of Object.entries(def.nodes)) {
-    // Terminal nodes cannot have subgraph
-    if (node.type === "terminal" && node.subgraph) {
-      throw new Error(`[${filePath}] Node "${nodeId}": terminal node must not have a subgraph`);
-    }
-
-    if (node.type === "terminal") {
-      // (d) Terminal nodes must have zero outgoing edges
-      if (node.edges && node.edges.length > 0) {
-        throw new Error(
-          `[${filePath}] Node "${nodeId}": terminal node must not have outgoing edges`,
-        );
-      }
-    } else {
-      // (c) Non-terminal nodes must have at least one outgoing edge
-      if (!node.edges || node.edges.length === 0) {
-        throw new Error(
-          `[${filePath}] Node "${nodeId}": non-terminal node of type "${node.type}" must have at least one outgoing edge`,
-        );
-      }
-
-      // Add edges to graph and validate targets
-      for (const edge of node.edges) {
-        // (a) All edge targets must point to defined nodes
-        if (!def.nodes[edge.target]) {
-          throw new Error(
-            `[${filePath}] Node "${nodeId}": edge "${edge.label}" targets undefined node "${edge.target}"`,
-          );
-        }
-        g.setEdge(nodeId, edge.target, edge.label);
-      }
-    }
-
-    // (f) Gate nodes must have at least one validation
-    if (node.type === "gate") {
-      if (!node.validations || node.validations.length === 0) {
-        throw new Error(
-          `[${filePath}] Node "${nodeId}": gate node must have at least one validation`,
-        );
-      }
-    }
-
-    // Wait nodes must have at least one waitOn entry
-    if (node.type === "wait") {
-      if (!node.waitOn || node.waitOn.length === 0) {
-        throw new Error(
-          `[${filePath}] Node "${nodeId}": wait node must have at least one waitOn entry`,
-        );
-      }
-    }
-  }
-
-  // (e) No orphan nodes — all nodes reachable from startNode
-  const reachable = new Set<string>();
-  const preorder = alg.preorder(g, [def.startNode]);
-  for (const nodeId of preorder) {
-    reachable.add(nodeId);
-  }
-  for (const nodeId of nodeIds) {
-    if (!reachable.has(nodeId)) {
-      throw new Error(
-        `[${filePath}] Node "${nodeId}": unreachable from startNode "${def.startNode}"`,
-      );
-    }
-  }
-
-  // (g) Cycles must include at least one decision or gate node
-  validateCycles(g, def, filePath);
-
-  return g;
-}
-
-/**
- * Detect cycles and ensure each cycle contains at least one decision or gate node.
- * Uses Tarjan's SCC algorithm — any SCC with size > 1 is a cycle.
- * Also check self-loops (single-node SCCs with an edge to themselves).
- */
-function validateCycles(g: Graph, def: GraphDefinition, filePath: string): void {
-  const sccs = alg.tarjan(g);
-
-  for (const scc of sccs) {
-    // Only check SCCs that form actual cycles
-    const isCycle = scc.length > 1 || (scc.length === 1 && g.hasEdge(scc[0], scc[0]));
-
-    if (!isCycle) continue;
-
-    const hasBreakingNode = scc.some((nodeId) => {
-      const nodeType = def.nodes[nodeId]?.type;
-      return nodeType === "decision" || nodeType === "gate" || nodeType === "wait";
-    });
-
-    if (!hasBreakingNode) {
-      throw new Error(
-        `[${filePath}] Cycle detected among nodes [${scc.join(", ")}] with no decision, gate, or wait node. ` +
-          `Cycles must include at least one decision, gate, or wait node to prevent infinite action loops.`,
-      );
-    }
-  }
 }
 
 /**
