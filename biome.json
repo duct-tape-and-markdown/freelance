@@ -8,12 +8,12 @@
   "files": {
     "includes": [
       "**",
-      "!test/fixtures/**",
-      "!test/fixtures-valid/**",
-      "!templates/**",
-      "!plugins/**/skills/**",
-      "!plugins/**/commands/**",
-      "!plugins/**/agents/**"
+      "!test/fixtures",
+      "!test/fixtures-valid",
+      "!templates",
+      "!plugins/**/skills",
+      "!plugins/**/commands",
+      "!plugins/**/agents"
     ]
   },
   "formatter": {

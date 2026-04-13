@@ -46,6 +46,7 @@
     "test:coverage": "vitest run --coverage",
     "check": "biome check",
     "check:fix": "biome check --write",
+    "prepare": "simple-git-hooks || true",
     "sync-plugin-version": "node scripts/sync-plugin-version.mjs",
     "version": "npm run sync-plugin-version && git add plugins/freelance/.claude-plugin/plugin.json",
     "prepublishOnly": "npm run sync-plugin-version && npm run build && npm test"
@@ -84,12 +85,16 @@
   "optionalDependencies": {
     "@inquirer/prompts": "^8.3.2"
   },
+  "simple-git-hooks": {
+    "pre-commit": "npx biome check --no-errors-on-unmatched"
+  },
   "devDependencies": {
     "@biomejs/biome": "2.4.11",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.5.0",
     "@types/picomatch": "^4.0.3",
     "@vitest/coverage-v8": "^4.1.0",
+    "simple-git-hooks": "2.13.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.0"

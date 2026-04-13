@@ -10,11 +10,5 @@
   "homepage": "https://github.com/duct-tape-and-markdown/freelance",
   "repository": "https://github.com/duct-tape-and-markdown/freelance",
   "license": "MIT",
-  "keywords": [
-    "workflow",
-    "graph",
-    "mcp",
-    "automation",
-    "enforcement"
-  ]
+  "keywords": ["workflow", "graph", "mcp", "automation", "enforcement"]
 }
