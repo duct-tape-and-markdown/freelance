@@ -12,18 +12,18 @@ import type {
   ValidatedGraph,
 } from "../types.js";
 import {
+  applyContextUpdates,
+  buildContextSetResult,
+  buildInspectResult,
+  enforceStrictContext,
+} from "./context.js";
+import {
   checkEdgeCondition,
   checkReturnSchema,
   checkValidations,
   checkWaitBlocking,
 } from "./gates.js";
 import { cloneContext, toNodeInfo } from "./helpers.js";
-import {
-  applyContextUpdates,
-  buildContextSetResult,
-  buildInspectResult,
-  enforceStrictContext,
-} from "./state.js";
 import { maybePushSubgraph, popSubgraph } from "./subgraph.js";
 import { evaluateTransitions } from "./transitions.js";
 import { computeTimeoutAt, evaluateWaitConditions } from "./wait.js";
