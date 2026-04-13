@@ -11,12 +11,20 @@ export class EvaluatorError extends Error {
 
 // --- Tokenizer ---
 
+/**
+ * Built-in functions callable from edge condition expressions.
+ * Each one takes exactly one argument (any expression) and returns a value.
+ * See callFunction() below for semantics.
+ */
+const BUILTIN_FUNCTIONS = new Set(["len"]);
+
 type TokenType =
   | "STRING"
   | "NUMBER"
   | "BOOLEAN"
   | "NULL"
   | "PROPERTY"
+  | "FUNCTION"
   | "OP"
   | "LOGIC"
   | "NOT"
@@ -173,11 +181,13 @@ function tokenize(expr: string): Token[] {
         tokens.push({ type: "BOOLEAN", value: false, pos: start });
       } else if (ident === "null") {
         tokens.push({ type: "NULL", value: null, pos: start });
+      } else if (BUILTIN_FUNCTIONS.has(ident)) {
+        tokens.push({ type: "FUNCTION", value: ident, pos: start });
       } else if (ident.startsWith("context.")) {
         tokens.push({ type: "PROPERTY", value: ident, pos: start });
       } else {
         throw new EvaluatorError(
-          `Unexpected identifier '${ident}' at position ${start}. Property access must start with 'context.'`,
+          `Unexpected identifier '${ident}' at position ${start}. Property access must start with 'context.', or call a built-in function (${[...BUILTIN_FUNCTIONS].join(", ")}).`,
           expr,
           start,
         );
@@ -292,6 +302,28 @@ class Parser {
       return this.resolveProperty(t.value as string);
     }
 
+    if (t.type === "FUNCTION") {
+      this.advance();
+      if (this.peek().type !== "LPAREN") {
+        throw new EvaluatorError(
+          `Expected '(' after function '${t.value}' at position ${t.pos}`,
+          this.expr,
+          t.pos,
+        );
+      }
+      this.advance();
+      const arg = this.parseOrExpr();
+      if (this.peek().type !== "RPAREN") {
+        throw new EvaluatorError(
+          `Expected ')' closing call to '${t.value}' at position ${this.peek().pos}`,
+          this.expr,
+          this.peek().pos,
+        );
+      }
+      this.advance();
+      return callFunction(t.value as string, arg);
+    }
+
     if (t.type === "EOF") {
       throw new EvaluatorError(`Unexpected end of expression`, this.expr, t.pos);
     }
@@ -314,6 +346,26 @@ class Parser {
       current = (current as Record<string, unknown>)[seg];
     }
     return current === undefined ? null : current;
+  }
+}
+
+/**
+ * Dispatch a built-in function call.
+ *
+ * `len(v)` — returns the length of arrays and strings, 0 otherwise.
+ *   Treats null/undefined/missing-property as 0 so that expressions like
+ *   `len(context.maybeArray) > 0` work on both absent and empty arrays
+ *   without needing an explicit null check.
+ */
+function callFunction(name: string, arg: unknown): unknown {
+  switch (name) {
+    case "len":
+      if (Array.isArray(arg)) return arg.length;
+      if (typeof arg === "string") return arg.length;
+      return 0;
+    default:
+      // Unreachable: the tokenizer gates FUNCTION tokens to BUILTIN_FUNCTIONS.
+      throw new EvaluatorError(`Unknown function '${name}'`, name, 0);
   }
 }
 

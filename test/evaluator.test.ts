@@ -289,3 +289,70 @@ describe("extractPropertyComparisons", () => {
     expect(result).toHaveLength(0);
   });
 });
+
+describe("evaluate — len() builtin", () => {
+  it("len(array) returns element count", () => {
+    expect(evaluate("len(context.items) == 3", { items: ["a", "b", "c"] })).toBe(true);
+  });
+
+  it("len(empty array) is 0", () => {
+    expect(evaluate("len(context.items) == 0", { items: [] })).toBe(true);
+  });
+
+  it("len(array) > 0 with non-empty array", () => {
+    expect(evaluate("len(context.items) > 0", { items: ["x"] })).toBe(true);
+  });
+
+  it("len(array) > 0 with empty array", () => {
+    expect(evaluate("len(context.items) > 0", { items: [] })).toBe(false);
+  });
+
+  it("len(string) returns character count", () => {
+    expect(evaluate("len(context.name) == 5", { name: "hello" })).toBe(true);
+  });
+
+  it("len(empty string) is 0", () => {
+    expect(evaluate("len(context.name) == 0", { name: "" })).toBe(true);
+  });
+
+  it("len(missing property) is 0", () => {
+    expect(evaluate("len(context.nothing) == 0", {})).toBe(true);
+  });
+
+  it("len(null) is 0", () => {
+    expect(evaluate("len(context.value) == 0", { value: null })).toBe(true);
+  });
+
+  it("len(number) is 0 (non-sequence)", () => {
+    expect(evaluate("len(context.value) == 0", { value: 42 })).toBe(true);
+  });
+
+  it("len(boolean) is 0 (non-sequence)", () => {
+    expect(evaluate("len(context.value) == 0", { value: true })).toBe(true);
+  });
+
+  it("len composes with logical operators", () => {
+    expect(evaluate("len(context.a) > 0 && len(context.b) > 0", { a: [1], b: ["x"] })).toBe(true);
+    expect(evaluate("len(context.a) > 0 && len(context.b) > 0", { a: [1], b: [] })).toBe(false);
+  });
+
+  it("len on nested property", () => {
+    expect(evaluate("len(context.data.items) == 2", { data: { items: [1, 2] } })).toBe(true);
+  });
+
+  it("rejects unknown functions at tokenize time", () => {
+    expect(() => evaluate("foo(context.x) == 0", { x: [] })).toThrow(EvaluatorError);
+  });
+
+  it("rejects missing opening paren", () => {
+    expect(() => evaluate("len context.x", { x: [] })).toThrow(EvaluatorError);
+  });
+
+  it("rejects missing closing paren", () => {
+    expect(() => evaluate("len(context.x", { x: [] })).toThrow(EvaluatorError);
+  });
+
+  it("rejects empty argument", () => {
+    expect(() => evaluate("len()", {})).toThrow(EvaluatorError);
+  });
+});
