@@ -271,8 +271,6 @@ describe("validateGraphSources with graph-level sources", () => {
   });
 
   it("validates both graph-level and node-level sources", () => {
-    const hashed = hashSource({ path: docFile });
-
     const definition = {
       id: "test",
       version: "1.0",

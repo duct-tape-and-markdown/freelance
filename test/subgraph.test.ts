@@ -481,7 +481,7 @@ describe("subgraph — shorthand array syntax for contextMap/returnMap", () => {
 
     // Verify normalization: arrays expanded to {key: key} objects
     const def = graphs.get("parent-shorthand")!.definition;
-    const reviewNode = def.nodes["review"];
+    const reviewNode = def.nodes.review;
     expect(reviewNode.subgraph).toBeDefined();
     expect(reviewNode.subgraph!.contextMap).toEqual({ securityPass: "securityPass" });
     expect(reviewNode.subgraph!.returnMap).toEqual({ approved: "approved" });
@@ -573,7 +573,7 @@ describe("subgraph — shorthand schema validation", () => {
     const result = graphDefinitionSchema.safeParse(graph);
     expect(result.success).toBe(true);
     if (result.success) {
-      const sub = result.data.nodes["start"].subgraph!;
+      const sub = result.data.nodes.start.subgraph!;
       expect(sub.contextMap).toEqual({ parentKey: "childKey" });
       expect(sub.returnMap).toEqual({ sameNameField: "sameNameField" });
     }

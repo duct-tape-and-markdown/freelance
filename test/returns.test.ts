@@ -332,7 +332,7 @@ nodes:
     const graphs = loadFixtures("valid-returns.workflow.yaml");
     expect(graphs.has("valid-returns")).toBe(true);
     const def = graphs.get("valid-returns")!.definition;
-    const implementNode = def.nodes["implement"];
+    const implementNode = def.nodes.implement;
     expect(implementNode.returns).toBeDefined();
     expect(implementNode.returns!.required!.filesChanged.type).toBe("array");
   });

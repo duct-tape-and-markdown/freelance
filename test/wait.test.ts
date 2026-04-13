@@ -277,11 +277,7 @@ describe("wait nodes — timeout", () => {
     // Trigger timeout check via advance
     engine.contextSet({ ciPassed: false, coverageReport: "n/a" });
     engine.advance("failed");
-
-    // _waitTimedOut should have been set
-    const inspectStack = engine.getStack();
-    // We advanced to fix-ci, so check context there
-    // Actually the advance succeeded and moved us — let's check via different approach
+    // _waitTimedOut should have been set — we advanced to fix-ci
   });
 
   it("does not timeout before duration elapses", () => {

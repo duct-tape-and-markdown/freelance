@@ -51,7 +51,7 @@ describe("hashSource", () => {
   });
 
   it("uses section resolver when section is provided", () => {
-    const resolver = (filePath: string, section: string) => {
+    const resolver = (_filePath: string, section: string) => {
       if (section === "A") return "Content of section A.";
       return null;
     };
