@@ -5,6 +5,7 @@ export type {
   EdgeDefinition,
   GraphDefinition,
   NodeDefinition,
+  OperationBinding,
   ReturnField,
   ReturnSchema,
   SourceBinding,

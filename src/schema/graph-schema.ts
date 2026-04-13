@@ -47,6 +47,19 @@ const waitOnEntrySchema = z.object({
   description: z.string().optional(),
 });
 
+/**
+ * Operation binding for a programmatic node. `name` is looked up in the
+ * ops registry at load time (when the registry is available) and at run
+ * time when the drain loop executes the node. `args` values are either
+ * literals (numbers, booleans, strings that aren't context paths, nulls,
+ * arrays, objects) or context path references of the form `context.foo.bar`,
+ * which are resolved against live traversal context before the op runs.
+ */
+const operationBindingSchema = z.object({
+  name: z.string().min(1),
+  args: z.record(z.string(), z.unknown()).optional(),
+});
+
 export const sourceBindingSchema = z.object({
   path: z.string(),
   section: z.string().optional(),
@@ -56,7 +69,7 @@ export const sourceBindingSchema = z.object({
 export type SourceBinding = z.infer<typeof sourceBindingSchema>;
 
 export const nodeDefinitionSchema = z.object({
-  type: z.enum(["action", "decision", "gate", "terminal", "wait"]),
+  type: z.enum(["action", "decision", "gate", "terminal", "wait", "programmatic"]),
   description: z.string(),
   instructions: z.string().optional(),
   suggestedTools: z.array(z.string()).optional(),
@@ -69,6 +82,12 @@ export const nodeDefinitionSchema = z.object({
   waitOn: z.array(waitOnEntrySchema).optional(),
   timeout: z.string().optional(),
   sources: z.array(sourceBindingSchema).optional(),
+  // Programmatic-node fields. Required on programmatic nodes and forbidden on
+  // all other types — that invariant is enforced post-parse in
+  // graph-construction.ts so we stay consistent with how wait/gate/subgraph
+  // conditional fields are validated.
+  operation: operationBindingSchema.optional(),
+  contextUpdates: z.record(z.string(), z.string()).optional(),
 });
 
 /** Typed context field with optional enum constraint for static validation */
@@ -109,5 +128,6 @@ export type SubgraphDefinition = z.infer<typeof subgraphDefinitionSchema>;
 export type ReturnField = z.infer<typeof returnFieldSchema>;
 export type ReturnSchema = z.infer<typeof returnSchemaDefinition>;
 export type WaitOnEntry = z.infer<typeof waitOnEntrySchema>;
+export type OperationBinding = z.infer<typeof operationBindingSchema>;
 export type NodeDefinition = z.infer<typeof nodeDefinitionSchema>;
 export type GraphDefinition = z.infer<typeof graphDefinitionSchema>;
