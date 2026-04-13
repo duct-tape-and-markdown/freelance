@@ -26,11 +26,7 @@ jobs:
       - run: npm run build
 
       - name: Test with coverage
-        run: >-
-          npx vitest run --coverage --coverage.reporter=text
-          --coverage.thresholds.lines=90
-          --coverage.exclude='src/index.ts'
-          --coverage.exclude='src/**/index.ts'
+        run: npm run test:coverage
 
       - name: Validate test fixtures
         run: node dist/bin.js validate ./test/fixtures-valid/
