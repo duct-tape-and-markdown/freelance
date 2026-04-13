@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
+import type { OpsRegistry } from "./engine/operations.js";
 import { buildAndValidateGraph } from "./graph-construction.js";
 import { validateExpressions, validateReturnSchemas } from "./graph-validation.js";
 
@@ -28,8 +29,15 @@ import type { ValidatedGraph } from "./types.js";
  * Load and validate a single *.workflow.yaml file.
  * Returns the graph id, definition, and graphlib graph.
  * Throws on any validation failure with descriptive errors.
+ *
+ * When an opsRegistry is provided, programmatic-node op names are
+ * validated at load time (rejected if unregistered). Without a registry,
+ * op name validation is deferred to the drain loop's runtime check.
  */
-export function loadSingleGraph(filePath: string): { id: string } & ValidatedGraph {
+export function loadSingleGraph(
+  filePath: string,
+  opsRegistry?: OpsRegistry,
+): { id: string } & ValidatedGraph {
   const resolved = path.resolve(filePath);
   const content = fs.readFileSync(resolved, "utf-8");
   const parsed = yaml.load(content);
@@ -43,7 +51,7 @@ export function loadSingleGraph(filePath: string): { id: string } & ValidatedGra
   }
 
   const def = parseResult.data;
-  const graph = validateAndBuild(def, resolved);
+  const graph = validateAndBuild(def, resolved, opsRegistry);
 
   return { id: def.id, definition: def, graph };
 }
@@ -55,12 +63,18 @@ export function loadSingleGraph(filePath: string): { id: string } & ValidatedGra
  *
  * @param def - A valid GraphDefinition (already schema-parsed)
  * @param source - Label for error messages (file path or builder id)
+ * @param opsRegistry - Optional registry for programmatic-node op-name
+ *   validation. When omitted, op names are not checked at load time.
  * @returns The validated graphlib Graph
  */
-export function validateAndBuild(def: GraphDefinition, source: string): Graph {
+export function validateAndBuild(
+  def: GraphDefinition,
+  source: string,
+  opsRegistry?: OpsRegistry,
+): Graph {
   validateReturnSchemas(def, source);
   validateExpressions(def, source);
-  return buildAndValidateGraph(def, source);
+  return buildAndValidateGraph(def, source, opsRegistry);
 }
 
 /**
@@ -100,8 +114,14 @@ export function findGraphFiles(dir: string): string[] {
  * Load and validate all *.workflow.yaml files from a directory (recursively).
  * Returns a Map of graphId → ValidatedGraph.
  * Throws on any validation failure with descriptive errors.
+ *
+ * When an opsRegistry is provided, programmatic-node op names are
+ * validated at load time for every graph.
  */
-export function loadGraphs(directory: string): Map<string, ValidatedGraph> {
+export function loadGraphs(
+  directory: string,
+  opsRegistry?: OpsRegistry,
+): Map<string, ValidatedGraph> {
   const resolvedDir = path.resolve(directory);
 
   if (!fs.existsSync(resolvedDir)) {
@@ -119,7 +139,7 @@ export function loadGraphs(directory: string): Map<string, ValidatedGraph> {
 
   for (const filePath of files) {
     try {
-      const { id, definition, graph } = loadSingleGraph(filePath);
+      const { id, definition, graph } = loadSingleGraph(filePath, opsRegistry);
       results.set(id, { definition, graph });
     } catch (e) {
       errors.push(e instanceof Error ? e.message : String(e));
@@ -151,8 +171,14 @@ export interface CollectingLoadResult {
  * Load and validate all *.workflow.yaml files, collecting errors instead of
  * throwing or writing to stderr. Always returns both graphs and errors.
  * Suitable for contexts where partial success should be surfaced.
+ *
+ * When an opsRegistry is provided, programmatic-node op names are
+ * validated at load time.
  */
-export function loadGraphsCollecting(directories: string[]): CollectingLoadResult {
+export function loadGraphsCollecting(
+  directories: string[],
+  opsRegistry?: OpsRegistry,
+): CollectingLoadResult {
   const graphs = new Map<string, ValidatedGraph>();
   const errors: Array<{ file: string; message: string }> = [];
 
@@ -169,7 +195,7 @@ export function loadGraphsCollecting(directories: string[]): CollectingLoadResul
     for (const filePath of files) {
       const relFile = path.relative(resolvedDir, filePath);
       try {
-        const { id, definition, graph } = loadSingleGraph(filePath);
+        const { id, definition, graph } = loadSingleGraph(filePath, opsRegistry);
         graphs.set(id, { definition, graph });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -196,8 +222,14 @@ export function loadGraphsCollecting(directories: string[]): CollectingLoadResul
  * Later directories shadow earlier ones (same graph ID in later dir wins).
  * Non-existent or empty directories are skipped with warnings.
  * Returns a Map of graphId → ValidatedGraph.
+ *
+ * When an opsRegistry is provided, programmatic-node op names are
+ * validated at load time for every graph.
  */
-export function loadGraphsLayered(directories: string[]): Map<string, ValidatedGraph> {
+export function loadGraphsLayered(
+  directories: string[],
+  opsRegistry?: OpsRegistry,
+): Map<string, ValidatedGraph> {
   const results = new Map<string, ValidatedGraph>();
   const warnings: string[] = [];
 
@@ -225,7 +257,7 @@ export function loadGraphsLayered(directories: string[]): Map<string, ValidatedG
 
     for (const filePath of files) {
       try {
-        const { id, definition, graph } = loadSingleGraph(filePath);
+        const { id, definition, graph } = loadSingleGraph(filePath, opsRegistry);
         if (results.has(id)) {
           warnings.push(
             `Graph "${id}" from ${resolvedDir} shadows earlier definition from another directory`,
