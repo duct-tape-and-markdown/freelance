@@ -4,14 +4,13 @@
  * Convenience re-exports for programmatic consumers. Importing this module
  * has no side effects — no CLI is launched, no server is started.
  *
- * For a minimal surface without the persistence layer, import from
- * "freelance-mcp/core" instead. Subpath exports:
+ * Public subpath exports (see package.json#exports):
  *
- *   freelance-mcp          → this file (full API)
- *   freelance-mcp/core     → engine + schema only, no persistence
- *   freelance-mcp/state    → TraversalStore
- *   freelance-mcp/memory   → MemoryStore
- *   freelance-mcp/server   → createServer + startServer
+ *   freelance-mcp          → this file (engine + MCP factory + persistence)
+ *   freelance-mcp/core     → engine + schema only, no persistence graph
+ *
+ * All other internals (state, memory, server) are reachable via the root
+ * entry via re-export, but do not have dedicated subpath exports.
  */
 
 export type { NodeInput, ValidatedGraph } from "./core/index.js";
