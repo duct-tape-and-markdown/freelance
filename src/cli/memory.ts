@@ -168,12 +168,19 @@ export function memoryEmit(store: MemoryStore, file: string, collection: string)
       raw = fs.readFileSync(file, "utf-8");
     }
 
-    const propositions = JSON.parse(raw) as Array<{
+    let propositions: Array<{
       content: string;
       entities: string[];
       sources: string[];
       entityKinds?: Record<string, string>;
     }>;
+    try {
+      propositions = JSON.parse(raw);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const source = file === "-" ? "stdin" : file;
+      throw new Error(`${source} must contain valid JSON: ${msg}`);
+    }
 
     const result = store.emit(propositions, collection);
     if (cli.json) {

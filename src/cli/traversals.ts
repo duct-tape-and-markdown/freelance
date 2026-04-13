@@ -49,7 +49,15 @@ export function traversalStatus(store: TraversalStore): void {
 
 export function traversalStart(store: TraversalStore, graphId: string, context?: string): void {
   try {
-    const initialContext = context ? (JSON.parse(context) as Record<string, unknown>) : undefined;
+    let initialContext: Record<string, unknown> | undefined;
+    if (context) {
+      try {
+        initialContext = JSON.parse(context) as Record<string, unknown>;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(`--context must be valid JSON: ${msg}`);
+      }
+    }
     const result = store.createTraversal(graphId, initialContext);
     if (cli.json) {
       outputJson(result);
@@ -72,9 +80,15 @@ export function traversalAdvance(
 ): void {
   try {
     const id = store.resolveTraversalId(opts?.traversal);
-    const contextUpdates = opts?.context
-      ? (JSON.parse(opts.context) as Record<string, unknown>)
-      : undefined;
+    let contextUpdates: Record<string, unknown> | undefined;
+    if (opts?.context) {
+      try {
+        contextUpdates = JSON.parse(opts.context) as Record<string, unknown>;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(`--context must be valid JSON: ${msg}`);
+      }
+    }
     if (!edge) {
       // Show available edges when no edge specified
       const raw = store.inspect(id, "position");
