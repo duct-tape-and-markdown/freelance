@@ -46,6 +46,14 @@ export interface NodeInfo {
   readonly returns?: ReturnSchema;
   readonly readOnly?: boolean;
   readonly sources?: readonly SourceBinding[];
+  // Programmatic-node binding, surfaced to clients (freelance_inspect,
+  // freelance_list) so workflow authors can see which op a node runs
+  // and what context keys it writes.
+  readonly operation?: {
+    readonly name: string;
+    readonly args?: Readonly<Record<string, unknown>>;
+  };
+  readonly contextUpdates?: Readonly<Record<string, string>>;
 }
 
 export interface GraphListResult {

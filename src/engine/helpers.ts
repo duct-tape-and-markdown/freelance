@@ -13,5 +13,7 @@ export function toNodeInfo(node: NodeDefinition): NodeInfo {
     ...(node.returns ? { returns: node.returns } : {}),
     ...(node.readOnly ? { readOnly: node.readOnly } : {}),
     ...(node.sources?.length ? { sources: node.sources } : {}),
+    ...(node.operation ? { operation: node.operation } : {}),
+    ...(node.contextUpdates ? { contextUpdates: node.contextUpdates } : {}),
   };
 }
