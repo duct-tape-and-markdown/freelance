@@ -15,8 +15,8 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
   return new GraphBuilder(RECOLLECTION_ID, "Recollection")
     .setDescription(
       "Query-driven knowledge recall. Searches existing memory, reads provenance sources, " +
-      "identifies gaps between what's known and what the sources say about the query, " +
-      "and emits new propositions to fill the delta."
+        "identifies gaps between what's known and what the sources say about the query, " +
+        "and emits new propositions to fill the delta.",
     )
     .setContext({
       collection: "",

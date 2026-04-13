@@ -1,13 +1,18 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { loadGraphs } from "../src/loader.js";
+import path from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GraphEngine } from "../src/engine/index.js";
+import { loadGraphs } from "../src/loader.js";
+import type { GraphDefinition } from "../src/schema/graph-schema.js";
 import { graphDefinitionSchema } from "../src/schema/graph-schema.js";
 import { hashSource, validateGraphSources } from "../src/sources.js";
-import type { ValidatedGraph, InspectPositionResult, AdvanceSuccessResult, AdvanceErrorResult } from "../src/types.js";
-import type { GraphDefinition } from "../src/schema/graph-schema.js";
+import type {
+  AdvanceErrorResult,
+  AdvanceSuccessResult,
+  InspectPositionResult,
+  ValidatedGraph,
+} from "../src/types.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
@@ -148,7 +153,6 @@ describe("node-level sources in responses", () => {
     // middle node has no sources
     expect(result.node.sources).toBeUndefined();
   });
-
 });
 
 describe("graphSources on advance responses", () => {

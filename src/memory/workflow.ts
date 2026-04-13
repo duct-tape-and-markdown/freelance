@@ -14,7 +14,7 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
   return new GraphBuilder(COMPILE_KNOWLEDGE_ID, "Compile Knowledge")
     .setDescription(
       "Read source files, reason about them, and emit propositions to Memory. " +
-      "Use this workflow to build persistent knowledge about the codebase."
+        "Use this workflow to build persistent knowledge about the codebase.",
     )
     .setContext({
       collection: "",

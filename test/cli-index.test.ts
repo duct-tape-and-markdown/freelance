@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock heavy dependencies to prevent real server starts
 vi.mock("../src/server.js", () => ({ startServer: vi.fn(async () => {}) }));
@@ -70,6 +70,7 @@ let stderrSpy: any;
 let stdoutSpy: any;
 
 import { program } from "../src/cli/program.js";
+
 // Graph resolution tests live in test/graph-resolution.test.ts (canonical location)
 
 beforeEach(() => {
@@ -88,13 +89,27 @@ describe("program commands", () => {
   it("validate command calls validate function", async () => {
     const { validate } = await import("../src/cli/validate.js");
     await program.parseAsync(["node", "freelance", "validate", "/tmp/test"]);
-    expect(validate).toHaveBeenCalledWith("/tmp/test", { checkSources: undefined, fix: undefined, basePath: undefined });
+    expect(validate).toHaveBeenCalledWith("/tmp/test", {
+      checkSources: undefined,
+      fix: undefined,
+      basePath: undefined,
+    });
   });
 
   it("visualize command calls visualize function", async () => {
     const { visualize } = await import("../src/cli/visualize.js");
-    await program.parseAsync(["node", "freelance", "visualize", "/tmp/test.workflow.yaml", "--format", "dot"]);
-    expect(visualize).toHaveBeenCalledWith("/tmp/test.workflow.yaml", expect.objectContaining({ format: "dot" }));
+    await program.parseAsync([
+      "node",
+      "freelance",
+      "visualize",
+      "/tmp/test.workflow.yaml",
+      "--format",
+      "dot",
+    ]);
+    expect(visualize).toHaveBeenCalledWith(
+      "/tmp/test.workflow.yaml",
+      expect.objectContaining({ format: "dot" }),
+    );
   });
 
   it("inspect command calls traversalInspect", async () => {
@@ -117,7 +132,7 @@ describe("program commands", () => {
 
   it("completion with invalid shell calls fatal", async () => {
     await expect(
-      program.parseAsync(["node", "freelance", "completion", "powershell"])
+      program.parseAsync(["node", "freelance", "completion", "powershell"]),
     ).rejects.toThrow("process.exit");
   });
 
@@ -155,7 +170,14 @@ describe("program commands", () => {
 
   it("mcp --no-memory disables memory", async () => {
     const { startServer } = await import("../src/server.js");
-    await program.parseAsync(["node", "freelance", "mcp", "--workflows", "/tmp/fake", "--no-memory"]);
+    await program.parseAsync([
+      "node",
+      "freelance",
+      "mcp",
+      "--workflows",
+      "/tmp/fake",
+      "--no-memory",
+    ]);
     const call = (startServer as ReturnType<typeof vi.fn>).mock.calls.at(-1);
     const opts = call?.[1];
     expect(opts?.memory).toBeUndefined();
@@ -164,14 +186,26 @@ describe("program commands", () => {
   it("mcp --memory-dir overrides DB path", async () => {
     const { startServer } = await import("../src/server.js");
     const tmpDir = "/tmp/freelance-test-memdir-" + Date.now();
-    await program.parseAsync(["node", "freelance", "mcp", "--workflows", "/tmp/fake", "--memory-dir", tmpDir]);
+    await program.parseAsync([
+      "node",
+      "freelance",
+      "mcp",
+      "--workflows",
+      "/tmp/fake",
+      "--memory-dir",
+      tmpDir,
+    ]);
     const call = (startServer as ReturnType<typeof vi.fn>).mock.calls.at(-1);
     const opts = call?.[1];
     expect(opts?.memory?.enabled).toBe(true);
     expect(opts?.memory?.db).toBe(`${tmpDir}/memory.db`);
     // Clean up
     const fs = await import("node:fs");
-    try { fs.rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
+    try {
+      fs.rmSync(tmpDir, { recursive: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it("status command calls traversalStatus", async () => {

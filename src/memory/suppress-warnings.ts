@@ -15,10 +15,7 @@ const previousListeners = process.listeners("warning").slice();
 process.removeAllListeners("warning");
 
 process.on("warning", (warning: Error) => {
-  if (
-    warning.name === "ExperimentalWarning" &&
-    warning.message.includes("SQLite")
-  ) {
+  if (warning.name === "ExperimentalWarning" && warning.message.includes("SQLite")) {
     return;
   }
 

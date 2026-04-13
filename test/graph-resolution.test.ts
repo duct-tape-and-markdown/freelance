@@ -1,8 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { resolveDefaultGraphsDirs, resolveGraphsDirs, loadGraphsGraceful } from "../src/graph-resolution.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  loadGraphsGraceful,
+  resolveDefaultGraphsDirs,
+  resolveGraphsDirs,
+} from "../src/graph-resolution.js";
 import { tmpFreelanceDir, withTmpEnv } from "./helpers.js";
 
 beforeEach(() => {
@@ -44,10 +48,7 @@ describe("config-based workflow discovery", () => {
     const pluginWorkflows = path.join(tmpDir, "plugin-workflows");
     fs.mkdirSync(pluginWorkflows, { recursive: true });
 
-    fs.writeFileSync(
-      path.join(freelanceDir, "config.yml"),
-      `workflows:\n  - ${pluginWorkflows}\n`
-    );
+    fs.writeFileSync(path.join(freelanceDir, "config.yml"), `workflows:\n  - ${pluginWorkflows}\n`);
 
     withTmpEnv(tmpDir, () => {
       const dirs = resolveDefaultGraphsDirs();
@@ -65,7 +66,7 @@ describe("config-based workflow discovery", () => {
 
     fs.writeFileSync(
       path.join(freelanceDir, "config.local.yml"),
-      `workflows:\n  - ${pluginWorkflows}\n`
+      `workflows:\n  - ${pluginWorkflows}\n`,
     );
 
     withTmpEnv(tmpDir, () => {
@@ -82,7 +83,7 @@ describe("config-based workflow discovery", () => {
 
     fs.writeFileSync(
       path.join(freelanceDir, "config.yml"),
-      "workflows:\n  - /nonexistent/path/workflows\n"
+      "workflows:\n  - /nonexistent/path/workflows\n",
     );
 
     withTmpEnv(tmpDir, () => {
@@ -96,10 +97,7 @@ describe("config-based workflow discovery", () => {
     const freelanceDir = tmpFreelanceDir("config-dedup-");
     const tmpDir = path.dirname(freelanceDir);
 
-    fs.writeFileSync(
-      path.join(freelanceDir, "config.yml"),
-      `workflows:\n  - ${freelanceDir}\n`
-    );
+    fs.writeFileSync(path.join(freelanceDir, "config.yml"), `workflows:\n  - ${freelanceDir}\n`);
 
     withTmpEnv(tmpDir, () => {
       const dirs = resolveDefaultGraphsDirs();
@@ -112,10 +110,7 @@ describe("config-based workflow discovery", () => {
     const tmpDir = path.dirname(freelanceDir);
     const pluginWorkflows = path.join(tmpDir, "plugin-workflows");
     fs.mkdirSync(pluginWorkflows, { recursive: true });
-    fs.writeFileSync(
-      path.join(freelanceDir, "config.yml"),
-      `workflows:\n  - ${pluginWorkflows}\n`
-    );
+    fs.writeFileSync(path.join(freelanceDir, "config.yml"), `workflows:\n  - ${pluginWorkflows}\n`);
 
     process.env.FREELANCE_WORKFLOWS_DIR = "/a";
 
@@ -167,7 +162,7 @@ describe("loadGraphsGraceful", () => {
     const fixturesDir = path.resolve(import.meta.dirname, "fixtures");
     fs.copyFileSync(
       path.join(fixturesDir, "valid-simple.workflow.yaml"),
-      path.join(tmpDir, "valid-simple.workflow.yaml")
+      path.join(tmpDir, "valid-simple.workflow.yaml"),
     );
 
     const result = loadGraphsGraceful(tmpDir);

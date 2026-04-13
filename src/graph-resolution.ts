@@ -1,7 +1,7 @@
-import path from "node:path";
 import fs from "node:fs";
-import { loadGraphsCollecting } from "./loader.js";
+import path from "node:path";
 import { loadConfigFromDirs } from "./config.js";
+import { loadGraphsCollecting } from "./loader.js";
 import type { ValidatedGraph } from "./types.js";
 
 /**
@@ -71,7 +71,7 @@ export function resolveGraphsDirs(cliGraphs?: string | string[] | null): string[
  */
 export function resolveSourceRoot(
   graphsDirs: string[],
-  explicit?: string | null
+  explicit?: string | null,
 ): string | undefined {
   if (explicit) return path.resolve(explicit);
   if (graphsDirs.length > 0) return path.dirname(graphsDirs[0]);

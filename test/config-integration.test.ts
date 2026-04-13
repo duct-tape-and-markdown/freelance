@@ -3,14 +3,14 @@
  * exercise the full path from config files through to resolution.
  */
 
-import { describe, it, expect, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { configSetLocal } from "../src/cli/config.js";
+import { ensureStateDir, resolveMemoryConfig } from "../src/cli/setup.js";
 import { loadConfig, loadConfigFromDirs, updateLocalConfig } from "../src/config.js";
 import { resolveDefaultGraphsDirs } from "../src/graph-resolution.js";
-import { resolveMemoryConfig, ensureStateDir } from "../src/cli/setup.js";
-import { configSetLocal } from "../src/cli/config.js";
 import { tmpFreelanceDir, withTmpEnv } from "./helpers.js";
 
 const cleanup: string[] = [];
@@ -105,10 +105,7 @@ describe("config + memory resolution", () => {
     const configDir = path.join(path.dirname(freelanceDir), "config-mem");
     const cliDir = path.join(path.dirname(freelanceDir), "cli-mem");
 
-    fs.writeFileSync(
-      path.join(freelanceDir, "config.local.yml"),
-      `memory:\n  dir: ${configDir}\n`,
-    );
+    fs.writeFileSync(path.join(freelanceDir, "config.local.yml"), `memory:\n  dir: ${configDir}\n`);
 
     const memConfig = resolveMemoryConfig([freelanceDir], { memoryDir: cliDir });
     expect(memConfig).not.toBeNull();
@@ -122,16 +119,22 @@ describe("config + memory resolution", () => {
 
   it("memory ignore patterns merge from config.yml and config.local.yml", () => {
     const freelanceDir = makeDir("mem-ignore-merge-");
-    fs.writeFileSync(path.join(freelanceDir, "config.yml"), `
+    fs.writeFileSync(
+      path.join(freelanceDir, "config.yml"),
+      `
 memory:
   ignore:
     - "**/node_modules/**"
-`);
-    fs.writeFileSync(path.join(freelanceDir, "config.local.yml"), `
+`,
+    );
+    fs.writeFileSync(
+      path.join(freelanceDir, "config.local.yml"),
+      `
 memory:
   ignore:
     - "**/vendor/**"
-`);
+`,
+    );
 
     const memConfig = resolveMemoryConfig([freelanceDir], {});
     expect(memConfig).not.toBeNull();
@@ -144,7 +147,9 @@ describe("multi-dir config merge", () => {
     const projectDir = makeDir("project-");
     const userDir = makeDir("user-");
 
-    fs.writeFileSync(path.join(projectDir, "config.yml"), `
+    fs.writeFileSync(
+      path.join(projectDir, "config.yml"),
+      `
 memory:
   ignore:
     - "**/dist/**"
@@ -152,16 +157,23 @@ memory:
     - name: project
       description: Project knowledge
       paths: ["src/"]
-`);
-    fs.writeFileSync(path.join(userDir, "config.yml"), `
+`,
+    );
+    fs.writeFileSync(
+      path.join(userDir, "config.yml"),
+      `
 memory:
   ignore:
     - "**/cache/**"
-`);
-    fs.writeFileSync(path.join(userDir, "config.local.yml"), `
+`,
+    );
+    fs.writeFileSync(
+      path.join(userDir, "config.local.yml"),
+      `
 memory:
   dir: /tmp/user-persistent
-`);
+`,
+    );
 
     const config = loadConfigFromDirs([projectDir, userDir]);
 

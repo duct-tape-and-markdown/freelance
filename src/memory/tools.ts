@@ -4,9 +4,9 @@
  * 8 tools: 2 write (register_source, emit), 6 read (browse, inspect, by_source, search, related, status).
  */
 
-import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { jsonResponse, errorResponse } from "../mcp-helpers.js";
+import { z } from "zod";
+import { errorResponse, jsonResponse } from "../mcp-helpers.js";
 import type { MemoryStore } from "./store.js";
 
 function handleError(e: unknown) {
@@ -34,22 +34,21 @@ export function registerMemoryTools(
     "memory_register_source",
     "Hash one or more source files and return their content hashes. This is a stateless echo — it exists so the compile-knowledge workflow can require that agents prove they read a file before emitting propositions about it. The hash is for the agent's own bookkeeping; nothing is persisted here.",
     {
-      filePath: z.union([
-        z.string().min(1),
-        z.array(z.string().min(1)).min(1),
-      ]).describe("Path(s) to source file(s) (relative to source root or absolute)"),
+      filePath: z
+        .union([z.string().min(1), z.array(z.string().min(1)).min(1)])
+        .describe("Path(s) to source file(s) (relative to source root or absolute)"),
     },
     ({ filePath }) => {
       try {
         const blocked = requireMemoryTraversal();
         if (blocked) return errorResponse(blocked);
         const paths = Array.isArray(filePath) ? filePath : [filePath];
-        const results = paths.map(p => store.registerSource(p));
+        const results = paths.map((p) => store.registerSource(p));
         return jsonResponse(results.length === 1 ? results[0] : results);
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   server.tool(
@@ -57,12 +56,33 @@ export function registerMemoryTools(
     "Write propositions to memory. Each proposition is a self-contained claim about 1-2 entities, written in natural prose, with its own source file list. Sources are hashed at emit time and attached per-proposition for staleness tracking. Deduplicates by content hash within a collection.",
     {
       collection: z.string().min(1).describe("Target collection for these propositions"),
-      propositions: z.array(z.object({
-        content: z.string().min(1).describe("The proposition — a self-contained claim in natural prose"),
-        entities: z.array(z.string().min(1)).min(1).max(2).describe("Entity names this proposition is about (1-2)"),
-        sources: z.array(z.string().min(1)).min(1).describe("Source file paths this proposition was derived from (relative to source root). Each file is hashed at emit time for per-proposition provenance."),
-        entityKinds: z.record(z.string(), z.string()).optional().describe("Map of entity name to kind (e.g. function, class, type, interface, enum). Sets kind on entity creation."),
-      })).min(1),
+      propositions: z
+        .array(
+          z.object({
+            content: z
+              .string()
+              .min(1)
+              .describe("The proposition — a self-contained claim in natural prose"),
+            entities: z
+              .array(z.string().min(1))
+              .min(1)
+              .max(2)
+              .describe("Entity names this proposition is about (1-2)"),
+            sources: z
+              .array(z.string().min(1))
+              .min(1)
+              .describe(
+                "Source file paths this proposition was derived from (relative to source root). Each file is hashed at emit time for per-proposition provenance.",
+              ),
+            entityKinds: z
+              .record(z.string(), z.string())
+              .optional()
+              .describe(
+                "Map of entity name to kind (e.g. function, class, type, interface, enum). Sets kind on entity creation.",
+              ),
+          }),
+        )
+        .min(1),
     },
     ({ collection, propositions }) => {
       try {
@@ -72,7 +92,7 @@ export function registerMemoryTools(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   // --- Read ---
@@ -93,7 +113,7 @@ export function registerMemoryTools(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   server.tool(
@@ -109,7 +129,7 @@ export function registerMemoryTools(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   server.tool(
@@ -125,7 +145,7 @@ export function registerMemoryTools(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   server.tool(
@@ -133,7 +153,10 @@ export function registerMemoryTools(
     "Full-text search across proposition content. Returns matching propositions with their entities and validity status. Use FTS5 query syntax: plain words for OR, double-quoted phrases for exact match, prefix* for prefix search. If your search returns no results but you later discover the answer through other means, consider starting the memory:compile workflow to capture what you learned — a search miss is a signal that memory has a gap worth filling.",
     {
       collection: z.string().optional().describe("Collection to filter by (omit for all)"),
-      query: z.string().min(1).describe("FTS5 search query (e.g. 'subgraph context', '\"return values\"', 'wait*')"),
+      query: z
+        .string()
+        .min(1)
+        .describe("FTS5 search query (e.g. 'subgraph context', '\"return values\"', 'wait*')"),
       limit: z.number().int().min(1).max(100).default(20).optional(),
     },
     ({ collection, query, limit }) => {
@@ -142,7 +165,7 @@ export function registerMemoryTools(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   server.tool(
@@ -158,14 +181,17 @@ export function registerMemoryTools(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   server.tool(
     "memory_status",
     "Total propositions, valid count, stale count, entity count. Optionally scoped to a collection.",
     {
-      collection: z.string().optional().describe("Collection to get status for (omit for aggregate)"),
+      collection: z
+        .string()
+        .optional()
+        .describe("Collection to get status for (omit for aggregate)"),
     },
     ({ collection }) => {
       try {
@@ -173,6 +199,6 @@ export function registerMemoryTools(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 }

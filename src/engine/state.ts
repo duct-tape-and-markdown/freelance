@@ -1,24 +1,21 @@
 import { EngineError } from "../errors.js";
-import { cloneContext, toNodeInfo } from "./helpers.js";
-import { evaluateTransitions } from "./transitions.js";
-import { evaluateWaitConditions, checkWaitTimeout, computeTimeoutAt } from "./wait.js";
 import type {
+  ContextSetResult,
+  GraphDefinition,
+  InspectFullResult,
+  InspectHistoryResult,
+  InspectPositionResult,
+  InspectResult,
   NodeDefinition,
-  WaitCondition,
   SessionState,
   StackEntry,
-  ContextSetResult,
-  InspectResult,
-  InspectPositionResult,
-  InspectHistoryResult,
-  InspectFullResult,
-  GraphDefinition,
+  WaitCondition,
 } from "../types.js";
+import { cloneContext, toNodeInfo } from "./helpers.js";
+import { evaluateTransitions } from "./transitions.js";
+import { checkWaitTimeout, computeTimeoutAt, evaluateWaitConditions } from "./wait.js";
 
-export function applyContextUpdates(
-  session: SessionState,
-  updates: Record<string, unknown>
-): void {
+export function applyContextUpdates(session: SessionState, updates: Record<string, unknown>): void {
   const timestamp = new Date().toISOString();
   for (const [key, value] of Object.entries(updates)) {
     session.context[key] = value;
@@ -31,17 +28,14 @@ export function applyContextUpdates(
   }
 }
 
-export function enforceStrictContext(
-  def: GraphDefinition,
-  updates: Record<string, unknown>
-): void {
+export function enforceStrictContext(def: GraphDefinition, updates: Record<string, unknown>): void {
   if (!def.strictContext) return;
   const declaredKeys = new Set(Object.keys(def.context ?? {}));
   for (const key of Object.keys(updates)) {
     if (!declaredKeys.has(key)) {
       throw new EngineError(
         `Key "${key}" is not declared in the graph's context schema (strictContext is enabled)`,
-        "STRICT_CONTEXT_VIOLATION"
+        "STRICT_CONTEXT_VIOLATION",
       );
     }
   }
@@ -63,7 +57,7 @@ function computeTurnWarning(nodeDef: NodeDefinition, turnCount: number): string 
 
 export function buildContextSetResult(
   session: SessionState,
-  nodeDef: NodeDefinition
+  nodeDef: NodeDefinition,
 ): ContextSetResult {
   return {
     status: "updated",
@@ -80,7 +74,7 @@ export function buildInspectResult(
   detail: "position" | "full" | "history",
   session: SessionState,
   def: GraphDefinition,
-  stack: SessionState[]
+  stack: SessionState[],
 ): InspectResult {
   switch (detail) {
     case "history":
@@ -123,7 +117,7 @@ export function buildInspectResult(
 
 function computeWaitInfo(
   session: SessionState,
-  nodeDef: NodeDefinition
+  nodeDef: NodeDefinition,
 ): {
   waitStatus?: "waiting" | "ready" | "timed_out";
   waitingOn?: WaitCondition[];

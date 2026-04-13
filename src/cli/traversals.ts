@@ -2,10 +2,10 @@
  * CLI handlers for traversal commands. Operates directly on TraversalStore.
  */
 
-import { cli, info, outputJson } from "./output.js";
-import type { TraversalStore } from "../state/index.js";
-import type { InspectPositionResult, InspectHistoryResult, InspectFullResult } from "../types.js";
 import { EngineError } from "../errors.js";
+import type { TraversalStore } from "../state/index.js";
+import type { InspectFullResult, InspectHistoryResult, InspectPositionResult } from "../types.js";
+import { cli, info, outputJson } from "./output.js";
 
 function handleError(e: unknown): never {
   const message = e instanceof EngineError ? e.message : e instanceof Error ? e.message : String(e);
@@ -35,7 +35,9 @@ export function traversalStatus(store: TraversalStore): void {
     if (result.activeTraversals.length > 0) {
       info("\nActive traversals:");
       for (const t of result.activeTraversals) {
-        info(`  ${t.traversalId}  ${t.graphId} @ ${t.currentNode}  (depth: ${t.stackDepth}, updated: ${t.lastUpdated})`);
+        info(
+          `  ${t.traversalId}  ${t.graphId} @ ${t.currentNode}  (depth: ${t.stackDepth}, updated: ${t.lastUpdated})`,
+        );
       }
     } else {
       info("\nNo active traversals.");
@@ -45,13 +47,9 @@ export function traversalStatus(store: TraversalStore): void {
   }
 }
 
-export function traversalStart(
-  store: TraversalStore,
-  graphId: string,
-  context?: string,
-): void {
+export function traversalStart(store: TraversalStore, graphId: string, context?: string): void {
   try {
-    const initialContext = context ? JSON.parse(context) as Record<string, unknown> : undefined;
+    const initialContext = context ? (JSON.parse(context) as Record<string, unknown>) : undefined;
     const result = store.createTraversal(graphId, initialContext);
     if (cli.json) {
       outputJson(result);
@@ -74,7 +72,9 @@ export function traversalAdvance(
 ): void {
   try {
     const id = store.resolveTraversalId(opts?.traversal);
-    const contextUpdates = opts?.context ? JSON.parse(opts.context) as Record<string, unknown> : undefined;
+    const contextUpdates = opts?.context
+      ? (JSON.parse(opts.context) as Record<string, unknown>)
+      : undefined;
     if (!edge) {
       // Show available edges when no edge specified
       const raw = store.inspect(id, "position");
@@ -86,7 +86,9 @@ export function traversalAdvance(
         if (inspectResult.validTransitions?.length) {
           info("Available edges:");
           for (const t of inspectResult.validTransitions) {
-            info(`  ${t.label}${t.target ? ` → ${t.target}` : ""}${t.conditionMet === false ? " (condition not met)" : ""}`);
+            info(
+              `  ${t.label}${t.target ? ` → ${t.target}` : ""}${t.conditionMet === false ? " (condition not met)" : ""}`,
+            );
           }
         } else {
           info("No available edges.");
@@ -159,7 +161,7 @@ export function traversalInspect(
 ): void {
   try {
     const id = store.resolveTraversalId(traversalId);
-    const validDetail = (detail === "full" || detail === "history") ? detail : "position";
+    const validDetail = detail === "full" || detail === "history" ? detail : "position";
     const raw = store.inspect(id, validDetail);
     if (cli.json) {
       outputJson(raw);
@@ -175,7 +177,9 @@ export function traversalInspect(
         if (pos.validTransitions?.length) {
           info("  Edges:");
           for (const t of pos.validTransitions) {
-            info(`    ${t.label}${t.target ? ` → ${t.target}` : ""}${t.conditionMet === false ? " (condition not met)" : ""}`);
+            info(
+              `    ${t.label}${t.target ? ` → ${t.target}` : ""}${t.conditionMet === false ? " (condition not met)" : ""}`,
+            );
           }
         }
       }

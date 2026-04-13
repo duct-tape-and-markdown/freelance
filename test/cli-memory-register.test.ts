@@ -6,13 +6,14 @@
  * verify the gate logic using the same state-store interface the command
  * consumes.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { openStateStore, type StateStore } from "../src/state/index.js";
-import { COMPILE_KNOWLEDGE_ID } from "../src/memory/workflow.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RECOLLECTION_ID } from "../src/memory/recollection.js";
+import { COMPILE_KNOWLEDGE_ID } from "../src/memory/workflow.js";
+import { openStateStore, type StateStore } from "../src/state/index.js";
 
 /**
  * Mirrors the gate check in `src/cli/program.ts` memory-register command.

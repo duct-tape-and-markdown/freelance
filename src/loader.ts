@@ -1,18 +1,22 @@
 import fs from "node:fs";
-import path from "node:path";
-import yaml from "js-yaml";
 // @dagrejs/graphlib is a CJS bundle with `cjs-module-lexer` named-export
 // hints. Node's native ESM loader reads those hints and lets us import
 // named exports, but `tsx` does not — `import { Graph, alg }` works under
 // `node dist/...` and fails under `tsx src/...`. createRequire forces CJS
 // semantics under both loaders.
 import { createRequire } from "node:module";
-const { Graph, alg } = createRequire(import.meta.url)("@dagrejs/graphlib") as typeof import("@dagrejs/graphlib");
+import path from "node:path";
+import yaml from "js-yaml";
+
+const { Graph, alg } = createRequire(import.meta.url)(
+  "@dagrejs/graphlib",
+) as typeof import("@dagrejs/graphlib");
 type Graph = import("@dagrejs/graphlib").Graph;
-import { graphDefinitionSchema, isContextFieldDescriptor } from "./schema/graph-schema.js";
+
+import { extractPropertyComparisons, validateExpression } from "./evaluator.js";
 import type { GraphDefinition } from "./schema/graph-schema.js";
+import { graphDefinitionSchema, isContextFieldDescriptor } from "./schema/graph-schema.js";
 import type { ValidatedGraph } from "./types.js";
-import { validateExpression, extractPropertyComparisons } from "./evaluator.js";
 
 /**
  * Load and validate a single *.workflow.yaml file.
@@ -29,9 +33,7 @@ export function loadSingleGraph(filePath: string): { id: string } & ValidatedGra
     const errors = parseResult.error.issues
       .map((issue) => `  ${issue.path.join(".")}: ${issue.message}`)
       .join("\n");
-    throw new Error(
-      `Schema validation failed for ${resolved}:\n${errors}`
-    );
+    throw new Error(`Schema validation failed for ${resolved}:\n${errors}`);
   }
 
   const def = parseResult.data;
@@ -107,14 +109,12 @@ export function loadGraphs(directory: string): Map<string, ValidatedGraph> {
   }
 
   if (results.size === 0) {
-    throw new Error(
-      `All ${files.length} graph(s) failed validation:\n${errors.join("\n")}`
-    );
+    throw new Error(`All ${files.length} graph(s) failed validation:\n${errors.join("\n")}`);
   }
 
   if (errors.length > 0) {
     process.stderr.write(
-      `Warning: ${errors.length} graph(s) failed validation and were skipped:\n${errors.join("\n")}\n`
+      `Warning: ${errors.length} graph(s) failed validation and were skipped:\n${errors.join("\n")}\n`,
     );
   }
 
@@ -210,7 +210,7 @@ export function loadGraphsLayered(directories: string[]): Map<string, ValidatedG
         const { id, definition, graph } = loadSingleGraph(filePath);
         if (results.has(id)) {
           warnings.push(
-            `Graph "${id}" from ${resolvedDir} shadows earlier definition from another directory`
+            `Graph "${id}" from ${resolvedDir} shadows earlier definition from another directory`,
           );
         }
         results.set(id, { definition, graph });
@@ -221,7 +221,7 @@ export function loadGraphsLayered(directories: string[]): Map<string, ValidatedG
 
     if (errors.length > 0) {
       warnings.push(
-        `Warning from ${resolvedDir}: ${errors.length} graph(s) failed validation:\n${errors.join("\n")}`
+        `Warning from ${resolvedDir}: ${errors.length} graph(s) failed validation:\n${errors.join("\n")}`,
       );
     }
   }
@@ -229,7 +229,7 @@ export function loadGraphsLayered(directories: string[]): Map<string, ValidatedG
   if (results.size === 0) {
     const dirs = directories.map((d) => path.resolve(d)).join(", ");
     throw new Error(
-      `No valid graphs found in any directory: ${dirs}.\n\nSearched: ${directories.join(" → ")}`
+      `No valid graphs found in any directory: ${dirs}.\n\nSearched: ${directories.join(" → ")}`,
     );
   }
 
@@ -256,7 +256,7 @@ function validateReturnSchemas(def: GraphDefinition, filePath: string): void {
 
     if (node.type === "terminal") {
       throw new Error(
-        `[${filePath}] Node "${nodeId}": terminal node must not have a returns schema`
+        `[${filePath}] Node "${nodeId}": terminal node must not have a returns schema`,
       );
     }
 
@@ -266,7 +266,7 @@ function validateReturnSchemas(def: GraphDefinition, filePath: string): void {
     for (const key of optionalKeys) {
       if (requiredKeys.has(key)) {
         throw new Error(
-          `[${filePath}] Node "${nodeId}": returns key "${key}" appears in both required and optional`
+          `[${filePath}] Node "${nodeId}": returns key "${key}" appears in both required and optional`,
         );
       }
     }
@@ -279,7 +279,7 @@ function validateReturnSchemas(def: GraphDefinition, filePath: string): void {
     for (const [key, field] of Object.entries(allFields)) {
       if (field.items && field.type !== "array") {
         throw new Error(
-          `[${filePath}] Node "${nodeId}": returns key "${key}" has "items" but type is "${field.type}" (items only valid on array type)`
+          `[${filePath}] Node "${nodeId}": returns key "${key}" has "items" but type is "${field.type}" (items only valid on array type)`,
         );
       }
     }
@@ -305,12 +305,10 @@ function extractContextEnums(def: GraphDefinition): Map<string, Set<string>> {
  * Resolve context field descriptors to their default values.
  * Plain scalars pass through unchanged; descriptors are replaced by their default.
  */
-export function resolveContextDefaults(
-  context: Record<string, unknown>
-): Record<string, unknown> {
+export function resolveContextDefaults(context: Record<string, unknown>): Record<string, unknown> {
   const resolved: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(context)) {
-    resolved[key] = isContextFieldDescriptor(value) ? value.default ?? null : value;
+    resolved[key] = isContextFieldDescriptor(value) ? (value.default ?? null) : value;
   }
   return resolved;
 }
@@ -322,7 +320,7 @@ export function resolveContextDefaults(
 function checkEnumCompliance(
   expr: string,
   enumMap: Map<string, Set<string>>,
-  location: string
+  location: string,
 ): void {
   if (enumMap.size === 0) return;
   const comparisons = extractPropertyComparisons(expr);
@@ -331,7 +329,7 @@ function checkEnumCompliance(
     if (allowed && !allowed.has(literal)) {
       throw new Error(
         `${location} references context.${property} with value '${literal}' ` +
-        `which is not in the declared enum [${[...allowed].join(", ")}]`
+          `which is not in the declared enum [${[...allowed].join(", ")}]`,
       );
     }
   }
@@ -354,7 +352,7 @@ function validateExpressions(def: GraphDefinition, filePath: string): void {
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           throw new Error(
-            `[${filePath}] Node "${nodeId}": invalid validation expression "${v.expr}": ${msg}`
+            `[${filePath}] Node "${nodeId}": invalid validation expression "${v.expr}": ${msg}`,
           );
         }
       }
@@ -364,11 +362,15 @@ function validateExpressions(def: GraphDefinition, filePath: string): void {
         if (edge.condition) {
           try {
             validateExpression(edge.condition);
-            checkEnumCompliance(edge.condition, enumMap, `[${filePath}] Node "${nodeId}": edge "${edge.label}"`);
+            checkEnumCompliance(
+              edge.condition,
+              enumMap,
+              `[${filePath}] Node "${nodeId}": edge "${edge.label}"`,
+            );
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             throw new Error(
-              `[${filePath}] Node "${nodeId}": edge "${edge.label}" has invalid condition "${edge.condition}": ${msg}`
+              `[${filePath}] Node "${nodeId}": edge "${edge.label}" has invalid condition "${edge.condition}": ${msg}`,
             );
           }
         }
@@ -378,11 +380,15 @@ function validateExpressions(def: GraphDefinition, filePath: string): void {
     if (node.subgraph?.condition) {
       try {
         validateExpression(node.subgraph.condition);
-        checkEnumCompliance(node.subgraph.condition, enumMap, `[${filePath}] Node "${nodeId}": subgraph condition`);
+        checkEnumCompliance(
+          node.subgraph.condition,
+          enumMap,
+          `[${filePath}] Node "${nodeId}": subgraph condition`,
+        );
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         throw new Error(
-          `[${filePath}] Node "${nodeId}": invalid subgraph condition "${node.subgraph.condition}": ${msg}`
+          `[${filePath}] Node "${nodeId}": invalid subgraph condition "${node.subgraph.condition}": ${msg}`,
         );
       }
     }
@@ -400,31 +406,27 @@ function buildAndValidateGraph(def: GraphDefinition, filePath: string): Graph {
 
   // Validate startNode exists
   if (!def.nodes[def.startNode]) {
-    throw new Error(
-      `[${filePath}] startNode "${def.startNode}" is not defined in nodes`
-    );
+    throw new Error(`[${filePath}] startNode "${def.startNode}" is not defined in nodes`);
   }
 
   for (const [nodeId, node] of Object.entries(def.nodes)) {
     // Terminal nodes cannot have subgraph
     if (node.type === "terminal" && node.subgraph) {
-      throw new Error(
-        `[${filePath}] Node "${nodeId}": terminal node must not have a subgraph`
-      );
+      throw new Error(`[${filePath}] Node "${nodeId}": terminal node must not have a subgraph`);
     }
 
     if (node.type === "terminal") {
       // (d) Terminal nodes must have zero outgoing edges
       if (node.edges && node.edges.length > 0) {
         throw new Error(
-          `[${filePath}] Node "${nodeId}": terminal node must not have outgoing edges`
+          `[${filePath}] Node "${nodeId}": terminal node must not have outgoing edges`,
         );
       }
     } else {
       // (c) Non-terminal nodes must have at least one outgoing edge
       if (!node.edges || node.edges.length === 0) {
         throw new Error(
-          `[${filePath}] Node "${nodeId}": non-terminal node of type "${node.type}" must have at least one outgoing edge`
+          `[${filePath}] Node "${nodeId}": non-terminal node of type "${node.type}" must have at least one outgoing edge`,
         );
       }
 
@@ -433,7 +435,7 @@ function buildAndValidateGraph(def: GraphDefinition, filePath: string): Graph {
         // (a) All edge targets must point to defined nodes
         if (!def.nodes[edge.target]) {
           throw new Error(
-            `[${filePath}] Node "${nodeId}": edge "${edge.label}" targets undefined node "${edge.target}"`
+            `[${filePath}] Node "${nodeId}": edge "${edge.label}" targets undefined node "${edge.target}"`,
           );
         }
         g.setEdge(nodeId, edge.target, edge.label);
@@ -444,7 +446,7 @@ function buildAndValidateGraph(def: GraphDefinition, filePath: string): Graph {
     if (node.type === "gate") {
       if (!node.validations || node.validations.length === 0) {
         throw new Error(
-          `[${filePath}] Node "${nodeId}": gate node must have at least one validation`
+          `[${filePath}] Node "${nodeId}": gate node must have at least one validation`,
         );
       }
     }
@@ -453,7 +455,7 @@ function buildAndValidateGraph(def: GraphDefinition, filePath: string): Graph {
     if (node.type === "wait") {
       if (!node.waitOn || node.waitOn.length === 0) {
         throw new Error(
-          `[${filePath}] Node "${nodeId}": wait node must have at least one waitOn entry`
+          `[${filePath}] Node "${nodeId}": wait node must have at least one waitOn entry`,
         );
       }
     }
@@ -468,7 +470,7 @@ function buildAndValidateGraph(def: GraphDefinition, filePath: string): Graph {
   for (const nodeId of nodeIds) {
     if (!reachable.has(nodeId)) {
       throw new Error(
-        `[${filePath}] Node "${nodeId}": unreachable from startNode "${def.startNode}"`
+        `[${filePath}] Node "${nodeId}": unreachable from startNode "${def.startNode}"`,
       );
     }
   }
@@ -484,18 +486,12 @@ function buildAndValidateGraph(def: GraphDefinition, filePath: string): Graph {
  * Uses Tarjan's SCC algorithm — any SCC with size > 1 is a cycle.
  * Also check self-loops (single-node SCCs with an edge to themselves).
  */
-function validateCycles(
-  g: Graph,
-  def: GraphDefinition,
-  filePath: string
-): void {
+function validateCycles(g: Graph, def: GraphDefinition, filePath: string): void {
   const sccs = alg.tarjan(g);
 
   for (const scc of sccs) {
     // Only check SCCs that form actual cycles
-    const isCycle =
-      scc.length > 1 ||
-      (scc.length === 1 && g.hasEdge(scc[0], scc[0]));
+    const isCycle = scc.length > 1 || (scc.length === 1 && g.hasEdge(scc[0], scc[0]));
 
     if (!isCycle) continue;
 
@@ -507,7 +503,7 @@ function validateCycles(
     if (!hasBreakingNode) {
       throw new Error(
         `[${filePath}] Cycle detected among nodes [${scc.join(", ")}] with no decision, gate, or wait node. ` +
-          `Cycles must include at least one decision, gate, or wait node to prevent infinite action loops.`
+          `Cycles must include at least one decision, gate, or wait node to prevent infinite action loops.`,
       );
     }
   }
@@ -532,7 +528,7 @@ export function validateCrossGraphRefs(graphs: Map<string, ValidatedGraph>): voi
         // Verify referenced graph exists
         if (!graphs.has(targetId)) {
           throw new Error(
-            `Graph "${graphId}", node "${nodeId}": subgraph references unknown graph "${targetId}"`
+            `Graph "${graphId}", node "${nodeId}": subgraph references unknown graph "${targetId}"`,
           );
         }
 
@@ -553,9 +549,7 @@ export function validateCrossGraphRefs(graphs: Map<string, ValidatedGraph>): voi
     if (inStack.has(graphId)) {
       const cycleStart = path.indexOf(graphId);
       const cycle = path.slice(cycleStart).concat(graphId);
-      throw new Error(
-        `Circular subgraph reference detected: ${cycle.join(" → ")}`
-      );
+      throw new Error(`Circular subgraph reference detected: ${cycle.join(" → ")}`);
     }
     if (visited.has(graphId)) return;
 

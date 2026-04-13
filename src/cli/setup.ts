@@ -6,18 +6,17 @@
  * entry point in index.ts.
  */
 
-import path from "node:path";
 import fs from "node:fs";
-import { TraversalStore } from "../state/index.js";
-import { openStateStore } from "../state/index.js";
-import { MemoryStore } from "../memory/index.js";
-import { resolveGraphsDirs, resolveSourceRoot, loadGraphsGraceful } from "../graph-resolution.js";
-import { loadConfigFromDirs } from "../config.js";
+import path from "node:path";
 import type { FreelanceConfig } from "../config.js";
-import { extractSection } from "../section-resolver.js";
-import type { ValidatedGraph } from "../types.js";
-import type { SourceOptions } from "../sources.js";
+import { loadConfigFromDirs } from "../config.js";
+import { loadGraphsGraceful, resolveGraphsDirs, resolveSourceRoot } from "../graph-resolution.js";
 import type { MemoryConfig } from "../memory/index.js";
+import { MemoryStore } from "../memory/index.js";
+import { extractSection } from "../section-resolver.js";
+import type { SourceOptions } from "../sources.js";
+import { openStateStore, TraversalStore } from "../state/index.js";
+import type { ValidatedGraph } from "../types.js";
 
 // --- State directory resolution ---
 
@@ -137,7 +136,10 @@ export function loadGraphSetup(opts: CliSetupOptions): CliSetup {
 }
 
 /** Create a TraversalStore for CLI traversal commands. */
-export function createTraversalStore(opts: CliSetupOptions): { store: TraversalStore; setup: CliSetup } {
+export function createTraversalStore(opts: CliSetupOptions): {
+  store: TraversalStore;
+  setup: CliSetup;
+} {
   const setup = loadGraphSetup(opts);
   ensureStateDir(setup.graphsDirs[0] ?? ".freelance");
   const traversalsDir = resolveStateDir(setup.graphsDirs);
@@ -155,6 +157,11 @@ export function createMemoryStore(opts: CliSetupOptions): { store: MemoryStore; 
   if (!memConfig) {
     throw new Error("Memory is disabled. Enable it in config.yml or remove --no-memory.");
   }
-  const store = new MemoryStore(memConfig.db, setup.sourceRoot, memConfig.ignore, memConfig.collections);
+  const store = new MemoryStore(
+    memConfig.db,
+    setup.sourceRoot,
+    memConfig.ignore,
+    memConfig.collections,
+  );
   return { store, setup };
 }

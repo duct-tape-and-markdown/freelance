@@ -82,10 +82,7 @@ export interface SourceOptions {
  * If provided, the sectionResolver extracts section content (typically from the Doc LSP).
  * Falls back to whole-file content if no resolver or section not found.
  */
-export type SectionResolver = (
-  filePath: string,
-  section: string
-) => string | null;
+export type SectionResolver = (filePath: string, section: string) => string | null;
 
 // --- Hashing ---
 
@@ -103,7 +100,7 @@ function resolveSourcePath(sourcePath: string, basePath?: string): string {
  */
 export function hashSource(
   source: SourceRef,
-  resolverOrOptions?: SectionResolver | SourceOptions
+  resolverOrOptions?: SectionResolver | SourceOptions,
 ): HashedSource {
   const opts = normalizeOptions(resolverOrOptions);
   const resolvedPath = resolveSourcePath(source.path, opts.basePath);
@@ -119,7 +116,7 @@ export function hashSource(
  */
 export function hashSources(
   sources: SourceRef[],
-  resolverOrOptions?: SectionResolver | SourceOptions
+  resolverOrOptions?: SectionResolver | SourceOptions,
 ): SourceHashResult {
   if (sources.length === 0) {
     return { hash: hashContent(""), sources: [] };
@@ -142,7 +139,7 @@ export function hashSources(
  */
 export function checkSourcesDetailed(
   expectedSources: HashedSource[],
-  resolverOrOptions?: SectionResolver | SourceOptions
+  resolverOrOptions?: SectionResolver | SourceOptions,
 ): SourceCheckResult {
   if (expectedSources.length === 0) {
     return { valid: true, drifted: [] };
@@ -152,10 +149,7 @@ export function checkSourcesDetailed(
 
   for (const expected of expectedSources) {
     try {
-      const current = hashSource(
-        { path: expected.path, section: expected.section },
-        opts
-      );
+      const current = hashSource({ path: expected.path, section: expected.section }, opts);
       if (current.hash !== expected.hash) {
         drifted.push({
           path: expected.path,
@@ -185,7 +179,7 @@ export function checkSourcesDetailed(
  */
 export function validateGraphSources(
   definition: GraphDefinition,
-  resolverOrOptions?: SectionResolver | SourceOptions
+  resolverOrOptions?: SectionResolver | SourceOptions,
 ): SourceValidationResult {
   const opts = normalizeOptions(resolverOrOptions);
   const warnings: NodeSourceWarning[] = [];
@@ -230,12 +224,11 @@ export function validateGraphSources(
 export function getDetailedDrift(
   definition: GraphDefinition,
   nodeId: string,
-  opts?: SectionResolver | SourceOptions
+  opts?: SectionResolver | SourceOptions,
 ): DriftedSource[] {
   const normalizedOpts = normalizeOptions(opts);
-  const sources = nodeId === "(graph)"
-    ? definition.sources ?? []
-    : definition.nodes[nodeId]?.sources ?? [];
+  const sources =
+    nodeId === "(graph)" ? (definition.sources ?? []) : (definition.nodes[nodeId]?.sources ?? []);
 
   const results: DriftedSource[] = [];
 
@@ -272,7 +265,11 @@ function normalizeOptions(resolverOrOptions?: SectionResolver | SourceOptions): 
   return resolverOrOptions;
 }
 
-function resolveContent(absolutePath: string, section: string | undefined, resolver?: SectionResolver): string {
+function resolveContent(
+  absolutePath: string,
+  section: string | undefined,
+  resolver?: SectionResolver,
+): string {
   if (section && resolver) {
     const sectionContent = resolver(absolutePath, section);
     if (sectionContent !== null) return sectionContent;

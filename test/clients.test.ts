@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { detectClients, clientDisplayName, allClientChoices } from "../src/cli/clients.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { allClientChoices, clientDisplayName, detectClients } from "../src/cli/clients.js";
 
 describe("clientDisplayName", () => {
   it("returns human-readable names for all clients", () => {
@@ -19,7 +19,11 @@ describe("allClientChoices", () => {
     const choices = allClientChoices();
     expect(choices).toHaveLength(5);
     expect(choices.map((c) => c.value)).toEqual([
-      "claude-code", "cursor", "windsurf", "cline", "manual",
+      "claude-code",
+      "cursor",
+      "windsurf",
+      "cline",
+      "manual",
     ]);
   });
 });

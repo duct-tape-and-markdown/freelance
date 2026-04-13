@@ -1,11 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { findGraphFiles, loadSingleGraph, validateCrossGraphRefs } from "../loader.js";
-import { validateGraphSources, getDetailedDrift } from "../sources.js";
 import { extractSection } from "../section-resolver.js";
-import type { ValidatedGraph } from "../types.js";
 import type { SourceOptions } from "../sources.js";
-import { cli, outputJson, info, error, fatal, EXIT } from "./output.js";
+import { getDetailedDrift, validateGraphSources } from "../sources.js";
+import type { ValidatedGraph } from "../types.js";
+import { cli, EXIT, error, fatal, info, outputJson } from "./output.js";
 
 interface GraphResult {
   id: string;
@@ -40,7 +40,11 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
 
   if (!fs.existsSync(resolvedDir)) {
     if (cli.json) {
-      outputJson({ valid: false, graphs: [], errors: [{ file: resolvedDir, message: "Directory does not exist" }] });
+      outputJson({
+        valid: false,
+        graphs: [],
+        errors: [{ file: resolvedDir, message: "Directory does not exist" }],
+      });
       process.exit(EXIT.GRAPH_ERROR);
     }
     fatal(`Graph directory does not exist: ${resolvedDir}`, EXIT.GRAPH_ERROR);
@@ -50,7 +54,11 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
 
   if (files.length === 0) {
     if (cli.json) {
-      outputJson({ valid: false, graphs: [], errors: [{ file: resolvedDir, message: "No *.workflow.yaml files found" }] });
+      outputJson({
+        valid: false,
+        graphs: [],
+        errors: [{ file: resolvedDir, message: "No *.workflow.yaml files found" }],
+      });
       process.exit(EXIT.GRAPH_ERROR);
     }
     fatal(`No *.workflow.yaml files found in: ${resolvedDir}`, EXIT.GRAPH_ERROR);
@@ -74,7 +82,9 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
         nodeCount: graph.nodeCount(),
       });
       if (!cli.json) {
-        info(`  OK  ${definition.name} (id: ${id}, v${definition.version}, ${graph.nodeCount()} nodes)`);
+        info(
+          `  OK  ${definition.name} (id: ${id}, v${definition.version}, ${graph.nodeCount()} nodes)`,
+        );
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -106,7 +116,9 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
     // Track files that need hash updates: filePath → Array<{section, oldHash, newHash}>
     const fixMap = new Map<string, Array<{ section?: string; oldHash: string; newHash: string }>>();
 
-    const resolvedBasePath = options.basePath ? path.resolve(options.basePath) : path.dirname(resolvedDir);
+    const resolvedBasePath = options.basePath
+      ? path.resolve(options.basePath)
+      : path.dirname(resolvedDir);
 
     for (const [graphId, { definition }] of parsed) {
       const sourceOpts: SourceOptions = { resolver: extractSection, basePath: resolvedBasePath };
@@ -165,7 +177,7 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
             replaced = content.replace(pattern, `$1${newHash}"`);
           } else {
             // No section — match hash alone (whole-file source)
-            const pattern = new RegExp(`(hash:\\s*")${escapeRegex(oldHash)}"`,);
+            const pattern = new RegExp(`(hash:\\s*")${escapeRegex(oldHash)}"`);
             replaced = content.replace(pattern, `$1${newHash}"`);
           }
 
@@ -174,7 +186,9 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
             fileFixed++;
           } else if (!cli.json) {
             const loc = section ? `${section}:${oldHash}` : oldHash;
-            info(`  WARN  Could not match hash pattern for ${loc} in ${path.relative(resolvedDir, filePath)} — YAML formatting may differ from expected`);
+            info(
+              `  WARN  Could not match hash pattern for ${loc} in ${path.relative(resolvedDir, filePath)} — YAML formatting may differ from expected`,
+            );
           }
         }
 

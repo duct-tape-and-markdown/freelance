@@ -11,23 +11,23 @@ import fs from "node:fs";
 import path from "node:path";
 import picomatch from "picomatch";
 import { hashContent } from "../sources.js";
-import { openDatabase, type Db } from "./db.js";
+import { type Db, openDatabase } from "./db.js";
 import type {
-  EntityRow,
-  PropositionRow,
+  BrowseResult,
+  BySourceResult,
+  CollectionConfig,
   EmitProposition,
   EmitResult,
   EntityInfo,
-  PropositionInfo,
+  EntityRow,
   InspectResult,
-  BrowseResult,
-  BySourceResult,
+  NeighborEntity,
+  PropositionInfo,
+  PropositionRow,
+  RegisterSourceResult,
+  RelatedResult,
   SearchResult,
   StatusResult,
-  RegisterSourceResult,
-  CollectionConfig,
-  NeighborEntity,
-  RelatedResult,
 } from "./types.js";
 
 function generateId(): string {
@@ -60,7 +60,11 @@ function mtimeOf(filePath: string): number | null {
   }
 }
 
-const DEFAULT_COLLECTION: CollectionConfig = { name: "default", description: "General project knowledge", paths: [""] };
+const DEFAULT_COLLECTION: CollectionConfig = {
+  name: "default",
+  description: "General project knowledge",
+  paths: [""],
+};
 
 export class MemoryStore {
   private db: Db;
@@ -70,13 +74,20 @@ export class MemoryStore {
   private mtimeCache: Map<string, number | null> = new Map();
   private hashCache: Map<string, string | null> = new Map();
 
-  constructor(dbPath: string, sourceRoot?: string, ignore?: string[], collections?: CollectionConfig[]) {
+  constructor(
+    dbPath: string,
+    sourceRoot?: string,
+    ignore?: string[],
+    collections?: CollectionConfig[],
+  ) {
     this.db = openDatabase(dbPath);
     this.sourceRoot = sourceRoot ?? process.cwd();
     this.ignore = ignore ?? [];
     this.collections = new Map(
-      (collections && collections.length > 0 ? collections : [DEFAULT_COLLECTION])
-        .map((c) => [c.name, c])
+      (collections && collections.length > 0 ? collections : [DEFAULT_COLLECTION]).map((c) => [
+        c.name,
+        c,
+      ]),
     );
   }
 
@@ -105,12 +116,21 @@ export class MemoryStore {
    * Returns the stored (relative) path, resolved absolute path, and ignore
    * status. Throws if the path escapes the source root.
    */
-  private prepareSourcePath(filePath: string): { storedPath: string; resolvedPath: string; ignored: boolean } {
-    const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(this.sourceRoot, filePath);
+  private prepareSourcePath(filePath: string): {
+    storedPath: string;
+    resolvedPath: string;
+    ignored: boolean;
+  } {
+    const resolvedPath = path.isAbsolute(filePath)
+      ? filePath
+      : path.resolve(this.sourceRoot, filePath);
 
     const normalizedRoot = path.resolve(this.sourceRoot) + path.sep;
     const normalizedPath = path.resolve(resolvedPath);
-    if (!normalizedPath.startsWith(normalizedRoot) && normalizedPath !== path.resolve(this.sourceRoot)) {
+    if (
+      !normalizedPath.startsWith(normalizedRoot) &&
+      normalizedPath !== path.resolve(this.sourceRoot)
+    ) {
       throw new Error(`Source file is outside the source root: ${filePath}`);
     }
 
@@ -162,24 +182,24 @@ export class MemoryStore {
       `INSERT INTO propositions (id, content, content_hash, collection, created_at)
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT (content_hash, collection) DO NOTHING
-       RETURNING id`
+       RETURNING id`,
     );
     const selectExistingProp = this.db.prepare(
-      "SELECT id FROM propositions WHERE content_hash = ? AND collection = ?"
+      "SELECT id FROM propositions WHERE content_hash = ? AND collection = ?",
     );
     const insertAbout = this.db.prepare(
-      "INSERT OR IGNORE INTO about (proposition_id, entity_id) VALUES (?, ?)"
+      "INSERT OR IGNORE INTO about (proposition_id, entity_id) VALUES (?, ?)",
     );
     const insertPropSource = this.db.prepare(
-      "INSERT OR IGNORE INTO proposition_sources (proposition_id, file_path, content_hash, mtime_ms) VALUES (?, ?, ?, ?)"
+      "INSERT OR IGNORE INTO proposition_sources (proposition_id, file_path, content_hash, mtime_ms) VALUES (?, ?, ?, ?)",
     );
 
     for (const prop of propositions) {
       const contentHash = hashContent(prop.content);
       const newId = generateId();
-      const inserted = upsertProp.get(
-        newId, prop.content, contentHash, collection, now(),
-      ) as { id: string } | undefined;
+      const inserted = upsertProp.get(newId, prop.content, contentHash, collection, now()) as
+        | { id: string }
+        | undefined;
 
       const propResult: EmitResult["propositions"][number] = {
         id: "",
@@ -233,10 +253,13 @@ export class MemoryStore {
 
   // --- Entity resolution ---
 
-  private resolveEntity(name: string, kind?: string): { id: string; name: string; resolution: "exact" | "normalized" | "created" } {
-    const exact = this.db.prepare(
-      "SELECT id, name, kind FROM entities WHERE name = ?"
-    ).get(name) as EntityRow | undefined;
+  private resolveEntity(
+    name: string,
+    kind?: string,
+  ): { id: string; name: string; resolution: "exact" | "normalized" | "created" } {
+    const exact = this.db.prepare("SELECT id, name, kind FROM entities WHERE name = ?").get(name) as
+      | EntityRow
+      | undefined;
     if (exact) {
       if (kind && !exact.kind) {
         this.db.prepare("UPDATE entities SET kind = ? WHERE id = ?").run(kind, exact.id);
@@ -245,9 +268,9 @@ export class MemoryStore {
     }
 
     const normalized = name.toLowerCase().trim();
-    const normMatch = this.db.prepare(
-      "SELECT id, name, kind FROM entities WHERE LOWER(TRIM(name)) = ?"
-    ).get(normalized) as EntityRow | undefined;
+    const normMatch = this.db
+      .prepare("SELECT id, name, kind FROM entities WHERE LOWER(TRIM(name)) = ?")
+      .get(normalized) as EntityRow | undefined;
     if (normMatch) {
       if (kind && !normMatch.kind) {
         this.db.prepare("UPDATE entities SET kind = ? WHERE id = ?").run(kind, normMatch.id);
@@ -256,9 +279,9 @@ export class MemoryStore {
     }
 
     const id = generateId();
-    this.db.prepare(
-      "INSERT INTO entities (id, name, kind, created_at) VALUES (?, ?, ?, ?)"
-    ).run(id, name, kind ?? null, now());
+    this.db
+      .prepare("INSERT INTO entities (id, name, kind, created_at) VALUES (?, ?, ?, ?)")
+      .run(id, name, kind ?? null, now());
 
     return { id, name, resolution: "created" };
   }
@@ -268,9 +291,15 @@ export class MemoryStore {
   private findEntity(idOrName: string): EntityRow {
     // Priority: id → exact name → normalized name
     const entity =
-      (this.db.prepare("SELECT * FROM entities WHERE id = ?").get(idOrName) as EntityRow | undefined) ??
-      (this.db.prepare("SELECT * FROM entities WHERE name = ?").get(idOrName) as EntityRow | undefined) ??
-      (this.db.prepare("SELECT * FROM entities WHERE LOWER(name) = ?").get(idOrName.toLowerCase()) as EntityRow | undefined);
+      (this.db.prepare("SELECT * FROM entities WHERE id = ?").get(idOrName) as
+        | EntityRow
+        | undefined) ??
+      (this.db.prepare("SELECT * FROM entities WHERE name = ?").get(idOrName) as
+        | EntityRow
+        | undefined) ??
+      (this.db
+        .prepare("SELECT * FROM entities WHERE LOWER(name) = ?")
+        .get(idOrName.toLowerCase()) as EntityRow | undefined);
     if (!entity) {
       throw new Error(`Entity not found: ${idOrName}`);
     }
@@ -282,15 +311,16 @@ export class MemoryStore {
   private getNeighbors(
     entityId: string,
     stalePropIds: Set<string>,
-    options?: { withSample?: boolean; collection?: string }
+    options?: { withSample?: boolean; collection?: string },
   ): Array<NeighborEntity & { sample?: string | null }> {
     const withSample = options?.withSample ?? false;
     const collection = options?.collection;
 
     const staleParams = [...stalePropIds];
-    const staleFilter = staleParams.length > 0
-      ? `a1.proposition_id NOT IN (${staleParams.map(() => "?").join(",")})`
-      : "1";
+    const staleFilter =
+      staleParams.length > 0
+        ? `a1.proposition_id NOT IN (${staleParams.map(() => "?").join(",")})`
+        : "1";
 
     const collFilter = collection ? " AND p.collection = ?" : "";
     const collParams: unknown[] = collection ? [collection] : [];
@@ -304,8 +334,9 @@ export class MemoryStore {
       : "";
     const sampleParams: unknown[] = withSample ? [entityId] : [];
 
-    return this.db.prepare(
-      `SELECT e2.id, e2.name, e2.kind,
+    return this.db
+      .prepare(
+        `SELECT e2.id, e2.name, e2.kind,
               COUNT(DISTINCT a1.proposition_id) as shared_propositions,
               COUNT(DISTINCT CASE WHEN ${staleFilter} THEN a1.proposition_id END) as valid_shared_propositions${sampleCol}
        FROM about a1
@@ -314,8 +345,11 @@ export class MemoryStore {
        JOIN propositions p ON a1.proposition_id = p.id
        WHERE a1.entity_id = ? AND a2.entity_id != a1.entity_id${collFilter}
        GROUP BY e2.id
-       ORDER BY valid_shared_propositions DESC`
-    ).all(...staleParams, ...sampleParams, entityId, ...collParams) as Array<NeighborEntity & { sample?: string | null }>;
+       ORDER BY valid_shared_propositions DESC`,
+      )
+      .all(...staleParams, ...sampleParams, entityId, ...collParams) as Array<
+      NeighborEntity & { sample?: string | null }
+    >;
   }
 
   // --- Query operations ---
@@ -331,7 +365,13 @@ export class MemoryStore {
     this.hashCache.clear();
   }
 
-  browse(options?: { name?: string; kind?: string; limit?: number; offset?: number; collection?: string }): BrowseResult {
+  browse(options?: {
+    name?: string;
+    kind?: string;
+    limit?: number;
+    offset?: number;
+    collection?: string;
+  }): BrowseResult {
     this.clearProvenanceCache();
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
@@ -344,7 +384,8 @@ export class MemoryStore {
     let joinClause: string;
 
     if (collection) {
-      joinClause = "JOIN about a ON e.id = a.entity_id JOIN propositions p ON a.proposition_id = p.id";
+      joinClause =
+        "JOIN about a ON e.id = a.entity_id JOIN propositions p ON a.proposition_id = p.id";
       where = "p.collection = ?";
       params.push(collection);
     } else {
@@ -366,15 +407,17 @@ export class MemoryStore {
       : `SELECT COUNT(*) as total FROM entities e WHERE ${where}`;
     const total = (this.db.prepare(countSql).get(...params) as { total: number }).total;
 
-    const rows = this.db.prepare(
-      `SELECT e.*, COUNT(${collection ? "DISTINCT " : ""}a.proposition_id) as proposition_count
+    const rows = this.db
+      .prepare(
+        `SELECT e.*, COUNT(${collection ? "DISTINCT " : ""}a.proposition_id) as proposition_count
        FROM entities e
        ${joinClause}
        WHERE ${where}
        GROUP BY e.id
        ORDER BY e.created_at DESC
-       LIMIT ? OFFSET ?`
-    ).all(...params, limit, offset) as Array<EntityRow & { proposition_count: number }>;
+       LIMIT ? OFFSET ?`,
+      )
+      .all(...params, limit, offset) as Array<EntityRow & { proposition_count: number }>;
 
     const stalePropIds = this.getStalePropositionIds();
 
@@ -398,9 +441,11 @@ export class MemoryStore {
     const entity = this.findEntity(entityIdOrName);
 
     const coll = this.collectionFilter(collection);
-    const propRows = this.db.prepare(
-      `SELECT p.* FROM propositions p JOIN about a ON p.id = a.proposition_id WHERE a.entity_id = ?${coll.clause} ORDER BY p.created_at DESC`
-    ).all(entity.id, ...coll.params) as PropositionRow[];
+    const propRows = this.db
+      .prepare(
+        `SELECT p.* FROM propositions p JOIN about a ON p.id = a.proposition_id WHERE a.entity_id = ?${coll.clause} ORDER BY p.created_at DESC`,
+      )
+      .all(entity.id, ...coll.params) as PropositionRow[];
 
     const propositions = propRows.map((p) => this.enrichProposition(p));
 
@@ -439,12 +484,14 @@ export class MemoryStore {
       : filePath;
 
     const coll = this.collectionFilter(collection);
-    const propRows = this.db.prepare(
-      `SELECT DISTINCT p.* FROM propositions p
+    const propRows = this.db
+      .prepare(
+        `SELECT DISTINCT p.* FROM propositions p
        JOIN proposition_sources ps ON p.id = ps.proposition_id
        WHERE ps.file_path = ?${coll.clause}
-       ORDER BY p.created_at DESC`
-    ).all(storedPath, ...coll.params) as PropositionRow[];
+       ORDER BY p.created_at DESC`,
+      )
+      .all(storedPath, ...coll.params) as PropositionRow[];
 
     return {
       file_path: storedPath,
@@ -464,17 +511,21 @@ export class MemoryStore {
     const sanitized = query.replace(/(?<!["])\b(\w+)-(\w+)\b(?!["])/g, "$1 $2");
 
     const coll = this.collectionFilter(collection);
-    const rows = this.db.prepare(
-      `SELECT p.* FROM propositions p JOIN propositions_fts fts ON p.rowid = fts.rowid WHERE propositions_fts MATCH ?${coll.clause} ORDER BY fts.rank LIMIT ?`
-    ).all(sanitized, ...coll.params, limit) as PropositionRow[];
+    const rows = this.db
+      .prepare(
+        `SELECT p.* FROM propositions p JOIN propositions_fts fts ON p.rowid = fts.rowid WHERE propositions_fts MATCH ?${coll.clause} ORDER BY fts.rank LIMIT ?`,
+      )
+      .all(sanitized, ...coll.params, limit) as PropositionRow[];
 
     const propositions = rows.map((p) => {
       const enriched = this.enrichProposition(p);
-      const entityRows = this.db.prepare(
-        `SELECT e.id, e.name, e.kind FROM entities e
+      const entityRows = this.db
+        .prepare(
+          `SELECT e.id, e.name, e.kind FROM entities e
          JOIN about a ON e.id = a.entity_id
-         WHERE a.proposition_id = ?`
-      ).all(p.id) as Array<{ id: string; name: string; kind: string | null }>;
+         WHERE a.proposition_id = ?`,
+        )
+        .all(p.id) as Array<{ id: string; name: string; kind: string | null }>;
       return { ...enriched, entities: entityRows };
     });
 
@@ -495,12 +546,18 @@ export class MemoryStore {
     const stalePropIds = this.getStalePropositionIds();
     const validCount = this.countValidForEntity(entity.id, stalePropIds, collection);
     const totalCount = collection
-      ? (this.db.prepare(
-          "SELECT COUNT(*) as c FROM about a JOIN propositions p ON a.proposition_id = p.id WHERE a.entity_id = ? AND p.collection = ?"
-        ).get(entity.id, collection) as { c: number }).c
-      : (this.db.prepare(
-          "SELECT COUNT(*) as c FROM about WHERE entity_id = ?"
-        ).get(entity.id) as { c: number }).c;
+      ? (
+          this.db
+            .prepare(
+              "SELECT COUNT(*) as c FROM about a JOIN propositions p ON a.proposition_id = p.id WHERE a.entity_id = ? AND p.collection = ?",
+            )
+            .get(entity.id, collection) as { c: number }
+        ).c
+      : (
+          this.db.prepare("SELECT COUNT(*) as c FROM about WHERE entity_id = ?").get(entity.id) as {
+            c: number;
+          }
+        ).c;
 
     const rows = this.getNeighbors(entity.id, stalePropIds, { withSample: true, collection });
     const neighbors = rows.map((r) => ({ ...r, sample: r.sample ?? "" }));
@@ -558,9 +615,14 @@ export class MemoryStore {
    * at least one drifted source file.
    */
   private getStalePropositionIds(): Set<string> {
-    const rows = this.db.prepare(
-      "SELECT proposition_id, file_path, content_hash, mtime_ms FROM proposition_sources"
-    ).all() as Array<{ proposition_id: string; file_path: string; content_hash: string; mtime_ms: number | null }>;
+    const rows = this.db
+      .prepare("SELECT proposition_id, file_path, content_hash, mtime_ms FROM proposition_sources")
+      .all() as Array<{
+      proposition_id: string;
+      file_path: string;
+      content_hash: string;
+      mtime_ms: number | null;
+    }>;
 
     const stale = new Set<string>();
     for (const { proposition_id, file_path, content_hash, mtime_ms } of rows) {
@@ -576,13 +638,19 @@ export class MemoryStore {
     const collWhere = collection ? " WHERE collection = ?" : "";
     const collParams: unknown[] = collection ? [collection] : [];
 
-    const totalProps = (this.db.prepare(
-      `SELECT COUNT(*) as c FROM propositions${collWhere}`
-    ).get(...collParams) as { c: number }).c;
+    const totalProps = (
+      this.db.prepare(`SELECT COUNT(*) as c FROM propositions${collWhere}`).get(...collParams) as {
+        c: number;
+      }
+    ).c;
     const totalEntities = collection
-      ? (this.db.prepare(
-          "SELECT COUNT(DISTINCT a.entity_id) as c FROM about a JOIN propositions p ON a.proposition_id = p.id WHERE p.collection = ?"
-        ).get(collection) as { c: number }).c
+      ? (
+          this.db
+            .prepare(
+              "SELECT COUNT(DISTINCT a.entity_id) as c FROM about a JOIN propositions p ON a.proposition_id = p.id WHERE p.collection = ?",
+            )
+            .get(collection) as { c: number }
+        ).c
       : (this.db.prepare("SELECT COUNT(*) as c FROM entities").get() as { c: number }).c;
 
     const stale = this.getStalePropositionIds();
@@ -596,9 +664,13 @@ export class MemoryStore {
       // Count only stale props in this collection
       const staleParams = [...stale];
       const placeholders = staleParams.map(() => "?").join(",");
-      const staleInCollection = (this.db.prepare(
-        `SELECT COUNT(*) as c FROM propositions WHERE id IN (${placeholders}) AND collection = ?`
-      ).get(...staleParams, collection) as { c: number }).c;
+      const staleInCollection = (
+        this.db
+          .prepare(
+            `SELECT COUNT(*) as c FROM propositions WHERE id IN (${placeholders}) AND collection = ?`,
+          )
+          .get(...staleParams, collection) as { c: number }
+      ).c;
       validCount = totalProps - staleInCollection;
     }
 
@@ -610,34 +682,50 @@ export class MemoryStore {
     };
   }
 
-  private countValidForEntity(entityId: string, stalePropIds: Set<string>, collection?: string): number {
+  private countValidForEntity(
+    entityId: string,
+    stalePropIds: Set<string>,
+    collection?: string,
+  ): number {
     // Fast path: no stale props and no collection filter — skip JOIN
     if (stalePropIds.size === 0 && !collection) {
-      return (this.db.prepare(
-        "SELECT COUNT(*) as c FROM about WHERE entity_id = ?"
-      ).get(entityId) as { c: number }).c;
+      return (
+        this.db.prepare("SELECT COUNT(*) as c FROM about WHERE entity_id = ?").get(entityId) as {
+          c: number;
+        }
+      ).c;
     }
 
     const coll = this.collectionFilter(collection);
 
     if (stalePropIds.size === 0) {
-      return (this.db.prepare(
-        `SELECT COUNT(*) as c FROM about a JOIN propositions p ON a.proposition_id = p.id WHERE a.entity_id = ?${coll.clause}`
-      ).get(entityId, ...coll.params) as { c: number }).c;
+      return (
+        this.db
+          .prepare(
+            `SELECT COUNT(*) as c FROM about a JOIN propositions p ON a.proposition_id = p.id WHERE a.entity_id = ?${coll.clause}`,
+          )
+          .get(entityId, ...coll.params) as { c: number }
+      ).c;
     }
     const staleParams = [...stalePropIds];
     const placeholders = staleParams.map(() => "?").join(",");
-    return (this.db.prepare(
-      `SELECT COUNT(*) as c FROM about a
+    return (
+      this.db
+        .prepare(
+          `SELECT COUNT(*) as c FROM about a
        JOIN propositions p ON a.proposition_id = p.id
-       WHERE a.entity_id = ? AND a.proposition_id NOT IN (${placeholders})${coll.clause}`
-    ).get(entityId, ...staleParams, ...coll.params) as { c: number }).c;
+       WHERE a.entity_id = ? AND a.proposition_id NOT IN (${placeholders})${coll.clause}`,
+        )
+        .get(entityId, ...staleParams, ...coll.params) as { c: number }
+    ).c;
   }
 
   private enrichProposition(row: PropositionRow): PropositionInfo {
-    const propSources = this.db.prepare(
-      "SELECT file_path, content_hash, mtime_ms FROM proposition_sources WHERE proposition_id = ?"
-    ).all(row.id) as Array<{ file_path: string; content_hash: string; mtime_ms: number | null }>;
+    const propSources = this.db
+      .prepare(
+        "SELECT file_path, content_hash, mtime_ms FROM proposition_sources WHERE proposition_id = ?",
+      )
+      .all(row.id) as Array<{ file_path: string; content_hash: string; mtime_ms: number | null }>;
 
     const sourceFiles = propSources.map((sf) => ({
       path: sf.file_path,

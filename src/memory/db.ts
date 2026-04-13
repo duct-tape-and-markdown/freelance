@@ -4,7 +4,7 @@
  */
 
 import "./suppress-warnings.js";
-import { DatabaseSync, type StatementSync, type SQLInputValue } from "node:sqlite";
+import { DatabaseSync, type SQLInputValue, type StatementSync } from "node:sqlite";
 
 // Loose-typed adapter over `node:sqlite`. Centralises the `unknown ↔
 // SQLInputValue / SQLOutputValue` casts in one place so store.ts can
@@ -25,7 +25,9 @@ function wrap(inner: DatabaseSync): Db {
   const wrapStmt = (stmt: StatementSync): Stmt => ({
     all: (...params: unknown[]) => stmt.all(...(params as SQLInputValue[])),
     get: (...params: unknown[]) => stmt.get(...(params as SQLInputValue[])),
-    run: (...params: unknown[]) => { stmt.run(...(params as SQLInputValue[])); },
+    run: (...params: unknown[]) => {
+      stmt.run(...(params as SQLInputValue[]));
+    },
   });
   return {
     prepare: (sql: string) => wrapStmt(inner.prepare(sql)),
@@ -93,15 +95,17 @@ function checkSchemaCompatibility(db: Db): void {
   // Pre-1.3 databases have `sessions` and `session_files` tables and a
   // `propositions.session_id NOT NULL` column. The schema is incompatible
   // enough that migration isn't worth the code — surface a clear error.
-  const legacyTables = db.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('sessions', 'session_files')"
-  ).all() as Array<{ name: string }>;
+  const legacyTables = db
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('sessions', 'session_files')",
+    )
+    .all() as Array<{ name: string }>;
 
   if (legacyTables.length > 0) {
     throw new Error(
       "Memory database uses a pre-1.3 schema (sessions/session_files tables present). " +
-      "The storage layout is incompatible with this version — delete the memory.db file " +
-      "and re-run. Freelance will re-compile knowledge on demand."
+        "The storage layout is incompatible with this version — delete the memory.db file " +
+        "and re-run. Freelance will re-compile knowledge on demand.",
     );
   }
 }

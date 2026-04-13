@@ -2,7 +2,7 @@ export class EvaluatorError extends Error {
   constructor(
     message: string,
     public expression: string,
-    public position?: number
+    public position?: number,
   ) {
     super(message);
     this.name = "EvaluatorError";
@@ -78,7 +78,7 @@ function tokenize(expr: string): Token[] {
         throw new EvaluatorError(
           `Unknown operator '===' at position ${i}. Use '==' for equality.`,
           expr,
-          i
+          i,
         );
       }
       tokens.push({ type: "OP", value: "==", pos: i });
@@ -124,7 +124,7 @@ function tokenize(expr: string): Token[] {
         throw new EvaluatorError(
           `Unclosed string literal starting at position ${start}`,
           expr,
-          start
+          start,
         );
       }
       i++; // skip closing quote
@@ -179,17 +179,13 @@ function tokenize(expr: string): Token[] {
         throw new EvaluatorError(
           `Unexpected identifier '${ident}' at position ${start}. Property access must start with 'context.'`,
           expr,
-          start
+          start,
         );
       }
       continue;
     }
 
-    throw new EvaluatorError(
-      `Unexpected character '${expr[i]}' at position ${i}`,
-      expr,
-      i
-    );
+    throw new EvaluatorError(`Unexpected character '${expr[i]}' at position ${i}`, expr, i);
   }
 
   tokens.push({ type: "EOF", value: null, pos: i });
@@ -204,7 +200,7 @@ class Parser {
   constructor(
     private tokens: Token[],
     private context: Record<string, unknown>,
-    private expr: string
+    private expr: string,
   ) {}
 
   private peek(): Token {
@@ -224,7 +220,7 @@ class Parser {
       throw new EvaluatorError(
         `Unexpected token '${t.value}' at position ${t.pos}`,
         this.expr,
-        t.pos
+        t.pos,
       );
     }
     return toBool(result);
@@ -279,7 +275,7 @@ class Parser {
         throw new EvaluatorError(
           `Expected ')' at position ${this.peek().pos}`,
           this.expr,
-          this.peek().pos
+          this.peek().pos,
         );
       }
       this.advance();
@@ -297,17 +293,13 @@ class Parser {
     }
 
     if (t.type === "EOF") {
-      throw new EvaluatorError(
-        `Unexpected end of expression`,
-        this.expr,
-        t.pos
-      );
+      throw new EvaluatorError(`Unexpected end of expression`, this.expr, t.pos);
     }
 
     throw new EvaluatorError(
       `Unexpected token '${t.value}' at position ${t.pos}`,
       this.expr,
-      t.pos
+      t.pos,
     );
   }
 

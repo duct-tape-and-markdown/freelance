@@ -1,8 +1,8 @@
 /** CLI handlers for memory subcommands. Operates directly on MemoryStore. */
 
 import fs from "node:fs";
-import { cli, info, outputJson } from "./output.js";
 import type { MemoryStore } from "../memory/index.js";
+import { cli, info, outputJson } from "./output.js";
 
 function handleError(e: unknown): never {
   const message = e instanceof Error ? e.message : String(e);
@@ -20,7 +20,9 @@ export function memoryStatus(store: MemoryStore, collection?: string): void {
     if (cli.json) {
       outputJson(result);
     } else {
-      info(`Propositions: ${result.total_propositions} total, ${result.valid_propositions} valid, ${result.stale_propositions} stale`);
+      info(
+        `Propositions: ${result.total_propositions} total, ${result.valid_propositions} valid, ${result.stale_propositions} stale`,
+      );
       info(`Entities: ${result.total_entities}`);
       if (collection) info(`Collection: ${collection}`);
     }
@@ -49,7 +51,9 @@ export function memoryBrowse(
         return;
       }
       for (const e of result.entities) {
-        info(`  ${e.name}${e.kind ? ` (${e.kind})` : ""}  ${e.valid_proposition_count} propositions`);
+        info(
+          `  ${e.name}${e.kind ? ` (${e.kind})` : ""}  ${e.valid_proposition_count} propositions`,
+        );
       }
       info(`\n${result.entities.length} entities (total: ${result.total})`);
     }
@@ -194,4 +198,3 @@ export function memoryEmit(store: MemoryStore, file: string, collection: string)
     handleError(e);
   }
 }
-

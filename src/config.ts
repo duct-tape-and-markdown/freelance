@@ -11,8 +11,8 @@
  *   - CLI flags and env vars override everything (handled by callers)
  */
 
-import path from "node:path";
 import fs from "node:fs";
+import path from "node:path";
 import yaml from "js-yaml";
 import { z } from "zod";
 import type { CollectionConfig } from "./memory/types.js";
@@ -25,12 +25,14 @@ const collectionSchema = z.object({
   paths: z.array(z.string()).default([]),
 });
 
-const memorySchema = z.object({
-  enabled: z.boolean().optional(),
-  dir: z.string().optional(),
-  ignore: z.array(z.string()).optional(),
-  collections: z.array(collectionSchema).optional(),
-}).optional();
+const memorySchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    dir: z.string().optional(),
+    ignore: z.array(z.string()).optional(),
+    collections: z.array(collectionSchema).optional(),
+  })
+  .optional();
 
 const configSchema = z.object({
   workflows: z.array(z.string()).optional(),
@@ -85,7 +87,10 @@ function resolvePaths(config: FreelanceConfigFile, baseDir: string): FreelanceCo
  * Merge two config objects. Arrays concatenate so plugin hooks can extend
  * ignore lists without clobbering project-level ones. Scalars use overlay value.
  */
-function mergeConfigs(base: FreelanceConfigFile, overlay: FreelanceConfigFile): FreelanceConfigFile {
+function mergeConfigs(
+  base: FreelanceConfigFile,
+  overlay: FreelanceConfigFile,
+): FreelanceConfigFile {
   const merged: FreelanceConfigFile = { ...base };
 
   if (overlay.workflows?.length) {
@@ -115,7 +120,7 @@ function toFreelanceConfig(merged: FreelanceConfigFile, sources: string[]): Free
       dir: merged.memory?.dir,
       ignore: merged.memory?.ignore?.length ? merged.memory.ignore : undefined,
       collections: merged.memory?.collections?.length
-        ? merged.memory.collections as CollectionConfig[]
+        ? (merged.memory.collections as CollectionConfig[])
         : undefined,
     },
     sources,

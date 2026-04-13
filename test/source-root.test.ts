@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
 import path from "node:path";
+import { describe, expect, it } from "vitest";
 import { resolveSourceRoot } from "../src/graph-resolution.js";
 
 describe("resolveSourceRoot", () => {
@@ -9,26 +9,17 @@ describe("resolveSourceRoot", () => {
   });
 
   it("returns parent of first graphsDir when multiple dirs provided", () => {
-    const result = resolveSourceRoot([
-      "/workspace/project/.freelance",
-      "/home/user/.freelance",
-    ]);
+    const result = resolveSourceRoot(["/workspace/project/.freelance", "/home/user/.freelance"]);
     expect(result).toBe("/workspace/project");
   });
 
   it("uses explicit override when provided", () => {
-    const result = resolveSourceRoot(
-      ["/workspace/project/.freelance"],
-      "/custom/root"
-    );
+    const result = resolveSourceRoot(["/workspace/project/.freelance"], "/custom/root");
     expect(result).toBe(path.resolve("/custom/root"));
   });
 
   it("explicit override takes precedence over graphsDirs", () => {
-    const result = resolveSourceRoot(
-      ["/workspace/project/.freelance"],
-      "/other/base"
-    );
+    const result = resolveSourceRoot(["/workspace/project/.freelance"], "/other/base");
     expect(result).toBe(path.resolve("/other/base"));
   });
 

@@ -91,9 +91,11 @@ export interface BySourceResult {
 
 export interface SearchResult {
   query: string;
-  propositions: Array<PropositionInfo & {
-    entities: Array<{ id: string; name: string; kind: string | null }>;
-  }>;
+  propositions: Array<
+    PropositionInfo & {
+      entities: Array<{ id: string; name: string; kind: string | null }>;
+    }
+  >;
 }
 
 export interface StatusResult {

@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadGraphs } from "../src/loader.js";
 import { createServer } from "../src/server.js";
 import type { ValidatedGraph } from "../src/types.js";
@@ -137,8 +137,16 @@ describe("Memory MCP tools", () => {
       arguments: {
         collection: "default",
         propositions: [
-          { content: "Auth validates JWT tokens using RS256.", entities: ["Auth"], sources: ["auth.ts"] },
-          { content: "Auth returns 401 for expired tokens.", entities: ["Auth"], sources: ["auth.ts"] },
+          {
+            content: "Auth validates JWT tokens using RS256.",
+            entities: ["Auth"],
+            sources: ["auth.ts"],
+          },
+          {
+            content: "Auth returns 401 for expired tokens.",
+            entities: ["Auth"],
+            sources: ["auth.ts"],
+          },
         ],
       },
     });
@@ -167,7 +175,10 @@ describe("Memory MCP tools", () => {
 
     // Status
     const statusResult = await client.callTool({ name: "memory_status", arguments: {} });
-    const status = parseContent(statusResult) as { total_propositions: number; valid_propositions: number };
+    const status = parseContent(statusResult) as {
+      total_propositions: number;
+      valid_propositions: number;
+    };
     expect(status.total_propositions).toBe(2);
     expect(status.valid_propositions).toBe(2);
   });
@@ -181,7 +192,10 @@ describe("Memory MCP tools", () => {
 
     const emitResult = await client.callTool({
       name: "memory_emit",
-      arguments: { collection: "default", propositions: [{ content: "test", entities: ["Foo"], sources: ["nonexistent.ts"] }] },
+      arguments: {
+        collection: "default",
+        propositions: [{ content: "test", entities: ["Foo"], sources: ["nonexistent.ts"] }],
+      },
     });
     expect(emitResult.isError).toBeTruthy();
     const err = parseContent(emitResult) as { error: string };

@@ -1,14 +1,17 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  traversalStatus, traversalStart, traversalAdvance,
-  traversalContextSet, traversalInspect, traversalReset,
-} from "../src/cli/traversals.js";
-import { setCli } from "../src/cli/output.js";
-import { TraversalStore } from "../src/state/index.js";
-import { openStateStore } from "../src/state/index.js";
-import { loadSingleGraph } from "../src/loader.js";
-import type { ValidatedGraph } from "../src/types.js";
 import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setCli } from "../src/cli/output.js";
+import {
+  traversalAdvance,
+  traversalContextSet,
+  traversalInspect,
+  traversalReset,
+  traversalStart,
+  traversalStatus,
+} from "../src/cli/traversals.js";
+import { loadSingleGraph } from "../src/loader.js";
+import { openStateStore, TraversalStore } from "../src/state/index.js";
+import type { ValidatedGraph } from "../src/types.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let exitSpy: any;

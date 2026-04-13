@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { cli, outputJson, info, fatal, EXIT, homeDir, displayPath } from "./output.js";
-import { type Client, detectClients, clientDisplayName, allClientChoices } from "./clients.js";
+import { allClientChoices, type Client, clientDisplayName, detectClients } from "./clients.js";
+import { cli, displayPath, EXIT, fatal, homeDir, info, outputJson } from "./output.js";
+
 export type { Client } from "./clients.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -39,9 +40,7 @@ function getTemplatesDir(): string {
   const cwdCandidate = path.resolve(process.cwd(), "templates");
   if (fs.existsSync(cwdCandidate)) return cwdCandidate;
 
-  throw new Error(
-    "Could not find templates directory. Is the package installed correctly?"
-  );
+  throw new Error("Could not find templates directory. Is the package installed correctly?");
 }
 
 // Client detection, display names, and choice lists live in ./clients.ts
@@ -60,7 +59,7 @@ function readJsonFile(filePath: string): McpConfig {
     return JSON.parse(raw);
   } catch (err) {
     throw new Error(
-      `${filePath} contains invalid JSON: ${err instanceof Error ? err.message : err}\n\n  Fix the JSON syntax and retry, or delete the file to start fresh.`
+      `${filePath} contains invalid JSON: ${err instanceof Error ? err.message : err}\n\n  Fix the JSON syntax and retry, or delete the file to start fresh.`,
     );
   }
 }
@@ -106,10 +105,7 @@ function getConfigPath(client: Client, scope: Scope): string {
   }
 }
 
-function writeClientConfig(
-  client: Client,
-  scope: Scope,
-): string | null {
+function writeClientConfig(client: Client, scope: Scope): string | null {
   if (client === "manual") return null;
 
   const configPath = getConfigPath(client, scope);
@@ -133,7 +129,8 @@ This project uses Freelance for workflow enforcement. Call \`freelance_list\` to
 // --- Enforcement hooks ---
 
 const SESSION_START_COMMAND = "npx -y freelance-mcp@latest status";
-const PROMPT_SUBMIT_COMMAND = "echo '**IMPORTANT** - Workflows may apply. Call freelance_list, match the user'\"'\"'s task to an available graph, and start it before doing other work.'";
+const PROMPT_SUBMIT_COMMAND =
+  "echo '**IMPORTANT** - Workflows may apply. Call freelance_list, match the user'\"'\"'s task to an available graph, and start it before doing other work.'";
 
 interface HookEntry {
   matcher: string;
@@ -190,7 +187,7 @@ function writeHooks(includeEnforcement: boolean): { path: string; wrote: string[
 function wouldWriteHooks(includeEnforcement: boolean): string[] {
   const settingsPath = path.join(process.cwd(), ".claude", "settings.json");
   const settings: ClaudeSettings = fs.existsSync(settingsPath)
-    ? readJsonFile(settingsPath) as ClaudeSettings
+    ? (readJsonFile(settingsPath) as ClaudeSettings)
     : {};
 
   const would: string[] = [];
@@ -288,7 +285,11 @@ export async function init(options: InitOptions): Promise<void> {
   } else {
     const configPath = getConfigPath(client, scope);
     if (configPath) {
-      actions.push({ verb: "configure", target: displayPath(configPath), detail: `${scope} scope` });
+      actions.push({
+        verb: "configure",
+        target: displayPath(configPath),
+        detail: `${scope} scope`,
+      });
     }
   }
 
@@ -302,7 +303,11 @@ export async function init(options: InitOptions): Promise<void> {
         detail: "workflow instructions section",
       });
     } else {
-      actions.push({ verb: "skip", target: "CLAUDE.md", detail: "already has Freelance instructions" });
+      actions.push({
+        verb: "skip",
+        target: "CLAUDE.md",
+        detail: "already has Freelance instructions",
+      });
     }
   }
 
@@ -310,9 +315,17 @@ export async function init(options: InitOptions): Promise<void> {
   if (client === "claude-code" && options.hooks) {
     const wouldWrite = wouldWriteHooks(true);
     if (wouldWrite.length > 0) {
-      actions.push({ verb: "configure", target: ".claude/settings.json", detail: `hooks: ${wouldWrite.join(", ")}` });
+      actions.push({
+        verb: "configure",
+        target: ".claude/settings.json",
+        detail: `hooks: ${wouldWrite.join(", ")}`,
+      });
     } else {
-      actions.push({ verb: "skip", target: ".claude/settings.json", detail: "hooks already configured" });
+      actions.push({
+        verb: "skip",
+        target: ".claude/settings.json",
+        detail: "hooks already configured",
+      });
     }
   }
 
@@ -394,7 +407,9 @@ export async function init(options: InitOptions): Promise<void> {
   if (client === "claude-code" && options.hooks) {
     const hookResult = writeHooks(true);
     if (hookResult) {
-      results.push(`Configured hooks in ${displayPath(hookResult.path)}: ${hookResult.wrote.join(", ")}`);
+      results.push(
+        `Configured hooks in ${displayPath(hookResult.path)}: ${hookResult.wrote.join(", ")}`,
+      );
       filesCreated.push(hookResult.path);
     } else {
       results.push("Hooks already configured");
@@ -497,4 +512,3 @@ export async function initInteractive(opts?: { dryRun?: boolean }): Promise<void
 
   await init({ scope, client, starter, hooks, dryRun: opts?.dryRun ?? INIT_DEFAULTS.dryRun });
 }
-

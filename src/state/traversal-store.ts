@@ -7,17 +7,17 @@
 import crypto from "node:crypto";
 import { GraphEngine } from "../engine/index.js";
 import { EngineError } from "../errors.js";
-import type { StateStore, TraversalRecord } from "./db.js";
 import type {
-  ValidatedGraph,
-  StartResult,
   AdvanceResult,
   ContextSetResult,
   InspectResult,
   ResetResult,
+  StartResult,
   TraversalInfo,
   TraversalListResult,
+  ValidatedGraph,
 } from "../types.js";
+import type { StateStore, TraversalRecord } from "./db.js";
 
 function generateTraversalId(): string {
   return "tr_" + crypto.randomBytes(4).toString("hex");
@@ -31,7 +31,7 @@ export class TraversalStore {
   constructor(
     state: StateStore,
     graphs: Map<string, ValidatedGraph>,
-    options?: { maxDepth?: number }
+    options?: { maxDepth?: number },
   ) {
     this.state = state;
     this.graphs = graphs;
@@ -85,7 +85,7 @@ export class TraversalStore {
 
   createTraversal(
     graphId: string,
-    initialContext?: Record<string, unknown>
+    initialContext?: Record<string, unknown>,
   ): { traversalId: string } & StartResult {
     const id = generateTraversalId();
     const engine = new GraphEngine(this.graphs, { maxDepth: this.maxDepth });
@@ -111,7 +111,7 @@ export class TraversalStore {
   advance(
     traversalId: string,
     edge: string,
-    contextUpdates?: Record<string, unknown>
+    contextUpdates?: Record<string, unknown>,
   ): { traversalId: string } & AdvanceResult {
     const { engine, record } = this.loadEngine(traversalId);
     const result = engine.advance(edge, contextUpdates);
@@ -121,7 +121,7 @@ export class TraversalStore {
 
   contextSet(
     traversalId: string,
-    updates: Record<string, unknown>
+    updates: Record<string, unknown>,
   ): { traversalId: string } & ContextSetResult {
     const { engine, record } = this.loadEngine(traversalId);
     const result = engine.contextSet(updates);
@@ -131,7 +131,7 @@ export class TraversalStore {
 
   inspect(
     traversalId: string,
-    detail?: "position" | "full" | "history"
+    detail?: "position" | "full" | "history",
   ): { traversalId: string } & InspectResult {
     const { engine } = this.loadEngine(traversalId);
     const result = engine.inspect(detail);
@@ -152,10 +152,7 @@ export class TraversalStore {
 
     const ids = this.state.listIds();
     if (ids.length === 0) {
-      throw new EngineError(
-        "No active traversals. Call freelance_start first.",
-        "NO_TRAVERSAL"
-      );
+      throw new EngineError("No active traversals. Call freelance_start first.", "NO_TRAVERSAL");
     }
     if (ids.length === 1) return ids[0];
 
@@ -163,7 +160,7 @@ export class TraversalStore {
     const records = this.state.list();
     throw new EngineError(
       `Multiple active traversals. Specify traversalId. Active: ${records.map((t) => `${t.id} (${t.graphId} @ ${t.currentNode})`).join(", ")}`,
-      "AMBIGUOUS_TRAVERSAL"
+      "AMBIGUOUS_TRAVERSAL",
     );
   }
 
@@ -172,10 +169,7 @@ export class TraversalStore {
   private loadEngine(traversalId: string): { engine: GraphEngine; record: TraversalRecord } {
     const record = this.state.get(traversalId);
     if (!record) {
-      throw new EngineError(
-        `Traversal "${traversalId}" not found`,
-        "TRAVERSAL_NOT_FOUND"
-      );
+      throw new EngineError(`Traversal "${traversalId}" not found`, "TRAVERSAL_NOT_FOUND");
     }
 
     const engine = new GraphEngine(this.graphs, { maxDepth: this.maxDepth });

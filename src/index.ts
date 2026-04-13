@@ -14,14 +14,12 @@
  *   freelance-mcp/server   → createServer + startServer
  */
 
+export type { NodeInput, ValidatedGraph } from "./core/index.js";
 // Core engine and schema
-export { GraphBuilder, GraphEngine, EngineError } from "./core/index.js";
-export type { ValidatedGraph, NodeInput } from "./core/index.js";
-
+export { EngineError, GraphBuilder, GraphEngine } from "./core/index.js";
+export { MemoryStore } from "./memory/index.js";
+export type { ServerOptions } from "./server.js";
 // MCP server
 export { createServer, startServer } from "./server.js";
-export type { ServerOptions } from "./server.js";
-
 // Persistence
 export { TraversalStore } from "./state/index.js";
-export { MemoryStore } from "./memory/index.js";

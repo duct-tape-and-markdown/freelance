@@ -2,23 +2,27 @@ import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { TraversalStore } from "./state/index.js";
-import { openStateStore } from "./state/index.js";
-import { EngineError } from "./errors.js";
-import { VERSION } from "./version.js";
-import { getGuide } from "./guide.js";
-import { getDistillPrompt } from "./distill.js";
-import { watchGraphs } from "./watcher.js";
-import { findGraphFiles, loadSingleGraph, validateCrossGraphRefs } from "./loader.js";
-import { hashSources, checkSourcesDetailed, validateGraphSources, getDetailedDrift } from "./sources.js";
-import type { SourceRef, SectionResolver, SourceOptions } from "./sources.js";
-import type { ValidatedGraph } from "./types.js";
-import { MemoryStore, registerMemoryTools } from "./memory/index.js";
 import { loadConfigFromDirs } from "./config.js";
+import { getDistillPrompt } from "./distill.js";
+import { EngineError } from "./errors.js";
+import { getGuide } from "./guide.js";
+import { findGraphFiles, loadSingleGraph, validateCrossGraphRefs } from "./loader.js";
+import { errorResponse, jsonResponse } from "./mcp-helpers.js";
 import type { MemoryConfig } from "./memory/index.js";
-import { buildCompileKnowledgeWorkflow, COMPILE_KNOWLEDGE_ID } from "./memory/workflow.js";
+import { MemoryStore, registerMemoryTools } from "./memory/index.js";
 import { buildRecollectionWorkflow, RECOLLECTION_ID } from "./memory/recollection.js";
-import { jsonResponse, errorResponse } from "./mcp-helpers.js";
+import { buildCompileKnowledgeWorkflow, COMPILE_KNOWLEDGE_ID } from "./memory/workflow.js";
+import type { SectionResolver, SourceOptions, SourceRef } from "./sources.js";
+import {
+  checkSourcesDetailed,
+  getDetailedDrift,
+  hashSources,
+  validateGraphSources,
+} from "./sources.js";
+import { openStateStore, TraversalStore } from "./state/index.js";
+import type { ValidatedGraph } from "./types.js";
+import { VERSION } from "./version.js";
+import { watchGraphs } from "./watcher.js";
 
 function handleError(e: unknown) {
   if (e instanceof EngineError) {
@@ -47,8 +51,13 @@ export interface ServerOptions {
 
 export function createServer(
   graphs: Map<string, ValidatedGraph>,
-  options?: ServerOptions
-): { server: McpServer; stopWatcher?: () => void; memoryStore?: MemoryStore; manager: TraversalStore } {
+  options?: ServerOptions,
+): {
+  server: McpServer;
+  stopWatcher?: () => void;
+  memoryStore?: MemoryStore;
+  manager: TraversalStore;
+} {
   const backend = openStateStore(options?.stateDir ?? ":memory:");
   const manager = new TraversalStore(backend, graphs, options);
 
@@ -68,8 +77,12 @@ export function createServer(
     stopWatcher = watchGraphs({
       graphsDir: options.graphsDirs,
       onUpdate: (newGraphs) => manager.updateGraphs(newGraphs),
-      onError: (err) => { process.stderr.write(`Graph reload failed: ${err.message}\n`); },
-      onLoadErrors: (errors) => { currentLoadErrors = errors; },
+      onError: (err) => {
+        process.stderr.write(`Graph reload failed: ${err.message}\n`);
+      },
+      onLoadErrors: (errors) => {
+        currentLoadErrors = errors;
+      },
       onConfigChange: () => {
         if (!memoryStore || !options?.graphsDirs) return;
         try {
@@ -83,9 +96,7 @@ export function createServer(
     });
   }
 
-  const server = new McpServer(
-    { name: "freelance", version: VERSION },
-  );
+  const server = new McpServer({ name: "freelance", version: VERSION });
 
   // freelance_list
   server.tool(
@@ -102,7 +113,7 @@ export function createServer(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   // freelance_start
@@ -121,10 +132,7 @@ export function createServer(
         if (options?.validateSourcesOnStart) {
           const graph = graphs.get(graphId);
           if (graph) {
-            const sourceCheck = validateGraphSources(
-              graph.definition,
-              sourceOpts
-            );
+            const sourceCheck = validateGraphSources(graph.definition, sourceOpts);
             if (!sourceCheck.valid) {
               return jsonResponse({
                 ...result,
@@ -138,7 +146,7 @@ export function createServer(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   // freelance_advance
@@ -161,7 +169,7 @@ export function createServer(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   // freelance_context_set
@@ -179,7 +187,7 @@ export function createServer(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   // freelance_inspect
@@ -197,7 +205,7 @@ export function createServer(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   // freelance_reset
@@ -218,7 +226,7 @@ export function createServer(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   // freelance_guide
@@ -234,7 +242,7 @@ export function createServer(
         return errorResponse(result.error);
       }
       return jsonResponse(result);
-    }
+    },
   );
 
   // freelance_distill
@@ -246,7 +254,7 @@ export function createServer(
     },
     ({ mode }) => {
       return jsonResponse(getDistillPrompt(mode));
-    }
+    },
   );
 
   // freelance_sources_hash
@@ -254,10 +262,14 @@ export function createServer(
     "freelance_sources_hash",
     "Hash one or more source locations for provenance stamping. Used when authoring graphs with source bindings. If section is provided and a section resolver is configured, hashes only that section's content; otherwise hashes the entire file.",
     {
-      sources: z.array(z.object({
-        path: z.string().min(1),
-        section: z.string().optional(),
-      })).min(1),
+      sources: z
+        .array(
+          z.object({
+            path: z.string().min(1),
+            section: z.string().optional(),
+          }),
+        )
+        .min(1),
     },
     ({ sources }) => {
       try {
@@ -266,7 +278,7 @@ export function createServer(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   // freelance_sources_check
@@ -274,11 +286,15 @@ export function createServer(
     "freelance_sources_check",
     "Validate previously stamped source hashes against current file state. Returns which sources have drifted since the graph was authored.",
     {
-      sources: z.array(z.object({
-        path: z.string().min(1),
-        section: z.string().optional(),
-        hash: z.string().min(1),
-      })).min(1),
+      sources: z
+        .array(
+          z.object({
+            path: z.string().min(1),
+            section: z.string().optional(),
+            hash: z.string().min(1),
+          }),
+        )
+        .min(1),
     },
     ({ sources }) => {
       try {
@@ -287,7 +303,7 @@ export function createServer(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   // freelance_sources_validate
@@ -316,9 +332,7 @@ export function createServer(
           }
         }
 
-        const targets = graphId
-          ? fileMap.has(graphId) ? [graphId] : []
-          : [...fileMap.keys()];
+        const targets = graphId ? (fileMap.has(graphId) ? [graphId] : []) : [...fileMap.keys()];
 
         if (targets.length === 0) {
           return errorResponse(graphId ? `Graph not found: ${graphId}` : "No graphs loaded");
@@ -352,7 +366,7 @@ export function createServer(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   // freelance_validate
@@ -368,7 +382,8 @@ export function createServer(
           return errorResponse("No graphsDirs configured — cannot validate graphs");
         }
 
-        const validGraphs: Array<{ id: string; name: string; version: string; nodeCount: number }> = [];
+        const validGraphs: Array<{ id: string; name: string; version: string; nodeCount: number }> =
+          [];
         const errors: Array<{ file: string; message: string }> = [];
         const parsed = new Map<string, ValidatedGraph>();
 
@@ -404,8 +419,8 @@ export function createServer(
         // Filter to specific graph if requested
         if (graphId) {
           const matchedGraph = validGraphs.find((g) => g.id === graphId);
-          const matchedErrors = errors.filter((e) =>
-            e.message.includes(graphId) || e.file.includes(graphId)
+          const matchedErrors = errors.filter(
+            (e) => e.message.includes(graphId) || e.file.includes(graphId),
           );
 
           if (!matchedGraph && matchedErrors.length === 0) {
@@ -427,12 +442,17 @@ export function createServer(
       } catch (e) {
         return handleError(e);
       }
-    }
+    },
   );
 
   // --- Memory ---
   if (options?.memory?.enabled !== false && options?.memory?.db) {
-    memoryStore = new MemoryStore(options.memory.db, options.sourceRoot, options.memory.ignore, options.memory.collections);
+    memoryStore = new MemoryStore(
+      options.memory.db,
+      options.sourceRoot,
+      options.memory.ignore,
+      options.memory.collections,
+    );
     const hasActiveMemoryTraversal = () =>
       manager.hasActiveTraversalForGraph(COMPILE_KNOWLEDGE_ID, RECOLLECTION_ID);
     registerMemoryTools(server, memoryStore, hasActiveMemoryTraversal);
@@ -457,7 +477,7 @@ export function createServer(
 
 export async function startServer(
   graphs: Map<string, ValidatedGraph>,
-  options?: ServerOptions
+  options?: ServerOptions,
 ): Promise<void> {
   const { server, stopWatcher, memoryStore, manager } = createServer(graphs, options);
   const transport = new StdioServerTransport();

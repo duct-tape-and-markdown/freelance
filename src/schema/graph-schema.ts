@@ -30,9 +30,7 @@ export const validationRuleSchema = z.object({
 /** Accepts Record<string, string> or string[] shorthand (["a","b"] → {a:"a", b:"b"}) */
 const stringMapOrShorthand = z.union([
   z.record(z.string(), z.string()),
-  z.array(z.string()).transform((arr) =>
-    Object.fromEntries(arr.map((key) => [key, key]))
-  ),
+  z.array(z.string()).transform((arr) => Object.fromEntries(arr.map((key) => [key, key]))),
 ]);
 
 const subgraphDefinitionSchema = z.object({
@@ -85,7 +83,9 @@ export type ContextFieldDescriptor = z.infer<typeof contextFieldDescriptorSchema
 /** Check if a context value is a typed descriptor (vs a plain scalar) */
 export function isContextFieldDescriptor(v: unknown): v is ContextFieldDescriptor {
   return (
-    typeof v === "object" && v !== null && "type" in v &&
+    typeof v === "object" &&
+    v !== null &&
+    "type" in v &&
     contextFieldDescriptorSchema.safeParse(v).success
   );
 }

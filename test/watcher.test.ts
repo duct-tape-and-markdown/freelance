@@ -1,7 +1,7 @@
-import { describe, it, expect, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { watchGraphs } from "../src/watcher.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
@@ -11,16 +11,12 @@ function tmpGraphDir(): string {
   // Copy a valid graph to start with
   fs.copyFileSync(
     path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-    path.join(dir, "valid-simple.workflow.yaml")
+    path.join(dir, "valid-simple.workflow.yaml"),
   );
   return dir;
 }
 
-function waitFor(
-  predicate: () => boolean,
-  timeoutMs = 3000,
-  intervalMs = 50
-): Promise<void> {
+function waitFor(predicate: () => boolean, timeoutMs = 3000, intervalMs = 50): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     const check = () => {
@@ -46,7 +42,9 @@ describe("Graph watcher", () => {
 
     const stop = watchGraphs({
       graphsDir: dir,
-      onUpdate: () => { updateCount++; },
+      onUpdate: () => {
+        updateCount++;
+      },
       onError: () => {},
       debounceMs: 50,
     });
@@ -70,17 +68,17 @@ describe("Graph watcher", () => {
       graphsDir: dir,
       onUpdate: () => {},
       onError: () => {},
-      onLoadErrors: (errors) => { loadErrorCount++; lastLoadErrors = errors; },
+      onLoadErrors: (errors) => {
+        loadErrorCount++;
+        lastLoadErrors = errors;
+      },
       debounceMs: 50,
     });
     cleanups.push(stop);
 
     // Remove valid graph and write only an invalid one so all graphs fail
     fs.unlinkSync(path.join(dir, "valid-simple.workflow.yaml"));
-    fs.writeFileSync(
-      path.join(dir, "broken.workflow.yaml"),
-      "id: broken\nnot_valid: true\n"
-    );
+    fs.writeFileSync(path.join(dir, "broken.workflow.yaml"), "id: broken\nnot_valid: true\n");
 
     await waitFor(() => loadErrorCount > 0);
     expect(loadErrorCount).toBeGreaterThan(0);
@@ -93,7 +91,9 @@ describe("Graph watcher", () => {
 
     const stop = watchGraphs({
       graphsDir: dir,
-      onUpdate: () => { updateCount++; },
+      onUpdate: () => {
+        updateCount++;
+      },
       onError: () => {},
       debounceMs: 50,
     });
@@ -113,7 +113,9 @@ describe("Graph watcher", () => {
 
     const stop = watchGraphs({
       graphsDir: dir,
-      onUpdate: () => { updateCount++; },
+      onUpdate: () => {
+        updateCount++;
+      },
       onError: () => {},
       debounceMs: 100,
     });
@@ -137,7 +139,9 @@ describe("Graph watcher", () => {
 
     const stop = watchGraphs({
       graphsDir: dir,
-      onUpdate: () => { updateCount++; },
+      onUpdate: () => {
+        updateCount++;
+      },
       onError: () => {},
       debounceMs: 50,
     });

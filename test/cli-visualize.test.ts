@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
-import { visualize } from "../src/cli/visualize.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setCli } from "../src/cli/output.js";
+import { visualize } from "../src/cli/visualize.js";
 
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
@@ -71,10 +71,7 @@ describe("CLI visualize", () => {
   });
 
   it("writes to file with --output", () => {
-    const outFile = path.join(
-      fs.mkdtempSync(path.join(os.tmpdir(), "viz-test-")),
-      "out.mmd"
-    );
+    const outFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "viz-test-")), "out.mmd");
     visualize(fixturePath("valid-simple.workflow.yaml"), {
       format: "mermaid",
       output: outFile,
@@ -85,21 +82,16 @@ describe("CLI visualize", () => {
   });
 
   it("exits with GRAPH_ERROR for nonexistent file", () => {
-    expect(() =>
-      visualize("/nonexistent/file.workflow.yaml", { format: "mermaid" })
-    ).toThrow("process.exit");
+    expect(() => visualize("/nonexistent/file.workflow.yaml", { format: "mermaid" })).toThrow(
+      "process.exit",
+    );
     expect(exitSpy).toHaveBeenCalledWith(3);
   });
 
   it("exits with INVALID_USAGE for wrong extension", () => {
-    const tmpFile = path.join(
-      fs.mkdtempSync(path.join(os.tmpdir(), "viz-test-")),
-      "bad.yaml"
-    );
+    const tmpFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "viz-test-")), "bad.yaml");
     fs.writeFileSync(tmpFile, "id: test\n");
-    expect(() =>
-      visualize(tmpFile, { format: "mermaid" })
-    ).toThrow("process.exit");
+    expect(() => visualize(tmpFile, { format: "mermaid" })).toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(2);
   });
 
@@ -155,20 +147,15 @@ describe("CLI visualize", () => {
   it("exits with GRAPH_ERROR for valid extension but invalid content", () => {
     const tmpFile = path.join(
       fs.mkdtempSync(path.join(os.tmpdir(), "viz-test-")),
-      "broken.workflow.yaml"
+      "broken.workflow.yaml",
     );
     fs.writeFileSync(tmpFile, "this is not valid graph yaml at all");
-    expect(() =>
-      visualize(tmpFile, { format: "mermaid" })
-    ).toThrow("process.exit");
+    expect(() => visualize(tmpFile, { format: "mermaid" })).toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(3);
   });
 
   it("writes DOT format to file with --output", () => {
-    const outFile = path.join(
-      fs.mkdtempSync(path.join(os.tmpdir(), "viz-test-")),
-      "out.dot"
-    );
+    const outFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "viz-test-")), "out.dot");
     visualize(fixturePath("valid-simple.workflow.yaml"), {
       format: "dot",
       output: outFile,

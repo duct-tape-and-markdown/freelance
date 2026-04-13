@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { getGuide, getGuideTopics, GUIDE_TOPICS } from "../src/guide.js";
+import { describe, expect, it } from "vitest";
+import { GUIDE_TOPICS, getGuide, getGuideTopics } from "../src/guide.js";
 
 describe("freelance_guide", () => {
   it("getGuideTopics returns all 8 topics", () => {

@@ -347,7 +347,9 @@ export function getGuideTopics(): string[] {
 export function getGuide(topic?: string): { content: string } | { error: string } {
   if (!topic) {
     const catalog = GUIDE_TOPICS.map((t) => `- ${t}`).join("\n");
-    return { content: `# Freelance Graph Authoring Guide\n\nAvailable topics:\n${catalog}\n\nCall freelance_guide with a topic to read it.` };
+    return {
+      content: `# Freelance Graph Authoring Guide\n\nAvailable topics:\n${catalog}\n\nCall freelance_guide with a topic to read it.`,
+    };
   }
 
   if (!GUIDE_TOPICS.includes(topic as GuideTopic)) {

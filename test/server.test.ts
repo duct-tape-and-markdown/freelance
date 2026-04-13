@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadGraphs } from "../src/loader.js";
 import { createServer } from "../src/server.js";
 import type { ValidatedGraph } from "../src/types.js";
@@ -126,7 +126,9 @@ describe("MCP server integration", () => {
       });
       expect(startResult.isError).toBeFalsy();
       const startData = parseContent(startResult) as {
-        status: string; currentNode: string; context: Record<string, unknown>;
+        status: string;
+        currentNode: string;
+        context: Record<string, unknown>;
       };
       expect(startData.status).toBe("started");
       expect(startData.currentNode).toBe("start");
@@ -139,7 +141,9 @@ describe("MCP server integration", () => {
       });
       expect(ctxResult.isError).toBeFalsy();
       const ctxData = parseContent(ctxResult) as {
-        status: string; context: Record<string, unknown>; turnCount: number;
+        status: string;
+        context: Record<string, unknown>;
+        turnCount: number;
       };
       expect(ctxData.status).toBe("updated");
       expect(ctxData.context.taskStarted).toBe(true);
@@ -162,7 +166,9 @@ describe("MCP server integration", () => {
       });
       expect(adv2.isError).toBeFalsy();
       const adv2Data = parseContent(adv2) as {
-        status: string; currentNode: string; traversalHistory: string[];
+        status: string;
+        currentNode: string;
+        traversalHistory: string[];
       };
       expect(adv2Data.status).toBe("complete");
       expect(adv2Data.currentNode).toBe("done");
@@ -532,7 +538,9 @@ describe("MCP server hot-reload", () => {
 
     try {
       // Initially only one graph
-      const before = parseContent(await client.callTool({ name: "freelance_list", arguments: {} })) as {
+      const before = parseContent(
+        await client.callTool({ name: "freelance_list", arguments: {} }),
+      ) as {
         graphs: Array<{ id: string }>;
       };
       expect(before.graphs).toHaveLength(1);
@@ -545,7 +553,9 @@ describe("MCP server hot-reload", () => {
       await new Promise((r) => setTimeout(r, 500));
 
       // Now freelance_list should return both
-      const after = parseContent(await client.callTool({ name: "freelance_list", arguments: {} })) as {
+      const after = parseContent(
+        await client.callTool({ name: "freelance_list", arguments: {} }),
+      ) as {
         graphs: Array<{ id: string }>;
       };
       expect(after.graphs).toHaveLength(2);
@@ -578,7 +588,9 @@ describe("MCP server hot-reload", () => {
       await new Promise((r) => setTimeout(r, 500));
 
       // freelance_list should now include loadErrors
-      const listResult = parseContent(await client.callTool({ name: "freelance_list", arguments: {} })) as {
+      const listResult = parseContent(
+        await client.callTool({ name: "freelance_list", arguments: {} }),
+      ) as {
         graphs: unknown[];
         loadErrors?: Array<{ file: string; message: string }>;
       };
@@ -602,9 +614,7 @@ describe("MCP server hot-reload", () => {
 describe("freelance_list with loadErrors", () => {
   it("includes loadErrors when graphs failed to load", async () => {
     const graphs = loadFixtures("valid-simple.workflow.yaml");
-    const loadErrors = [
-      { file: "broken.workflow.yaml", message: "Schema validation failed" },
-    ];
+    const loadErrors = [{ file: "broken.workflow.yaml", message: "Schema validation failed" }];
     const { server } = createServer(graphs, { loadErrors });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -694,7 +704,11 @@ describe("freelance_validate", () => {
     try {
       const result = await client.callTool({ name: "freelance_validate", arguments: {} });
       expect(result.isError).toBeFalsy();
-      const data = parseContent(result) as { valid: boolean; graphs: unknown[]; errors: Array<{ file: string; message: string }> };
+      const data = parseContent(result) as {
+        valid: boolean;
+        graphs: unknown[];
+        errors: Array<{ file: string; message: string }>;
+      };
       expect(data.valid).toBe(false);
       expect(data.errors.length).toBeGreaterThan(0);
     } finally {

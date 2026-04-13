@@ -9,9 +9,9 @@
  */
 
 import fs from "node:fs";
-import { unified } from "unified";
-import remarkParse from "remark-parse";
 import type { Heading, PhrasingContent } from "mdast";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 
 /**
  * Extract a section from a markdown file by heading text.
@@ -47,9 +47,7 @@ export function extractSection(filePath: string, sectionHeading: string): string
     return null;
   }
 
-  const sectionLines = endLine
-    ? lines.slice(startLine - 1, endLine)
-    : lines.slice(startLine - 1);
+  const sectionLines = endLine ? lines.slice(startLine - 1, endLine) : lines.slice(startLine - 1);
 
   return sectionLines.join("\n");
 }

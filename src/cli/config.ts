@@ -8,7 +8,7 @@
 import path from "node:path";
 import { loadConfig, loadConfigFromDirs, updateLocalConfig } from "../config.js";
 import { resolveGraphsDirs } from "../graph-resolution.js";
-import { cli, info, outputJson, fatal, EXIT } from "./output.js";
+import { cli, EXIT, fatal, info, outputJson } from "./output.js";
 
 // --- config show ---
 
