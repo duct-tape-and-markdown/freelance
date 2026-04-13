@@ -152,6 +152,13 @@ export interface HistoryEntry {
   readonly edge: string;
   readonly timestamp: string;
   readonly contextSnapshot: Readonly<Record<string, unknown>>;
+  // Present when this entry records a programmatic-node hop. The engine executed
+  // an operation server-side and projected its result into context via the
+  // declared contextUpdates mapping. appliedUpdates is the exact delta written.
+  readonly operation?: {
+    readonly name: string;
+    readonly appliedUpdates: Readonly<Record<string, unknown>>;
+  };
 }
 
 export interface ContextHistoryEntry {
