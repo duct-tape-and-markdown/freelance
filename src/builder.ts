@@ -32,6 +32,17 @@ export interface NodeInput {
   waitOn?: NodeDefinition["waitOn"];
   timeout?: string;
   sources?: NodeDefinition["sources"];
+  /**
+   * Programmatic node binding — required when type === "programmatic",
+   * forbidden otherwise. Enforced by graph-construction validation that
+   * runs during build().
+   */
+  operation?: NodeDefinition["operation"];
+  /**
+   * Map of context key → op result field name. Only valid on
+   * programmatic nodes. Enforced during build().
+   */
+  contextUpdates?: NodeDefinition["contextUpdates"];
 }
 
 export class GraphBuilder {
@@ -122,6 +133,8 @@ export class GraphBuilder {
         waitOn: input.waitOn,
         timeout: input.timeout,
         sources: input.sources,
+        operation: input.operation,
+        contextUpdates: input.contextUpdates,
       };
     }
 

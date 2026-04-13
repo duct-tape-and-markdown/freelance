@@ -189,4 +189,78 @@ describe("GraphBuilder", () => {
         .build(),
     ).toThrow();
   });
+
+  it("builds a graph with a programmatic node", () => {
+    const result = new GraphBuilder("test-programmatic")
+      .setDescription("Programmatic node")
+      .node("prep", {
+        type: "programmatic",
+        description: "fetch status",
+        operation: { name: "memory_status" },
+        contextUpdates: { count: "total_propositions" },
+        edges: [{ target: "work", label: "ready" }],
+      })
+      .node("work", {
+        type: "action",
+        description: "agent step",
+        edges: [{ target: "end", label: "done" }],
+      })
+      .node("end", { type: "terminal", description: "done" })
+      .build();
+
+    expect(result.definition.nodes.prep.type).toBe("programmatic");
+    expect(result.definition.nodes.prep.operation).toEqual({ name: "memory_status" });
+    expect(result.definition.nodes.prep.contextUpdates).toEqual({ count: "total_propositions" });
+  });
+
+  it("passes programmatic operation.args through to the validated definition", () => {
+    const result = new GraphBuilder("test-programmatic-args")
+      .setDescription("Args")
+      .node("prep", {
+        type: "programmatic",
+        description: "browse with args",
+        operation: {
+          name: "memory_browse",
+          args: { collection: "context.collection", limit: 50 },
+        },
+        contextUpdates: { manifest: "entities" },
+        edges: [{ target: "end" }],
+      })
+      .node("end", { type: "terminal", description: "done" })
+      .build();
+
+    expect(result.definition.nodes.prep.operation?.args).toEqual({
+      collection: "context.collection",
+      limit: 50,
+    });
+  });
+
+  it("rejects a programmatic node with no operation (enforced by graph-construction)", () => {
+    expect(() =>
+      new GraphBuilder("test-missing-op")
+        .setDescription("Missing")
+        .node("prep", {
+          type: "programmatic",
+          description: "no op",
+          edges: [{ target: "end" }],
+        })
+        .node("end", { type: "terminal", description: "done" })
+        .build(),
+    ).toThrow(/programmatic node must declare an operation/);
+  });
+
+  it("rejects operation on a non-programmatic node", () => {
+    expect(() =>
+      new GraphBuilder("test-wrong-type")
+        .setDescription("Wrong type")
+        .node("start", {
+          type: "action",
+          description: "shouldn't have op",
+          operation: { name: "anything" },
+          edges: [{ target: "end" }],
+        })
+        .node("end", { type: "terminal", description: "done" })
+        .build(),
+    ).toThrow(/only programmatic nodes may have "operation"/);
+  });
 });
