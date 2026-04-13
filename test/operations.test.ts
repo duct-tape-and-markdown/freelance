@@ -84,6 +84,16 @@ describe("memory_status op", () => {
     expect(status).toHaveBeenCalledWith(undefined);
   });
 
+  it("treats empty-string collection as absent", () => {
+    // An initial context defaulting collection to "" is semantically
+    // "no collection specified" — not a collection literally named "".
+    const status = vi.fn().mockReturnValue(stubStatus);
+    const ctx = makeCtx(makeFakeStore({ status }));
+    const handler = createDefaultOpsRegistry(ctx).get("memory_status") as OpHandler;
+    handler({ collection: "" }, ctx);
+    expect(status).toHaveBeenCalledWith(undefined);
+  });
+
   it("throws on non-string collection arg", () => {
     const status = vi.fn().mockReturnValue(stubStatus);
     const ctx = makeCtx(makeFakeStore({ status }));

@@ -35,9 +35,21 @@ export const compileMessages = {
     "Use this workflow to build persistent knowledge about the codebase.",
 
   nodes: {
+    buildManifest: {
+      description:
+        "Pre-populate context.manifest with the top entities already in the target " +
+        "collection. Runs server-side before any agent turn — no LLM budget is spent " +
+        "here. The manifest primes the exploring node so the agent can reuse existing " +
+        "entity names instead of accidentally creating parallel hubs for the same concept.",
+    },
     exploring: {
       description: "Read source files relevant to the query.",
       instructions:
+        "Before reading files: inspect context.manifest, a list of the top entities " +
+        "already in this collection (populated automatically before you arrived at this " +
+        "node). If it's non-empty, these are the hubs you should reuse by name when you " +
+        "emit new propositions — don't invent parallel entities for concepts that already " +
+        "exist. If it's empty, the collection is fresh and you're compiling from scratch.\n\n" +
         "Read files related to the compilation query using your native Read tool. " +
         "After each read, call freelance_context_set to append the file path to " +
         "context.filesReadPaths. The path list is your working set — when you emit " +
@@ -67,6 +79,10 @@ export const compileMessages = {
   },
 
   edges: {
+    manifestReady: {
+      label: "manifest-ready",
+      description: "Entity manifest fetched from the target collection; proceeding to exploration.",
+    },
     filesRead: {
       label: "files-read",
       description: "At least one source file has been read.",

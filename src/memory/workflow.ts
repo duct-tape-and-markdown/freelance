@@ -20,6 +20,30 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       filesReadPaths: [],
       propositionsEmitted: 0,
       coverageSatisfied: false,
+      manifest: [],
+      manifestTotal: 0,
+    })
+    .node("build-manifest", {
+      type: "programmatic",
+      description: M.nodes.buildManifest.description,
+      operation: {
+        name: "memory_browse",
+        args: {
+          collection: "context.collection",
+          limit: 50,
+        },
+      },
+      contextUpdates: {
+        manifest: "entities",
+        manifestTotal: "total",
+      },
+      edges: [
+        {
+          target: "exploring",
+          label: M.edges.manifestReady.label,
+          description: M.edges.manifestReady.description,
+        },
+      ],
     })
     .node("exploring", {
       type: "action",

@@ -67,8 +67,10 @@ export interface OpsRegistry {
 
 /**
  * Extract an optional string arg from a resolved args object. Throws on
- * wrong type. Missing and null are both returned as undefined so handlers
- * can treat optional args uniformly.
+ * wrong type. Missing, null, and the empty string are all returned as
+ * undefined so handlers can treat optional args uniformly — an empty
+ * string from a context default ("collection": "") is semantically
+ * "no collection specified", not a collection literally named "".
  */
 function optionalString(args: Record<string, unknown>, key: string): string | undefined {
   const v = args[key];
@@ -78,7 +80,7 @@ function optionalString(args: Record<string, unknown>, key: string): string | un
       `Op arg "${key}" must be a string or null; got ${typeof v} (${JSON.stringify(v)})`,
     );
   }
-  return v;
+  return v === "" ? undefined : v;
 }
 
 /**
