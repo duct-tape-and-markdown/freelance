@@ -336,18 +336,39 @@ class Parser {
   }
 
   private resolveProperty(path: string): unknown {
-    // path is "context.foo.bar" — skip the "context." prefix
-    const segments = path.slice("context.".length).split(".");
-    let current: unknown = this.context;
-    for (const seg of segments) {
-      if (current === null || current === undefined || typeof current !== "object") {
-        return null;
-      }
-      current = (current as Record<string, unknown>)[seg];
-    }
-    return current === undefined ? null : current;
+    return resolveContextPath(this.context, path);
   }
 }
+
+/**
+ * Resolve a dotted `context.foo.bar` path against a context object. Returns
+ * the value at the path, or `null` if the path is absent, traverses through a
+ * non-object, or would otherwise yield `undefined`. The leading `context.`
+ * segment is required — this mirrors the expression-language contract so
+ * both the boolean evaluator and programmatic-node argument resolution share
+ * one source of truth for null propagation semantics.
+ */
+export function resolveContextPath(context: Record<string, unknown>, path: string): unknown {
+  if (!path.startsWith("context.")) {
+    throw new EvaluatorError(`Context path must start with 'context.' (got '${path}')`, path, 0);
+  }
+  const segments = path.slice("context.".length).split(".");
+  let current: unknown = context;
+  for (const seg of segments) {
+    if (current === null || current === undefined || typeof current !== "object") {
+      return null;
+    }
+    current = (current as Record<string, unknown>)[seg];
+  }
+  return current === undefined ? null : current;
+}
+
+/**
+ * Regex that matches a well-formed `context.foo.bar` path expression.
+ * Used to disambiguate literal strings from context references in contexts
+ * outside the full expression evaluator (e.g. programmatic-node op args).
+ */
+export const CONTEXT_PATH_PATTERN = /^context(\.[a-zA-Z_][a-zA-Z0-9_]*)+$/;
 
 /**
  * Dispatch a built-in function call.

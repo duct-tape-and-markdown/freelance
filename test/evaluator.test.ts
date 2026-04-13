@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { EvaluatorError, evaluate, extractPropertyComparisons } from "../src/evaluator.js";
+import {
+  CONTEXT_PATH_PATTERN,
+  EvaluatorError,
+  evaluate,
+  extractPropertyComparisons,
+  resolveContextPath,
+} from "../src/evaluator.js";
 
 describe("evaluate — basic equality", () => {
   it("context.value == true with true", () => {
@@ -354,5 +360,83 @@ describe("evaluate — len() builtin", () => {
 
   it("rejects empty argument", () => {
     expect(() => evaluate("len()", {})).toThrow(EvaluatorError);
+  });
+});
+
+describe("resolveContextPath", () => {
+  it("resolves a top-level key", () => {
+    expect(resolveContextPath({ foo: "bar" }, "context.foo")).toBe("bar");
+  });
+  it("resolves a nested path", () => {
+    expect(resolveContextPath({ a: { b: { c: 7 } } }, "context.a.b.c")).toBe(7);
+  });
+  it("returns null for a missing top-level key", () => {
+    expect(resolveContextPath({}, "context.missing")).toBeNull();
+  });
+  it("returns null for a missing nested segment", () => {
+    expect(resolveContextPath({ a: {} }, "context.a.b.c")).toBeNull();
+  });
+  it("returns null when traversing through a non-object", () => {
+    expect(resolveContextPath({ a: 5 }, "context.a.b")).toBeNull();
+  });
+  it("returns null for an explicitly undefined value", () => {
+    expect(resolveContextPath({ a: undefined }, "context.a")).toBeNull();
+  });
+  it("preserves null explicitly stored in context", () => {
+    expect(resolveContextPath({ a: null }, "context.a")).toBeNull();
+  });
+  it("preserves an empty array", () => {
+    expect(resolveContextPath({ a: [] }, "context.a")).toEqual([]);
+  });
+  it("preserves an array value at depth", () => {
+    expect(resolveContextPath({ a: { b: [1, 2] } }, "context.a.b")).toEqual([1, 2]);
+  });
+  it("throws on a path missing the context. prefix", () => {
+    expect(() => resolveContextPath({ foo: "bar" }, "foo")).toThrow(EvaluatorError);
+  });
+  it("throws on an empty path", () => {
+    expect(() => resolveContextPath({}, "")).toThrow(EvaluatorError);
+  });
+  it("shares semantics with the expression evaluator", () => {
+    // Parity check: the boolean evaluator and the exported resolver must
+    // agree on how null/undefined propagate, so both code paths can rely on
+    // a single source of truth for path semantics.
+    const context = { a: { b: [1, 2, 3] }, c: null, d: undefined };
+    expect(evaluate("len(context.a.b) == 3", context)).toBe(true);
+    expect(resolveContextPath(context, "context.a.b")).toEqual([1, 2, 3]);
+    expect(evaluate("context.c == null", context)).toBe(true);
+    expect(resolveContextPath(context, "context.c")).toBeNull();
+    expect(evaluate("context.d == null", context)).toBe(true);
+    expect(resolveContextPath(context, "context.d")).toBeNull();
+  });
+});
+
+describe("CONTEXT_PATH_PATTERN", () => {
+  it("matches a top-level context path", () => {
+    expect(CONTEXT_PATH_PATTERN.test("context.foo")).toBe(true);
+  });
+  it("matches a nested context path", () => {
+    expect(CONTEXT_PATH_PATTERN.test("context.foo.bar.baz")).toBe(true);
+  });
+  it("matches segments with underscores and digits", () => {
+    expect(CONTEXT_PATH_PATTERN.test("context.foo_bar.item2")).toBe(true);
+  });
+  it("rejects the bare 'context' keyword", () => {
+    expect(CONTEXT_PATH_PATTERN.test("context")).toBe(false);
+  });
+  it("rejects a trailing dot", () => {
+    expect(CONTEXT_PATH_PATTERN.test("context.foo.")).toBe(false);
+  });
+  it("rejects a leading digit on a segment", () => {
+    expect(CONTEXT_PATH_PATTERN.test("context.1foo")).toBe(false);
+  });
+  it("rejects a string that merely contains 'context.'", () => {
+    expect(CONTEXT_PATH_PATTERN.test("see context.foo for details")).toBe(false);
+  });
+  it("rejects an empty string", () => {
+    expect(CONTEXT_PATH_PATTERN.test("")).toBe(false);
+  });
+  it("rejects a path rooted at something other than context", () => {
+    expect(CONTEXT_PATH_PATTERN.test("other.foo")).toBe(false);
   });
 });
