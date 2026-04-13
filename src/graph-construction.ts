@@ -13,14 +13,39 @@
 // @dagrejs/graphlib — see loader.ts for the createRequire explanation
 // (tsx can't resolve named ESM exports from the CJS bundle).
 import { createRequire } from "node:module";
-import type { GraphDefinition } from "./schema/graph-schema.js";
+import type { OpsRegistry } from "./engine/operations.js";
+import type { GraphDefinition, NodeDefinition } from "./schema/graph-schema.js";
 
 const { Graph, alg } = createRequire(import.meta.url)(
   "@dagrejs/graphlib",
 ) as typeof import("@dagrejs/graphlib");
 type Graph = import("@dagrejs/graphlib").Graph;
 
-export function buildAndValidateGraph(def: GraphDefinition, filePath: string): Graph {
+/**
+ * Fields that a programmatic node must not carry. Each of these is either
+ * agent-facing (instructions, suggestedTools, maxTurns, readOnly) or
+ * belongs to a different node-type contract (validations, returns, waitOn,
+ * timeout, subgraph). Programmatic nodes are engine-internal execution
+ * points; they compose with the rest of the graph only through their
+ * operation, contextUpdates, and outgoing edges.
+ */
+const PROGRAMMATIC_FORBIDDEN_FIELDS: ReadonlyArray<keyof NodeDefinition> = [
+  "instructions",
+  "suggestedTools",
+  "maxTurns",
+  "readOnly",
+  "validations",
+  "returns",
+  "subgraph",
+  "waitOn",
+  "timeout",
+];
+
+export function buildAndValidateGraph(
+  def: GraphDefinition,
+  filePath: string,
+  opsRegistry?: OpsRegistry,
+): Graph {
   const g = new Graph({ directed: true });
   const nodeIds = Object.keys(def.nodes);
 
@@ -81,6 +106,44 @@ export function buildAndValidateGraph(def: GraphDefinition, filePath: string): G
       if (!node.waitOn || node.waitOn.length === 0) {
         throw new Error(
           `[${filePath}] Node "${nodeId}": wait node must have at least one waitOn entry`,
+        );
+      }
+    }
+
+    // Programmatic node constraints. Enforced post-Zod so the schema stays
+    // a simple flat shape (see src/schema/graph-schema.ts).
+    if (node.type === "programmatic") {
+      if (!node.operation) {
+        throw new Error(
+          `[${filePath}] Node "${nodeId}": programmatic node must declare an operation`,
+        );
+      }
+      for (const field of PROGRAMMATIC_FORBIDDEN_FIELDS) {
+        if (node[field] !== undefined) {
+          throw new Error(
+            `[${filePath}] Node "${nodeId}": programmatic node must not have "${field}". ` +
+              `Programmatic nodes are engine-internal; they compose through operation, ` +
+              `contextUpdates, and edges only.`,
+          );
+        }
+      }
+      if (opsRegistry && !opsRegistry.has(node.operation.name)) {
+        throw new Error(
+          `[${filePath}] Node "${nodeId}": unknown operation "${node.operation.name}". ` +
+            `Registered ops: [${opsRegistry.list().join(", ")}]`,
+        );
+      }
+    } else {
+      if (node.operation !== undefined) {
+        throw new Error(
+          `[${filePath}] Node "${nodeId}": only programmatic nodes may have "operation" ` +
+            `(got type "${node.type}")`,
+        );
+      }
+      if (node.contextUpdates !== undefined) {
+        throw new Error(
+          `[${filePath}] Node "${nodeId}": only programmatic nodes may have "contextUpdates" ` +
+            `(got type "${node.type}")`,
         );
       }
     }
