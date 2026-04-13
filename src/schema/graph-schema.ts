@@ -47,14 +47,8 @@ const waitOnEntrySchema = z.object({
   description: z.string().optional(),
 });
 
-/**
- * Operation binding for a programmatic node. `name` is looked up in the
- * ops registry at load time (when the registry is available) and at run
- * time when the drain loop executes the node. `args` values are either
- * literals (numbers, booleans, strings that aren't context paths, nulls,
- * arrays, objects) or context path references of the form `context.foo.bar`,
- * which are resolved against live traversal context before the op runs.
- */
+// `args` values are literals or `context.foo.bar` path references,
+// resolved against live context at drain time.
 const operationBindingSchema = z.object({
   name: z.string().min(1),
   args: z.record(z.string(), z.unknown()).optional(),
@@ -82,10 +76,8 @@ export const nodeDefinitionSchema = z.object({
   waitOn: z.array(waitOnEntrySchema).optional(),
   timeout: z.string().optional(),
   sources: z.array(sourceBindingSchema).optional(),
-  // Programmatic-node fields. Required on programmatic nodes and forbidden on
-  // all other types — that invariant is enforced post-parse in
-  // graph-construction.ts so we stay consistent with how wait/gate/subgraph
-  // conditional fields are validated.
+  // Required on programmatic nodes and forbidden elsewhere; enforced
+  // post-parse in graph-construction.ts (matching the wait/gate pattern).
   operation: operationBindingSchema.optional(),
   contextUpdates: z.record(z.string(), z.string()).optional(),
 });

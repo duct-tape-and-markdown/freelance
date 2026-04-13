@@ -1,34 +1,18 @@
-/**
- * TraversalStore plumbing tests for programmatic nodes.
- *
- * Verifies that opsRegistry + opContext passed to TraversalStore's
- * constructor reach the GraphEngine instances created by
- * createTraversal() and loadEngine(), and that a programmatic drain
- * survives the stateless load/save cycle the store enforces on each
- * operation.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createTestOpsRegistry, type OpHandler } from "../src/engine/operations.js";
-import { buildAndValidateGraph } from "../src/graph-construction.js";
 import { openStateStore, TraversalStore } from "../src/state/index.js";
-import type { GraphDefinition, ValidatedGraph } from "../src/types.js";
-
-function buildGraphs(def: GraphDefinition): Map<string, ValidatedGraph> {
-  const graph = buildAndValidateGraph(def, "<test>");
-  return new Map([[def.id, { definition: def, graph }]]);
-}
+import type { GraphDefinition } from "../src/types.js";
+import { buildSingleGraphMap } from "./helpers.js";
 
 function store(def: GraphDefinition, handlers: Record<string, OpHandler> = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ts-prog-"));
   const state = openStateStore(path.join(tmpDir, "traversals"));
-  return new TraversalStore(state, buildGraphs(def), {
+  return new TraversalStore(state, buildSingleGraphMap(def), {
     opsRegistry: createTestOpsRegistry({
       set_value: (args) => ({ value: args.value }),
-      noop: () => ({}),
       ...handlers,
     }),
     opContext: { memoryStore: {} as never },
@@ -174,7 +158,7 @@ describe("TraversalStore + programmatic nodes", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ts-prog-"));
     const state = openStateStore(path.join(tmpDir, "traversals"));
     // No opsRegistry/opContext on the store
-    const ts = new TraversalStore(state, buildGraphs(simpleChainGraph));
+    const ts = new TraversalStore(state, buildSingleGraphMap(simpleChainGraph));
     expect(() => ts.createTraversal("ts-prog-chain")).toThrow(/no ops registry/);
   });
 });

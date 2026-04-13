@@ -146,13 +146,6 @@ export function createTraversalStore(opts: CliSetupOptions): {
   const backend = openStateStore(traversalsDir);
   const maxDepth = opts.maxDepth ?? 5;
 
-  // When memory is enabled in the resolved config, construct a live
-  // MemoryStore and wire its ops registry into the TraversalStore. This
-  // lets CLI traversal commands (advance, inspect, reset, etc.) execute
-  // programmatic nodes from memory-backed workflows. If memory is off
-  // or the config is missing, the store is constructed without a
-  // registry and any programmatic node hit at runtime throws
-  // NO_OPS_REGISTRY — consistent with the server path.
   const config = loadConfigFromDirs(setup.graphsDirs);
   const memConfig = resolveMemoryConfig(setup.graphsDirs, {}, config);
   const memoryStore = memConfig

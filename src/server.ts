@@ -38,9 +38,8 @@ export function createServer(
   memoryStore?: MemoryStore;
   manager: TraversalStore;
 } {
-  // --- Memory construction (must happen before TraversalStore so the ops
-  //     registry can be built from the live MemoryStore reference and
-  //     threaded into the engines that TraversalStore constructs).
+  // MemoryStore is constructed before TraversalStore so the ops registry
+  // can be built from it and passed into the engines the store creates.
   let memoryStore: MemoryStore | undefined;
   let opsRegistry: OpsRegistry | undefined;
   if (options?.memory?.enabled !== false && options?.memory?.db) {
@@ -105,7 +104,6 @@ export function createServer(
     getLoadErrors: () => currentLoadErrors,
   });
 
-  // --- Memory tool registration and sealed-workflow injection
   if (memoryStore) {
     const hasActiveMemoryTraversal = () =>
       manager.hasActiveTraversalForGraph(COMPILE_KNOWLEDGE_ID, RECOLLECTION_ID);

@@ -1,21 +1,10 @@
-/**
- * End-to-end test: createServer wires the default ops registry when
- * memory is enabled, so programmatic nodes in memory-backed workflows
- * can drain without an explicit registry argument.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildAndValidateGraph } from "../src/graph-construction.js";
 import { createServer } from "../src/server.js";
-import type { GraphDefinition, ValidatedGraph } from "../src/types.js";
-
-function buildGraphs(def: GraphDefinition): Map<string, ValidatedGraph> {
-  const graph = buildAndValidateGraph(def, "<test>");
-  return new Map([[def.id, { definition: def, graph }]]);
-}
+import type { GraphDefinition } from "../src/types.js";
+import { buildSingleGraphMap } from "./helpers.js";
 
 const programmaticGraph: GraphDefinition = {
   id: "srv-prog",
@@ -56,7 +45,7 @@ describe("createServer — ops registry wiring with memory enabled", () => {
   });
 
   it("drains a programmatic node that calls memory_status", () => {
-    const graphs = buildGraphs(programmaticGraph);
+    const graphs = buildSingleGraphMap(programmaticGraph);
     const { manager, memoryStore } = createServer(graphs, {
       memory: { enabled: true, db: path.join(memDir, "test.db") },
       sourceRoot: tmpRoot,
@@ -75,7 +64,7 @@ describe("createServer — ops registry wiring with memory enabled", () => {
   });
 
   it("fails gracefully when memory is disabled and a programmatic workflow exists", () => {
-    const graphs = buildGraphs(programmaticGraph);
+    const graphs = buildSingleGraphMap(programmaticGraph);
     const { manager, memoryStore } = createServer(graphs, {
       memory: { enabled: false, db: "" },
     });

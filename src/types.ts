@@ -46,9 +46,6 @@ export interface NodeInfo {
   readonly returns?: ReturnSchema;
   readonly readOnly?: boolean;
   readonly sources?: readonly SourceBinding[];
-  // Programmatic-node binding, surfaced to clients (freelance_inspect,
-  // freelance_list) so workflow authors can see which op a node runs
-  // and what context keys it writes.
   readonly operation?: {
     readonly name: string;
     readonly args?: Readonly<Record<string, unknown>>;
@@ -161,9 +158,8 @@ export interface HistoryEntry {
   readonly edge: string;
   readonly timestamp: string;
   readonly contextSnapshot: Readonly<Record<string, unknown>>;
-  // Present when this entry records a programmatic-node hop. The engine executed
-  // an operation server-side and projected its result into context via the
-  // declared contextUpdates mapping. appliedUpdates is the exact delta written.
+  // Populated on programmatic-node hops with the op name and the exact
+  // context delta it wrote through contextUpdates.
   readonly operation?: {
     readonly name: string;
     readonly appliedUpdates: Readonly<Record<string, unknown>>;

@@ -10,8 +10,6 @@ import {
 import { EngineError } from "../src/errors.js";
 import type { GraphDefinition, NodeDefinition, SessionState } from "../src/types.js";
 
-// --- Fixtures ---
-
 function makeSession(startNode: string, context: Record<string, unknown> = {}): SessionState {
   return {
     graphId: "test-graph",
@@ -35,8 +33,6 @@ function makeGraph(nodes: Record<string, NodeDefinition>, strictContext = false)
     nodes,
   };
 }
-
-// --- resolveOpArgs ---
 
 describe("resolveOpArgs", () => {
   it("passes literal strings through unchanged", () => {
@@ -85,8 +81,6 @@ describe("resolveOpArgs", () => {
   });
 });
 
-// --- projectOpResult ---
-
 describe("projectOpResult", () => {
   it("picks named fields from a result object", () => {
     const result = { total: 42, valid: 40, stale: 2 };
@@ -119,8 +113,6 @@ describe("projectOpResult", () => {
     });
   });
 });
-
-// --- pickOutgoingEdge ---
 
 describe("pickOutgoingEdge", () => {
   const makeProgNode = (edges: NodeDefinition["edges"]): NodeDefinition => ({
@@ -178,8 +170,6 @@ describe("pickOutgoingEdge", () => {
     expect(() => pickOutgoingEdge(node, { x: 99 }, "N")).toThrow(EngineError);
   });
 });
-
-// --- drainProgrammaticChain ---
 
 describe("drainProgrammaticChain — single node", () => {
   let setCall: ReturnType<typeof vi.fn>;

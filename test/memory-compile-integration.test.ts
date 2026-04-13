@@ -1,18 +1,3 @@
-/**
- * End-to-end integration for memory:compile with the build-manifest
- * programmatic node running against a real MemoryStore.
- *
- * Seeds a collection via direct memory_emit calls, then starts the
- * memory:compile workflow and verifies that:
- *   1. The drain loop populates context.manifest with entities from
- *      the seeded collection before the agent sees the exploring node.
- *   2. History records the programmatic hop with operation metadata.
- *   3. Starting against an empty (unseeded) collection still lands at
- *      exploring with an empty manifest, no errors.
- *   4. Starting without any collection argument lets the browse op
- *      run with undefined collection (global scope) — defensive path.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

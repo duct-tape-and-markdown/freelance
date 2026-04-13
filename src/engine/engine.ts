@@ -32,19 +32,9 @@ import { computeTimeoutAt, evaluateWaitConditions } from "./wait.js";
 
 export interface GraphEngineOptions {
   maxDepth?: number;
-  /**
-   * Ops registry for programmatic-node execution. When present, the drain
-   * loop can run operations from this registry between agent turns. When
-   * absent, any programmatic node encountered during traversal throws
-   * EngineError("NO_OPS_REGISTRY"). Graphs without programmatic nodes run
-   * identically with or without the registry.
-   */
+  // Required for graphs containing programmatic nodes. Must be supplied
+  // together — the drain loop refuses to run ops without both.
   opsRegistry?: OpsRegistry;
-  /**
-   * Host capabilities passed to op handlers (currently: a MemoryStore
-   * reference). Required alongside opsRegistry — the drain loop refuses
-   * to run ops without both.
-   */
   opContext?: OpContext;
 }
 
@@ -102,10 +92,6 @@ export class GraphEngine {
       startedAt: new Date().toISOString(),
     });
 
-    // If the start node is programmatic, drain the chain before handing
-    // control back to the agent. The agent should never see a programmatic
-    // node as an "arrived at" position — they see whatever non-programmatic
-    // node the chain terminates at, with context already populated.
     const session = this.activeSession();
     drainProgrammaticChain(session, def, this.opsRegistry, this.opContext);
 
@@ -182,13 +168,6 @@ export class GraphEngine {
     session.currentNode = edgeDef.target;
     session.turnCount = 0;
 
-    // Drain zero or more programmatic hops before the agent-visible
-    // dispatch. The drainer mutates session.currentNode, history, and
-    // context; on return we're guaranteed to be on a non-programmatic
-    // node (or one that the dispatch below will handle — terminal,
-    // wait, or subgraph push are all non-programmatic by schema
-    // constraint, so they fall through cleanly). If no programmatic
-    // node is in the chain this is effectively a no-op.
     drainProgrammaticChain(session, def, this.opsRegistry, this.opContext);
 
     const newNodeDef = def.nodes[session.currentNode];

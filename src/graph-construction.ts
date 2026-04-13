@@ -21,14 +21,9 @@ const { Graph, alg } = createRequire(import.meta.url)(
 ) as typeof import("@dagrejs/graphlib");
 type Graph = import("@dagrejs/graphlib").Graph;
 
-/**
- * Fields that a programmatic node must not carry. Each of these is either
- * agent-facing (instructions, suggestedTools, maxTurns, readOnly) or
- * belongs to a different node-type contract (validations, returns, waitOn,
- * timeout, subgraph). Programmatic nodes are engine-internal execution
- * points; they compose with the rest of the graph only through their
- * operation, contextUpdates, and outgoing edges.
- */
+// Programmatic nodes compose only through operation, contextUpdates, and
+// outgoing edges. Every other node-level field is agent-facing or belongs
+// to a different node-type contract.
 const PROGRAMMATIC_FORBIDDEN_FIELDS: ReadonlyArray<keyof NodeDefinition> = [
   "instructions",
   "suggestedTools",
@@ -121,9 +116,7 @@ export function buildAndValidateGraph(
       for (const field of PROGRAMMATIC_FORBIDDEN_FIELDS) {
         if (node[field] !== undefined) {
           throw new Error(
-            `[${filePath}] Node "${nodeId}": programmatic node must not have "${field}". ` +
-              `Programmatic nodes are engine-internal; they compose through operation, ` +
-              `contextUpdates, and edges only.`,
+            `[${filePath}] Node "${nodeId}": programmatic node must not have "${field}"`,
           );
         }
       }

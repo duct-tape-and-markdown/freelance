@@ -1,27 +1,9 @@
-/**
- * Tests for inspect rendering of programmatic node metadata.
- *
- * Verifies:
- *   - toNodeInfo surfaces operation + contextUpdates for programmatic nodes
- *     (used by any code path that renders a NodeInfo — freelance_inspect
- *     --detail position, freelance_list, future introspection endpoints).
- *   - inspect --detail history exposes HistoryEntry.operation with
- *     appliedUpdates visible to downstream consumers.
- *   - inspect --detail full surfaces programmatic nodes in the definition
- *     round-trip.
- */
-
 import { describe, expect, it } from "vitest";
 import { toNodeInfo } from "../src/engine/helpers.js";
 import { GraphEngine } from "../src/engine/index.js";
 import { createTestOpsRegistry } from "../src/engine/operations.js";
-import { buildAndValidateGraph } from "../src/graph-construction.js";
-import type { GraphDefinition, NodeDefinition, ValidatedGraph } from "../src/types.js";
-
-function buildGraphs(def: GraphDefinition): Map<string, ValidatedGraph> {
-  const graph = buildAndValidateGraph(def, "<test>");
-  return new Map([[def.id, { definition: def, graph }]]);
-}
+import type { NodeDefinition } from "../src/types.js";
+import { buildSingleGraphMap } from "./helpers.js";
 
 describe("toNodeInfo — programmatic node rendering", () => {
   it("exposes operation and contextUpdates for a programmatic node", () => {
@@ -78,7 +60,7 @@ describe("toNodeInfo — programmatic node rendering", () => {
 
 describe("inspect --detail history — programmatic hop metadata", () => {
   it("surfaces HistoryEntry.operation.appliedUpdates through the full pipeline", () => {
-    const graphs = buildGraphs({
+    const graphs = buildSingleGraphMap({
       id: "insp-hist",
       version: "1.0.0",
       name: "Inspect History",
@@ -117,7 +99,7 @@ describe("inspect --detail history — programmatic hop metadata", () => {
   });
 
   it("history omits operation field for agent-driven hops", () => {
-    const graphs = buildGraphs({
+    const graphs = buildSingleGraphMap({
       id: "insp-agent",
       version: "1.0.0",
       name: "Agent Hop",
@@ -140,7 +122,7 @@ describe("inspect --detail history — programmatic hop metadata", () => {
 
 describe("inspect --detail full — programmatic node in definition", () => {
   it("round-trips programmatic node schema fields through inspect full", () => {
-    const graphs = buildGraphs({
+    const graphs = buildSingleGraphMap({
       id: "insp-full",
       version: "1.0.0",
       name: "Full",

@@ -1,26 +1,10 @@
-/**
- * End-to-end tests for programmatic-node integration with GraphEngine.
- *
- * These tests exercise the full advance() and start() path including the
- * drain loop, as opposed to test/programmatic.test.ts which unit-tests
- * drainProgrammaticChain in isolation. Graphs are built in-memory via
- * buildAndValidateGraph so we don't need a YAML fixture for every case.
- */
-
 import { describe, expect, it } from "vitest";
 import { GraphEngine } from "../src/engine/index.js";
 import { createTestOpsRegistry, type OpHandler } from "../src/engine/operations.js";
-import { buildAndValidateGraph } from "../src/graph-construction.js";
-import type { GraphDefinition, ValidatedGraph } from "../src/types.js";
-
-function buildGraph(def: GraphDefinition): Map<string, ValidatedGraph> {
-  const graph = buildAndValidateGraph(def, "<test>");
-  return new Map([[def.id, { definition: def, graph }]]);
-}
+import { buildSingleGraphMap } from "./helpers.js";
 
 function testOps(handlers: Record<string, OpHandler> = {}) {
   return createTestOpsRegistry({
-    noop: () => ({}),
     set_value: (args) => ({ value: args.value }),
     set_flag: () => ({ flag: true }),
     ...handlers,
@@ -29,7 +13,7 @@ function testOps(handlers: Record<string, OpHandler> = {}) {
 
 describe("GraphEngine + programmatic nodes — start()", () => {
   it("drains a programmatic chain from the start node", () => {
-    const graphs = buildGraph({
+    const graphs = buildSingleGraphMap({
       id: "start-drain",
       version: "1.0.0",
       name: "Start Drain",
@@ -63,7 +47,7 @@ describe("GraphEngine + programmatic nodes — start()", () => {
   });
 
   it("chains multiple programmatic nodes from start", () => {
-    const graphs = buildGraph({
+    const graphs = buildSingleGraphMap({
       id: "multi-start",
       version: "1.0.0",
       name: "Multi",
@@ -103,7 +87,7 @@ describe("GraphEngine + programmatic nodes — start()", () => {
   });
 
   it("start() works unchanged for graphs without programmatic nodes", () => {
-    const graphs = buildGraph({
+    const graphs = buildSingleGraphMap({
       id: "no-programmatic",
       version: "1.0.0",
       name: "Plain",
@@ -126,7 +110,7 @@ describe("GraphEngine + programmatic nodes — start()", () => {
 
 describe("GraphEngine + programmatic nodes — advance()", () => {
   function setupChainGraph() {
-    return buildGraph({
+    return buildSingleGraphMap({
       id: "chain",
       version: "1.0.0",
       name: "Chain",
@@ -203,7 +187,7 @@ describe("GraphEngine + programmatic nodes — advance()", () => {
   });
 
   it("agent update before programmatic chain is visible to op args", () => {
-    const graphs = buildGraph({
+    const graphs = buildSingleGraphMap({
       id: "agent-into-prog",
       version: "1.0.0",
       name: "Agent → Programmatic",
@@ -239,7 +223,7 @@ describe("GraphEngine + programmatic nodes — advance()", () => {
   });
 
   it("drain loop lands at a terminal and returns complete", () => {
-    const graphs = buildGraph({
+    const graphs = buildSingleGraphMap({
       id: "prog-to-terminal",
       version: "1.0.0",
       name: "Programmatic → Terminal",
@@ -271,7 +255,7 @@ describe("GraphEngine + programmatic nodes — advance()", () => {
   });
 
   it("drain loop lands at a wait node and returns waiting", () => {
-    const graphs = buildGraph({
+    const graphs = buildSingleGraphMap({
       id: "prog-to-wait",
       version: "1.0.0",
       name: "Programmatic → Wait",
@@ -310,7 +294,7 @@ describe("GraphEngine + programmatic nodes — advance()", () => {
 
 describe("GraphEngine + programmatic nodes — no registry configured", () => {
   it("throws when hitting a programmatic node without an ops registry", () => {
-    const graphs = buildGraph({
+    const graphs = buildSingleGraphMap({
       id: "needs-registry",
       version: "1.0.0",
       name: "Needs Registry",
@@ -333,7 +317,7 @@ describe("GraphEngine + programmatic nodes — no registry configured", () => {
   });
 
   it("graphs without programmatic nodes run fine without a registry", () => {
-    const graphs = buildGraph({
+    const graphs = buildSingleGraphMap({
       id: "plain",
       version: "1.0.0",
       name: "Plain",

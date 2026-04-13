@@ -17,11 +17,7 @@ interface WatcherOptions {
   onConfigChange?: (dir: string) => void;
   /** Debounce interval in ms (default: 200) */
   debounceMs?: number;
-  /**
-   * Optional ops registry for validating programmatic-node op names at
-   * reload time. When provided, reloads reject graphs that reference
-   * unknown ops; when omitted, validation is deferred to runtime.
-   */
+  // Enables load-time op-name validation during reloads when present.
   opsRegistry?: OpsRegistry;
 }
 

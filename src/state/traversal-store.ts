@@ -26,17 +26,9 @@ function generateTraversalId(): string {
 
 export interface TraversalStoreOptions {
   maxDepth?: number;
-  /**
-   * Ops registry passed through to every GraphEngine instance constructed
-   * for load/create/advance operations. Required for any workflow that
-   * contains programmatic nodes; graphs without them work without one.
-   */
+  // Passed through to every GraphEngine this store constructs. Required
+  // together for graphs containing programmatic nodes.
   opsRegistry?: OpsRegistry;
-  /**
-   * Host capabilities passed alongside opsRegistry to op handlers during
-   * programmatic drain. Must be provided whenever opsRegistry is provided
-   * (the drain loop refuses to run ops without both).
-   */
   opContext?: OpContext;
 }
 

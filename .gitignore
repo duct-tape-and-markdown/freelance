@@ -28,4 +28,5 @@ logs/
 # Project
 .freelance/
 .claude/settings.local.json
+.claude/worktrees/
 docs/

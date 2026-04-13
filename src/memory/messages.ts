@@ -36,11 +36,7 @@ export const compileMessages = {
 
   nodes: {
     buildManifest: {
-      description:
-        "Pre-populate context.manifest with the top entities already in the target " +
-        "collection. Runs server-side before any agent turn — no LLM budget is spent " +
-        "here. The manifest primes the exploring node so the agent can reuse existing " +
-        "entity names instead of accidentally creating parallel hubs for the same concept.",
+      description: "Pre-populate context.manifest with top entities from the target collection.",
     },
     exploring: {
       description: "Read source files relevant to the query.",
@@ -81,7 +77,7 @@ export const compileMessages = {
   edges: {
     manifestReady: {
       label: "manifest-ready",
-      description: "Entity manifest fetched from the target collection; proceeding to exploration.",
+      description: "Entity manifest fetched from the target collection.",
     },
     filesRead: {
       label: "files-read",

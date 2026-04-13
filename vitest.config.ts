@@ -2,6 +2,9 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    // Skip git worktrees nested under .claude/ so vitest doesn't
+    // re-discover and re-run every test file from a parallel workspace.
+    exclude: ["**/node_modules/**", "**/dist/**", ".claude/**"],
     coverage: {
       provider: "v8",
       reporter: ["text"],

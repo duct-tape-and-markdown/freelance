@@ -1,38 +1,3 @@
-/**
- * Programmatic-node drain loop.
- *
- * When a traversal lands on a `programmatic` node, the engine runs its
- * declared operation server-side, projects the result into context via
- * the node's contextUpdates mapping, picks the first outgoing edge whose
- * condition is met, and advances — all without consuming an agent turn.
- * If the new target is also programmatic, the loop continues until it
- * lands on a non-programmatic node (or a terminal, subgraph, or wait
- * node, which are all handled by the main advance dispatch immediately
- * after this function returns).
- *
- * The drain loop composes with the existing engine helpers rather than
- * duplicating them:
- *
- *   - applyContextUpdates: the same append-only mutation path agent
- *     updates use. Each op's contextUpdates flow through it, which means
- *     every programmatic write lands in contextHistory with the correct
- *     setAt pointer and timestamp.
- *   - enforceStrictContext: the same invariant agents are held to. If a
- *     graph declares strictContext and a programmatic op would write an
- *     undeclared key, the drain loop throws rather than silently bloat
- *     the context shape.
- *   - evaluateTransitions: the same edge-selection semantics every other
- *     part of the engine sees. Default edges, conditional edges, and
- *     unconditional edges all compose through one path.
- *
- * Errors thrown from this loop are EngineError, not AdvanceErrorResult.
- * Op failures signal that the workflow or the engine host is in an
- * inconsistent state — not something the agent can recover from by
- * adjusting context — so they bubble as exceptions. Business-logic
- * branching (empty results, missing entities, zero counts) should be
- * encoded as edge conditions, not as thrown errors; see operations.ts.
- */
-
 import { EngineError } from "../errors.js";
 import { CONTEXT_PATH_PATTERN, resolveContextPath } from "../evaluator.js";
 import type { GraphDefinition, HistoryEntry, NodeDefinition, SessionState } from "../types.js";
@@ -42,20 +7,15 @@ import type { OpContext, OpsRegistry } from "./operations.js";
 import { evaluateTransitions } from "./transitions.js";
 
 /**
- * Belt-and-suspenders runtime guard against runaway programmatic chains.
- * Authoring-time validation in graph-construction.ts rejects any cycle
- * composed entirely of programmatic nodes, so this cap should never fire
- * in a valid graph. If it does, something slipped past the validator.
+ * Runtime cap for programmatic chain length. The existing cycle validator
+ * (graph-construction.ts:validateCycles) rejects cycles without a
+ * decision/gate/wait node, which by construction rejects pure-programmatic
+ * cycles — so this cap should never fire in a loaded graph. It exists as a
+ * backstop for construction-time gaps.
+ * @internal
  */
 export const MAX_PROGRAMMATIC_STEPS = 32;
 
-/**
- * Run zero or more programmatic hops from the current session position
- * until the next non-programmatic node is reached. Mutates the session's
- * context, history, currentNode, and turnCount in place. Returns the
- * number of programmatic hops executed (zero if the current node was
- * already non-programmatic).
- */
 export function drainProgrammaticChain(
   session: SessionState,
   graphDef: GraphDefinition,
@@ -78,8 +38,8 @@ export function drainProgrammaticChain(
     if (steps >= MAX_PROGRAMMATIC_STEPS) {
       throw new EngineError(
         `Programmatic chain exceeded ${MAX_PROGRAMMATIC_STEPS} steps. ` +
-          `Path: ${visited.join(" → ")}. Authoring-time cycle detection should have ` +
-          `caught this — report as a validator bug.`,
+          `Path: ${visited.join(" → ")}. The cycle validator should have caught this — ` +
+          `check for a pure-programmatic cycle in the graph.`,
         "PROGRAMMATIC_CHAIN_CAP_EXCEEDED",
       );
     }
@@ -94,8 +54,7 @@ export function drainProgrammaticChain(
 
     if (!node.operation) {
       throw new EngineError(
-        `Programmatic node "${session.currentNode}" has no operation defined. ` +
-          `Graph construction validation should have rejected this.`,
+        `Programmatic node "${session.currentNode}" has no operation defined`,
         "PROGRAMMATIC_MISSING_OPERATION",
       );
     }
@@ -141,7 +100,9 @@ export function drainProgrammaticChain(
       contextSnapshot: cloneContext(session.context),
       operation: {
         name: node.operation.name,
-        appliedUpdates: cloneContext(projected),
+        // `projected` is freshly built every iteration and doesn't escape;
+        // no clone needed.
+        appliedUpdates: projected,
       },
     };
     session.history.push(historyEntry);
@@ -154,14 +115,9 @@ export function drainProgrammaticChain(
 }
 
 /**
- * Resolve a programmatic-node op-arg map against live context. Strings
- * that match the CONTEXT_PATH_PATTERN are resolved as dotted context
- * paths via the expression evaluator's shared path resolver; everything
- * else (numbers, booleans, null, arrays, objects, plain strings) is
- * passed through as a literal. This single rule is the entire arg
- * language in Phase 1 — no interpolation, no expressions, no computed
- * values. If authors need computed args, they write an op that produces
- * them into context and reference the resulting key.
+ * Resolve op args against live context. Strings matching CONTEXT_PATH_PATTERN
+ * are resolved as dotted paths; everything else (numbers, booleans, null,
+ * arrays, objects, plain strings) passes through as a literal.
  */
 export function resolveOpArgs(
   args: Record<string, unknown>,
@@ -179,11 +135,9 @@ export function resolveOpArgs(
 }
 
 /**
- * Project fields from an op result into an updates object usable by
- * applyContextUpdates. Each contextUpdates entry maps a context key to
- * a top-level field name on the op result. Missing fields are a hard
- * error — that means the op's return shape and the node's contextUpdates
- * mapping are out of sync, which is a workflow bug worth surfacing.
+ * Project op result fields into an updates object for applyContextUpdates.
+ * Missing fields are a hard error: an op's return shape and a node's
+ * contextUpdates mapping drifting apart is a workflow bug worth surfacing.
  */
 export function projectOpResult(
   result: Record<string, unknown>,
@@ -207,11 +161,8 @@ export function projectOpResult(
 }
 
 /**
- * Pick the first outgoing edge from a programmatic node whose condition
- * is met in the current context. Uses evaluateTransitions so the
- * selection semantics — conditional edges, default edges, unconditional
- * edges — are identical to what the agent sees when inspecting valid
- * transitions on a non-programmatic node.
+ * Pick the first outgoing edge whose condition is met, via evaluateTransitions
+ * so programmatic branching shares semantics with the agent-visible path.
  */
 export function pickOutgoingEdge(
   node: NodeDefinition,

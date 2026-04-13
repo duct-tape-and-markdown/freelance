@@ -1,12 +1,3 @@
-/**
- * Loader plumbing tests for programmatic nodes.
- *
- * Verifies that the opsRegistry parameter threaded through loadSingleGraph,
- * loadGraphs, loadGraphsCollecting, and loadGraphsLayered actually reaches
- * the graph-construction validator and rejects unknown op names at load
- * time (rather than deferring to the drain loop's runtime check).
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

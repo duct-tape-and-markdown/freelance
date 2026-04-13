@@ -30,9 +30,8 @@ import type { ValidatedGraph } from "./types.js";
  * Returns the graph id, definition, and graphlib graph.
  * Throws on any validation failure with descriptive errors.
  *
- * When an opsRegistry is provided, programmatic-node op names are
- * validated at load time (rejected if unregistered). Without a registry,
- * op name validation is deferred to the drain loop's runtime check.
+ * Passing an opsRegistry enables load-time validation of programmatic
+ * node op names; without one, validation defers to drain-loop runtime.
  */
 export function loadSingleGraph(
   filePath: string,
@@ -58,14 +57,7 @@ export function loadSingleGraph(
 
 /**
  * Validate a GraphDefinition and build its graphlib graph.
- * This is the shared validation pipeline used by both YAML loading and
- * programmatic graph construction (GraphBuilder).
- *
- * @param def - A valid GraphDefinition (already schema-parsed)
- * @param source - Label for error messages (file path or builder id)
- * @param opsRegistry - Optional registry for programmatic-node op-name
- *   validation. When omitted, op names are not checked at load time.
- * @returns The validated graphlib Graph
+ * Shared pipeline used by both YAML loading and GraphBuilder.
  */
 export function validateAndBuild(
   def: GraphDefinition,
@@ -114,9 +106,6 @@ export function findGraphFiles(dir: string): string[] {
  * Load and validate all *.workflow.yaml files from a directory (recursively).
  * Returns a Map of graphId → ValidatedGraph.
  * Throws on any validation failure with descriptive errors.
- *
- * When an opsRegistry is provided, programmatic-node op names are
- * validated at load time for every graph.
  */
 export function loadGraphs(
   directory: string,
@@ -171,9 +160,6 @@ export interface CollectingLoadResult {
  * Load and validate all *.workflow.yaml files, collecting errors instead of
  * throwing or writing to stderr. Always returns both graphs and errors.
  * Suitable for contexts where partial success should be surfaced.
- *
- * When an opsRegistry is provided, programmatic-node op names are
- * validated at load time.
  */
 export function loadGraphsCollecting(
   directories: string[],
@@ -222,9 +208,6 @@ export function loadGraphsCollecting(
  * Later directories shadow earlier ones (same graph ID in later dir wins).
  * Non-existent or empty directories are skipped with warnings.
  * Returns a Map of graphId → ValidatedGraph.
- *
- * When an opsRegistry is provided, programmatic-node op names are
- * validated at load time for every graph.
  */
 export function loadGraphsLayered(
   directories: string[],

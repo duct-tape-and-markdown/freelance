@@ -1,11 +1,3 @@
-/**
- * Graph-construction validation tests for programmatic nodes.
- *
- * These tests exercise buildAndValidateGraph directly with in-memory
- * definitions — no YAML — so we can assert on specific rejection paths
- * without carrying dozens of fixture files.
- */
-
 import { describe, expect, it } from "vitest";
 import { createTestOpsRegistry } from "../src/engine/operations.js";
 import { buildAndValidateGraph } from "../src/graph-construction.js";
