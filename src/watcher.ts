@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import type { OpsRegistry } from "./engine/operations.js";
 import type { CollectingLoadResult } from "./loader.js";
 import { loadGraphsCollecting } from "./loader.js";
 import type { ValidatedGraph } from "./types.js";
@@ -16,6 +17,12 @@ interface WatcherOptions {
   onConfigChange?: (dir: string) => void;
   /** Debounce interval in ms (default: 200) */
   debounceMs?: number;
+  /**
+   * Optional ops registry for validating programmatic-node op names at
+   * reload time. When provided, reloads reject graphs that reference
+   * unknown ops; when omitted, validation is deferred to runtime.
+   */
+  opsRegistry?: OpsRegistry;
 }
 
 /**
@@ -31,7 +38,15 @@ interface WatcherOptions {
  * Returns a cleanup function that stops watching.
  */
 export function watchGraphs(options: WatcherOptions): () => void {
-  const { graphsDir, onUpdate, onError, onLoadErrors, onConfigChange, debounceMs = 200 } = options;
+  const {
+    graphsDir,
+    onUpdate,
+    onError,
+    onLoadErrors,
+    onConfigChange,
+    debounceMs = 200,
+    opsRegistry,
+  } = options;
   const dirs = Array.isArray(graphsDir) ? graphsDir : [graphsDir];
 
   let graphDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -39,7 +54,7 @@ export function watchGraphs(options: WatcherOptions): () => void {
 
   function reload() {
     try {
-      const { graphs, errors } = loadGraphsCollecting(dirs);
+      const { graphs, errors } = loadGraphsCollecting(dirs, opsRegistry);
       onUpdate(graphs);
       if (onLoadErrors) {
         onLoadErrors(errors);

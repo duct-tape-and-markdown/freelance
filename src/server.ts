@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfigFromDirs } from "./config.js";
+import { createDefaultOpsRegistry, type OpsRegistry } from "./engine/operations.js";
 import type { MemoryConfig } from "./memory/index.js";
 import { MemoryStore, registerMemoryTools } from "./memory/index.js";
 import { buildRecollectionWorkflow, RECOLLECTION_ID } from "./memory/recollection.js";
@@ -37,8 +38,26 @@ export function createServer(
   memoryStore?: MemoryStore;
   manager: TraversalStore;
 } {
+  // --- Memory construction (must happen before TraversalStore so the ops
+  //     registry can be built from the live MemoryStore reference and
+  //     threaded into the engines that TraversalStore constructs).
+  let memoryStore: MemoryStore | undefined;
+  let opsRegistry: OpsRegistry | undefined;
+  if (options?.memory?.enabled !== false && options?.memory?.db) {
+    memoryStore = new MemoryStore(
+      options.memory.db,
+      options.sourceRoot,
+      options.memory.collections,
+    );
+    opsRegistry = createDefaultOpsRegistry({ memoryStore });
+  }
+
   const backend = openStateStore(options?.stateDir ?? ":memory:");
-  const manager = new TraversalStore(backend, graphs, options);
+  const manager = new TraversalStore(backend, graphs, {
+    maxDepth: options?.maxDepth,
+    opsRegistry,
+    opContext: memoryStore ? { memoryStore } : undefined,
+  });
 
   // Mutable load errors — updated by watcher on reload. Tool handlers
   // read through the getter below so they always see the current value.
@@ -51,11 +70,10 @@ export function createServer(
   };
 
   let stopWatcher: (() => void) | undefined;
-  // memoryStore is assigned later but referenced by the watcher callback (fires async)
-  let memoryStore: MemoryStore | undefined;
   if (options?.graphsDirs?.length) {
     stopWatcher = watchGraphs({
       graphsDir: options.graphsDirs,
+      opsRegistry,
       onUpdate: (newGraphs) => manager.updateGraphs(newGraphs),
       onError: (err) => {
         process.stderr.write(`Graph reload failed: ${err.message}\n`);
@@ -87,13 +105,8 @@ export function createServer(
     getLoadErrors: () => currentLoadErrors,
   });
 
-  // --- Memory ---
-  if (options?.memory?.enabled !== false && options?.memory?.db) {
-    memoryStore = new MemoryStore(
-      options.memory.db,
-      options.sourceRoot,
-      options.memory.collections,
-    );
+  // --- Memory tool registration and sealed-workflow injection
+  if (memoryStore) {
     const hasActiveMemoryTraversal = () =>
       manager.hasActiveTraversalForGraph(COMPILE_KNOWLEDGE_ID, RECOLLECTION_ID);
     registerMemoryTools(server, memoryStore, hasActiveMemoryTraversal);

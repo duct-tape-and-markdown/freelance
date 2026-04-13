@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { FreelanceConfig } from "../config.js";
 import { loadConfigFromDirs } from "../config.js";
+import { createDefaultOpsRegistry } from "../engine/operations.js";
 import { loadGraphsGraceful, resolveGraphsDirs, resolveSourceRoot } from "../graph-resolution.js";
 import type { MemoryConfig } from "../memory/index.js";
 import { MemoryStore } from "../memory/index.js";
@@ -144,7 +145,26 @@ export function createTraversalStore(opts: CliSetupOptions): {
   const traversalsDir = resolveStateDir(setup.graphsDirs);
   const backend = openStateStore(traversalsDir);
   const maxDepth = opts.maxDepth ?? 5;
-  const store = new TraversalStore(backend, setup.graphs, { maxDepth });
+
+  // When memory is enabled in the resolved config, construct a live
+  // MemoryStore and wire its ops registry into the TraversalStore. This
+  // lets CLI traversal commands (advance, inspect, reset, etc.) execute
+  // programmatic nodes from memory-backed workflows. If memory is off
+  // or the config is missing, the store is constructed without a
+  // registry and any programmatic node hit at runtime throws
+  // NO_OPS_REGISTRY — consistent with the server path.
+  const config = loadConfigFromDirs(setup.graphsDirs);
+  const memConfig = resolveMemoryConfig(setup.graphsDirs, {}, config);
+  const memoryStore = memConfig
+    ? new MemoryStore(memConfig.db, setup.sourceRoot, memConfig.collections)
+    : undefined;
+  const opsRegistry = memoryStore ? createDefaultOpsRegistry({ memoryStore }) : undefined;
+
+  const store = new TraversalStore(backend, setup.graphs, {
+    maxDepth,
+    opsRegistry,
+    opContext: memoryStore ? { memoryStore } : undefined,
+  });
   return { store, setup };
 }
 
