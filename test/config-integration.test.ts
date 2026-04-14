@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { configSetLocal } from "../src/cli/config.js";
-import { ensureStateDir, resolveMemoryConfig } from "../src/cli/setup.js";
+import { ensureFreelanceDir, resolveMemoryConfig } from "../src/cli/setup.js";
 import { loadConfig, loadConfigFromDirs } from "../src/config.js";
 import { resolveDefaultGraphsDirs } from "../src/graph-resolution.js";
 import { tmpFreelanceDir, withTmpEnv } from "./helpers.js";
@@ -115,6 +115,63 @@ describe("config + memory resolution", () => {
       if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true });
     }
   });
+
+  it("CLI --memory overrides config.yml memory.enabled=false", () => {
+    // Symmetric to the --no-memory test above: CLI flag should win
+    // in both directions, enabling memory that config disables.
+    const freelanceDir = makeDir("mem-force-on-");
+    fs.writeFileSync(path.join(freelanceDir, "config.yml"), "memory:\n  enabled: false\n");
+
+    const memConfig = resolveMemoryConfig([freelanceDir], { memory: true });
+    expect(memConfig).not.toBeNull();
+    expect(memConfig!.enabled).toBe(true);
+  });
+});
+
+describe("maxDepth precedence", () => {
+  it("reads maxDepth from config.yml", () => {
+    const freelanceDir = makeDir("maxdepth-config-");
+    fs.writeFileSync(path.join(freelanceDir, "config.yml"), "maxDepth: 12\n");
+
+    const cfg = loadConfigFromDirs([freelanceDir]);
+    expect(cfg.maxDepth).toBe(12);
+  });
+
+  it("config.local.yml overrides config.yml maxDepth", () => {
+    const freelanceDir = makeDir("maxdepth-local-");
+    fs.writeFileSync(path.join(freelanceDir, "config.yml"), "maxDepth: 5\n");
+    fs.writeFileSync(path.join(freelanceDir, "config.local.yml"), "maxDepth: 20\n");
+
+    const cfg = loadConfigFromDirs([freelanceDir]);
+    expect(cfg.maxDepth).toBe(20);
+  });
+
+  it("maxDepth absent from config resolves to undefined", () => {
+    const freelanceDir = makeDir("maxdepth-absent-");
+    fs.writeFileSync(path.join(freelanceDir, "config.yml"), "memory:\n  enabled: true\n");
+
+    const cfg = loadConfigFromDirs([freelanceDir]);
+    expect(cfg.maxDepth).toBeUndefined();
+  });
+});
+
+describe("hooks.timeoutMs precedence", () => {
+  it("reads hooks.timeoutMs from config.yml", () => {
+    const freelanceDir = makeDir("hooks-timeout-config-");
+    fs.writeFileSync(path.join(freelanceDir, "config.yml"), "hooks:\n  timeoutMs: 10000\n");
+
+    const cfg = loadConfigFromDirs([freelanceDir]);
+    expect(cfg.hooks.timeoutMs).toBe(10000);
+  });
+
+  it("config.local.yml overrides config.yml hooks.timeoutMs", () => {
+    const freelanceDir = makeDir("hooks-timeout-local-");
+    fs.writeFileSync(path.join(freelanceDir, "config.yml"), "hooks:\n  timeoutMs: 5000\n");
+    fs.writeFileSync(path.join(freelanceDir, "config.local.yml"), "hooks:\n  timeoutMs: 15000\n");
+
+    const cfg = loadConfigFromDirs([freelanceDir]);
+    expect(cfg.hooks.timeoutMs).toBe(15000);
+  });
 });
 
 describe("multi-dir config merge", () => {
@@ -181,15 +238,16 @@ memory:
 });
 
 describe(".gitignore auto-generation", () => {
-  it("ensureStateDir creates .gitignore covering config.local.yml", () => {
+  it("ensureFreelanceDir creates .gitignore covering runtime artifacts", () => {
     const freelanceDir = makeDir("gitignore-");
-    ensureStateDir(freelanceDir);
+    ensureFreelanceDir(freelanceDir);
 
     const ignorePath = path.join(freelanceDir, ".gitignore");
     expect(fs.existsSync(ignorePath)).toBe(true);
 
     const content = fs.readFileSync(ignorePath, "utf-8");
-    expect(content).toContain(".state/");
+    expect(content).toContain("memory/");
+    expect(content).toContain("traversals/");
     expect(content).toContain("config.local.yml");
   });
 
@@ -198,7 +256,7 @@ describe(".gitignore auto-generation", () => {
     const ignorePath = path.join(freelanceDir, ".gitignore");
     fs.writeFileSync(ignorePath, "custom-content\n");
 
-    ensureStateDir(freelanceDir);
+    ensureFreelanceDir(freelanceDir);
 
     const content = fs.readFileSync(ignorePath, "utf-8");
     expect(content).toBe("custom-content\n");

@@ -60,9 +60,9 @@ function assertSafeId(id: string): void {
 }
 
 class JsonDirectoryStateStore implements StateStore {
-  constructor(private dir: string) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  // Constructor is pure — directory creation happens in openStateStore
+  // so the class can be tested against an already-prepared directory.
+  constructor(private dir: string) {}
 
   private fileFor(id: string): string {
     assertSafeId(id);
@@ -125,11 +125,14 @@ class JsonDirectoryStateStore implements StateStore {
 
 /**
  * Open a traversal state store. Pass `":memory:"` for an ephemeral in-process
- * store, or a directory path for a persistent JSON-file store.
+ * store, or a directory path for a persistent JSON-file store. Ensures the
+ * target directory exists before returning — callers can treat the returned
+ * store as ready-to-use.
  */
 export function openStateStore(pathOrSentinel: string): StateStore {
   if (pathOrSentinel === ":memory:") {
     return new InMemoryStateStore();
   }
+  fs.mkdirSync(pathOrSentinel, { recursive: true });
   return new JsonDirectoryStateStore(pathOrSentinel);
 }

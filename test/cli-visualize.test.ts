@@ -21,6 +21,13 @@ describe("CLI visualize", () => {
   let exitSpy: ReturnType<typeof vi.spyOn>;
   let stderrSpy: ReturnType<typeof vi.spyOn>;
   let stdoutSpy: ReturnType<typeof vi.spyOn>;
+  const createdTmpDirs: string[] = [];
+
+  function makeTmpDir(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "viz-test-"));
+    createdTmpDirs.push(dir);
+    return dir;
+  }
 
   beforeEach(() => {
     exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
@@ -33,6 +40,10 @@ describe("CLI visualize", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    while (createdTmpDirs.length > 0) {
+      const dir = createdTmpDirs.pop();
+      if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("outputs Mermaid diagram to stdout", () => {
@@ -71,7 +82,7 @@ describe("CLI visualize", () => {
   });
 
   it("writes to file with --output", () => {
-    const outFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "viz-test-")), "out.mmd");
+    const outFile = path.join(makeTmpDir(), "out.mmd");
     visualize(fixturePath("valid-simple.workflow.yaml"), {
       format: "mermaid",
       output: outFile,
@@ -89,7 +100,7 @@ describe("CLI visualize", () => {
   });
 
   it("exits with INVALID_USAGE for wrong extension", () => {
-    const tmpFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "viz-test-")), "bad.yaml");
+    const tmpFile = path.join(makeTmpDir(), "bad.yaml");
     fs.writeFileSync(tmpFile, "id: test\n");
     expect(() => visualize(tmpFile, { format: "mermaid" })).toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(2);
@@ -145,17 +156,14 @@ describe("CLI visualize", () => {
   });
 
   it("exits with GRAPH_ERROR for valid extension but invalid content", () => {
-    const tmpFile = path.join(
-      fs.mkdtempSync(path.join(os.tmpdir(), "viz-test-")),
-      "broken.workflow.yaml",
-    );
+    const tmpFile = path.join(makeTmpDir(), "broken.workflow.yaml");
     fs.writeFileSync(tmpFile, "this is not valid graph yaml at all");
     expect(() => visualize(tmpFile, { format: "mermaid" })).toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(3);
   });
 
   it("writes DOT format to file with --output", () => {
-    const outFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "viz-test-")), "out.dot");
+    const outFile = path.join(makeTmpDir(), "out.dot");
     visualize(fixturePath("valid-simple.workflow.yaml"), {
       format: "dot",
       output: outFile,

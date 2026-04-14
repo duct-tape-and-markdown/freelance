@@ -2,10 +2,25 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { openDatabase } from "../src/memory/db.js";
 import { MemoryStore } from "../src/memory/store.js";
+import type { CollectionConfig } from "../src/memory/types.js";
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "memory-test-"));
+}
+
+/**
+ * Test helper: open a database at the given path and wrap it in a
+ * MemoryStore. Mirrors the composition-root pattern where the host
+ * opens the db once and hands the handle to MemoryStore.
+ */
+function makeMemoryStore(
+  dbPath: string,
+  sourceRoot: string,
+  collections?: CollectionConfig[],
+): MemoryStore {
+  return new MemoryStore(openDatabase(dbPath), sourceRoot, collections);
 }
 
 let writeSeq = 0;
@@ -27,7 +42,7 @@ describe("MemoryStore", () => {
 
   beforeEach(() => {
     tmpDir = createTempDir();
-    store = new MemoryStore(path.join(tmpDir, "memory.db"), tmpDir);
+    store = makeMemoryStore(path.join(tmpDir, "memory.db"), tmpDir);
   });
 
   afterEach(() => {
@@ -398,7 +413,7 @@ describe("MemoryStore", () => {
   describe("stateless multi-process access", () => {
     it("second store instance sees propositions emitted by the first", () => {
       const dbPath = path.join(tmpDir, "memory.db");
-      const store2 = new MemoryStore(dbPath, tmpDir);
+      const store2 = makeMemoryStore(dbPath, tmpDir);
 
       writeFile(tmpDir, "a.ts", "x");
       writeFile(tmpDir, "b.ts", "y");
@@ -751,7 +766,7 @@ describe("MemoryStore", () => {
     });
 
     it("scopes to collection when provided", () => {
-      const colStore = new MemoryStore(path.join(tmpDir, "rel-col.db"), tmpDir, [
+      const colStore = makeMemoryStore(path.join(tmpDir, "rel-col.db"), tmpDir, [
         { name: "spec", description: "Specs", paths: [""] },
         { name: "domain", description: "Domain", paths: [""] },
       ]);
@@ -792,7 +807,7 @@ describe("MemoryStore", () => {
     });
 
     it("same proposition in two collections creates two rows", () => {
-      const colStore = new MemoryStore(path.join(tmpDir, "col.db"), tmpDir, [
+      const colStore = makeMemoryStore(path.join(tmpDir, "col.db"), tmpDir, [
         { name: "spec", description: "Specs", paths: [""] },
         { name: "domain", description: "Domain", paths: [""] },
       ]);
@@ -807,7 +822,7 @@ describe("MemoryStore", () => {
     });
 
     it("deduplicates within the same collection", () => {
-      const colStore = new MemoryStore(path.join(tmpDir, "col2.db"), tmpDir, [
+      const colStore = makeMemoryStore(path.join(tmpDir, "col2.db"), tmpDir, [
         { name: "spec", description: "Specs", paths: [""] },
       ]);
 
@@ -826,7 +841,7 @@ describe("MemoryStore", () => {
     });
 
     it("browse with collection filter scopes results", () => {
-      const colStore = new MemoryStore(path.join(tmpDir, "col3.db"), tmpDir, [
+      const colStore = makeMemoryStore(path.join(tmpDir, "col3.db"), tmpDir, [
         { name: "spec", description: "Specs", paths: [""] },
         { name: "domain", description: "Domain", paths: [""] },
       ]);
@@ -852,7 +867,7 @@ describe("MemoryStore", () => {
     });
 
     it("inspect with collection filter shows only that collection's propositions", () => {
-      const colStore = new MemoryStore(path.join(tmpDir, "col4.db"), tmpDir, [
+      const colStore = makeMemoryStore(path.join(tmpDir, "col4.db"), tmpDir, [
         { name: "spec", description: "Specs", paths: [""] },
         { name: "domain", description: "Domain", paths: [""] },
       ]);
@@ -879,7 +894,7 @@ describe("MemoryStore", () => {
     });
 
     it("search with collection filter scopes results", () => {
-      const colStore = new MemoryStore(path.join(tmpDir, "col5.db"), tmpDir, [
+      const colStore = makeMemoryStore(path.join(tmpDir, "col5.db"), tmpDir, [
         { name: "spec", description: "Specs", paths: [""] },
         { name: "domain", description: "Domain", paths: [""] },
       ]);
@@ -905,7 +920,7 @@ describe("MemoryStore", () => {
     });
 
     it("status scoped to collection", () => {
-      const colStore = new MemoryStore(path.join(tmpDir, "col6.db"), tmpDir, [
+      const colStore = makeMemoryStore(path.join(tmpDir, "col6.db"), tmpDir, [
         { name: "spec", description: "Specs", paths: [""] },
         { name: "domain", description: "Domain", paths: [""] },
       ]);

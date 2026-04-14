@@ -47,7 +47,11 @@ export function traversalStatus(store: TraversalStore): void {
   }
 }
 
-export function traversalStart(store: TraversalStore, graphId: string, context?: string): void {
+export async function traversalStart(
+  store: TraversalStore,
+  graphId: string,
+  context?: string,
+): Promise<void> {
   try {
     let initialContext: Record<string, unknown> | undefined;
     if (context) {
@@ -58,7 +62,7 @@ export function traversalStart(store: TraversalStore, graphId: string, context?:
         throw new Error(`--context must be valid JSON: ${msg}`);
       }
     }
-    const result = store.createTraversal(graphId, initialContext);
+    const result = await store.createTraversal(graphId, initialContext);
     if (cli.json) {
       outputJson(result);
     } else {
@@ -73,11 +77,11 @@ export function traversalStart(store: TraversalStore, graphId: string, context?:
   }
 }
 
-export function traversalAdvance(
+export async function traversalAdvance(
   store: TraversalStore,
   edge?: string,
   opts?: { traversal?: string; context?: string },
-): void {
+): Promise<void> {
   try {
     const id = store.resolveTraversalId(opts?.traversal);
     let contextUpdates: Record<string, unknown> | undefined;
@@ -110,7 +114,7 @@ export function traversalAdvance(
       }
       return;
     }
-    const result = store.advance(id, edge, contextUpdates);
+    const result = await store.advance(id, edge, contextUpdates);
     if (cli.json) {
       outputJson(result);
     } else {

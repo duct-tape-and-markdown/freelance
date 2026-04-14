@@ -17,10 +17,10 @@ export function registerAdvanceTool(server: McpServer, deps: FreelanceToolDeps):
         contextUpdates: z.record(z.string(), z.unknown()).optional(),
       },
     },
-    ({ traversalId, edge, contextUpdates }) => {
+    async ({ traversalId, edge, contextUpdates }) => {
       try {
         const id = manager.resolveTraversalId(traversalId);
-        const result = manager.advance(id, edge, contextUpdates);
+        const result = await manager.advance(id, edge, contextUpdates);
         if (result.isError) {
           return errorResponse(result.reason, result);
         }

@@ -1,0 +1,19 @@
+id: hook-slow
+version: "1.0.0"
+name: "Hook Slow"
+description: "Hook fixture whose script never resolves in time — used to test timeout."
+startNode: start
+
+nodes:
+  start:
+    type: action
+    description: "Start — hook will time out"
+    onEnter:
+      - call: ./scripts/slow.js
+    edges:
+      - target: done
+        label: next
+
+  done:
+    type: terminal
+    description: "Unreachable"

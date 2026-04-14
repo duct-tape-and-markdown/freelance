@@ -6,9 +6,21 @@
  *   .freelance/config.local.yml  — gitignored, machine-specific (plugin hooks)
  *
  * Merge rules:
- *   - Arrays (workflows, memory.collections) concatenate
- *   - Scalars (memory.enabled, memory.dir) use local over base
- *   - CLI flags and env vars override everything (handled by callers)
+ *   - Arrays (workflows, memory.collections) concatenate across files
+ *   - Scalars (memory.enabled, memory.dir, maxDepth, hooks.timeoutMs)
+ *     use local over base
+ *
+ * Per-field CLI / env / config surface (see README.md for the full table):
+ *   workflows        — CLI: --workflows (repeatable); env: FREELANCE_WORKFLOWS
+ *   memory.enabled   — CLI: --memory / --no-memory
+ *   memory.dir       — CLI: --memory-dir
+ *   maxDepth         — CLI: --max-depth
+ *   hooks.timeoutMs  — config-only; no CLI flag or env var
+ *   sourceRoot       — CLI: --source-root; computed from graphsDir otherwise
+ *
+ * Callers in src/cli/program.ts and src/cli/setup.ts apply the CLI
+ * overrides on top of the parsed file config. This module is purely
+ * the file-layer loader and merger.
  */
 
 import fs from "node:fs";
@@ -33,9 +45,17 @@ const memorySchema = z
   })
   .optional();
 
+const hooksSchema = z
+  .object({
+    timeoutMs: z.number().int().positive().optional(),
+  })
+  .optional();
+
 const configSchema = z.object({
   workflows: z.array(z.string()).optional(),
   memory: memorySchema,
+  hooks: hooksSchema,
+  maxDepth: z.number().int().positive().optional(),
 });
 
 type FreelanceConfigFile = z.infer<typeof configSchema>;
@@ -48,6 +68,11 @@ export interface FreelanceConfig {
     dir?: string;
     collections?: CollectionConfig[];
   };
+  hooks: {
+    timeoutMs?: number;
+  };
+  /** Max subgraph stack depth. CLI `--max-depth` overrides this. */
+  maxDepth?: number;
   /** Which files contributed to this config, in load order. */
   sources: string[];
 }
@@ -106,6 +131,14 @@ function mergeConfigs(
     };
   }
 
+  if (overlay.hooks) {
+    merged.hooks = { ...(base.hooks ?? {}), ...overlay.hooks };
+  }
+
+  if (overlay.maxDepth !== undefined) {
+    merged.maxDepth = overlay.maxDepth;
+  }
+
   return merged;
 }
 
@@ -120,6 +153,10 @@ function toFreelanceConfig(merged: FreelanceConfigFile, sources: string[]): Free
         ? (merged.memory.collections as CollectionConfig[])
         : undefined,
     },
+    hooks: {
+      timeoutMs: merged.hooks?.timeoutMs,
+    },
+    maxDepth: merged.maxDepth,
     sources,
   };
 }
@@ -157,7 +194,7 @@ export function loadConfig(freelanceDir: string): FreelanceConfig {
  */
 export function loadConfigFromDirs(dirs: string[]): FreelanceConfig {
   if (dirs.length === 0) {
-    return { workflows: [], memory: {}, sources: [] };
+    return { workflows: [], memory: {}, hooks: {}, sources: [] };
   }
 
   let mergedFile: FreelanceConfigFile = {};

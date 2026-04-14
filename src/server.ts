@@ -1,12 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { Runtime } from "./compose.js";
+import { composeRuntime } from "./compose.js";
 import { loadConfigFromDirs } from "./config.js";
 import type { MemoryConfig } from "./memory/index.js";
-import { MemoryStore, registerMemoryTools } from "./memory/index.js";
+import { registerMemoryTools } from "./memory/index.js";
 import { buildRecollectionWorkflow, RECOLLECTION_ID } from "./memory/recollection.js";
 import { buildCompileKnowledgeWorkflow, COMPILE_KNOWLEDGE_ID } from "./memory/workflow.js";
-import type { SectionResolver, SourceOptions } from "./sources.js";
-import { openStateStore, TraversalStore } from "./state/index.js";
+import type { SectionResolver } from "./sources.js";
 import { registerFreelanceTools } from "./tools/index.js";
 import type { ValidatedGraph } from "./types.js";
 import { VERSION } from "./version.js";
@@ -26,6 +27,8 @@ export interface ServerOptions {
   memory?: MemoryConfig;
   /** Directory for persistent traversal state (one JSON file per traversal). Falls back to :memory: if not set. */
   stateDir?: string;
+  /** Max runtime per onEnter hook. Default 5000ms. */
+  hookTimeoutMs?: number;
 }
 
 export function createServer(
@@ -34,25 +37,25 @@ export function createServer(
 ): {
   server: McpServer;
   stopWatcher?: () => void;
-  memoryStore?: MemoryStore;
-  manager: TraversalStore;
+  runtime: Runtime;
 } {
-  const backend = openStateStore(options?.stateDir ?? ":memory:");
-  const manager = new TraversalStore(backend, graphs, options);
+  const runtime = composeRuntime({
+    graphs,
+    graphsDir: options?.graphsDirs?.[0],
+    stateDir: options?.stateDir ?? ":memory:",
+    sourceRoot: options?.sourceRoot,
+    sectionResolver: options?.sectionResolver,
+    memory: options?.memory,
+    maxDepth: options?.maxDepth,
+    hookTimeoutMs: options?.hookTimeoutMs,
+  });
+  const { store: manager, memoryStore, sourceOpts } = runtime;
 
   // Mutable load errors — updated by watcher on reload. Tool handlers
   // read through the getter below so they always see the current value.
   let currentLoadErrors: Array<{ file: string; message: string }> = options?.loadErrors ?? [];
 
-  // Shared source options — sourceRoot is the basePath for all source resolution
-  const sourceOpts: SourceOptions = {
-    resolver: options?.sectionResolver,
-    basePath: options?.sourceRoot,
-  };
-
   let stopWatcher: (() => void) | undefined;
-  // memoryStore is assigned later but referenced by the watcher callback (fires async)
-  let memoryStore: MemoryStore | undefined;
   if (options?.graphsDirs?.length) {
     stopWatcher = watchGraphs({
       graphsDir: options.graphsDirs,
@@ -88,12 +91,7 @@ export function createServer(
   });
 
   // --- Memory ---
-  if (options?.memory?.enabled !== false && options?.memory?.db) {
-    memoryStore = new MemoryStore(
-      options.memory.db,
-      options.sourceRoot,
-      options.memory.collections,
-    );
+  if (memoryStore) {
     const hasActiveMemoryTraversal = () =>
       manager.hasActiveTraversalForGraph(COMPILE_KNOWLEDGE_ID, RECOLLECTION_ID);
     registerMemoryTools(server, memoryStore, hasActiveMemoryTraversal);
@@ -113,14 +111,14 @@ export function createServer(
     }
   }
 
-  return { server, stopWatcher, memoryStore, manager };
+  return { server, stopWatcher, runtime };
 }
 
 export async function startServer(
   graphs: Map<string, ValidatedGraph>,
   options?: ServerOptions,
 ): Promise<void> {
-  const { server, stopWatcher, memoryStore, manager } = createServer(graphs, options);
+  const { server, stopWatcher, runtime } = createServer(graphs, options);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
@@ -140,8 +138,7 @@ export async function startServer(
     void (async () => {
       try {
         if (stopWatcher) stopWatcher();
-        if (memoryStore) memoryStore.close();
-        manager.close();
+        runtime.close();
         await server.close();
       } finally {
         process.exit(exitCode);
