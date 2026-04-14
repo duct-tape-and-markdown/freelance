@@ -20,20 +20,16 @@ const { Graph, alg } = createRequire(import.meta.url)(
 ) as typeof import("@dagrejs/graphlib");
 type Graph = import("@dagrejs/graphlib").Graph;
 
-// Programmatic nodes compose only through operation, contextUpdates, and
-// outgoing edges. Every other node-level field is agent-facing or belongs
-// to a different node-type contract.
-const PROGRAMMATIC_FORBIDDEN_FIELDS: ReadonlyArray<keyof NodeDefinition> = [
-  "instructions",
-  "suggestedTools",
-  "maxTurns",
-  "readOnly",
-  "validations",
-  "returns",
-  "subgraph",
-  "waitOn",
-  "timeout",
-];
+// Programmatic nodes compose only through these fields. Allowlist rather
+// than denylist so adding a new optional field to nodeDefinitionSchema
+// doesn't silently expand what programmatic nodes accept.
+const PROGRAMMATIC_ALLOWED_FIELDS: ReadonlySet<keyof NodeDefinition> = new Set([
+  "type",
+  "description",
+  "edges",
+  "operation",
+  "contextUpdates",
+]);
 
 export function buildAndValidateGraph(def: GraphDefinition, filePath: string): Graph {
   const g = new Graph({ directed: true });
@@ -108,10 +104,12 @@ export function buildAndValidateGraph(def: GraphDefinition, filePath: string): G
           `[${filePath}] Node "${nodeId}": programmatic node must declare an operation`,
         );
       }
-      for (const field of PROGRAMMATIC_FORBIDDEN_FIELDS) {
-        if (node[field] !== undefined) {
+      for (const field of Object.keys(node) as Array<keyof NodeDefinition>) {
+        if (node[field] === undefined) continue;
+        if (!PROGRAMMATIC_ALLOWED_FIELDS.has(field)) {
           throw new Error(
-            `[${filePath}] Node "${nodeId}": programmatic node must not have "${field}"`,
+            `[${filePath}] Node "${nodeId}": programmatic node has field "${field}" ` +
+              `which is not allowed. Allowed: [${[...PROGRAMMATIC_ALLOWED_FIELDS].join(", ")}]`,
           );
         }
       }

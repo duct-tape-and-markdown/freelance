@@ -71,6 +71,12 @@ export interface StartResult {
   readonly validTransitions: readonly TransitionInfo[];
   readonly context: Readonly<Record<string, unknown>>;
   readonly graphSources?: readonly SourceBinding[];
+  // Populated when the start-node drain lands on a wait node, so the
+  // client can discover "waiting on an external signal" without a
+  // follow-up inspect() call.
+  readonly waitingOn?: readonly WaitCondition[];
+  readonly timeout?: string;
+  readonly timeoutAt?: string;
 }
 
 export interface SubgraphPushedInfo {

@@ -10,6 +10,7 @@ import type {
   SessionState,
   StartResult,
   ValidatedGraph,
+  WaitCondition,
 } from "../types.js";
 import {
   applyContextUpdates,
@@ -97,10 +98,23 @@ export class GraphEngine {
 
     const landedNodeId = session.currentNode;
     const node = def.nodes[landedNodeId];
-    // Start the wait-timeout clock if the drain landed on a wait node.
-    // Also covers the pre-existing case where startNode itself is a wait.
+    // Start the wait-timeout clock and surface wait metadata directly
+    // in StartResult if the drain landed on a wait node, so clients
+    // don't need a follow-up inspect() to discover they're waiting.
+    let waitFields: {
+      waitingOn?: readonly WaitCondition[];
+      timeout?: string;
+      timeoutAt?: string;
+    } = {};
     if (node.type === "wait" && node.waitOn) {
       session.waitArrivedAt = new Date().toISOString();
+      const waitingOn = evaluateWaitConditions(node.waitOn, session.context);
+      const timeoutAt = computeTimeoutAt(session.waitArrivedAt, node.timeout);
+      waitFields = {
+        waitingOn,
+        ...(node.timeout ? { timeout: node.timeout } : {}),
+        ...(timeoutAt ? { timeoutAt } : {}),
+      };
     }
     return {
       status: "started",
@@ -111,6 +125,7 @@ export class GraphEngine {
       validTransitions: evaluateTransitions(node, session.context),
       context: cloneContext(session.context),
       ...(def.sources && def.sources.length > 0 ? { graphSources: def.sources } : {}),
+      ...waitFields,
     } satisfies StartResult;
   }
 

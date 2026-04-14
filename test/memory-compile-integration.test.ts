@@ -91,7 +91,7 @@ describe("memory:compile + build-manifest integration", () => {
     }
   });
 
-  it("records the programmatic hop in traversal history with operation metadata", () => {
+  it("records both programmatic hops in traversal history (check-memory → build-manifest)", () => {
     seedMemory(dbPath, sourceDir);
     const graphs = new Map<string, ValidatedGraph>();
     const { manager, memoryStore } = createServer(graphs, {
@@ -109,14 +109,27 @@ describe("memory:compile + build-manifest integration", () => {
       });
       const history = manager.inspect(start.traversalId, "history");
       if (!("traversalHistory" in history)) throw new Error("expected history result");
-      expect(history.traversalHistory).toHaveLength(1);
-      const entry = history.traversalHistory[0];
-      expect(entry.node).toBe("build-manifest");
-      expect(entry.edge).toBe("manifest-ready");
-      expect(entry.operation).toBeDefined();
-      expect(entry.operation?.name).toBe("memory_browse");
-      expect(entry.operation?.appliedUpdates).toHaveProperty("manifest");
-      expect(entry.operation?.appliedUpdates).toHaveProperty("manifestTotal");
+      expect(history.traversalHistory).toHaveLength(2);
+
+      const checkEntry = history.traversalHistory[0];
+      expect(checkEntry.node).toBe("check-memory");
+      expect(checkEntry.edge).toBe("memory-checked");
+      expect(checkEntry.operation?.name).toBe("memory_status");
+      expect(checkEntry.operation?.appliedUpdates).toHaveProperty("priorPropositionCount");
+      expect(checkEntry.operation?.appliedUpdates).toHaveProperty("priorEntityCount");
+
+      const manifestEntry = history.traversalHistory[1];
+      expect(manifestEntry.node).toBe("build-manifest");
+      expect(manifestEntry.edge).toBe("manifest-ready");
+      expect(manifestEntry.operation?.name).toBe("memory_browse");
+      expect(manifestEntry.operation?.appliedUpdates).toHaveProperty("manifest");
+      expect(manifestEntry.operation?.appliedUpdates).toHaveProperty("manifestTotal");
+
+      // End state: both ops' updates should be visible in context.
+      const ctx = start.context as Record<string, unknown>;
+      expect(ctx.priorPropositionCount).toBeGreaterThanOrEqual(2);
+      expect(ctx.priorEntityCount).toBeGreaterThanOrEqual(2);
+      expect(Array.isArray(ctx.manifest)).toBe(true);
     } finally {
       memoryStore?.close();
       manager.close();

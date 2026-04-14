@@ -409,9 +409,9 @@ describe("GraphEngine + programmatic nodes — subgraph push drains child startN
   });
 });
 
-describe("GraphEngine + programmatic nodes — start() sets waitArrivedAt when drain lands on wait", () => {
-  it("sets waitArrivedAt on the active session when startNode-chain lands on a wait node", () => {
-    const graphs = buildSingleGraphMap({
+describe("GraphEngine + programmatic nodes — start() surfaces wait state directly", () => {
+  function buildStartToWaitGraph() {
+    return buildSingleGraphMap({
       id: "start-to-wait",
       version: "1.0.0",
       name: "Start to Wait",
@@ -436,16 +436,68 @@ describe("GraphEngine + programmatic nodes — start() sets waitArrivedAt when d
         end: { type: "terminal", description: "done" },
       },
     });
-    const engine = new GraphEngine(graphs, {
+  }
+
+  it("StartResult includes waitingOn, timeout, and timeoutAt when drain lands on wait", () => {
+    const engine = new GraphEngine(buildStartToWaitGraph(), {
+      opsRegistry: testOps(),
+      opContext: { memoryStore: {} as never },
+    });
+    const result = engine.start("start-to-wait");
+    expect(result.currentNode).toBe("wait-for-it");
+    expect(result.waitingOn).toHaveLength(1);
+    expect(result.waitingOn?.[0]).toMatchObject({
+      key: "externalReady",
+      type: "boolean",
+      satisfied: false,
+    });
+    expect(result.timeout).toBe("1h");
+    expect(result.timeoutAt).toBeDefined();
+  });
+
+  it("inspect --detail position agrees with the direct StartResult fields", () => {
+    const engine = new GraphEngine(buildStartToWaitGraph(), {
       opsRegistry: testOps(),
       opContext: { memoryStore: {} as never },
     });
     engine.start("start-to-wait");
     const inspect = engine.inspect("position");
     if (!("waitStatus" in inspect)) throw new Error("expected position result");
-    expect(inspect.currentNode).toBe("wait-for-it");
-    // Without the fix, waitStatus is undefined because waitArrivedAt is unset.
     expect(inspect.waitStatus).toBe("waiting");
     expect(inspect.timeoutAt).toBeDefined();
+  });
+
+  it("StartResult omits wait fields when drain lands on a non-wait node", () => {
+    const graphs = buildSingleGraphMap({
+      id: "start-to-action",
+      version: "1.0.0",
+      name: "Start to Action",
+      description: "test",
+      startNode: "prep",
+      strictContext: false,
+      nodes: {
+        prep: {
+          type: "programmatic",
+          description: "prep",
+          operation: { name: "set_value", args: { value: "x" } },
+          contextUpdates: { v: "value" },
+          edges: [{ label: "ready", target: "work" }],
+        },
+        work: {
+          type: "action",
+          description: "work",
+          edges: [{ label: "done", target: "end" }],
+        },
+        end: { type: "terminal", description: "done" },
+      },
+    });
+    const engine = new GraphEngine(graphs, {
+      opsRegistry: testOps(),
+      opContext: { memoryStore: {} as never },
+    });
+    const result = engine.start("start-to-action");
+    expect(result.waitingOn).toBeUndefined();
+    expect(result.timeout).toBeUndefined();
+    expect(result.timeoutAt).toBeUndefined();
   });
 });

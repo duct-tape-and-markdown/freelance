@@ -35,6 +35,10 @@ export const compileMessages = {
     "Use this workflow to build persistent knowledge about the codebase.",
 
   nodes: {
+    checkMemory: {
+      description:
+        "Fetch collection-wide counts so downstream logic knows whether this is a first compile or an incremental.",
+    },
     buildManifest: {
       description: "Pre-populate context.manifest with top entities from the target collection.",
     },
@@ -75,6 +79,10 @@ export const compileMessages = {
   },
 
   edges: {
+    memoryChecked: {
+      label: "memory-checked",
+      description: "Collection status fetched; prior proposition and entity counts recorded.",
+    },
     manifestReady: {
       label: "manifest-ready",
       description: "Entity manifest fetched from the target collection.",

@@ -28,11 +28,26 @@ export function applyContextUpdates(session: SessionState, updates: Record<strin
   }
 }
 
+// Declared-key sets are immutable per GraphDefinition, so memoize them
+// via a WeakMap — saves rebuilding the set on every context mutation,
+// which programmatic chains can amplify significantly. The WeakMap lets
+// entries GC with the graph so reloaded graphs don't accumulate.
+const declaredKeyCache = new WeakMap<GraphDefinition, Set<string>>();
+
+function declaredKeys(def: GraphDefinition): Set<string> {
+  let keys = declaredKeyCache.get(def);
+  if (!keys) {
+    keys = new Set(Object.keys(def.context ?? {}));
+    declaredKeyCache.set(def, keys);
+  }
+  return keys;
+}
+
 export function enforceStrictContext(def: GraphDefinition, updates: Record<string, unknown>): void {
   if (!def.strictContext) return;
-  const declaredKeys = new Set(Object.keys(def.context ?? {}));
+  const declared = declaredKeys(def);
   for (const key of Object.keys(updates)) {
-    if (!declaredKeys.has(key)) {
+    if (!declared.has(key)) {
       throw new EngineError(
         `Key "${key}" is not declared in the graph's context schema (strictContext is enabled)`,
         "STRICT_CONTEXT_VIOLATION",

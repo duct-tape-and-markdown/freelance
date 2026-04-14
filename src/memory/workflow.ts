@@ -22,6 +22,29 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       coverageSatisfied: false,
       manifest: [],
       manifestTotal: 0,
+      priorPropositionCount: 0,
+      priorEntityCount: 0,
+    })
+    .node("check-memory", {
+      type: "programmatic",
+      description: M.nodes.checkMemory.description,
+      operation: {
+        name: "memory_status",
+        args: {
+          collection: "context.collection",
+        },
+      },
+      contextUpdates: {
+        priorPropositionCount: "total_propositions",
+        priorEntityCount: "total_entities",
+      },
+      edges: [
+        {
+          target: "build-manifest",
+          label: M.edges.memoryChecked.label,
+          description: M.edges.memoryChecked.description,
+        },
+      ],
     })
     .node("build-manifest", {
       type: "programmatic",

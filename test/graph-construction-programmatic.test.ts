@@ -70,56 +70,81 @@ describe("graph-construction — programmatic node: forbidden fields", () => {
 
   it("rejects instructions", () => {
     expect(() => buildAndValidateGraph(base({ instructions: "do the thing" }), "<t>")).toThrow(
-      /must not have "instructions"/,
+      /field "instructions" which is not allowed/,
     );
   });
 
   it("rejects suggestedTools", () => {
     expect(() => buildAndValidateGraph(base({ suggestedTools: ["tool"] }), "<t>")).toThrow(
-      /must not have "suggestedTools"/,
+      /field "suggestedTools" which is not allowed/,
     );
   });
 
   it("rejects maxTurns", () => {
     expect(() => buildAndValidateGraph(base({ maxTurns: 5 }), "<t>")).toThrow(
-      /must not have "maxTurns"/,
+      /field "maxTurns" which is not allowed/,
     );
   });
 
   it("rejects readOnly", () => {
     expect(() => buildAndValidateGraph(base({ readOnly: true }), "<t>")).toThrow(
-      /must not have "readOnly"/,
+      /field "readOnly" which is not allowed/,
     );
   });
 
   it("rejects validations", () => {
     expect(() =>
       buildAndValidateGraph(base({ validations: [{ expr: "true", message: "nope" }] }), "<t>"),
-    ).toThrow(/must not have "validations"/);
+    ).toThrow(/field "validations" which is not allowed/);
   });
 
   it("rejects returns", () => {
     expect(() =>
       buildAndValidateGraph(base({ returns: { required: { x: { type: "string" } } } }), "<t>"),
-    ).toThrow(/must not have "returns"/);
+    ).toThrow(/field "returns" which is not allowed/);
   });
 
   it("rejects subgraph", () => {
     expect(() => buildAndValidateGraph(base({ subgraph: { graphId: "child" } }), "<t>")).toThrow(
-      /must not have "subgraph"/,
+      /field "subgraph" which is not allowed/,
     );
   });
 
   it("rejects waitOn", () => {
     expect(() =>
       buildAndValidateGraph(base({ waitOn: [{ key: "sig", type: "boolean" }] }), "<t>"),
-    ).toThrow(/must not have "waitOn"/);
+    ).toThrow(/field "waitOn" which is not allowed/);
   });
 
   it("rejects timeout", () => {
     expect(() => buildAndValidateGraph(base({ timeout: "5m" }), "<t>")).toThrow(
-      /must not have "timeout"/,
+      /field "timeout" which is not allowed/,
     );
+  });
+
+  it("rejects sources (not part of the programmatic allowlist)", () => {
+    expect(() =>
+      buildAndValidateGraph(base({ sources: [{ path: "docs/a.md", hash: "abc" }] }), "<t>"),
+    ).toThrow(/field "sources" which is not allowed/);
+  });
+
+  it("accepts only the allowed set: type, description, edges, operation, contextUpdates", () => {
+    // Positive control for the allowlist — confirms a minimal valid
+    // programmatic node keeps loading cleanly when every allowed field
+    // is populated.
+    const def = graph({
+      nodes: {
+        start: {
+          type: "programmatic",
+          description: "minimal allowed set",
+          operation: { name: "op", args: { k: "v" } },
+          contextUpdates: { a: "b" },
+          edges: [{ label: "go", target: "end" }],
+        },
+        end: { type: "terminal", description: "end" },
+      },
+    });
+    expect(() => buildAndValidateGraph(def, "<t>")).not.toThrow();
   });
 });
 
