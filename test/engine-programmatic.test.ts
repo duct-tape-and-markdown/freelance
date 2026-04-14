@@ -334,3 +334,118 @@ describe("GraphEngine + programmatic nodes — no registry configured", () => {
     expect(result.currentNode).toBe("a");
   });
 });
+
+describe("GraphEngine + programmatic nodes — subgraph push drains child startNode", () => {
+  function buildParentWithProgrammaticChild(): Map<
+    string,
+    ReturnType<typeof buildSingleGraphMap> extends Map<string, infer V> ? V : never
+  > {
+    const child = buildSingleGraphMap({
+      id: "child-prog",
+      version: "1.0.0",
+      name: "Child",
+      description: "programmatic startNode",
+      startNode: "prep",
+      strictContext: false,
+      nodes: {
+        prep: {
+          type: "programmatic",
+          description: "drain on push",
+          operation: { name: "set_value", args: { value: "child-prepped" } },
+          contextUpdates: { prepared: "value" },
+          edges: [{ label: "ready", target: "landing" }],
+        },
+        landing: {
+          type: "action",
+          description: "child landing",
+          edges: [{ label: "done", target: "child-end" }],
+        },
+        "child-end": { type: "terminal", description: "child terminal" },
+      },
+    });
+    const parent = buildSingleGraphMap({
+      id: "parent",
+      version: "1.0.0",
+      name: "Parent",
+      description: "parent",
+      startNode: "start",
+      strictContext: false,
+      nodes: {
+        start: {
+          type: "action",
+          description: "agent kicks off",
+          edges: [{ label: "go", target: "with-subgraph" }],
+        },
+        "with-subgraph": {
+          type: "action",
+          description: "subgraph host",
+          subgraph: { graphId: "child-prog" },
+          edges: [{ label: "resume", target: "after" }],
+        },
+        after: { type: "terminal", description: "after" },
+      },
+    });
+    // Merge the two graph maps.
+    const merged = new Map(parent);
+    for (const [k, v] of child) merged.set(k, v);
+    return merged;
+  }
+
+  it("runs the child's drain so the agent lands past the programmatic prep node", () => {
+    const graphs = buildParentWithProgrammaticChild();
+    const engine = new GraphEngine(graphs, {
+      opsRegistry: testOps(),
+      opContext: { memoryStore: {} as never },
+    });
+    engine.start("parent");
+    const result = engine.advance("go");
+    if (result.isError) throw new Error("unexpected error");
+    // Without the fix, currentNode would still be "prep" (the child's
+    // startNode) and context.prepared would be undefined. With the fix,
+    // maybePushSubgraph drained through "prep" to "landing".
+    expect(result.currentNode).toBe("landing");
+    expect(result.context.prepared).toBe("child-prepped");
+    expect(result.subgraphPushed?.graphId).toBe("child-prog");
+  });
+});
+
+describe("GraphEngine + programmatic nodes — start() sets waitArrivedAt when drain lands on wait", () => {
+  it("sets waitArrivedAt on the active session when startNode-chain lands on a wait node", () => {
+    const graphs = buildSingleGraphMap({
+      id: "start-to-wait",
+      version: "1.0.0",
+      name: "Start to Wait",
+      description: "test",
+      startNode: "prep",
+      strictContext: false,
+      nodes: {
+        prep: {
+          type: "programmatic",
+          description: "set signal default",
+          operation: { name: "set_value", args: { value: "pending" } },
+          contextUpdates: { signal: "value" },
+          edges: [{ label: "ready", target: "wait-for-it" }],
+        },
+        "wait-for-it": {
+          type: "wait",
+          description: "wait for external signal",
+          waitOn: [{ key: "externalReady", type: "boolean" }],
+          timeout: "1h",
+          edges: [{ label: "resume", target: "end" }],
+        },
+        end: { type: "terminal", description: "done" },
+      },
+    });
+    const engine = new GraphEngine(graphs, {
+      opsRegistry: testOps(),
+      opContext: { memoryStore: {} as never },
+    });
+    engine.start("start-to-wait");
+    const inspect = engine.inspect("position");
+    if (!("waitStatus" in inspect)) throw new Error("expected position result");
+    expect(inspect.currentNode).toBe("wait-for-it");
+    // Without the fix, waitStatus is undefined because waitArrivedAt is unset.
+    expect(inspect.waitStatus).toBe("waiting");
+    expect(inspect.timeoutAt).toBeDefined();
+  });
+});

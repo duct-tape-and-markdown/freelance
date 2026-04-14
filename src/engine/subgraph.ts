@@ -8,6 +8,8 @@ import type {
   ValidatedGraph,
 } from "../types.js";
 import { cloneContext, toNodeInfo } from "./helpers.js";
+import type { OpContext, OpsRegistry } from "./operations.js";
+import { drainProgrammaticChain } from "./programmatic.js";
 import { evaluateTransitions } from "./transitions.js";
 
 interface PushSubgraphArgs {
@@ -17,10 +19,12 @@ interface PushSubgraphArgs {
   edge: string;
   newNodeDef: NodeDefinition;
   maxDepth: number;
+  opsRegistry?: OpsRegistry;
+  opContext?: OpContext;
 }
 
 export function maybePushSubgraph(args: PushSubgraphArgs): AdvanceSuccessResult {
-  const { stack, graphs, previousNode, edge, newNodeDef, maxDepth } = args;
+  const { stack, graphs, previousNode, edge, newNodeDef, maxDepth, opsRegistry, opContext } = args;
   const parentSession = stack[stack.length - 1];
   const subgraph = newNodeDef.subgraph!;
 
@@ -90,22 +94,32 @@ export function maybePushSubgraph(args: PushSubgraphArgs): AdvanceSuccessResult 
     startedAt: new Date().toISOString(),
   });
 
-  const childStartNode = childDef.nodes[childDef.startNode];
   const activeSession = stack[stack.length - 1];
+
+  // Drain programmatic chain at the child's startNode — the agent never
+  // sees a programmatic node as an arrival point, including when it's the
+  // first node of a child subgraph. Without this, embedding a workflow
+  // whose startNode is programmatic silently skips the drain.
+  drainProgrammaticChain(activeSession, childDef, opsRegistry, opContext);
+
+  const landedNode = childDef.nodes[activeSession.currentNode];
+  if (landedNode.type === "wait" && landedNode.waitOn) {
+    activeSession.waitArrivedAt = new Date().toISOString();
+  }
 
   return {
     status: "advanced",
     isError: false,
     previousNode,
     edgeTaken: edge,
-    currentNode: childDef.startNode,
+    currentNode: activeSession.currentNode,
     subgraphPushed: {
       graphId: subgraph.graphId,
       startNode: childDef.startNode,
       stackDepth: stack.length,
     },
-    node: toNodeInfo(childStartNode),
-    validTransitions: evaluateTransitions(childStartNode, activeSession.context),
+    node: toNodeInfo(landedNode),
+    validTransitions: evaluateTransitions(landedNode, activeSession.context),
     context: cloneContext(activeSession.context),
     ...(childDef.sources?.length ? { graphSources: childDef.sources } : {}),
   };

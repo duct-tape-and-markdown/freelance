@@ -112,7 +112,7 @@ export function createServer(
     // Inject sealed memory workflows
     let injected = false;
     if (!graphs.has(COMPILE_KNOWLEDGE_ID)) {
-      graphs.set(COMPILE_KNOWLEDGE_ID, buildCompileKnowledgeWorkflow());
+      graphs.set(COMPILE_KNOWLEDGE_ID, buildCompileKnowledgeWorkflow(opsRegistry));
       injected = true;
     }
     if (!graphs.has(RECOLLECTION_ID)) {

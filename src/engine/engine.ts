@@ -97,6 +97,11 @@ export class GraphEngine {
 
     const landedNodeId = session.currentNode;
     const node = def.nodes[landedNodeId];
+    // Start the wait-timeout clock if the drain landed on a wait node.
+    // Also covers the pre-existing case where startNode itself is a wait.
+    if (node.type === "wait" && node.waitOn) {
+      session.waitArrivedAt = new Date().toISOString();
+    }
     return {
       status: "started",
       isError: false,
@@ -186,6 +191,8 @@ export class GraphEngine {
         edge,
         newNodeDef,
         maxDepth: this.maxDepth,
+        opsRegistry: this.opsRegistry,
+        opContext: this.opContext,
       });
     }
 
