@@ -5,6 +5,7 @@ export const GUIDE_TOPICS = [
   "cycles",
   "subgraphs",
   "wait-nodes",
+  "onenter-hooks",
   "multi-agent",
   "anti-patterns",
 ] as const;
@@ -40,6 +41,8 @@ Every non-terminal node has edges — labeled transitions to other nodes. An edg
 ## Context
 
 Context is a key-value store that persists throughout the traversal. Update it with \`freelance_context_set\` or via \`contextUpdates\` in \`freelance_advance\`. Edge conditions and gate validations read from context.
+
+Any node can also declare \`onEnter\` hooks — functions that run automatically on node arrival and pre-populate context from external state (memory, filesystem, APIs) so the agent arrives with what it needs instead of spending a turn fetching it. See the \`onenter-hooks\` topic.
 
 ## Typical flow
 
@@ -278,6 +281,99 @@ Wait nodes can have a \`timeout\` field (ISO 8601 duration, e.g., "PT1H" for 1 h
 
 - Use \`freelance_context_set\` from outside the agent (or a separate process) to satisfy wait conditions
 - Traversal state is persisted to disk, so wait nodes survive MCP client restarts — the traversal resumes when conditions are met`,
+
+  "onenter-hooks": `# onEnter Hooks
+
+onEnter hooks let a workflow run code automatically on node arrival — **before the agent sees the node**. Use them to populate context from external state (memory store, filesystem, APIs) so the agent arrives with everything it needs for the next step, instead of spending a turn fetching data.
+
+## Schema
+
+\`\`\`yaml
+nodes:
+  explore:
+    type: action
+    description: "Investigate the authentication module"
+    onEnter:
+      - call: memory_status
+        args:
+          collection: context.collection
+      - call: ./scripts/read-package.js
+        args:
+          path: context.targetFile
+    instructions: "Use context.total_propositions and context.fileSize to..."
+\`\`\`
+
+Each entry in the \`onEnter\` array declares:
+- **call**: either a built-in hook name (\`memory_status\`, \`memory_browse\`) or a relative path to a local script (\`./scripts/foo.js\` or \`../shared/bar.js\`). Absolute paths are rejected.
+- **args**: an object of hook arguments. String values that match \`context.foo.bar\` are resolved against live context at invocation time; everything else passes through as a literal.
+
+Hooks run sequentially in the order declared. Each hook's result is merged into context before the next hook fires, so later hooks can read earlier hooks' writes.
+
+## Built-in hooks
+
+- **memory_status**: returns proposition/entity counts from the memory store. Arg: \`collection\` (optional).
+- **memory_browse**: returns a page of entities from the memory store. Args: \`collection\`, \`name\`, \`kind\`, \`limit\`, \`offset\` (all optional).
+
+These are the same operations as the corresponding \`memory_*\` MCP tools, but called by the engine automatically on node arrival instead of requiring an agent round-trip.
+
+## Local script hooks
+
+A local script is an ES module with a default-export async function:
+
+\`\`\`js
+// .freelance/scripts/read-package.js
+import fs from "node:fs";
+
+export default async function ({ args, context, memory, graphId, nodeId }) {
+  const content = fs.readFileSync(args.path, "utf-8");
+  const pkg = JSON.parse(content);
+  return {
+    pkgName: pkg.name,
+    pkgVersion: pkg.version,
+  };
+}
+\`\`\`
+
+The function receives a \`HookContext\` with:
+- **args**: resolved arguments (context paths already dereferenced)
+- **context**: live session context, read-only from the hook's perspective
+- **memory**: narrow read interface over the memory store (\`status()\`, \`browse()\` only). Present only when memory is enabled in the host config. Built-in memory hooks throw a clear error if you call them with memory off.
+- **graphId, nodeId**: identifiers for the current position
+
+The returned object is merged into session context via the same path as \`freelance_context_set\`, so strict-context enforcement applies. Scripts must return a plain object; returning \`undefined\`, \`null\`, an array, or a non-object errors loudly.
+
+Script paths resolve relative to the **graph file's directory**. A hook in \`.freelance/my.workflow.yaml\` with \`call: ./scripts/foo.js\` looks for \`.freelance/scripts/foo.js\`. Missing files fail at graph load time, not at first invocation.
+
+## Execution semantics
+
+- **Timeout**: each hook has a 5000ms default timeout. Configure per-project via \`hooks.timeoutMs\` in \`config.yml\`. On timeout, the hook errors with a clear message and the node arrival fails.
+- **Errors**: a throwing hook aborts the node arrival with an \`EngineError\` wrapping the underlying message, the node id, and the hook call. The traversal stays on the previous node.
+- **Execution point**: hooks fire AFTER edge-condition evaluation and transitions — i.e., after the engine has decided the agent is arriving at this node, but before the response is built. The agent sees the node's \`validTransitions\` and \`context\` AFTER hooks have run.
+
+## When to use hooks (vs agent-driven context)
+
+**Use a hook when:**
+- The data is always needed at this node (not conditional on agent judgment)
+- The data comes from deterministic sources (memory, filesystem, well-known APIs)
+- Requiring an extra agent round-trip to fetch it would be pure latency with no decision value
+- The operation should be invisible in the agent's tool-call history (routine lookups, not reasoning steps)
+
+**Don't use a hook when:**
+- The agent needs to REASON about whether/how to fetch the data
+- The operation is user-visible or requires consent (writes, external API calls with side effects)
+- The result determines routing (put that in an edge condition against context the agent sets)
+- The fetch is slow or flaky (blocks node arrival; timeout kills the traversal)
+
+## Trust model
+
+Local script hooks execute with full Node.js privileges in the host process. A \`.workflow.yaml\` that references a local script is trusted code — treat it like a \`package.json\` scripts block. Don't load graphs from untrusted sources.
+
+## Tips
+
+- Prefer **one hook per concern** over one hook that does everything. Later hooks read earlier hooks' context writes, so you can compose them.
+- **Fail loud**: if a hook can't complete its job, throw. Don't return partial data.
+- **Keep hooks short**: they block node arrival. Use them for fast lookups (<100ms typical), not heavy work.
+- **Version scripts alongside graphs**: \`.freelance/scripts/\` lives next to the workflows that reference it.`,
 
   "multi-agent": `# Multi-Agent Workflows
 

@@ -19,6 +19,7 @@ import {
   memoryEmit,
   memoryInspect,
   memoryRelated,
+  memoryReset,
   memorySearch,
   memoryStatus,
 } from "./memory.js";
@@ -26,10 +27,10 @@ import { EXIT, fatal, info, setCli } from "./output.js";
 import {
   createMemoryStore,
   createTraversalStore,
-  ensureStateDir,
+  ensureFreelanceDir,
   loadGraphSetup,
   resolveMemoryConfig,
-  resolveStateDir,
+  resolveTraversalsDir,
 } from "./setup.js";
 import { distillRun, guideShow, sourcesCheck, sourcesHash, sourcesValidate } from "./stateless.js";
 import {
@@ -164,15 +165,15 @@ program
     "Workflow definitions directory (repeatable for layering)",
     (value: string, previous?: string[]) => (previous ? [...previous, value] : [value]),
   )
-  .option("--max-depth <n>", "Maximum subgraph nesting depth", "5")
+  .option("--max-depth <n>", "Maximum subgraph nesting depth (overrides config.maxDepth)")
   .option(
     "--source-root <path>",
     "Base path for resolving source references (default: parent of first workflows dir)",
   )
   .option("--memory-dir <path>", "Persistent directory for memory database")
-  .option("--no-memory", "Disable memory")
+  .option("--memory", "Force memory on (overrides memory.enabled=false in config)")
+  .option("--no-memory", "Disable memory (overrides memory.enabled=true in config)")
   .action(async (opts) => {
-    const maxDepth = parseInt(opts.maxDepth, 10);
     const dirs = resolveGraphsDirs(opts.workflows);
     const { graphs, errors: loadErrors } = loadGraphsGraceful(dirs);
     const sourceRoot = resolveSourceRoot(dirs, opts.sourceRoot);
@@ -192,9 +193,11 @@ program
     if (memoryConfig) {
       info(`Freelance: memory enabled (${memoryConfig.db})`);
     }
-    // Directory for persistent traversal state (one JSON file per traversal)
-    ensureStateDir(dirs[0] ?? ".freelance");
-    const stateDir = resolveStateDir(dirs);
+    // Precedence: CLI flag > config.maxDepth > hardcoded default 5.
+    const maxDepth =
+      opts.maxDepth !== undefined ? parseInt(opts.maxDepth, 10) : (config.maxDepth ?? 5);
+    ensureFreelanceDir(dirs[0] ?? ".freelance");
+    const stateDir = resolveTraversalsDir(dirs);
     info(
       `Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}`,
     );
@@ -206,6 +209,7 @@ program
       loadErrors,
       memory: memoryConfig ?? undefined,
       stateDir,
+      hookTimeoutMs: config.hooks.timeoutMs,
     });
   });
 
@@ -222,11 +226,11 @@ function addWorkflowsOpt(cmd: Command): Command {
 addWorkflowsOpt(
   program.command("status").description("Show loaded graphs and active traversals"),
 ).action((opts) => {
-  const { store } = createTraversalStore({ workflows: opts.workflows });
+  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
     traversalStatus(store);
   } finally {
-    store.close();
+    runtime.close();
   }
 });
 
@@ -235,12 +239,12 @@ addWorkflowsOpt(
     .command("start <graphId>")
     .description("Begin traversing a workflow graph")
     .option("--context <json>", "Initial context as JSON"),
-).action((graphId, opts) => {
-  const { store } = createTraversalStore({ workflows: opts.workflows });
+).action(async (graphId, opts) => {
+  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
-    traversalStart(store, graphId, opts.context);
+    await traversalStart(store, graphId, opts.context);
   } finally {
-    store.close();
+    runtime.close();
   }
 });
 
@@ -250,12 +254,12 @@ addWorkflowsOpt(
     .description("Move to the next node by taking a labeled edge")
     .option("--context <json>", "Context updates as JSON")
     .option("--traversal <id>", "Traversal ID (auto-resolved if only one active)"),
-).action((edge, opts) => {
-  const { store } = createTraversalStore({ workflows: opts.workflows });
+).action(async (edge, opts) => {
+  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
-    traversalAdvance(store, edge, opts);
+    await traversalAdvance(store, edge, opts);
   } finally {
-    store.close();
+    runtime.close();
   }
 });
 
@@ -267,11 +271,11 @@ addWorkflowsOpt(
     .description("Set context key=value pairs (e.g. foo=1 bar=true)")
     .option("--traversal <id>", "Traversal ID (auto-resolved if only one active)"),
 ).action((updates, opts) => {
-  const { store } = createTraversalStore({ workflows: opts.workflows });
+  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
     traversalContextSet(store, updates, opts);
   } finally {
-    store.close();
+    runtime.close();
   }
 });
 
@@ -285,11 +289,11 @@ addWorkflowsOpt(
         .default("position"),
     ),
 ).action((traversalId, opts) => {
-  const { store } = createTraversalStore({ workflows: opts.workflows });
+  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
     traversalInspect(store, traversalId, opts.detail);
   } finally {
-    store.close();
+    runtime.close();
   }
 });
 
@@ -299,11 +303,11 @@ addWorkflowsOpt(
     .description("Clear a traversal")
     .option("--confirm", "Required safety check"),
 ).action((traversalId, opts) => {
-  const { store } = createTraversalStore({ workflows: opts.workflows });
+  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
     traversalReset(store, traversalId, opts);
   } finally {
-    store.close();
+    runtime.close();
   }
 });
 
@@ -414,6 +418,26 @@ addWorkflowsOpt(
   } finally {
     store.close();
   }
+});
+
+addWorkflowsOpt(
+  memoryCmd
+    .command("reset")
+    .description("Delete memory.db + sidecars (re-created on next run)")
+    .option("--confirm", "Required safety check"),
+).action((opts) => {
+  // Does NOT open the db — resolves the path from config and unlinks
+  // the files directly. This is the recovery path for "old memory.db
+  // schema is incompatible with the current build," which would
+  // otherwise block composeRuntime from opening the db at all.
+  const dirs = resolveGraphsDirs(opts.workflows);
+  const fileConfig = loadConfigFromDirs(dirs);
+  const memConfig = resolveMemoryConfig(dirs, {}, fileConfig);
+  if (!memConfig) {
+    info("Memory is disabled in config; nothing to reset.");
+    return;
+  }
+  memoryReset(memConfig.db, { confirm: opts.confirm });
 });
 
 // --- Stateless commands ---

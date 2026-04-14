@@ -1,0 +1,27 @@
+id: hook-simple
+version: "1.0.0"
+name: "Hook Simple"
+description: "Exercises a single local-script onEnter hook on the start node."
+startNode: start
+
+context:
+  seed: 7
+  count: 0
+  echoed: null
+
+nodes:
+  start:
+    type: action
+    description: "Start — has an onEnter hook that populates count from args"
+    onEnter:
+      - call: ./scripts/set-count.js
+        args:
+          value: 42
+          from: context.seed
+    edges:
+      - target: done
+        label: next
+
+  done:
+    type: terminal
+    description: "All done"

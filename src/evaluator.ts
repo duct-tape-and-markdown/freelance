@@ -337,16 +337,25 @@ class Parser {
 
   private resolveProperty(path: string): unknown {
     // path is "context.foo.bar" — skip the "context." prefix
-    const segments = path.slice("context.".length).split(".");
-    let current: unknown = this.context;
-    for (const seg of segments) {
-      if (current === null || current === undefined || typeof current !== "object") {
-        return null;
-      }
-      current = (current as Record<string, unknown>)[seg];
-    }
-    return current === undefined ? null : current;
+    return walkContextSegments(this.context, path.slice("context.".length).split("."));
   }
+}
+
+/**
+ * Walk a pre-split dotted path against a context object. Missing or
+ * non-object intermediates short-circuit to null so callers can treat
+ * "absent" and "explicit null" uniformly. Shared by the expression
+ * parser's property resolver and the public resolveContextPath below.
+ */
+function walkContextSegments(context: Record<string, unknown>, segments: string[]): unknown {
+  let current: unknown = context;
+  for (const seg of segments) {
+    if (current === null || current === undefined || typeof current !== "object") {
+      return null;
+    }
+    current = (current as Record<string, unknown>)[seg];
+  }
+  return current === undefined ? null : current;
 }
 
 /**
@@ -454,6 +463,32 @@ export function extractPropertyComparisons(expr: string): Array<{
   }
 
   return results;
+}
+
+/**
+ * Regex for strings that address a live context path: `context.foo`,
+ * `context.foo.bar`, etc. Anchored — any leading or trailing character
+ * (whitespace, punctuation) disqualifies the string, so user data that
+ * happens to start with "context." won't be treated as a reference.
+ */
+export const CONTEXT_PATH_PATTERN =
+  /^context\.[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$/;
+
+/**
+ * Resolve a `context.foo.bar` path against a live context object.
+ * Returns null for missing or non-object intermediates so callers can
+ * treat "absent" and "explicit null" uniformly. Throws if the path
+ * string doesn't match CONTEXT_PATH_PATTERN.
+ */
+export function resolveContextPath(context: Record<string, unknown>, path: string): unknown {
+  if (!CONTEXT_PATH_PATTERN.test(path)) {
+    throw new EvaluatorError(
+      `Invalid context path "${path}"; expected format "context.foo[.bar...]"`,
+      path,
+      0,
+    );
+  }
+  return walkContextSegments(context, path.slice("context.".length).split("."));
 }
 
 /**

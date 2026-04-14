@@ -8,6 +8,7 @@ import type {
   ValidatedGraph,
 } from "../types.js";
 import { cloneContext, toNodeInfo } from "./helpers.js";
+import type { HookRunner } from "./hooks.js";
 import { evaluateTransitions } from "./transitions.js";
 
 interface PushSubgraphArgs {
@@ -17,10 +18,11 @@ interface PushSubgraphArgs {
   edge: string;
   newNodeDef: NodeDefinition;
   maxDepth: number;
+  hookRunner: HookRunner;
 }
 
-export function maybePushSubgraph(args: PushSubgraphArgs): AdvanceSuccessResult {
-  const { stack, graphs, previousNode, edge, newNodeDef, maxDepth } = args;
+export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<AdvanceSuccessResult> {
+  const { stack, graphs, previousNode, edge, newNodeDef, maxDepth, hookRunner } = args;
   const parentSession = stack[stack.length - 1];
   const subgraph = newNodeDef.subgraph!;
 
@@ -90,8 +92,18 @@ export function maybePushSubgraph(args: PushSubgraphArgs): AdvanceSuccessResult 
     startedAt: new Date().toISOString(),
   });
 
-  const childStartNode = childDef.nodes[childDef.startNode];
   const activeSession = stack[stack.length - 1];
+
+  // Fire onEnter for the pushed child's start node before snapshotting
+  // context into the response — mirrors how engine.start() runs hooks.
+  await hookRunner.runHooksFor(
+    activeSession,
+    childDef,
+    childDef.startNode,
+    childGraph.hookResolutions,
+  );
+
+  const childStartNode = childDef.nodes[childDef.startNode];
 
   return {
     status: "advanced",

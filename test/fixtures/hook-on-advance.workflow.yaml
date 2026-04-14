@@ -1,0 +1,34 @@
+id: hook-on-advance
+version: "1.0.0"
+name: "Hook On Advance"
+description: "Hook fires on arrival after advance(), not at start."
+startNode: start
+
+context:
+  seed: 11
+  count: 0
+  echoed: null
+
+nodes:
+  start:
+    type: action
+    description: "Start — no hooks here"
+    edges:
+      - target: middle
+        label: next
+
+  middle:
+    type: action
+    description: "Middle — this node has the onEnter hook"
+    onEnter:
+      - call: ./scripts/set-count.js
+        args:
+          value: 99
+          from: context.seed
+    edges:
+      - target: done
+        label: next
+
+  done:
+    type: terminal
+    description: "Done"

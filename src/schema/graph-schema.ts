@@ -47,6 +47,15 @@ const waitOnEntrySchema = z.object({
   description: z.string().optional(),
 });
 
+// `call` resolves in two modes (see loader): a bare identifier matching a
+// built-in hook, or a relative path (./ or ../) to a local script module.
+// `args` values may be literals or `context.foo.bar` path references;
+// the hook runner resolves them against live context at invocation time.
+export const onEnterHookSchema = z.object({
+  call: z.string().min(1),
+  args: z.record(z.string(), z.unknown()).optional(),
+});
+
 export const sourceBindingSchema = z.object({
   path: z.string(),
   section: z.string().optional(),
@@ -69,6 +78,7 @@ export const nodeDefinitionSchema = z.object({
   waitOn: z.array(waitOnEntrySchema).optional(),
   timeout: z.string().optional(),
   sources: z.array(sourceBindingSchema).optional(),
+  onEnter: z.array(onEnterHookSchema).optional(),
 });
 
 /** Typed context field with optional enum constraint for static validation */
@@ -109,5 +119,6 @@ export type SubgraphDefinition = z.infer<typeof subgraphDefinitionSchema>;
 export type ReturnField = z.infer<typeof returnFieldSchema>;
 export type ReturnSchema = z.infer<typeof returnSchemaDefinition>;
 export type WaitOnEntry = z.infer<typeof waitOnEntrySchema>;
+export type OnEnterHook = z.infer<typeof onEnterHookSchema>;
 export type NodeDefinition = z.infer<typeof nodeDefinitionSchema>;
 export type GraphDefinition = z.infer<typeof graphDefinitionSchema>;

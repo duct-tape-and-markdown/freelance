@@ -2,30 +2,24 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { GraphEngine } from "../src/engine/index.js";
+import type { GraphEngine } from "../src/engine/index.js";
 import { loadGraphs } from "../src/loader.js";
 import type { AdvanceSuccessResult, InspectPositionResult, ValidatedGraph } from "../src/types.js";
+import { loadFixtureGraphs, makeEngine as sharedMakeEngine } from "./helpers.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
-function loadFixtures(...files: string[]): Map<string, ValidatedGraph> {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wait-test-"));
-  for (const f of files) {
-    fs.copyFileSync(path.join(FIXTURES_DIR, f), path.join(tmpDir, f));
-  }
-  return loadGraphs(tmpDir);
-}
-
-function makeEngine(...files: string[]): GraphEngine {
-  return new GraphEngine(loadFixtures(...files));
-}
+const loadFixtures = (...files: string[]): Map<string, ValidatedGraph> =>
+  loadFixtureGraphs(FIXTURES_DIR, "wait-test-", ...files);
+const makeEngine = (...files: string[]): GraphEngine =>
+  sharedMakeEngine(FIXTURES_DIR, "wait-test-", ...files);
 
 describe("wait nodes — arriving at wait node", () => {
-  it("returns status 'waiting' when advancing to a wait node", () => {
+  it("returns status 'waiting' when advancing to a wait node", async () => {
     const engine = makeEngine("valid-wait-simple.workflow.yaml");
-    engine.start("valid-wait-simple");
+    await engine.start("valid-wait-simple");
 
-    const result = engine.advance("done");
+    const result = await engine.advance("done");
     expect(result.isError).toBe(false);
     if (!result.isError) {
       expect(result.status).toBe("waiting");
@@ -34,11 +28,11 @@ describe("wait nodes — arriving at wait node", () => {
     }
   });
 
-  it("includes waitingOn conditions in result", () => {
+  it("includes waitingOn conditions in result", async () => {
     const engine = makeEngine("valid-wait-simple.workflow.yaml");
-    engine.start("valid-wait-simple");
+    await engine.start("valid-wait-simple");
 
-    const result = engine.advance("done") as AdvanceSuccessResult;
+    const result = (await engine.advance("done")) as AdvanceSuccessResult;
     expect(result.waitingOn).toBeDefined();
     expect(result.waitingOn).toHaveLength(1);
     expect(result.waitingOn![0].key).toBe("approved");
@@ -46,11 +40,11 @@ describe("wait nodes — arriving at wait node", () => {
     expect(result.waitingOn![0].satisfied).toBe(false);
   });
 
-  it("includes timeout and timeoutAt when timeout is specified", () => {
+  it("includes timeout and timeoutAt when timeout is specified", async () => {
     const engine = makeEngine("valid-wait.workflow.yaml");
-    engine.start("valid-wait");
+    await engine.start("valid-wait");
 
-    const result = engine.advance("submitted") as AdvanceSuccessResult;
+    const result = (await engine.advance("submitted")) as AdvanceSuccessResult;
     expect(result.status).toBe("waiting");
     expect(result.timeout).toBe("24h");
     expect(result.timeoutAt).toBeDefined();
@@ -63,12 +57,12 @@ describe("wait nodes — arriving at wait node", () => {
 });
 
 describe("wait nodes — blocking advance", () => {
-  it("blocks advance when conditions are not satisfied", () => {
+  it("blocks advance when conditions are not satisfied", async () => {
     const engine = makeEngine("valid-wait-simple.workflow.yaml");
-    engine.start("valid-wait-simple");
-    engine.advance("done"); // now at wait-approval
+    await engine.start("valid-wait-simple");
+    await engine.advance("done"); // now at wait-approval
 
-    const result = engine.advance("proceed");
+    const result = await engine.advance("proceed");
     expect(result.isError).toBe(true);
     if (result.isError) {
       expect(result.reason).toContain("Waiting for external signals");
@@ -76,27 +70,27 @@ describe("wait nodes — blocking advance", () => {
     }
   });
 
-  it("blocks when only some conditions are satisfied", () => {
+  it("blocks when only some conditions are satisfied", async () => {
     const engine = makeEngine("valid-wait.workflow.yaml");
-    engine.start("valid-wait");
-    engine.advance("submitted"); // now at await-ci
+    await engine.start("valid-wait");
+    await engine.advance("submitted"); // now at await-ci
 
     // Set only one of two required conditions
     engine.contextSet({ ciPassed: true });
 
-    const result = engine.advance("ready");
+    const result = await engine.advance("ready");
     expect(result.isError).toBe(true);
     if (result.isError) {
       expect(result.reason).toContain("coverageReport");
     }
   });
 
-  it("context updates persist even when advance is blocked", () => {
+  it("context updates persist even when advance is blocked", async () => {
     const engine = makeEngine("valid-wait-simple.workflow.yaml");
-    engine.start("valid-wait-simple");
-    engine.advance("done");
+    await engine.start("valid-wait-simple");
+    await engine.advance("done");
 
-    const result = engine.advance("proceed", { extra: "data" });
+    const result = await engine.advance("proceed", { extra: "data" });
     expect(result.isError).toBe(true);
     if (result.isError) {
       expect(result.context.extra).toBe("data");
@@ -105,15 +99,15 @@ describe("wait nodes — blocking advance", () => {
 });
 
 describe("wait nodes — signal delivery and unblocking", () => {
-  it("allows advance after all conditions are satisfied via contextSet", () => {
+  it("allows advance after all conditions are satisfied via contextSet", async () => {
     const engine = makeEngine("valid-wait-simple.workflow.yaml");
-    engine.start("valid-wait-simple");
-    engine.advance("done"); // at wait-approval
+    await engine.start("valid-wait-simple");
+    await engine.advance("done"); // at wait-approval
 
     // External signal
     engine.contextSet({ approved: true });
 
-    const result = engine.advance("proceed");
+    const result = await engine.advance("proceed");
     expect(result.isError).toBe(false);
     if (!result.isError) {
       expect(result.status).toBe("complete");
@@ -121,15 +115,15 @@ describe("wait nodes — signal delivery and unblocking", () => {
     }
   });
 
-  it("allows advance after all conditions satisfied (multi-key)", () => {
+  it("allows advance after all conditions satisfied (multi-key)", async () => {
     const engine = makeEngine("valid-wait.workflow.yaml");
-    engine.start("valid-wait");
-    engine.advance("submitted");
+    await engine.start("valid-wait");
+    await engine.advance("submitted");
 
     // Deliver both signals
     engine.contextSet({ ciPassed: true, coverageReport: "https://ci.example.com/report" });
 
-    const result = engine.advance("ready");
+    const result = await engine.advance("ready");
     expect(result.isError).toBe(false);
     if (!result.isError) {
       expect(result.status).toBe("complete");
@@ -137,25 +131,25 @@ describe("wait nodes — signal delivery and unblocking", () => {
     }
   });
 
-  it("allows taking failure edge when wait conditions are met", () => {
+  it("allows taking failure edge when wait conditions are met", async () => {
     const engine = makeEngine("valid-wait.workflow.yaml");
-    engine.start("valid-wait");
-    engine.advance("submitted");
+    await engine.start("valid-wait");
+    await engine.advance("submitted");
 
     // CI failed
     engine.contextSet({ ciPassed: false, coverageReport: "https://ci.example.com/fail" });
 
-    const result = engine.advance("failed");
+    const result = await engine.advance("failed");
     expect(result.isError).toBe(false);
     if (!result.isError) {
       expect(result.currentNode).toBe("fix-ci");
     }
   });
 
-  it("contextSet is allowed at wait nodes", () => {
+  it("contextSet is allowed at wait nodes", async () => {
     const engine = makeEngine("valid-wait-simple.workflow.yaml");
-    engine.start("valid-wait-simple");
-    engine.advance("done");
+    await engine.start("valid-wait-simple");
+    await engine.advance("done");
 
     // contextSet should work fine at wait nodes
     const result = engine.contextSet({ approved: true });
@@ -163,30 +157,30 @@ describe("wait nodes — signal delivery and unblocking", () => {
     expect(result.context.approved).toBe(true);
   });
 
-  it("incremental signal delivery works", () => {
+  it("incremental signal delivery works", async () => {
     const engine = makeEngine("valid-wait.workflow.yaml");
-    engine.start("valid-wait");
-    engine.advance("submitted");
+    await engine.start("valid-wait");
+    await engine.advance("submitted");
 
     // Deliver first signal
     engine.contextSet({ ciPassed: true });
     // Still blocked
-    const blocked = engine.advance("ready");
+    const blocked = await engine.advance("ready");
     expect(blocked.isError).toBe(true);
 
     // Deliver second signal
     engine.contextSet({ coverageReport: "https://report.url" });
     // Now unblocked
-    const result = engine.advance("ready");
+    const result = await engine.advance("ready");
     expect(result.isError).toBe(false);
   });
 });
 
 describe("wait nodes — inspect", () => {
-  it("inspect shows waiting status when conditions not met", () => {
+  it("inspect shows waiting status when conditions not met", async () => {
     const engine = makeEngine("valid-wait-simple.workflow.yaml");
-    engine.start("valid-wait-simple");
-    engine.advance("done");
+    await engine.start("valid-wait-simple");
+    await engine.advance("done");
 
     const result = engine.inspect("position") as InspectPositionResult;
     expect(result.waitStatus).toBe("waiting");
@@ -195,10 +189,10 @@ describe("wait nodes — inspect", () => {
     expect(result.waitingOn![0].satisfied).toBe(false);
   });
 
-  it("inspect shows ready status when conditions are met", () => {
+  it("inspect shows ready status when conditions are met", async () => {
     const engine = makeEngine("valid-wait-simple.workflow.yaml");
-    engine.start("valid-wait-simple");
-    engine.advance("done");
+    await engine.start("valid-wait-simple");
+    await engine.advance("done");
     engine.contextSet({ approved: true });
 
     const result = engine.inspect("position") as InspectPositionResult;
@@ -206,10 +200,10 @@ describe("wait nodes — inspect", () => {
     expect(result.waitingOn![0].satisfied).toBe(true);
   });
 
-  it("inspect shows timeout info for wait nodes with timeout", () => {
+  it("inspect shows timeout info for wait nodes with timeout", async () => {
     const engine = makeEngine("valid-wait.workflow.yaml");
-    engine.start("valid-wait");
-    engine.advance("submitted");
+    await engine.start("valid-wait");
+    await engine.advance("submitted");
 
     const result = engine.inspect("position") as InspectPositionResult;
     expect(result.waitStatus).toBe("waiting");
@@ -217,9 +211,9 @@ describe("wait nodes — inspect", () => {
     expect(result.timeoutAt).toBeDefined();
   });
 
-  it("inspect at non-wait node has no wait fields", () => {
+  it("inspect at non-wait node has no wait fields", async () => {
     const engine = makeEngine("valid-wait.workflow.yaml");
-    engine.start("valid-wait");
+    await engine.start("valid-wait");
 
     const result = engine.inspect("position") as InspectPositionResult;
     expect(result.waitStatus).toBeUndefined();
@@ -228,10 +222,10 @@ describe("wait nodes — inspect", () => {
 });
 
 describe("wait nodes — timeout", () => {
-  it("timed_out status when timeout has elapsed", () => {
+  it("timed_out status when timeout has elapsed", async () => {
     const engine = makeEngine("valid-wait.workflow.yaml");
-    engine.start("valid-wait");
-    engine.advance("submitted");
+    await engine.start("valid-wait");
+    await engine.advance("submitted");
 
     // Manually set waitArrivedAt to the past to simulate timeout
     const stack = engine.getStack();
@@ -244,10 +238,10 @@ describe("wait nodes — timeout", () => {
     expect(inspect.context._waitTimedOut).toBe(true);
   });
 
-  it("advance is unblocked after timeout", () => {
+  it("advance is unblocked after timeout", async () => {
     const engine = makeEngine("valid-wait.workflow.yaml");
-    engine.start("valid-wait");
-    engine.advance("submitted");
+    await engine.start("valid-wait");
+    await engine.advance("submitted");
 
     // Simulate timeout
     const stack = engine.getStack();
@@ -257,17 +251,17 @@ describe("wait nodes — timeout", () => {
     // Set ciPassed to false so we can take the "failed" edge
     engine.contextSet({ ciPassed: false, coverageReport: "timeout" });
 
-    const result = engine.advance("failed");
+    const result = await engine.advance("failed");
     expect(result.isError).toBe(false);
     if (!result.isError) {
       expect(result.currentNode).toBe("fix-ci");
     }
   });
 
-  it("sets _waitTimedOut in context on timeout", () => {
+  it("sets _waitTimedOut in context on timeout", async () => {
     const engine = makeEngine("valid-wait.workflow.yaml");
-    engine.start("valid-wait");
-    engine.advance("submitted");
+    await engine.start("valid-wait");
+    await engine.advance("submitted");
 
     // Simulate timeout
     const stack = engine.getStack();
@@ -276,14 +270,14 @@ describe("wait nodes — timeout", () => {
 
     // Trigger timeout check via advance
     engine.contextSet({ ciPassed: false, coverageReport: "n/a" });
-    engine.advance("failed");
+    await engine.advance("failed");
     // _waitTimedOut should have been set — we advanced to fix-ci
   });
 
-  it("does not timeout before duration elapses", () => {
+  it("does not timeout before duration elapses", async () => {
     const engine = makeEngine("valid-wait.workflow.yaml");
-    engine.start("valid-wait");
-    engine.advance("submitted");
+    await engine.start("valid-wait");
+    await engine.advance("submitted");
 
     // waitArrivedAt is just now — should not be timed out
     const inspect = engine.inspect("position") as InspectPositionResult;
@@ -293,23 +287,23 @@ describe("wait nodes — timeout", () => {
 });
 
 describe("wait nodes — cycle support", () => {
-  it("wait node in cycle is valid (fix-ci → await-ci cycle)", () => {
+  it("wait node in cycle is valid (fix-ci → await-ci cycle)", async () => {
     // valid-wait.workflow.yaml has fix-ci → await-ci cycle, which includes a wait node
     const graphs = loadFixtures("valid-wait.workflow.yaml");
     expect(graphs.has("valid-wait")).toBe(true);
   });
 
-  it("can re-enter wait node after fixing", () => {
+  it("can re-enter wait node after fixing", async () => {
     const engine = makeEngine("valid-wait.workflow.yaml");
-    engine.start("valid-wait");
-    engine.advance("submitted"); // at await-ci
+    await engine.start("valid-wait");
+    await engine.advance("submitted"); // at await-ci
 
     // Deliver failure
     engine.contextSet({ ciPassed: false, coverageReport: "fail" });
-    engine.advance("failed"); // at fix-ci
+    await engine.advance("failed"); // at fix-ci
 
     // Resubmit — should arrive at wait node again
-    const result = engine.advance("resubmitted") as AdvanceSuccessResult;
+    const result = (await engine.advance("resubmitted")) as AdvanceSuccessResult;
     expect(result.status).toBe("waiting");
     expect(result.currentNode).toBe("await-ci");
   });
@@ -322,7 +316,7 @@ describe("wait nodes — loader validation", () => {
     return tmpDir;
   }
 
-  it("rejects wait node without waitOn", () => {
+  it("rejects wait node without waitOn", async () => {
     const dir = writeGraph(`
 id: test-wait-no-waiton
 version: "1.0.0"
@@ -343,7 +337,7 @@ nodes:
     expect(() => loadGraphs(dir)).toThrow(/wait.*waitOn/i);
   });
 
-  it("rejects wait node with empty waitOn array", () => {
+  it("rejects wait node with empty waitOn array", async () => {
     const dir = writeGraph(`
 id: test-wait-empty
 version: "1.0.0"
@@ -365,38 +359,38 @@ nodes:
     expect(() => loadGraphs(dir)).toThrow(/wait.*waitOn/i);
   });
 
-  it("accepts valid wait node", () => {
+  it("accepts valid wait node", async () => {
     const graphs = loadFixtures("valid-wait-simple.workflow.yaml");
     expect(graphs.has("valid-wait-simple")).toBe(true);
   });
 });
 
 describe("wait vs gate distinction", () => {
-  it("gate can be satisfied by agent (contextSet + advance)", () => {
+  it("gate can be satisfied by agent (contextSet + advance)", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
-    engine.advance("work-done"); // at gate
+    await engine.start("valid-simple");
+    await engine.advance("work-done"); // at gate
 
     // Agent satisfies the gate itself
     engine.contextSet({ taskStarted: true });
-    const result = engine.advance("approved");
+    const result = await engine.advance("approved");
     expect(result.isError).toBe(false);
   });
 
-  it("wait blocks advance until external signal", () => {
+  it("wait blocks advance until external signal", async () => {
     const engine = makeEngine("valid-wait-simple.workflow.yaml");
-    engine.start("valid-wait-simple");
-    engine.advance("done"); // at wait
+    await engine.start("valid-wait-simple");
+    await engine.advance("done"); // at wait
 
     // Agent tries to advance without external signal → blocked
-    const blocked = engine.advance("proceed");
+    const blocked = await engine.advance("proceed");
     expect(blocked.isError).toBe(true);
 
     // External signal arrives
     engine.contextSet({ approved: true });
 
     // Now advance works
-    const result = engine.advance("proceed");
+    const result = await engine.advance("proceed");
     expect(result.isError).toBe(false);
   });
 });

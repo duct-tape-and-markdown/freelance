@@ -5,6 +5,7 @@
  */
 
 import crypto from "node:crypto";
+import type { HookRunner } from "../engine/hooks.js";
 import { GraphEngine } from "../engine/index.js";
 import { EngineError } from "../errors.js";
 import type {
@@ -27,15 +28,17 @@ export class TraversalStore {
   private state: StateStore;
   private graphs: Map<string, ValidatedGraph>;
   private maxDepth: number;
+  private hookRunner: HookRunner;
 
   constructor(
     state: StateStore,
     graphs: Map<string, ValidatedGraph>,
-    options?: { maxDepth?: number },
+    options: { maxDepth?: number; hookRunner: HookRunner },
   ) {
     this.state = state;
     this.graphs = graphs;
-    this.maxDepth = options?.maxDepth ?? 5;
+    this.maxDepth = options.maxDepth ?? 5;
+    this.hookRunner = options.hookRunner;
   }
 
   close(): void {
@@ -83,13 +86,13 @@ export class TraversalStore {
 
   // --- Traversal operations ---
 
-  createTraversal(
+  async createTraversal(
     graphId: string,
     initialContext?: Record<string, unknown>,
-  ): { traversalId: string } & StartResult {
+  ): Promise<{ traversalId: string } & StartResult> {
     const id = generateTraversalId();
-    const engine = new GraphEngine(this.graphs, { maxDepth: this.maxDepth });
-    const result = engine.start(graphId, initialContext);
+    const engine = this.newEngine();
+    const result = await engine.start(graphId, initialContext);
 
     const stack = engine.getStack();
     const now = new Date().toISOString();
@@ -108,13 +111,13 @@ export class TraversalStore {
     return { traversalId: id, ...result };
   }
 
-  advance(
+  async advance(
     traversalId: string,
     edge: string,
     contextUpdates?: Record<string, unknown>,
-  ): { traversalId: string } & AdvanceResult {
+  ): Promise<{ traversalId: string } & AdvanceResult> {
     const { engine, record } = this.loadEngine(traversalId);
-    const result = engine.advance(edge, contextUpdates);
+    const result = await engine.advance(edge, contextUpdates);
     this.saveEngine(record, engine);
     return { traversalId, ...result };
   }
@@ -166,13 +169,20 @@ export class TraversalStore {
 
   // --- Engine load/save ---
 
+  private newEngine(): GraphEngine {
+    return new GraphEngine(this.graphs, {
+      maxDepth: this.maxDepth,
+      hookRunner: this.hookRunner,
+    });
+  }
+
   private loadEngine(traversalId: string): { engine: GraphEngine; record: TraversalRecord } {
     const record = this.state.get(traversalId);
     if (!record) {
       throw new EngineError(`Traversal "${traversalId}" not found`, "TRAVERSAL_NOT_FOUND");
     }
 
-    const engine = new GraphEngine(this.graphs, { maxDepth: this.maxDepth });
+    const engine = this.newEngine();
     engine.restoreStack(record.stack);
     return { engine, record };
   }

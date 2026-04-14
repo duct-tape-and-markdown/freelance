@@ -2,8 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { GraphEngine } from "../src/engine/index.js";
-import { loadGraphs } from "../src/loader.js";
+import type { GraphEngine } from "../src/engine/index.js";
 import type { GraphDefinition } from "../src/schema/graph-schema.js";
 import { graphDefinitionSchema } from "../src/schema/graph-schema.js";
 import { hashSource, validateGraphSources } from "../src/sources.js";
@@ -11,25 +10,16 @@ import type {
   AdvanceErrorResult,
   AdvanceSuccessResult,
   InspectPositionResult,
-  ValidatedGraph,
 } from "../src/types.js";
+import { makeEngine as sharedMakeEngine } from "./helpers.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
-function loadFixtures(...files: string[]): Map<string, ValidatedGraph> {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "graph-sources-test-"));
-  for (const f of files) {
-    fs.copyFileSync(path.join(FIXTURES_DIR, f), path.join(tmpDir, f));
-  }
-  return loadGraphs(tmpDir);
-}
-
-function makeEngine(...files: string[]): GraphEngine {
-  return new GraphEngine(loadFixtures(...files));
-}
+const makeEngine = (...files: string[]): GraphEngine =>
+  sharedMakeEngine(FIXTURES_DIR, "graph-sources-test-", ...files);
 
 describe("schema: graph-level sources", () => {
-  it("accepts graph with sources at graph level", () => {
+  it("accepts graph with sources at graph level", async () => {
     const graph = {
       id: "test-graph-sources",
       version: "1.0",
@@ -59,7 +49,7 @@ describe("schema: graph-level sources", () => {
     }
   });
 
-  it("accepts graph without sources (backward compatible)", () => {
+  it("accepts graph without sources (backward compatible)", async () => {
     const graph = {
       id: "test-no-sources",
       version: "1.0",
@@ -85,9 +75,9 @@ describe("schema: graph-level sources", () => {
 });
 
 describe("start() with graph-level sources", () => {
-  it("returns graphSources when graph has sources", () => {
+  it("returns graphSources when graph has sources", async () => {
     const engine = makeEngine("valid-graph-sources.workflow.yaml");
-    const result = engine.start("valid-graph-sources");
+    const result = await engine.start("valid-graph-sources");
 
     expect(result.status).toBe("started");
     expect(result.graphSources).toBeDefined();
@@ -98,9 +88,9 @@ describe("start() with graph-level sources", () => {
     expect(result.graphSources![1].section).toBe("formatting");
   });
 
-  it("omits graphSources when graph has no sources", () => {
+  it("omits graphSources when graph has no sources", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    const result = engine.start("valid-simple");
+    const result = await engine.start("valid-simple");
 
     expect(result.status).toBe("started");
     expect(result.graphSources).toBeUndefined();
@@ -108,9 +98,9 @@ describe("start() with graph-level sources", () => {
 });
 
 describe("inspect() with graph-level sources", () => {
-  it("returns graphSources in position inspect", () => {
+  it("returns graphSources in position inspect", async () => {
     const engine = makeEngine("valid-graph-sources.workflow.yaml");
-    engine.start("valid-graph-sources");
+    await engine.start("valid-graph-sources");
 
     const result = engine.inspect("position") as InspectPositionResult;
     expect(result.graphSources).toBeDefined();
@@ -118,9 +108,9 @@ describe("inspect() with graph-level sources", () => {
     expect(result.graphSources![0].path).toBe("docs/ambient-guide.md");
   });
 
-  it("omits graphSources in position inspect when graph has none", () => {
+  it("omits graphSources in position inspect when graph has none", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
+    await engine.start("valid-simple");
 
     const result = engine.inspect("position") as InspectPositionResult;
     expect(result.graphSources).toBeUndefined();
@@ -128,9 +118,9 @@ describe("inspect() with graph-level sources", () => {
 });
 
 describe("node-level sources in responses", () => {
-  it("start() returns node sources when start node has sources", () => {
+  it("start() returns node sources when start node has sources", async () => {
     const engine = makeEngine("valid-node-sources.workflow.yaml");
-    const result = engine.start("valid-node-sources");
+    const result = await engine.start("valid-node-sources");
 
     expect(result.node.sources).toBeDefined();
     expect(result.node.sources).toHaveLength(2);
@@ -138,17 +128,17 @@ describe("node-level sources in responses", () => {
     expect(result.node.sources![1].section).toBe("validation");
   });
 
-  it("omits node sources when node has none", () => {
+  it("omits node sources when node has none", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    const result = engine.start("valid-simple");
+    const result = await engine.start("valid-simple");
 
     expect(result.node.sources).toBeUndefined();
   });
 
-  it("advance() returns node sources on target node", () => {
+  it("advance() returns node sources on target node", async () => {
     const engine = makeEngine("valid-node-sources.workflow.yaml");
-    engine.start("valid-node-sources");
-    const result = engine.advance("next") as AdvanceSuccessResult;
+    await engine.start("valid-node-sources");
+    const result = (await engine.advance("next")) as AdvanceSuccessResult;
 
     // middle node has no sources
     expect(result.node.sources).toBeUndefined();
@@ -156,34 +146,34 @@ describe("node-level sources in responses", () => {
 });
 
 describe("graphSources on advance responses", () => {
-  it("advance() returns graphSources when graph has sources", () => {
+  it("advance() returns graphSources when graph has sources", async () => {
     const engine = makeEngine("valid-graph-sources.workflow.yaml");
-    engine.start("valid-graph-sources");
-    const result = engine.advance("work-done") as AdvanceSuccessResult;
+    await engine.start("valid-graph-sources");
+    const result = (await engine.advance("work-done")) as AdvanceSuccessResult;
 
     expect(result.graphSources).toBeDefined();
     expect(result.graphSources).toHaveLength(2);
     expect(result.graphSources![0].path).toBe("docs/ambient-guide.md");
   });
 
-  it("advance() omits graphSources when graph has no sources", () => {
+  it("advance() omits graphSources when graph has no sources", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
-    const result = engine.advance("work-done") as AdvanceSuccessResult;
+    await engine.start("valid-simple");
+    const result = (await engine.advance("work-done")) as AdvanceSuccessResult;
 
     expect(result.graphSources).toBeUndefined();
   });
 
-  it("advance() returns both graphSources and node sources together", () => {
+  it("advance() returns both graphSources and node sources together", async () => {
     const engine = makeEngine("valid-node-sources.workflow.yaml");
-    const startResult = engine.start("valid-node-sources");
+    const startResult = await engine.start("valid-node-sources");
 
     // Start should have both graph-level and node-level sources
     expect(startResult.graphSources).toHaveLength(1);
     expect(startResult.node.sources).toHaveLength(2);
 
     // Advance to middle (no node sources, but graph sources persist)
-    const advResult = engine.advance("next") as AdvanceSuccessResult;
+    const advResult = (await engine.advance("next")) as AdvanceSuccessResult;
     expect(advResult.graphSources).toHaveLength(1);
     expect(advResult.graphSources![0].path).toBe("docs/ambient-guide.md");
     expect(advResult.node.sources).toBeUndefined();
@@ -191,12 +181,12 @@ describe("graphSources on advance responses", () => {
 });
 
 describe("graphSources on error responses", () => {
-  it("advance error includes graphSources when graph has sources", () => {
+  it("advance error includes graphSources when graph has sources", async () => {
     const engine = makeEngine("valid-sources-with-gate.workflow.yaml");
-    engine.start("valid-sources-with-gate");
+    await engine.start("valid-sources-with-gate");
 
     // Attempt to advance without setting approved=true — validation fails
-    const result = engine.advance("proceed") as AdvanceErrorResult;
+    const result = (await engine.advance("proceed")) as AdvanceErrorResult;
     expect(result.isError).toBe(true);
     expect(result.graphSources).toBeDefined();
     expect(result.graphSources).toHaveLength(1);
@@ -208,17 +198,17 @@ describe("validateGraphSources with graph-level sources", () => {
   let tmpDir: string;
   let docFile: string;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "graph-sources-validate-"));
     docFile = path.join(tmpDir, "ambient.md");
     fs.writeFileSync(docFile, "# Ambient Guide\n\nThis is the ambient guide content.\n");
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("detects drift in graph-level sources", () => {
+  it("detects drift in graph-level sources", async () => {
     const definition: GraphDefinition = {
       id: "test",
       version: "1.0",
@@ -244,7 +234,7 @@ describe("validateGraphSources with graph-level sources", () => {
     expect(result.warnings[0].drifted[0].path).toBe(docFile);
   });
 
-  it("passes for matching graph-level source hashes", () => {
+  it("passes for matching graph-level source hashes", async () => {
     const hashed = hashSource({ path: docFile });
 
     const definition: GraphDefinition = {
@@ -270,7 +260,7 @@ describe("validateGraphSources with graph-level sources", () => {
     expect(result.warnings).toHaveLength(0);
   });
 
-  it("validates both graph-level and node-level sources", () => {
+  it("validates both graph-level and node-level sources", async () => {
     const definition = {
       id: "test",
       version: "1.0",
