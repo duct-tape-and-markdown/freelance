@@ -49,6 +49,22 @@ Two sealed workflows are available as subgraphs:
 
 Propositions can be scoped to named collections (e.g., "default", "spec"). All read tools accept an optional `collection` parameter to filter results.
 
+## onEnter Hooks
+
+Any node can declare `onEnter: [{ call, args }]` hooks that run automatically on node arrival — **before the agent sees the node**. Use them to populate context from external state so the agent arrives with everything it needs for the next step, instead of spending a turn fetching data.
+
+- `call` resolves to either a **built-in hook** (`memory_status`, `memory_browse`) or a **relative path** to a local script (`./scripts/foo.js`). The script is an ES module with a default-export async function; it receives `{ args, context, memory, graphId, nodeId }` and returns a plain object merged into session context.
+- `args` values matching the string pattern `context.foo.bar` are resolved against live context at invocation time; everything else is a literal.
+- Hooks run sequentially. Each hook's return value is merged before the next fires, so later hooks can read earlier hooks' writes.
+- Per-hook timeout defaults to 5000ms, configurable via `hooks.timeoutMs` in `config.yml`.
+- A throwing or timing-out hook aborts node arrival with an `EngineError` — the traversal stays on the previous node.
+
+**When to use a hook** instead of agent-driven context updates: when the data is always needed at this node, comes from a deterministic source (memory, filesystem, well-known API), and would otherwise cost an extra agent round-trip with no decision value. Don't use hooks when the agent needs to reason about whether/how to fetch, when the operation is user-visible or has side effects, or when the result determines routing.
+
+**Trust model**: local script hooks execute with full Node.js privileges. A `.workflow.yaml` that references a local script is trusted code — treat it like a `package.json` scripts block.
+
+Call `freelance_guide onenter-hooks` for the full authoring guide (schema, script contract, execution semantics, anti-patterns).
+
 ## During a Traversal
 
 1. Read the instructions at each node and execute them

@@ -66,6 +66,10 @@ nodes:
 
 **Expression evaluator** — Edge conditions and validations use a safe expression language (`context.x == 'value'`, `context.count > 0`, boolean operators, nested property access). Validated at load time, evaluated at runtime.
 
+**onEnter hooks** — Any node can declare `onEnter: [{ call, args }]` hooks that run before the agent sees the node. `call` resolves to either a built-in hook (`memory_status`, `memory_browse`) or a local script path (`./scripts/fetch-context.js`). Hooks receive resolved args, live context, and the memory store, and return a plain object of context updates. Strict-context enforcement still applies. Per-hook timeout defaults to 5000ms, configurable via `hooks.timeoutMs` in `config.yml`.
+
+> **Trust model for hook scripts.** Local script hooks execute with full Node privileges in the host process on graph load and node arrival — treat a workflow file that references a local script like a `package.json` scripts block: trust it at the same level you trust the rest of the repo. Do not load workflow graphs from untrusted sources.
+
 ## Memory
 
 Freelance includes a persistent knowledge graph backed by SQLite. The agent reads source files, reasons about them, and writes atomic propositions about 1-2 entities. Every proposition records which source files produced it and their content hashes at the time of compilation.
@@ -84,7 +88,7 @@ When you query memory, it checks whether the source files on disk still match. M
 
 ### Configuration
 
-Memory is **enabled by default** with zero configuration. The database is stored at `.freelance/.state/memory.db`.
+Memory is **enabled by default** with zero configuration. The database is stored at `.freelance/memory/memory.db`.
 
 To customize, add memory settings to your `.freelance/config.yml` (see [Configuration](#configuration-1) below).
 
@@ -137,7 +141,17 @@ Freelance uses two config files in `.freelance/`, both with the same schema:
 | `config.yml` | Team-shared settings | Yes |
 | `config.local.yml` | Machine-specific overrides (plugin hooks) | No (gitignored) |
 
-Precedence: **CLI flags > env vars > config.local.yml > config.yml > defaults**
+General precedence: **CLI flags > env vars > config.local.yml > config.yml > defaults**. Per-field surface:
+
+| Field | CLI flag | Env var | `config.yml` | Notes |
+|---|---|---|---|---|
+| `workflows` | `--workflows` (repeatable) | `FREELANCE_WORKFLOWS` | ✓ (array, concatenates across files) | User/project dirs cascade automatically |
+| `memory.enabled` | `--memory` / `--no-memory` | — | ✓ | CLI flag always wins |
+| `memory.dir` | `--memory-dir` | — | ✓ | Default: `.freelance/memory/` |
+| `memory.collections` | — | — | ✓ (concatenates) | Must be declared before emit |
+| `maxDepth` | `--max-depth` | — | ✓ | Default: `5` |
+| `hooks.timeoutMs` | — | — | ✓ | Config-only. Default: `5000` |
+| `sourceRoot` | `--source-root` | — | — | Computed from graphsDir if omitted |
 
 ```yaml
 # .freelance/config.yml
@@ -146,10 +160,7 @@ workflows:                          # Additional workflow directories
 
 memory:
   enabled: true                     # Default: true. Set false to disable.
-  dir: /path/to/persistent/dir      # Override memory.db location
-  ignore:                           # Glob patterns to exclude from indexing
-    - "**/node_modules/**"
-    - "**/dist/**"
+  dir: /path/to/persistent/dir      # Override memory.db location (default: .freelance/memory/)
   collections:                      # Partition propositions into named buckets
     - name: default
       description: General project knowledge
@@ -157,9 +168,14 @@ memory:
     - name: spec
       description: Feature specifications
       paths: ["docs/", "specs/"]
+
+maxDepth: 5                         # Max subgraph nesting depth. CLI --max-depth overrides.
+
+hooks:
+  timeoutMs: 5000                   # Per-hook timeout for onEnter hooks. Default 5000.
 ```
 
-Merge rules: arrays (`workflows`, `ignore`, `collections`) concatenate across files. Scalars (`enabled`, `dir`) use highest-precedence value.
+Merge rules: arrays (`workflows`, `collections`) concatenate across files. Scalars use highest-precedence value.
 
 Use `freelance config show` to see the resolved configuration and which files contributed.
 
@@ -178,6 +194,36 @@ Subdirectories are scanned recursively. Later directories shadow earlier ones by
 ```bash
 freelance mcp --workflows ./my-workflows/
 ```
+
+### `.freelance/` directory layout
+
+```
+.freelance/
+├── config.yml           # team-shared config (committed)
+├── config.local.yml     # machine-specific overrides (gitignored)
+├── *.workflow.yaml      # source artifacts — your graph definitions
+├── .gitignore           # auto-generated; covers runtime dirs below
+├── memory/              # runtime (gitignored)
+│   ├── memory.db        #   persistent knowledge graph
+│   ├── memory.db-shm    #   SQLite shared-memory sidecar
+│   └── memory.db-wal    #   SQLite write-ahead log
+└── traversals/          # runtime (gitignored)
+    └── tr_*.json        #   one file per active traversal
+```
+
+Source artifacts and runtime artifacts coexist as peers; the lifecycle distinction is maintained via `.gitignore`, not directory nesting. Freelance auto-generates `.freelance/.gitignore` on first write.
+
+If you're upgrading from a pre-1.3 install that used a `.state/` subdirectory, the layout is migrated automatically on the next run — `memory.db` is moved into `memory/`, `traversals/` moves up one level, the vestigial `state.db` from the earlier architecture is removed, and the empty `.state/` is cleaned up. The migration logs one line to stderr and is best-effort; on failure you'll see an actionable message.
+
+### Resetting memory
+
+Memory is content-addressable — everything in `memory.db` can be rebuilt on demand from source files. If you hit a schema incompatibility after a version bump, or just want a clean slate:
+
+```bash
+freelance memory reset --confirm
+```
+
+Deletes `memory.db` and its sidecars without opening the database, so it works even when the current binary refuses to load the old schema. Next run re-initializes a fresh store.
 
 **CLI flags:**
 - `--memory-dir <path>` — override memory.db location (highest priority)
