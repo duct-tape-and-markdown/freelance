@@ -6,13 +6,12 @@
  */
 
 import { GraphBuilder } from "../builder.js";
-import type { OpsRegistry } from "../engine/operations.js";
 import type { ValidatedGraph } from "../types.js";
 import { compileMessages as M } from "./messages.js";
 
 export const COMPILE_KNOWLEDGE_ID = "memory:compile";
 
-export function buildCompileKnowledgeWorkflow(opsRegistry?: OpsRegistry): ValidatedGraph {
+export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
   return new GraphBuilder(COMPILE_KNOWLEDGE_ID, "Compile Knowledge")
     .setDescription(M.description)
     .setContext({
@@ -95,5 +94,5 @@ export function buildCompileKnowledgeWorkflow(opsRegistry?: OpsRegistry): Valida
       type: "terminal",
       description: M.nodes.complete.description,
     })
-    .build(opsRegistry);
+    .build();
 }

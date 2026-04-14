@@ -6,6 +6,7 @@ import type { MemoryConfig } from "./memory/index.js";
 import { MemoryStore, registerMemoryTools } from "./memory/index.js";
 import { buildRecollectionWorkflow, RECOLLECTION_ID } from "./memory/recollection.js";
 import { buildCompileKnowledgeWorkflow, COMPILE_KNOWLEDGE_ID } from "./memory/workflow.js";
+import { validateOpsAndPrune } from "./ops-validation.js";
 import type { SectionResolver, SourceOptions } from "./sources.js";
 import { openStateStore, TraversalStore } from "./state/index.js";
 import { registerFreelanceTools } from "./tools/index.js";
@@ -51,16 +52,25 @@ export function createServer(
     opsRegistry = createDefaultOpsRegistry({ memoryStore });
   }
 
+  // Mutable load errors — updated by watcher on reload. Tool handlers
+  // read through the getter below so they always see the current value.
+  let currentLoadErrors: Array<{ file: string; message: string }> = options?.loadErrors ?? [];
+
+  // Post-load op-name validation. Graphs referencing unknown ops are
+  // pruned and reported through the same loadErrors channel used for
+  // structural failures.
+  if (opsRegistry) {
+    for (const err of validateOpsAndPrune(graphs, opsRegistry)) {
+      currentLoadErrors = [...currentLoadErrors, { file: err.graphId, message: err.message }];
+    }
+  }
+
   const backend = openStateStore(options?.stateDir ?? ":memory:");
   const manager = new TraversalStore(backend, graphs, {
     maxDepth: options?.maxDepth,
     opsRegistry,
     opContext: memoryStore ? { memoryStore } : undefined,
   });
-
-  // Mutable load errors — updated by watcher on reload. Tool handlers
-  // read through the getter below so they always see the current value.
-  let currentLoadErrors: Array<{ file: string; message: string }> = options?.loadErrors ?? [];
 
   // Shared source options — sourceRoot is the basePath for all source resolution
   const sourceOpts: SourceOptions = {
@@ -72,8 +82,18 @@ export function createServer(
   if (options?.graphsDirs?.length) {
     stopWatcher = watchGraphs({
       graphsDir: options.graphsDirs,
-      opsRegistry,
-      onUpdate: (newGraphs) => manager.updateGraphs(newGraphs),
+      onUpdate: (newGraphs) => {
+        if (opsRegistry) {
+          const opErrors = validateOpsAndPrune(newGraphs, opsRegistry);
+          if (opErrors.length > 0) {
+            currentLoadErrors = [
+              ...currentLoadErrors,
+              ...opErrors.map((e) => ({ file: e.graphId, message: e.message })),
+            ];
+          }
+        }
+        manager.updateGraphs(newGraphs);
+      },
       onError: (err) => {
         process.stderr.write(`Graph reload failed: ${err.message}\n`);
       },
@@ -112,7 +132,7 @@ export function createServer(
     // Inject sealed memory workflows
     let injected = false;
     if (!graphs.has(COMPILE_KNOWLEDGE_ID)) {
-      graphs.set(COMPILE_KNOWLEDGE_ID, buildCompileKnowledgeWorkflow(opsRegistry));
+      graphs.set(COMPILE_KNOWLEDGE_ID, buildCompileKnowledgeWorkflow());
       injected = true;
     }
     if (!graphs.has(RECOLLECTION_ID)) {

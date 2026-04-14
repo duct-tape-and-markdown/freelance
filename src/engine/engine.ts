@@ -120,6 +120,7 @@ export class GraphEngine {
     const currentNodeDef = def.nodes[session.currentNode];
 
     if (contextUpdates) {
+      enforceStrictContext(def, contextUpdates);
       applyContextUpdates(session, contextUpdates);
       session.turnCount++;
     }

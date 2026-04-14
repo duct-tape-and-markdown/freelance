@@ -14,6 +14,7 @@ import { createDefaultOpsRegistry } from "../engine/operations.js";
 import { loadGraphsGraceful, resolveGraphsDirs, resolveSourceRoot } from "../graph-resolution.js";
 import type { MemoryConfig } from "../memory/index.js";
 import { MemoryStore } from "../memory/index.js";
+import { validateOpsAndPrune } from "../ops-validation.js";
 import { extractSection } from "../section-resolver.js";
 import type { SourceOptions } from "../sources.js";
 import { openStateStore, TraversalStore } from "../state/index.js";
@@ -152,6 +153,15 @@ export function createTraversalStore(opts: CliSetupOptions): {
     ? new MemoryStore(memConfig.db, setup.sourceRoot, memConfig.collections)
     : undefined;
   const opsRegistry = memoryStore ? createDefaultOpsRegistry({ memoryStore }) : undefined;
+
+  if (opsRegistry) {
+    // Prune any loaded workflow whose programmatic nodes reference
+    // unknown ops. Errors are swallowed for the CLI store path — CLI
+    // traversal commands inspect setup.graphs, which will no longer
+    // include the pruned graphs. Users run `freelance validate` for
+    // detailed diagnostics.
+    validateOpsAndPrune(setup.graphs, opsRegistry);
+  }
 
   const store = new TraversalStore(backend, setup.graphs, {
     maxDepth,

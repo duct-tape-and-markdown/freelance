@@ -6,7 +6,6 @@
  * and graphlib topology checks.
  */
 
-import type { OpsRegistry } from "./engine/operations.js";
 import { validateAndBuild } from "./loader.js";
 import type { EdgeDefinition, GraphDefinition, NodeDefinition } from "./schema/graph-schema.js";
 import { graphDefinitionSchema } from "./schema/graph-schema.js";
@@ -99,10 +98,11 @@ export class GraphBuilder {
    * as YAML-loaded graphs: Zod schema, return schemas, expressions,
    * graphlib topology (reachability, cycles, terminal/gate rules).
    *
-   * Passing an opsRegistry enables load-time validation of programmatic
-   * node op names against the registry. Throws on any validation failure.
+   * Op-name validation for programmatic nodes is a separate post-pass
+   * (src/ops-validation.ts) run by the caller once a live ops registry
+   * is available. Throws on any structural validation failure.
    */
-  build(opsRegistry?: OpsRegistry): ValidatedGraph {
+  build(): ValidatedGraph {
     if (this.startNodeId === null) {
       throw new Error(`GraphBuilder "${this.id}": no nodes added`);
     }
@@ -165,7 +165,7 @@ export class GraphBuilder {
 
     const definition: GraphDefinition = parseResult.data;
     const source = `GraphBuilder("${this.id}")`;
-    const graph = validateAndBuild(definition, source, opsRegistry);
+    const graph = validateAndBuild(definition, source);
 
     return { definition, graph };
   }

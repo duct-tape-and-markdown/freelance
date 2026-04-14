@@ -13,7 +13,6 @@
 // @dagrejs/graphlib — see loader.ts for the createRequire explanation
 // (tsx can't resolve named ESM exports from the CJS bundle).
 import { createRequire } from "node:module";
-import type { OpsRegistry } from "./engine/operations.js";
 import type { GraphDefinition, NodeDefinition } from "./schema/graph-schema.js";
 
 const { Graph, alg } = createRequire(import.meta.url)(
@@ -36,11 +35,7 @@ const PROGRAMMATIC_FORBIDDEN_FIELDS: ReadonlyArray<keyof NodeDefinition> = [
   "timeout",
 ];
 
-export function buildAndValidateGraph(
-  def: GraphDefinition,
-  filePath: string,
-  opsRegistry?: OpsRegistry,
-): Graph {
+export function buildAndValidateGraph(def: GraphDefinition, filePath: string): Graph {
   const g = new Graph({ directed: true });
   const nodeIds = Object.keys(def.nodes);
 
@@ -120,11 +115,30 @@ export function buildAndValidateGraph(
           );
         }
       }
-      if (opsRegistry && !opsRegistry.has(node.operation.name)) {
-        throw new Error(
-          `[${filePath}] Node "${nodeId}": unknown operation "${node.operation.name}". ` +
-            `Registered ops: [${opsRegistry.list().join(", ")}]`,
-        );
+      // Op-name validation is a post-pass concern handled by validateOps
+      // (src/ops-validation.ts) — it requires the ops registry, which is
+      // a host concern that doesn't belong inside the structural loader.
+      //
+      // Multi-edge ambiguity: the drain loop picks the first edge whose
+      // condition is met, so an unconditional edge alongside others
+      // always wins silently. Reject that statically — programmatic
+      // nodes with multiple edges must distinguish them by condition.
+      if (node.edges && node.edges.length > 1) {
+        const unconditional = node.edges.filter((e) => !e.condition && !e.default);
+        if (unconditional.length > 0) {
+          throw new Error(
+            `[${filePath}] Node "${nodeId}": programmatic node with multiple outgoing ` +
+              `edges cannot have unconditional edges (found ${unconditional.length} of ` +
+              `${node.edges.length}). Add conditions or collapse to one edge.`,
+          );
+        }
+        const defaults = node.edges.filter((e) => e.default);
+        if (defaults.length > 1) {
+          throw new Error(
+            `[${filePath}] Node "${nodeId}": programmatic node has ${defaults.length} ` +
+              `default edges; at most one is allowed.`,
+          );
+        }
       }
     } else {
       if (node.operation !== undefined) {

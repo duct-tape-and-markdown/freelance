@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { createTestOpsRegistry } from "../src/engine/operations.js";
 import { buildAndValidateGraph } from "../src/graph-construction.js";
 import type { GraphDefinition } from "../src/types.js";
 
@@ -35,7 +34,7 @@ describe("graph-construction — programmatic node: required fields", () => {
     );
   });
 
-  it("accepts a programmatic node with a valid operation and no registry", () => {
+  it("accepts a programmatic node with a valid operation (op-name check is not structural)", () => {
     const def = graph({
       nodes: {
         start: {
@@ -47,55 +46,9 @@ describe("graph-construction — programmatic node: required fields", () => {
         end: { type: "terminal", description: "end" },
       },
     });
-    expect(() => buildAndValidateGraph(def, "<test>")).not.toThrow();
-  });
-
-  it("accepts a programmatic node when the op is in the registry", () => {
-    const def = graph({
-      nodes: {
-        start: {
-          type: "programmatic",
-          description: "ok",
-          operation: { name: "test_op" },
-          edges: [{ label: "go", target: "end" }],
-        },
-        end: { type: "terminal", description: "end" },
-      },
-    });
-    const registry = createTestOpsRegistry({ test_op: () => ({}) });
-    expect(() => buildAndValidateGraph(def, "<test>", registry)).not.toThrow();
-  });
-
-  it("rejects a programmatic node whose op is not in the registry", () => {
-    const def = graph({
-      nodes: {
-        start: {
-          type: "programmatic",
-          description: "bad op",
-          operation: { name: "nonexistent" },
-          edges: [{ label: "go", target: "end" }],
-        },
-        end: { type: "terminal", description: "end" },
-      },
-    });
-    const registry = createTestOpsRegistry({ real_op: () => ({}) });
-    expect(() => buildAndValidateGraph(def, "<test>", registry)).toThrow(
-      /unknown operation "nonexistent"/,
-    );
-  });
-
-  it("skips op-name validation when no registry is provided", () => {
-    const def = graph({
-      nodes: {
-        start: {
-          type: "programmatic",
-          description: "any op",
-          operation: { name: "totally_fake" },
-          edges: [{ label: "go", target: "end" }],
-        },
-        end: { type: "terminal", description: "end" },
-      },
-    });
+    // Op-name validation is a post-pass (see src/ops-validation.ts).
+    // buildAndValidateGraph accepts any op name; the reference is
+    // checked by validateOps once a live registry is available.
     expect(() => buildAndValidateGraph(def, "<test>")).not.toThrow();
   });
 });
@@ -340,5 +293,96 @@ describe("graph-construction — programmatic node: edge requirements", () => {
       },
     });
     expect(() => buildAndValidateGraph(def, "<t>")).toThrow(/targets undefined node "nowhere"/);
+  });
+});
+
+describe("graph-construction — programmatic node: multi-edge ambiguity", () => {
+  it("accepts a single unconditional edge", () => {
+    const def = graph({
+      nodes: {
+        start: {
+          type: "programmatic",
+          description: "one-edge",
+          operation: { name: "op" },
+          edges: [{ label: "go", target: "end" }],
+        },
+        end: { type: "terminal", description: "done" },
+      },
+    });
+    expect(() => buildAndValidateGraph(def, "<t>")).not.toThrow();
+  });
+
+  it("accepts multiple conditional edges plus a default", () => {
+    const def = graph({
+      nodes: {
+        start: {
+          type: "programmatic",
+          description: "conditional branching",
+          operation: { name: "op" },
+          edges: [
+            { label: "a", target: "aTarget", condition: "context.x == 1" },
+            { label: "b", target: "bTarget", condition: "context.x == 2" },
+            { label: "fallback", target: "aTarget", default: true },
+          ],
+        },
+        aTarget: { type: "terminal", description: "a" },
+        bTarget: { type: "terminal", description: "b" },
+      },
+    });
+    expect(() => buildAndValidateGraph(def, "<t>")).not.toThrow();
+  });
+
+  it("rejects two unconditional edges", () => {
+    const def = graph({
+      nodes: {
+        start: {
+          type: "programmatic",
+          description: "ambiguous",
+          operation: { name: "op" },
+          edges: [
+            { label: "a", target: "end" },
+            { label: "b", target: "end" },
+          ],
+        },
+        end: { type: "terminal", description: "done" },
+      },
+    });
+    expect(() => buildAndValidateGraph(def, "<t>")).toThrow(/cannot have unconditional edges/);
+  });
+
+  it("rejects an unconditional edge alongside a conditional", () => {
+    const def = graph({
+      nodes: {
+        start: {
+          type: "programmatic",
+          description: "mixed",
+          operation: { name: "op" },
+          edges: [
+            { label: "cond", target: "end", condition: "context.x == 1" },
+            { label: "any", target: "end" },
+          ],
+        },
+        end: { type: "terminal", description: "done" },
+      },
+    });
+    expect(() => buildAndValidateGraph(def, "<t>")).toThrow(/cannot have unconditional edges/);
+  });
+
+  it("rejects two default edges", () => {
+    const def = graph({
+      nodes: {
+        start: {
+          type: "programmatic",
+          description: "two defaults",
+          operation: { name: "op" },
+          edges: [
+            { label: "a", target: "end", default: true },
+            { label: "b", target: "end", default: true },
+          ],
+        },
+        end: { type: "terminal", description: "done" },
+      },
+    });
+    expect(() => buildAndValidateGraph(def, "<t>")).toThrow(/2 default edges/);
   });
 });
