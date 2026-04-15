@@ -8,10 +8,13 @@ import { buildCompileKnowledgeWorkflow } from "../src/memory/workflow.js";
 // tests fail loudly on regressions in the prose rather than the topology.
 
 describe("PROPOSITION_RUBRIC prose port (Batch 1)", () => {
-  const compilingInstructions = compileMessages.nodes.compiling.instructions;
+  // After Batch 3+5 the compile workflow's rubric prose lives in the
+  // `staging` node, not `compiling` (which no longer exists). The recall
+  // workflow's `filling` node is unchanged.
+  const compilingInstructions = compileMessages.nodes.staging.instructions;
   const fillingInstructions = recallMessages.nodes.filling.instructions;
 
-  describe("compileMessages.nodes.compiling.instructions", () => {
+  describe("compileMessages.nodes.staging.instructions", () => {
     it("contains the independence test backstop", () => {
       expect(compilingInstructions).toContain("independence test");
       expect(compilingInstructions).toContain(
@@ -64,7 +67,10 @@ describe("PROPOSITION_RUBRIC prose port (Batch 1)", () => {
 });
 
 describe("Lens directive prose port (Batch 2)", () => {
-  const compilingInstructions = compileMessages.nodes.compiling.instructions;
+  // Lens directive lives alongside the rubric in the staging node after
+  // Batch 3+5's split — entity planning happens in addressing, but the
+  // lens decides what gets staged in the first place.
+  const compilingInstructions = compileMessages.nodes.staging.instructions;
 
   it("contains the lens directive section header", () => {
     expect(compilingInstructions).toContain("Lens directive");
@@ -98,5 +104,94 @@ describe("buildCompileKnowledgeWorkflow context default (Batch 2)", () => {
     // GraphDefinition.context is the start-node default context map
     // produced by GraphBuilder.setContext.
     expect(graph.definition.context).toHaveProperty("lens", "");
+  });
+});
+
+describe("Stage-and-address split (Batch 3+5)", () => {
+  const graph = buildCompileKnowledgeWorkflow();
+  const nodes = graph.definition.nodes;
+  const stagingInstructions = compileMessages.nodes.staging.instructions;
+  const addressingInstructions = compileMessages.nodes.addressing.instructions;
+
+  describe("topology", () => {
+    it("removes the old `compiling` node", () => {
+      expect(nodes).not.toHaveProperty("compiling");
+    });
+
+    it("introduces `staging` and `addressing` nodes", () => {
+      expect(nodes).toHaveProperty("staging");
+      expect(nodes).toHaveProperty("addressing");
+    });
+
+    it("wires exploring → staging → addressing → evaluating", () => {
+      const exploring = nodes.exploring;
+      expect(exploring.edges?.some((e) => e.target === "staging")).toBe(true);
+
+      const staging = nodes.staging;
+      expect(staging.edges?.some((e) => e.target === "addressing")).toBe(true);
+
+      const addressing = nodes.addressing;
+      expect(addressing.edges?.some((e) => e.target === "evaluating")).toBe(true);
+    });
+
+    it("declares stagedClaims and entities as start-context defaults", () => {
+      expect(graph.definition.context).toHaveProperty("stagedClaims");
+      expect(graph.definition.context).toHaveProperty("entities");
+    });
+  });
+
+  describe("addressing onEnter (memory_browse)", () => {
+    it("attaches a memory_browse onEnter hook to addressing", () => {
+      const addressing = nodes.addressing;
+      const onEnter = addressing.onEnter ?? [];
+      expect(onEnter.length).toBeGreaterThan(0);
+      expect(onEnter.some((h) => h.call === "memory_browse")).toBe(true);
+    });
+
+    it("resolves the addressing onEnter hook into hookResolutions", () => {
+      const resolutions = graph.hookResolutions?.get("addressing");
+      expect(resolutions).toBeDefined();
+      expect(resolutions?.length).toBeGreaterThan(0);
+      expect(resolutions?.[0]).toMatchObject({ kind: "builtin", name: "memory_browse" });
+    });
+  });
+
+  describe("staging instruction prose", () => {
+    it("references context.stagedClaims and the per-claim schema", () => {
+      expect(stagingInstructions).toContain("context.stagedClaims");
+      expect(stagingInstructions).toContain("draftEntities");
+    });
+
+    it("explicitly forbids calling memory_emit in this node", () => {
+      expect(stagingInstructions).toContain("NOT yet calling memory_emit");
+    });
+
+    it("inherits the rubric and the lens directive", () => {
+      expect(stagingInstructions).toContain("independence test");
+      expect(stagingInstructions).toContain("Lens directive");
+    });
+  });
+
+  describe("addressing instruction prose", () => {
+    it("teaches the 3+ propositions per entity floor", () => {
+      expect(addressingInstructions).toContain("3+ propositions");
+    });
+
+    it("teaches the staged-claims-divided-by-3 ceiling", () => {
+      expect(addressingInstructions).toContain("divided by 3");
+    });
+
+    it("includes GOOD vs BAD entity examples", () => {
+      expect(addressingInstructions).toContain("GOOD entities");
+      expect(addressingInstructions).toContain("BAD entities");
+    });
+
+    it("references the onEnter-populated context.entities vocabulary", () => {
+      expect(addressingInstructions).toContain("context.entities");
+    });
+
+    it("instructs a single batched memory_emit call", () => {
+      expect(addressingInstructions).toContain("memory_emit ONCE");
+    });
   });
 });

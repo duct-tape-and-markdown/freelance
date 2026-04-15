@@ -59,19 +59,49 @@ export const compileMessages = {
         "hashes each cited source file at emit time for per-proposition provenance, so " +
         "there's no pre-registration step: read, track the path, emit when ready.",
     },
-    compiling: {
-      description: "Emit propositions about what you learned from the source files.",
+    staging: {
+      description: "Stage raw claims in context — no entity planning, no memory_emit yet.",
       instructions:
         `${PROPOSITION_RUBRIC}\n\n` +
         "## Lens directive — what to extract\n" +
-        "Read context.lens and shape your emissions accordingly. If context.lens is empty, default to dev.\n" +
+        "Read context.lens and shape your stagings accordingly. If context.lens is empty, default to dev.\n" +
         "- dev: extract implementation detail, code names, internal structure.\n" +
         "- support: extract ONLY user-facing behavior and business rules. NO code names, file paths, or internal details.\n" +
         "- qa: extract testable behaviors, validation rules, edge cases.\n" +
-        "The lens flips output quality substantially — without it the agent defaults to a muddled middle-ground that serves nobody. Pick one and commit to it for every proposition in this run.\n\n" +
-        "Cite sources from context.filesReadPaths — only the files each prop was actually derived from. " +
-        "Call memory_emit with context.collection as the collection parameter. " +
-        "Update context.propositionsEmitted with the running total.",
+        "The lens flips output quality substantially — without it the agent defaults to a muddled middle-ground that serves nobody. Pick one and commit to it for every claim in this run.\n\n" +
+        "## What this node does\n" +
+        "STAGING is the raw-claim pass. You are NOT yet calling memory_emit. You are pushing atomic claim objects into context.stagedClaims via freelance_context_set, where the next node (`addressing`) will read them, plan entity hub-concepts across the whole staged set, and call memory_emit once with planned entities.\n\n" +
+        "Per-claim schema:\n" +
+        "  { content: string, sources: string[], draftEntities?: string[] }\n" +
+        "- content: the atomic claim itself, obeying the rubric above.\n" +
+        "- sources: cite from context.filesReadPaths — only files each claim was actually derived from.\n" +
+        "- draftEntities: optional — names you informally noticed are involved. The addressing node will rewrite these against the full vocabulary; do not over-think them here.\n\n" +
+        "Aim for 5–15 staged claims per file, applying the independence test aggressively. Splitting now is cheap; under-splitting is expensive because it forces the addressing node to atomize after the fact.\n\n" +
+        "When all relevant claims from this batch of files are staged, advance.",
+    },
+    addressing: {
+      description: "Plan entity hub-concepts across the staged claim set, then emit.",
+      instructions:
+        "## What this node does\n" +
+        "ADDRESSING drains context.stagedClaims, plans the entity vocabulary across the full set, and calls memory_emit ONCE with planned entities. This node exists separately from staging because entity planning needs to see the whole batch — it cannot succeed claim-by-claim.\n\n" +
+        "Before the agent saw this node, an onEnter hook called memory_browse and populated context.entities with the existing entity vocabulary in the collection. Read those names first — reusing existing entity names verbatim is the single highest-leverage thing you can do for graph density.\n\n" +
+        "## Hub-concept rules (these are leverage rules — follow them mechanically)\n" +
+        "1. Reuse existing entities whenever possible. Same name, exactly. context.entities already shows you what's there.\n" +
+        "2. Each entity MUST connect to 3+ propositions across the staged set. If it doesn't, merge it into a broader concept. An entity with one proposition is a content fragment masquerading as a hub.\n" +
+        "3. Maximum entity count is staged-claim-count divided by 3, rounded up. 20 staged claims → max 7 entities. 30 → max 10. This is a HARD ceiling — it forces planning instead of improvising.\n" +
+        "4. 1–2 entities per proposition. Most propositions share entities with their neighbors.\n\n" +
+        "## GOOD vs BAD entities (pattern-match these to your domain)\n" +
+        "GOOD entities (hub concepts a person would search for):\n" +
+        '  "User Authentication", "Payment Processing", "Onboarding Flow", "Configuration"\n' +
+        "BAD entities (per-field granularity — these belong inside proposition CONTENT, not as entities):\n" +
+        '  "JWT Token Expiry Setting", "Stripe API Key Field", "Welcome Email Subject Line"\n' +
+        "Rule of thumb: if an entity's name reads like a setting name or a field name, it is content, not a hub. Roll it up.\n\n" +
+        "## Procedure\n" +
+        "1. Read context.entities (existing vocabulary from the onEnter memory_browse).\n" +
+        "2. Read context.stagedClaims (this batch's raw claims).\n" +
+        "3. Plan the entity set: count claims, divide by 3, that's your ceiling. List candidate hubs. Strike anything that fails the 3+ floor or looks like a setting name. Prefer existing names.\n" +
+        "4. Call memory_emit ONCE with all staged claims, attaching the planned entities to each. Cite sources from each claim's sources field.\n" +
+        "5. Update context.propositionsEmitted with the running total. Clear context.stagedClaims (set to []) so the next loop iteration starts clean.",
     },
     evaluating: {
       description: "Check coverage — are there areas not yet compiled?",
@@ -91,9 +121,13 @@ export const compileMessages = {
       label: "files-read",
       description: "At least one source file has been read.",
     },
+    claimsStaged: {
+      label: "claims-staged",
+      description: "Raw claims have been pushed into context.stagedClaims.",
+    },
     propositionsEmitted: {
       label: "propositions-emitted",
-      description: "Propositions have been written to memory.",
+      description: "Propositions have been written to memory with planned entities.",
     },
     coverageSatisfied: {
       label: "coverage-satisfied",

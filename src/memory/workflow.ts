@@ -19,6 +19,13 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       query: "",
       lens: "",
       filesReadPaths: [],
+      // Raw claim objects pushed by `staging` and drained by `addressing`.
+      // Schema per claim: { content: string, sources: string[], draftEntities?: string[] }.
+      // No store changes — staging is a pure context pattern.
+      stagedClaims: [],
+      // Populated by addressing's onEnter memory_browse hook so the
+      // addressing instruction can prefer existing entity names.
+      entities: [],
       propositionsEmitted: 0,
       coverageSatisfied: false,
     })
@@ -28,18 +35,44 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       instructions: M.nodes.exploring.instructions,
       edges: [
         {
-          target: "compiling",
+          target: "staging",
           label: M.edges.filesRead.label,
           condition: "len(context.filesReadPaths) > 0",
           description: M.edges.filesRead.description,
         },
       ],
     })
-    .node("compiling", {
+    .node("staging", {
       type: "action",
-      description: M.nodes.compiling.description,
-      instructions: M.nodes.compiling.instructions,
+      description: M.nodes.staging.description,
+      instructions: M.nodes.staging.instructions,
+      edges: [
+        {
+          target: "addressing",
+          label: M.edges.claimsStaged.label,
+          condition: "len(context.stagedClaims) > 0",
+          description: M.edges.claimsStaged.description,
+        },
+      ],
+    })
+    .node("addressing", {
+      type: "action",
+      description: M.nodes.addressing.description,
+      instructions: M.nodes.addressing.instructions,
       suggestedTools: ["memory_emit"],
+      // onEnter populates context.entities with the existing vocabulary
+      // for this collection so the addressing prose can ground its
+      // entity-reuse rules in real names — replaces an agent round-trip
+      // that previously had to call memory_browse manually.
+      onEnter: [
+        {
+          call: "memory_browse",
+          args: {
+            collection: "context.collection",
+            limit: 50,
+          },
+        },
+      ],
       edges: [
         {
           target: "evaluating",
