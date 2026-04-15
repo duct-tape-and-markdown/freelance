@@ -45,6 +45,33 @@ function optionalInt(args: Record<string, unknown>, key: string): number | undef
   return v;
 }
 
+function requireString(args: Record<string, unknown>, key: string): string {
+  const v = args[key];
+  if (typeof v !== "string" || v.length === 0) {
+    throw new TypeError(
+      `Hook arg "${key}" is required and must be a non-empty string; got ${typeof v} (${JSON.stringify(v)})`,
+    );
+  }
+  return v;
+}
+
+function requireStringArray(args: Record<string, unknown>, key: string): string[] {
+  const v = args[key];
+  if (!Array.isArray(v)) {
+    throw new TypeError(
+      `Hook arg "${key}" is required and must be a string array; got ${typeof v} (${JSON.stringify(v)})`,
+    );
+  }
+  for (const item of v) {
+    if (typeof item !== "string") {
+      throw new TypeError(
+        `Hook arg "${key}" must contain only strings; got element ${JSON.stringify(item)}`,
+      );
+    }
+  }
+  return v as string[];
+}
+
 // Normalize "" to undefined so graphs with strict-context can declare a
 // default-empty collection key and still trigger the "no collection"
 // branch in the store.
@@ -71,9 +98,60 @@ const memoryBrowse: HookFn = async (ctx) => {
   };
 };
 
+const memorySearch: HookFn = async (ctx) => {
+  const memory = requireMemory(ctx, "memory_search");
+  const query = requireString(ctx.args, "query");
+  return {
+    ...memory.search(query, {
+      collection: optionalCollection(ctx.args),
+      limit: optionalInt(ctx.args, "limit"),
+    }),
+  };
+};
+
+const memoryRelated: HookFn = async (ctx) => {
+  const memory = requireMemory(ctx, "memory_related");
+  const entity = requireString(ctx.args, "entity");
+  return { ...memory.related(entity, optionalCollection(ctx.args)) };
+};
+
+const memoryInspect: HookFn = async (ctx) => {
+  const memory = requireMemory(ctx, "memory_inspect");
+  const entity = requireString(ctx.args, "entity");
+  return { ...memory.inspect(entity, optionalCollection(ctx.args)) };
+};
+
+// memory_by_source diverges from the single-path MCP tool: it accepts
+// `paths: string[]` and loops internally so a single onEnter declaration
+// can fan out over context.filesReadPaths. Caller-provided lists are
+// capped at MAX_BY_SOURCE_PATHS to bound the hook's runtime against the
+// 5-second default timeout — anything longer should be a script hook.
+const MAX_BY_SOURCE_PATHS = 50;
+
+const memoryBySource: HookFn = async (ctx) => {
+  const memory = requireMemory(ctx, "memory_by_source");
+  const paths = requireStringArray(ctx.args, "paths");
+  const collection = optionalCollection(ctx.args);
+  const capped = paths.slice(0, MAX_BY_SOURCE_PATHS);
+  const priorKnowledgeByPath: Record<string, ReturnType<typeof memory.bySource>["propositions"]> =
+    {};
+  for (const p of capped) {
+    priorKnowledgeByPath[p] = memory.bySource(p, collection).propositions;
+  }
+  return {
+    priorKnowledgeByPath,
+    priorKnowledgePathsConsidered: capped.length,
+    priorKnowledgePathsTruncated: paths.length > MAX_BY_SOURCE_PATHS,
+  };
+};
+
 export const BUILTIN_HOOKS: ReadonlyMap<string, HookFn> = new Map<string, HookFn>([
   ["memory_status", memoryStatus],
   ["memory_browse", memoryBrowse],
+  ["memory_search", memorySearch],
+  ["memory_related", memoryRelated],
+  ["memory_inspect", memoryInspect],
+  ["memory_by_source", memoryBySource],
 ]);
 
 export const BUILTIN_HOOK_NAMES: ReadonlySet<string> = new Set(BUILTIN_HOOKS.keys());

@@ -304,17 +304,21 @@ nodes:
 \`\`\`
 
 Each entry in the \`onEnter\` array declares:
-- **call**: either a built-in hook name (\`memory_status\`, \`memory_browse\`) or a relative path to a local script (\`./scripts/foo.js\` or \`../shared/bar.js\`). Absolute paths are rejected.
+- **call**: either a built-in hook name (see the list below) or a relative path to a local script (\`./scripts/foo.js\` or \`../shared/bar.js\`). Absolute paths are rejected.
 - **args**: an object of hook arguments. String values that match \`context.foo.bar\` are resolved against live context at invocation time; everything else passes through as a literal.
 
 Hooks run sequentially in the order declared. Each hook's result is merged into context before the next hook fires, so later hooks can read earlier hooks' writes.
 
 ## Built-in hooks
 
-- **memory_status**: returns proposition/entity counts from the memory store. Arg: \`collection\` (optional).
-- **memory_browse**: returns a page of entities from the memory store. Args: \`collection\`, \`name\`, \`kind\`, \`limit\`, \`offset\` (all optional).
+All built-ins are read-only narrowings over the memory store; none of them mutate state. They mirror the \`memory_*\` MCP tools but fire automatically on node arrival instead of requiring an agent round-trip.
 
-These are the same operations as the corresponding \`memory_*\` MCP tools, but called by the engine automatically on node arrival instead of requiring an agent round-trip.
+- **memory_status**: proposition/entity counts. Args: \`collection\` (optional).
+- **memory_browse**: page of entities. Args: \`collection\`, \`name\`, \`kind\`, \`limit\`, \`offset\` (all optional).
+- **memory_search**: FTS5 search over propositions. Args: \`query\` (required), \`collection\`, \`limit\` (optional).
+- **memory_related**: neighbor entities sharing propositions with one entity. Args: \`entity\` (required), \`collection\` (optional).
+- **memory_inspect**: full detail (propositions, neighbors, source files) for one entity. Args: \`entity\` (required), \`collection\` (optional).
+- **memory_by_source**: prior knowledge keyed by source path. Args: \`paths\` (required string array), \`collection\` (optional). **Diverges from the single-path \`memory_by_source\` MCP tool on purpose** — the hook accepts an array so a single onEnter declaration can fan out over \`context.filesReadPaths\`. Caller-provided lists are capped at 50 paths per call (longer should be a script hook). Returns \`{ priorKnowledgeByPath, priorKnowledgePathsConsidered, priorKnowledgePathsTruncated }\`.
 
 ## Local script hooks
 
@@ -337,7 +341,7 @@ export default async function ({ args, context, memory, graphId, nodeId }) {
 The function receives a \`HookContext\` with:
 - **args**: resolved arguments (context paths already dereferenced)
 - **context**: live session context, read-only from the hook's perspective
-- **memory**: narrow read interface over the memory store (\`status()\`, \`browse()\` only). Present only when memory is enabled in the host config. Built-in memory hooks throw a clear error if you call them with memory off.
+- **memory**: narrow read interface over the memory store. Exposes \`status()\`, \`browse()\`, \`search()\`, \`related()\`, \`inspect()\`, \`bySource()\` — read methods only; \`emit()\` and other write paths stay unreachable. Present only when memory is enabled in the host config. Built-in memory hooks throw a clear error if you call them with memory off.
 - **graphId, nodeId**: identifiers for the current position
 
 The returned object is merged into session context via the same path as \`freelance_context_set\`, so strict-context enforcement applies. Scripts must return a plain object; returning \`undefined\`, \`null\`, an array, or a non-object errors loudly.

@@ -12,16 +12,23 @@ import { pathToFileURL } from "node:url";
 import { EngineError } from "../errors.js";
 import { CONTEXT_PATH_PATTERN, resolveContextPath } from "../evaluator.js";
 import type { HookResolutionMap, ResolvedHook } from "../hook-resolution.js";
-import type { BrowseResult, StatusResult } from "../memory/types.js";
+import type {
+  BrowseResult,
+  BySourceResult,
+  InspectResult,
+  RelatedResult,
+  SearchResult,
+  StatusResult,
+} from "../memory/types.js";
 import type { GraphDefinition, SessionState } from "../types.js";
 import { BUILTIN_HOOKS } from "./builtin-hooks.js";
 import { applyContextUpdates, enforceStrictContext } from "./context.js";
 
 /**
- * Narrow interface the hook runner exposes to hooks. Built-ins call
- * `status()` and `browse()` and nothing else; user scripts see the
- * same two methods, which prevents them from reaching into `emit()`,
- * `close()`, `updateConfig()`, or anything else on the concrete store.
+ * Narrow read interface the hook runner exposes to hooks. Built-ins
+ * and user scripts see only these read methods — `emit()`, `close()`,
+ * `updateConfig()`, and anything else on the concrete store stays
+ * unreachable. Mirrors MemoryStore's public read surface 1:1.
  *
  * The real `MemoryStore` class satisfies this structurally — no
  * explicit `implements` needed.
@@ -35,6 +42,10 @@ export interface HookMemoryAccess {
     offset?: number;
     collection?: string;
   }): BrowseResult;
+  search(query: string, options?: { limit?: number; collection?: string }): SearchResult;
+  related(entityIdOrName: string, collection?: string): RelatedResult;
+  bySource(filePath: string, collection?: string): BySourceResult;
+  inspect(entityIdOrName: string, collection?: string): InspectResult;
 }
 
 /**
