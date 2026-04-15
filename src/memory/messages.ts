@@ -57,7 +57,22 @@ export const compileMessages = {
         "context.filesReadPaths. The path list is your working set — when you emit " +
         "propositions in the next node, you'll cite sources from this list. memory_emit " +
         "hashes each cited source file at emit time for per-proposition provenance, so " +
-        "there's no pre-registration step: read, track the path, emit when ready.",
+        "there's no pre-registration step: read, track the path, emit when ready.\n\n" +
+        "## Graph-aware reading — stage only deltas\n" +
+        "Every time you arrive at this node, an onEnter hook calls memory_by_source for " +
+        "every path currently in context.filesReadPaths and writes the result to " +
+        "context.priorKnowledgeByPath as { <path>: [<existing propositions>] }. Read this BEFORE " +
+        "deciding what to stage:\n" +
+        "- If a file's prior-knowledge list already covers the claim you were about to stage, " +
+        "skip it. Re-emitting hashes to the same content_hash and is a no-op, but it wastes " +
+        "agent turns and clouds the staged set.\n" +
+        "- Stage only DELTAS: claims the file actually says that the existing propositions " +
+        "do not already capture.\n" +
+        "- If every file you read has empty deltas, the staged set will be empty too — that's " +
+        "the warm-exit signal. Set context.coverageSatisfied = true and the next eval will " +
+        "route straight to complete instead of looping.\n" +
+        "If context.priorKnowledgePathsTruncated is true, the path list exceeded the 50-path " +
+        "cap and not every file was checked — fall back to manual judgment for the unchecked tail.",
     },
     staging: {
       description: "Stage raw claims in context — no entity planning, no memory_emit yet.",

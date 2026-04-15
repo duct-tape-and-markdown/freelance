@@ -107,6 +107,54 @@ describe("buildCompileKnowledgeWorkflow context default (Batch 2)", () => {
   });
 });
 
+describe("Exploring onEnter — graph-aware reads (Batch 4)", () => {
+  const graph = buildCompileKnowledgeWorkflow();
+  const exploring = graph.definition.nodes.exploring;
+  const exploringInstructions = compileMessages.nodes.exploring.instructions;
+
+  it("attaches a memory_by_source onEnter hook to exploring", () => {
+    const onEnter = exploring.onEnter ?? [];
+    expect(onEnter.some((h) => h.call === "memory_by_source")).toBe(true);
+  });
+
+  it("passes context.filesReadPaths and context.collection through hook args", () => {
+    const onEnter = exploring.onEnter ?? [];
+    const hook = onEnter.find((h) => h.call === "memory_by_source");
+    expect(hook?.args).toMatchObject({
+      paths: "context.filesReadPaths",
+      collection: "context.collection",
+    });
+  });
+
+  it("resolves the exploring onEnter hook into hookResolutions", () => {
+    const resolutions = graph.hookResolutions?.get("exploring");
+    expect(resolutions).toBeDefined();
+    expect(resolutions?.some((r) => r.kind === "builtin" && r.name === "memory_by_source")).toBe(
+      true,
+    );
+  });
+
+  it("declares priorKnowledgeByPath defaults in start context", () => {
+    expect(graph.definition.context).toHaveProperty("priorKnowledgeByPath");
+    expect(graph.definition.context).toHaveProperty("priorKnowledgePathsConsidered", 0);
+    expect(graph.definition.context).toHaveProperty("priorKnowledgePathsTruncated", false);
+  });
+
+  it("instructs the agent to stage only deltas", () => {
+    expect(exploringInstructions).toContain("priorKnowledgeByPath");
+    expect(exploringInstructions).toContain("Stage only DELTAS");
+  });
+
+  it("documents the warm-exit signal", () => {
+    expect(exploringInstructions).toContain("warm-exit");
+    expect(exploringInstructions).toContain("coverageSatisfied = true");
+  });
+
+  it("warns when the 50-path cap was hit", () => {
+    expect(exploringInstructions).toContain("priorKnowledgePathsTruncated");
+  });
+});
+
 describe("Stage-and-address split (Batch 3+5)", () => {
   const graph = buildCompileKnowledgeWorkflow();
   const nodes = graph.definition.nodes;

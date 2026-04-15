@@ -26,6 +26,12 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       // Populated by addressing's onEnter memory_browse hook so the
       // addressing instruction can prefer existing entity names.
       entities: [],
+      // Populated by exploring's onEnter memory_by_source hook on every
+      // node arrival — keyed by the file paths in context.filesReadPaths.
+      // The agent uses this to stage only deltas (warm-exit emergence).
+      priorKnowledgeByPath: {},
+      priorKnowledgePathsConsidered: 0,
+      priorKnowledgePathsTruncated: false,
       propositionsEmitted: 0,
       coverageSatisfied: false,
     })
@@ -33,6 +39,20 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       type: "action",
       description: M.nodes.exploring.description,
       instructions: M.nodes.exploring.instructions,
+      // onEnter populates context.priorKnowledgeByPath from the
+      // memory store on every node arrival, keyed by the file paths
+      // currently in context.filesReadPaths. The agent reads the result
+      // and stages only deltas — warm-exit emergence when the set is
+      // empty for every read file. Capped at 50 paths in the wrapper.
+      onEnter: [
+        {
+          call: "memory_by_source",
+          args: {
+            paths: "context.filesReadPaths",
+            collection: "context.collection",
+          },
+        },
+      ],
       edges: [
         {
           target: "staging",
