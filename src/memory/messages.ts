@@ -52,6 +52,12 @@ export const compileMessages = {
     exploring: {
       description: "Read source files relevant to the query.",
       instructions:
+        "## What you arrive with\n" +
+        "Three onEnter hooks have already populated this node's context for you, so you don't burn turns on routine lookups:\n" +
+        "- context.total_propositions / valid_propositions / stale_propositions / total_entities (from memory_status) — the rough size of the existing knowledge for this collection.\n" +
+        "- context.entities (from memory_browse, up to 50) — the existing entity vocabulary. Skim these names; they are what the addressing node will steer toward when it plans hubs.\n" +
+        "- context.priorKnowledgeByPath (from memory_by_source) — propositions already known per file in context.filesReadPaths. See the graph-aware reading section below.\n\n" +
+        "## What this node does\n" +
         "Read files related to the compilation query using your native Read tool. " +
         "After each read, call freelance_context_set to append the file path to " +
         "context.filesReadPaths. The path list is your working set — when you emit " +
@@ -163,14 +169,18 @@ export const recallMessages = {
 
   nodes: {
     recalling: {
-      description: "Search memory for existing knowledge related to the query.",
+      description: "Plan deeper inspection from the auto-populated vocabulary.",
       instructions:
-        "Use memory_browse and memory_inspect to find entities and propositions " +
-        "related to the query, passing context.collection as the collection parameter. " +
-        "Catalog what's already known — these are the propositions " +
-        "from prior compilations. Note the source files listed in each entity's " +
-        "inspect response (source_files) — you'll read those next. " +
-        "Update context.recalledEntities and context.recalledPropositions with counts.",
+        "## What you arrive with\n" +
+        "Two onEnter hooks have already populated this node's context — you don't need to call memory_status or memory_browse manually:\n" +
+        "- context.total_propositions / valid_propositions / stale_propositions / total_entities (from memory_status) — the rough size of what's known.\n" +
+        "- context.entities (from memory_browse, up to 50) — the existing entity vocabulary scoped to context.collection.\n\n" +
+        "## What this node does\n" +
+        "Skim context.entities against the query. For the 1–5 entities most likely to carry relevant knowledge, call memory_inspect (and memory_related when you want neighbor context) to pull their full proposition lists and source files. " +
+        "These targeted inspect calls are the agent's job — there's no good way to pre-fetch them automatically because we don't know which entities matter until we read context.entities.\n\n" +
+        "Catalog what's already known from those inspects — the propositions and the source_files lists. " +
+        "The next node will read those source files. " +
+        "Update context.recalledEntities (the count you actually inspected) and context.recalledPropositions (sum across the inspects).",
     },
     sourcing: {
       description: "Read source files guided by provenance from recalled propositions.",

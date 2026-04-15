@@ -39,12 +39,27 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       type: "action",
       description: M.nodes.exploring.description,
       instructions: M.nodes.exploring.instructions,
-      // onEnter populates context.priorKnowledgeByPath from the
-      // memory store on every node arrival, keyed by the file paths
-      // currently in context.filesReadPaths. The agent reads the result
-      // and stages only deltas — warm-exit emergence when the set is
-      // empty for every read file. Capped at 50 paths in the wrapper.
+      // onEnter populates context with three things on every arrival:
+      //  - memory_status: total/valid/stale proposition counts + total entities
+      //  - memory_browse: page of existing entities (limit 50)
+      //  - memory_by_source: priorKnowledgeByPath keyed by filesReadPaths
+      // Together these replace three manual round-trips the agent
+      // previously had to make — the agent arrives with everything it
+      // needs to decide what to read next and stage only deltas.
       onEnter: [
+        {
+          call: "memory_status",
+          args: {
+            collection: "context.collection",
+          },
+        },
+        {
+          call: "memory_browse",
+          args: {
+            collection: "context.collection",
+            limit: 50,
+          },
+        },
         {
           call: "memory_by_source",
           args: {

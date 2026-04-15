@@ -29,7 +29,28 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
       type: "action",
       description: M.nodes.recalling.description,
       instructions: M.nodes.recalling.instructions,
-      suggestedTools: ["memory_browse", "memory_inspect", "memory_related"],
+      // The broad sweep of "what's already known about this collection"
+      // is deterministic — populate it via onEnter so the agent doesn't
+      // burn turns on memory_status / memory_browse round-trips. The
+      // agent still drives memory_inspect / memory_related manually for
+      // depth on specific entities it picks from the populated
+      // vocabulary.
+      onEnter: [
+        {
+          call: "memory_status",
+          args: {
+            collection: "context.collection",
+          },
+        },
+        {
+          call: "memory_browse",
+          args: {
+            collection: "context.collection",
+            limit: 50,
+          },
+        },
+      ],
+      suggestedTools: ["memory_inspect", "memory_related"],
       edges: [
         {
           target: "sourcing",

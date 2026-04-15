@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compileMessages, recallMessages } from "../src/memory/messages.js";
+import { buildRecollectionWorkflow } from "../src/memory/recollection.js";
 import { buildCompileKnowledgeWorkflow } from "../src/memory/workflow.js";
 
 // Snapshot-style assertions on the agent-facing prose. The rubric is shared
@@ -104,6 +105,84 @@ describe("buildCompileKnowledgeWorkflow context default (Batch 2)", () => {
     // GraphDefinition.context is the start-node default context map
     // produced by GraphBuilder.setContext.
     expect(graph.definition.context).toHaveProperty("lens", "");
+  });
+});
+
+describe("Issue #53 finish — manual prose dropped, onEnter populated (Batch 6)", () => {
+  describe("compile workflow exploring node", () => {
+    const graph = buildCompileKnowledgeWorkflow();
+    const exploring = graph.definition.nodes.exploring;
+    const exploringInstructions = compileMessages.nodes.exploring.instructions;
+
+    it("attaches all three onEnter hooks (status, browse, by_source)", () => {
+      const calls = (exploring.onEnter ?? []).map((h) => h.call);
+      expect(calls).toEqual(["memory_status", "memory_browse", "memory_by_source"]);
+    });
+
+    it("resolves all three exploring onEnter hooks into hookResolutions", () => {
+      const resolutions = graph.hookResolutions?.get("exploring") ?? [];
+      const names = resolutions
+        .filter((r): r is { kind: "builtin"; call: string; name: string } => r.kind === "builtin")
+        .map((r) => r.name);
+      expect(names).toContain("memory_status");
+      expect(names).toContain("memory_browse");
+      expect(names).toContain("memory_by_source");
+    });
+
+    it("instruction tells the agent it arrives with status/browse/by_source already populated", () => {
+      expect(exploringInstructions).toContain("What you arrive with");
+      expect(exploringInstructions).toContain("memory_status");
+      expect(exploringInstructions).toContain("memory_browse");
+      expect(exploringInstructions).toContain("memory_by_source");
+    });
+
+    it("does NOT instruct the agent to manually call memory_status or memory_browse", () => {
+      expect(exploringInstructions).not.toMatch(/first call memory_status/i);
+      expect(exploringInstructions).not.toMatch(/use memory_browse to see what/i);
+    });
+  });
+
+  describe("recall workflow recalling node", () => {
+    const graph = buildRecollectionWorkflow();
+    const recalling = graph.definition.nodes.recalling;
+    const recallingInstructions = recallMessages.nodes.recalling.instructions;
+
+    it("attaches memory_status + memory_browse onEnter to recalling", () => {
+      const calls = (recalling.onEnter ?? []).map((h) => h.call);
+      expect(calls).toEqual(["memory_status", "memory_browse"]);
+    });
+
+    it("resolves recalling onEnter hooks into hookResolutions", () => {
+      const resolutions = graph.hookResolutions?.get("recalling") ?? [];
+      const names = resolutions
+        .filter((r): r is { kind: "builtin"; call: string; name: string } => r.kind === "builtin")
+        .map((r) => r.name);
+      expect(names).toEqual(["memory_status", "memory_browse"]);
+    });
+
+    it("recalling node still lists memory_inspect and memory_related as suggestedTools", () => {
+      // These remain agent-driven because they need a specific entity arg.
+      expect(recalling.suggestedTools).toContain("memory_inspect");
+      expect(recalling.suggestedTools).toContain("memory_related");
+    });
+
+    it("recalling does NOT list memory_browse as suggestedTools anymore", () => {
+      // Browse moved to onEnter — listing it as suggested would tell the
+      // agent to call something it already has.
+      expect(recalling.suggestedTools ?? []).not.toContain("memory_browse");
+    });
+
+    it("instruction reads from hook-populated context, not manual calls", () => {
+      expect(recallingInstructions).toContain("What you arrive with");
+      expect(recallingInstructions).toContain("context.entities");
+      expect(recallingInstructions).not.toMatch(/^Use memory_browse and memory_inspect/m);
+    });
+
+    it("still tells the agent to drive memory_inspect for depth", () => {
+      // memory_inspect needs an entity arg the agent must pick from
+      // context.entities — it can't be auto-fetched.
+      expect(recallingInstructions).toContain("memory_inspect");
+    });
   });
 });
 
