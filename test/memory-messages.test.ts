@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compileMessages, recallMessages } from "../src/memory/messages.js";
+import { buildCompileKnowledgeWorkflow } from "../src/memory/workflow.js";
 
 // Snapshot-style assertions on the agent-facing prose. The rubric is shared
 // across both sealed memory workflows; if a substring drifts out of the
@@ -59,5 +60,43 @@ describe("PROPOSITION_RUBRIC prose port (Batch 1)", () => {
     it("contains the knowledge-types taxonomy", () => {
       expect(fillingInstructions).toContain("metacognitive");
     });
+  });
+});
+
+describe("Lens directive prose port (Batch 2)", () => {
+  const compilingInstructions = compileMessages.nodes.compiling.instructions;
+
+  it("contains the lens directive section header", () => {
+    expect(compilingInstructions).toContain("Lens directive");
+  });
+
+  it("references context.lens and the empty-default rule", () => {
+    expect(compilingInstructions).toContain("context.lens");
+    expect(compilingInstructions).toContain("default to dev");
+  });
+
+  it("lists all three lenses with their distinguishing rules", () => {
+    expect(compilingInstructions).toContain(
+      "dev: extract implementation detail, code names, internal structure",
+    );
+    expect(compilingInstructions).toContain(
+      "support: extract ONLY user-facing behavior and business rules",
+    );
+    expect(compilingInstructions).toContain(
+      "qa: extract testable behaviors, validation rules, edge cases",
+    );
+  });
+
+  it("forbids code names and file paths under the support lens", () => {
+    expect(compilingInstructions).toContain("NO code names, file paths, or internal details");
+  });
+});
+
+describe("buildCompileKnowledgeWorkflow context default (Batch 2)", () => {
+  it("declares lens as an empty-string default in the start context", () => {
+    const graph = buildCompileKnowledgeWorkflow();
+    // GraphDefinition.context is the start-node default context map
+    // produced by GraphBuilder.setContext.
+    expect(graph.definition.context).toHaveProperty("lens", "");
   });
 });

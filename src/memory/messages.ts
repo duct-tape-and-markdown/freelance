@@ -63,6 +63,12 @@ export const compileMessages = {
       description: "Emit propositions about what you learned from the source files.",
       instructions:
         `${PROPOSITION_RUBRIC}\n\n` +
+        "## Lens directive — what to extract\n" +
+        "Read context.lens and shape your emissions accordingly. If context.lens is empty, default to dev.\n" +
+        "- dev: extract implementation detail, code names, internal structure.\n" +
+        "- support: extract ONLY user-facing behavior and business rules. NO code names, file paths, or internal details.\n" +
+        "- qa: extract testable behaviors, validation rules, edge cases.\n" +
+        "The lens flips output quality substantially — without it the agent defaults to a muddled middle-ground that serves nobody. Pick one and commit to it for every proposition in this run.\n\n" +
         "Cite sources from context.filesReadPaths — only the files each prop was actually derived from. " +
         "Call memory_emit with context.collection as the collection parameter. " +
         "Update context.propositionsEmitted with the running total.",

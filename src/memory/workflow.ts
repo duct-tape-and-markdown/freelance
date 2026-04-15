@@ -17,6 +17,7 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
     .setContext({
       collection: "",
       query: "",
+      lens: "",
       filesReadPaths: [],
       propositionsEmitted: 0,
       coverageSatisfied: false,
