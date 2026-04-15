@@ -1,41 +1,32 @@
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { HookRunner } from "../src/engine/hooks.js";
 import { GraphEngine } from "../src/engine/index.js";
 import { EngineError } from "../src/errors.js";
-import { loadGraphs } from "../src/loader.js";
 import { graphDefinitionSchema } from "../src/schema/graph-schema.js";
 import { createServer } from "../src/server.js";
-import type { ValidatedGraph } from "../src/types.js";
+import { loadFixtureGraphs, makeEngine as sharedMakeEngine } from "./helpers.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
-function loadFixtures(...files: string[]): Map<string, ValidatedGraph> {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "subgraph-test-"));
-  for (const f of files) {
-    fs.copyFileSync(path.join(FIXTURES_DIR, f), path.join(tmpDir, f));
-  }
-  return loadGraphs(tmpDir);
-}
-
-function makeEngine(...files: string[]): GraphEngine {
-  return new GraphEngine(loadFixtures(...files));
-}
+const loadFixtures = (...files: string[]) =>
+  loadFixtureGraphs(FIXTURES_DIR, "subgraph-test-", ...files);
+const makeEngine = (...files: string[]): GraphEngine =>
+  sharedMakeEngine(FIXTURES_DIR, "subgraph-test-", ...files);
 
 // =============================================================================
 // ENGINE UNIT TESTS — Subgraph Push/Pop Mechanics
 // =============================================================================
 
 describe("subgraph — push mechanics", () => {
-  it("pushes child graph when advancing to a subgraph node", () => {
+  it("pushes child graph when advancing to a subgraph node", async () => {
     const engine = makeEngine("parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
-    engine.start("parent-workflow");
+    await engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
 
-    const result = engine.advance("work-done");
+    const result = await engine.advance("work-done");
     expect(result.isError).toBe(false);
     if (!result.isError) {
       // Should have pushed the child graph
@@ -49,12 +40,12 @@ describe("subgraph — push mechanics", () => {
     }
   });
 
-  it("contextMap copies parent context to child initial context", () => {
+  it("contextMap copies parent context to child initial context", async () => {
     const engine = makeEngine("parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
-    engine.start("parent-workflow");
+    await engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
 
-    const result = engine.advance("work-done");
+    const result = await engine.advance("work-done");
     expect(result.isError).toBe(false);
     if (!result.isError) {
       // contextMap: { taskDone: parentTaskDone }
@@ -63,11 +54,11 @@ describe("subgraph — push mechanics", () => {
     }
   });
 
-  it("after push, contextSet operates on child session", () => {
+  it("after push, contextSet operates on child session", async () => {
     const engine = makeEngine("parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
-    engine.start("parent-workflow");
+    await engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
-    engine.advance("work-done"); // pushes child
+    await engine.advance("work-done"); // pushes child
 
     // Now contextSet should operate on the child's context
     const result = engine.contextSet({ securityPass: true });
@@ -76,13 +67,13 @@ describe("subgraph — push mechanics", () => {
     expect(result.context.reviewPassed).toBeUndefined();
   });
 
-  it("after push, advance operates on child graph edges", () => {
+  it("after push, advance operates on child graph edges", async () => {
     const engine = makeEngine("parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
-    engine.start("parent-workflow");
+    await engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
-    engine.advance("work-done"); // pushes child, now at check-security
+    await engine.advance("work-done"); // pushes child, now at check-security
 
-    const result = engine.advance("done"); // check-security → check-tests
+    const result = await engine.advance("done"); // check-security → check-tests
     expect(result.isError).toBe(false);
     if (!result.isError) {
       expect(result.currentNode).toBe("check-tests");
@@ -91,18 +82,18 @@ describe("subgraph — push mechanics", () => {
 });
 
 describe("subgraph — pop mechanics", () => {
-  it("pops back to parent when child reaches terminal", () => {
+  it("pops back to parent when child reaches terminal", async () => {
     const engine = makeEngine("parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
-    engine.start("parent-workflow");
+    await engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
-    engine.advance("work-done"); // pushes child
+    await engine.advance("work-done"); // pushes child
 
     // Traverse child to completion
     engine.contextSet({ securityPass: true });
-    engine.advance("done"); // → check-tests
+    await engine.advance("done"); // → check-tests
     engine.contextSet({ testsPass: true, approved: true });
-    engine.advance("done"); // → review-gate
-    const result = engine.advance("approved"); // → complete (terminal) → pop
+    await engine.advance("done"); // → review-gate
+    const result = await engine.advance("approved"); // → complete (terminal) → pop
 
     expect(result.isError).toBe(false);
     if (!result.isError) {
@@ -114,18 +105,18 @@ describe("subgraph — pop mechanics", () => {
     }
   });
 
-  it("returnMap copies child context to parent context on pop", () => {
+  it("returnMap copies child context to parent context on pop", async () => {
     const engine = makeEngine("parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
-    engine.start("parent-workflow");
+    await engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
-    engine.advance("work-done"); // pushes child
+    await engine.advance("work-done"); // pushes child
 
     // Complete child with approved = true
     engine.contextSet({ securityPass: true });
-    engine.advance("done");
+    await engine.advance("done");
     engine.contextSet({ testsPass: true, approved: true });
-    engine.advance("done");
-    const result = engine.advance("approved"); // pop
+    await engine.advance("done");
+    const result = await engine.advance("approved"); // pop
 
     expect(result.isError).toBe(false);
     if (!result.isError) {
@@ -135,21 +126,21 @@ describe("subgraph — pop mechanics", () => {
     }
   });
 
-  it("after pop, parent edges are available and parent can advance", () => {
+  it("after pop, parent edges are available and parent can advance", async () => {
     const engine = makeEngine("parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
-    engine.start("parent-workflow");
+    await engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
-    engine.advance("work-done"); // pushes child
+    await engine.advance("work-done"); // pushes child
 
     // Complete child
     engine.contextSet({ securityPass: true });
-    engine.advance("done");
+    await engine.advance("done");
     engine.contextSet({ testsPass: true, approved: true });
-    engine.advance("done");
-    engine.advance("approved"); // pop back to quality-gate
+    await engine.advance("done");
+    await engine.advance("approved"); // pop back to quality-gate
 
     // Now advance on the parent's edge
-    const result = engine.advance("pass");
+    const result = await engine.advance("pass");
     expect(result.isError).toBe(false);
     if (!result.isError) {
       expect(result.status).toBe("complete");
@@ -159,11 +150,11 @@ describe("subgraph — pop mechanics", () => {
 });
 
 describe("subgraph — inspect shows stack", () => {
-  it("inspect shows stack depth and entries during subgraph", () => {
+  it("inspect shows stack depth and entries during subgraph", async () => {
     const engine = makeEngine("parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
-    engine.start("parent-workflow");
+    await engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
-    engine.advance("work-done"); // pushes child
+    await engine.advance("work-done"); // pushes child
 
     const pos = engine.inspect("position");
     if ("stackDepth" in pos) {
@@ -176,9 +167,9 @@ describe("subgraph — inspect shows stack", () => {
     }
   });
 
-  it("inspect shows stack depth 1 for single graph", () => {
+  it("inspect shows stack depth 1 for single graph", async () => {
     const engine = makeEngine("parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
-    engine.start("parent-workflow");
+    await engine.start("parent-workflow");
 
     const pos = engine.inspect("position");
     if ("stackDepth" in pos) {
@@ -191,11 +182,11 @@ describe("subgraph — inspect shows stack", () => {
 });
 
 describe("subgraph — reset clears full stack", () => {
-  it("reset during subgraph clears entire stack", () => {
+  it("reset during subgraph clears entire stack", async () => {
     const engine = makeEngine("parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
-    engine.start("parent-workflow");
+    await engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
-    engine.advance("work-done"); // pushes child
+    await engine.advance("work-done"); // pushes child
 
     const result = engine.reset();
     expect(result.status).toBe("reset");
@@ -207,13 +198,13 @@ describe("subgraph — reset clears full stack", () => {
     expect(result.clearedStack![1].node).toBe("check-security");
 
     // Can start a new graph after reset
-    const startResult = engine.start("parent-workflow");
+    const startResult = await engine.start("parent-workflow");
     expect(startResult.status).toBe("started");
   });
 
-  it("reset with single graph does not include clearedStack", () => {
+  it("reset with single graph does not include clearedStack", async () => {
     const engine = makeEngine("parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
-    engine.start("parent-workflow");
+    await engine.start("parent-workflow");
 
     const result = engine.reset();
     expect(result.status).toBe("reset");
@@ -223,16 +214,16 @@ describe("subgraph — reset clears full stack", () => {
 });
 
 describe("subgraph — stack depth enforcement", () => {
-  it("throws STACK_DEPTH_EXCEEDED when maxDepth reached", () => {
+  it("throws STACK_DEPTH_EXCEEDED when maxDepth reached", async () => {
     const graphs = loadFixtures("parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
     // Set maxDepth to 1 — no nesting allowed
-    const engine = new GraphEngine(graphs, { maxDepth: 1 });
-    engine.start("parent-workflow");
+    const engine = new GraphEngine(graphs, { maxDepth: 1, hookRunner: new HookRunner() });
+    await engine.start("parent-workflow");
     engine.contextSet({ taskDone: true });
 
-    expect(() => engine.advance("work-done")).toThrow(EngineError);
+    await expect(engine.advance("work-done")).rejects.toThrow(EngineError);
     try {
-      engine.advance("work-done");
+      await engine.advance("work-done");
     } catch (e) {
       expect((e as EngineError).code).toBe("STACK_DEPTH_EXCEEDED");
     }
@@ -240,14 +231,14 @@ describe("subgraph — stack depth enforcement", () => {
 });
 
 describe("subgraph — conditional subgraph", () => {
-  it("skips subgraph when condition is false", () => {
+  it("skips subgraph when condition is false", async () => {
     const engine = makeEngine(
       "parent-conditional-subgraph.workflow.yaml",
       "child-review.workflow.yaml",
     );
-    engine.start("parent-conditional", { skipReview: true });
+    await engine.start("parent-conditional", { skipReview: true });
 
-    const result = engine.advance("done"); // → maybe-review
+    const result = await engine.advance("done"); // → maybe-review
     expect(result.isError).toBe(false);
     if (!result.isError) {
       // Subgraph should NOT be pushed because skipReview == true
@@ -256,14 +247,14 @@ describe("subgraph — conditional subgraph", () => {
     }
   });
 
-  it("pushes subgraph when condition is true", () => {
+  it("pushes subgraph when condition is true", async () => {
     const engine = makeEngine(
       "parent-conditional-subgraph.workflow.yaml",
       "child-review.workflow.yaml",
     );
-    engine.start("parent-conditional"); // skipReview defaults to false
+    await engine.start("parent-conditional"); // skipReview defaults to false
 
-    const result = engine.advance("done"); // → maybe-review, condition true → push
+    const result = await engine.advance("done"); // → maybe-review, condition true → push
     expect(result.isError).toBe(false);
     if (!result.isError) {
       expect(result.subgraphPushed).toBeDefined();
@@ -273,22 +264,22 @@ describe("subgraph — conditional subgraph", () => {
 });
 
 describe("subgraph — child works identically standalone vs as subgraph", () => {
-  it("child graph traverses the same way standalone", () => {
+  it("child graph traverses the same way standalone", async () => {
     const engine = makeEngine("child-review.workflow.yaml");
-    const startResult = engine.start("child-review");
+    const startResult = await engine.start("child-review");
     expect(startResult.currentNode).toBe("check-security");
 
     engine.contextSet({ securityPass: true });
-    const a1 = engine.advance("done");
+    const a1 = await engine.advance("done");
     expect(a1.isError).toBe(false);
     if (!a1.isError) expect(a1.currentNode).toBe("check-tests");
 
     engine.contextSet({ testsPass: true, approved: true });
-    const a2 = engine.advance("done");
+    const a2 = await engine.advance("done");
     expect(a2.isError).toBe(false);
     if (!a2.isError) expect(a2.currentNode).toBe("review-gate");
 
-    const a3 = engine.advance("approved");
+    const a3 = await engine.advance("approved");
     expect(a3.isError).toBe(false);
     if (!a3.isError) {
       expect(a3.status).toBe("complete");
@@ -302,7 +293,7 @@ describe("subgraph — child works identically standalone vs as subgraph", () =>
 // =============================================================================
 
 describe("subgraph — loader validation", () => {
-  it("rejects circular subgraph references", () => {
+  it("rejects circular subgraph references", async () => {
     expect(() =>
       loadFixtures(
         "invalid-circular-subgraph-a.workflow.yaml",
@@ -311,12 +302,12 @@ describe("subgraph — loader validation", () => {
     ).toThrow(/circular/i);
   });
 
-  it("rejects subgraph referencing unknown graph", () => {
+  it("rejects subgraph referencing unknown graph", async () => {
     // parent-with-subgraph references child-review, which we don't load
     expect(() => loadFixtures("parent-with-subgraph.workflow.yaml")).toThrow(/unknown graph/i);
   });
 
-  it("accepts valid subgraph references", () => {
+  it("accepts valid subgraph references", async () => {
     const graphs = loadFixtures("parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
     expect(graphs.size).toBe(2);
   });
@@ -472,7 +463,7 @@ describe("subgraph — MCP integration: conditional skip", () => {
 // =============================================================================
 
 describe("subgraph — shorthand array syntax for contextMap/returnMap", () => {
-  it("loads graph with array shorthand contextMap and returnMap", () => {
+  it("loads graph with array shorthand contextMap and returnMap", async () => {
     const graphs = loadFixtures(
       "parent-shorthand-maps.workflow.yaml",
       "child-review.workflow.yaml",
@@ -487,12 +478,12 @@ describe("subgraph — shorthand array syntax for contextMap/returnMap", () => {
     expect(reviewNode.subgraph!.returnMap).toEqual({ approved: "approved" });
   });
 
-  it("shorthand contextMap copies context correctly at push", () => {
+  it("shorthand contextMap copies context correctly at push", async () => {
     const engine = makeEngine("parent-shorthand-maps.workflow.yaml", "child-review.workflow.yaml");
-    engine.start("parent-shorthand");
+    await engine.start("parent-shorthand");
     engine.contextSet({ securityPass: true });
 
-    const result = engine.advance("work-done");
+    const result = await engine.advance("work-done");
     expect(result.isError).toBe(false);
     if (!result.isError) {
       expect(result.subgraphPushed).toBeDefined();
@@ -501,17 +492,17 @@ describe("subgraph — shorthand array syntax for contextMap/returnMap", () => {
     }
   });
 
-  it("shorthand returnMap copies context correctly at pop", () => {
+  it("shorthand returnMap copies context correctly at pop", async () => {
     const engine = makeEngine("parent-shorthand-maps.workflow.yaml", "child-review.workflow.yaml");
-    engine.start("parent-shorthand");
+    await engine.start("parent-shorthand");
     engine.contextSet({ securityPass: true });
-    engine.advance("work-done"); // pushes child
+    await engine.advance("work-done"); // pushes child
 
     // Complete child graph
-    engine.advance("done"); // check-security → check-tests
+    await engine.advance("done"); // check-security → check-tests
     engine.contextSet({ testsPass: true, approved: true });
-    engine.advance("done"); // → review-gate
-    const result = engine.advance("approved"); // → complete (terminal) → pop
+    await engine.advance("done"); // → review-gate
+    const result = await engine.advance("approved"); // → complete (terminal) → pop
 
     expect(result.isError).toBe(false);
     if (!result.isError) {
@@ -523,7 +514,7 @@ describe("subgraph — shorthand array syntax for contextMap/returnMap", () => {
 });
 
 describe("subgraph — shorthand schema validation", () => {
-  it("rejects mixed array elements (non-string)", () => {
+  it("rejects mixed array elements (non-string)", async () => {
     // graphDefinitionSchema imported at top of file
     const graph = {
       id: "test",
@@ -548,7 +539,7 @@ describe("subgraph — shorthand schema validation", () => {
     expect(result.success).toBe(false);
   });
 
-  it("accepts object syntax alongside shorthand (backward compat)", () => {
+  it("accepts object syntax alongside shorthand (backward compat)", async () => {
     // graphDefinitionSchema imported at top of file
     const graph = {
       id: "test",

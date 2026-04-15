@@ -5,6 +5,7 @@ export type {
   EdgeDefinition,
   GraphDefinition,
   NodeDefinition,
+  OnEnterHook,
   ReturnField,
   ReturnSchema,
   SourceBinding,
@@ -13,6 +14,7 @@ export type {
   WaitOnEntry,
 } from "./schema/graph-schema.js";
 
+import type { HookResolutionMap } from "./hook-resolution.js";
 import type {
   GraphDefinition,
   NodeDefinition,
@@ -23,6 +25,10 @@ import type {
 export interface ValidatedGraph {
   readonly definition: GraphDefinition;
   readonly graph: Graph;
+  // Present on YAML-loaded graphs that declare onEnter hooks. Absent on
+  // programmatic (GraphBuilder) graphs, and absent on YAML graphs with
+  // no hooks — both cases are treated identically by the engine.
+  readonly hookResolutions?: HookResolutionMap;
 }
 
 // --- Result types (designed for direct MCP serialization) ---

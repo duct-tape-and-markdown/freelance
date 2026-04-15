@@ -116,8 +116,11 @@ describe("CLI init", () => {
 
   it("skips starter when starter=none", async () => {
     await init(defaults({ starter: "none" }));
-    const graphs = fs.readdirSync(path.join(workDir, ".freelance"));
-    expect(graphs).toHaveLength(0);
+    const entries = fs.readdirSync(path.join(workDir, ".freelance"));
+    // config.yml is always written as a schema reference for memory.collections;
+    // "starter=none" only skips the workflow graph file itself.
+    expect(entries).toEqual(["config.yml"]);
+    expect(entries.some((e) => e.endsWith(".workflow.yaml"))).toBe(false);
   });
 
   it("skips CLAUDE.md for non-claude-code clients", async () => {

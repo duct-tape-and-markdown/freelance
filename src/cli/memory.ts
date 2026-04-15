@@ -1,6 +1,7 @@
 /** CLI handlers for memory subcommands. Operates directly on MemoryStore. */
 
 import fs from "node:fs";
+import path from "node:path";
 import type { MemoryStore } from "../memory/index.js";
 import { cli, info, outputJson } from "./output.js";
 
@@ -190,5 +191,42 @@ export function memoryEmit(store: MemoryStore, file: string, collection: string)
     }
   } catch (e) {
     handleError(e);
+  }
+}
+
+/**
+ * Delete memory.db + WAL/SHM sidecars. Safe because memory is
+ * content-addressable: the next run rebuilds everything on demand.
+ * Requires `--confirm` as a deliberate guard against accidents. Does
+ * not open the database, so it works even when checkSchemaCompatibility
+ * would reject the current file (the canonical "I upgraded Freelance
+ * and my old memory.db has the wrong schema" recovery path).
+ */
+export function memoryReset(dbPath: string, opts: { confirm?: boolean }): void {
+  if (!opts.confirm) {
+    info("memory reset requires --confirm (destructive: deletes memory.db + sidecars).");
+    process.exit(2);
+  }
+  const targets = [dbPath, `${dbPath}-shm`, `${dbPath}-wal`];
+  const deleted: string[] = [];
+  try {
+    for (const f of targets) {
+      if (fs.existsSync(f)) {
+        fs.unlinkSync(f);
+        deleted.push(f);
+      }
+    }
+  } catch (e) {
+    handleError(e);
+  }
+  if (cli.json) {
+    outputJson({ status: "reset", deleted, dbPath });
+  } else {
+    if (deleted.length === 0) {
+      info(`No memory db files found at ${path.dirname(dbPath)}/ — nothing to reset.`);
+    } else {
+      info(`Deleted ${deleted.length} file(s) from ${path.dirname(dbPath)}/`);
+      info("Next run will re-initialize memory.db on first use.");
+    }
   }
 }

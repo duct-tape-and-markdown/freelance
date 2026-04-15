@@ -33,6 +33,7 @@ Run the Freelance CLI to set up this project. The CLI handles directory creation
 
 3. Confirm to the user that setup is complete and they can:
    - Add `.workflow.yaml` files to `.freelance/`
+   - Add `onEnter` hook scripts to `.freelance/scripts/` (ES modules, referenced from a node's `onEnter: [{ call: ./scripts/foo.js }]`)
    - Run `freelance_list` to verify workflows load
-   - Run `freelance_guide` for authoring help
+   - Run `freelance_guide` for authoring help — including the `onenter-hooks` topic for the hook authoring surface
    - Use `freelance_distill` after completing a task to turn it into a workflow

@@ -17,9 +17,9 @@ export function registerStartTool(server: McpServer, deps: FreelanceToolDeps): v
         initialContext: z.record(z.string(), z.unknown()).optional(),
       },
     },
-    ({ graphId, initialContext }) => {
+    async ({ graphId, initialContext }) => {
       try {
-        const result = manager.createTraversal(graphId, initialContext);
+        const result = await manager.createTraversal(graphId, initialContext);
 
         // Source validation at start is opt-in — provenance is a build concern, not runtime [S-5]
         if (validateSourcesOnStart) {

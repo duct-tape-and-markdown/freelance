@@ -1,28 +1,18 @@
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { GraphEngine } from "../src/engine/index.js";
+import type { GraphEngine } from "../src/engine/index.js";
 import { EngineError } from "../src/errors.js";
-import { loadGraphs } from "../src/loader.js";
-import type { ValidatedGraph } from "../src/types.js";
+import { loadFixtureGraphs, makeEngine as sharedMakeEngine } from "./helpers.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
-function loadFixtures(...files: string[]): Map<string, ValidatedGraph> {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "engine-test-"));
-  for (const f of files) {
-    fs.copyFileSync(path.join(FIXTURES_DIR, f), path.join(tmpDir, f));
-  }
-  return loadGraphs(tmpDir);
-}
-
-function makeEngine(...files: string[]): GraphEngine {
-  return new GraphEngine(loadFixtures(...files));
-}
+const loadFixtures = (...files: string[]) =>
+  loadFixtureGraphs(FIXTURES_DIR, "engine-test-", ...files);
+const makeEngine = (...files: string[]): GraphEngine =>
+  sharedMakeEngine(FIXTURES_DIR, "engine-test-", ...files);
 
 describe("list()", () => {
-  it("returns all loaded graphs", () => {
+  it("returns all loaded graphs", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
     const result = engine.list();
     expect(result.graphs).toHaveLength(2);
@@ -30,7 +20,7 @@ describe("list()", () => {
     expect(ids).toEqual(["valid-branching", "valid-simple"]);
   });
 
-  it("includes correct metadata", () => {
+  it("includes correct metadata", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
     const result = engine.list();
     expect(result.graphs[0]).toEqual({
@@ -41,18 +31,18 @@ describe("list()", () => {
     });
   });
 
-  it("works before and after starting a traversal", () => {
+  it("works before and after starting a traversal", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
     expect(engine.list().graphs).toHaveLength(1);
-    engine.start("valid-simple");
+    await engine.start("valid-simple");
     expect(engine.list().graphs).toHaveLength(1);
   });
 });
 
 describe("start()", () => {
-  it("returns start node with correct info", () => {
+  it("returns start node with correct info", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    const result = engine.start("valid-simple");
+    const result = await engine.start("valid-simple");
     expect(result.status).toBe("started");
     expect(result.isError).toBe(false);
     expect(result.graphId).toBe("valid-simple");
@@ -61,35 +51,35 @@ describe("start()", () => {
     expect(result.node.description).toBe("Begin the task");
   });
 
-  it("initializes context with graph defaults", () => {
+  it("initializes context with graph defaults", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    const result = engine.start("valid-simple");
+    const result = await engine.start("valid-simple");
     expect(result.context).toEqual({ taskStarted: false });
   });
 
-  it("merges initialContext overrides", () => {
+  it("merges initialContext overrides", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    const result = engine.start("valid-simple", { taskStarted: true, extra: 42 });
+    const result = await engine.start("valid-simple", { taskStarted: true, extra: 42 });
     expect(result.context.taskStarted).toBe(true);
     expect(result.context.extra).toBe(42);
   });
 
-  it("throws GRAPH_NOT_FOUND for unknown graphId", () => {
+  it("throws GRAPH_NOT_FOUND for unknown graphId", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    expect(() => engine.start("nonexistent")).toThrow(EngineError);
+    await expect(engine.start("nonexistent")).rejects.toThrow(EngineError);
     try {
-      engine.start("nonexistent");
+      await engine.start("nonexistent");
     } catch (e) {
       expect((e as EngineError).code).toBe("GRAPH_NOT_FOUND");
     }
   });
 
-  it("throws TRAVERSAL_ACTIVE if already started", () => {
+  it("throws TRAVERSAL_ACTIVE if already started", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
-    expect(() => engine.start("valid-simple")).toThrow(EngineError);
+    await engine.start("valid-simple");
+    await expect(engine.start("valid-simple")).rejects.toThrow(EngineError);
     try {
-      engine.start("valid-simple");
+      await engine.start("valid-simple");
     } catch (e) {
       expect((e as EngineError).code).toBe("TRAVERSAL_ACTIVE");
     }
@@ -97,12 +87,12 @@ describe("start()", () => {
 });
 
 describe("advance() — happy path", () => {
-  it("advances through simple graph to terminal", () => {
+  it("advances through simple graph to terminal", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
+    await engine.start("valid-simple");
 
     // start → review (gate)
-    const r1 = engine.advance("work-done", { taskStarted: true });
+    const r1 = await engine.advance("work-done", { taskStarted: true });
     expect(r1.isError).toBe(false);
     if (!r1.isError) {
       expect(r1.status).toBe("advanced");
@@ -112,7 +102,7 @@ describe("advance() — happy path", () => {
     }
 
     // review → done (terminal)
-    const r2 = engine.advance("approved");
+    const r2 = await engine.advance("approved");
     expect(r2.isError).toBe(false);
     if (!r2.isError) {
       expect(r2.status).toBe("complete");
@@ -122,10 +112,10 @@ describe("advance() — happy path", () => {
     }
   });
 
-  it("builds history correctly", () => {
+  it("builds history correctly", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
-    engine.advance("work-done", { taskStarted: true });
+    await engine.start("valid-simple");
+    await engine.advance("work-done", { taskStarted: true });
 
     const hist = engine.inspect("history");
     if ("traversalHistory" in hist) {
@@ -137,14 +127,14 @@ describe("advance() — happy path", () => {
 });
 
 describe("advance() — context updates persist on failure", () => {
-  it("applies contextUpdates even when validation fails", () => {
+  it("applies contextUpdates even when validation fails", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
-    engine.advance("work-done"); // advance to review gate without setting taskStarted
+    await engine.start("valid-simple");
+    await engine.advance("work-done"); // advance to review gate without setting taskStarted
 
     // Try to advance from gate with context updates — validation should fail
     // but context updates should persist
-    const result = engine.advance("approved", { someKey: "persisted" });
+    const result = await engine.advance("approved", { someKey: "persisted" });
     expect(result.isError).toBe(true);
     if (result.isError) {
       expect(result.reason).toContain("Task must be started");
@@ -154,16 +144,16 @@ describe("advance() — context updates persist on failure", () => {
 });
 
 describe("advance() — contextUpdates increment turnCount", () => {
-  it("increments turnCount on failed advance with contextUpdates", () => {
+  it("increments turnCount on failed advance with contextUpdates", async () => {
     const engine = makeEngine("valid-strict.workflow.yaml");
-    engine.start("valid-strict");
+    await engine.start("valid-strict");
 
     // Advance to gate (check node) — taskDone is still false, validation will fail
-    engine.advance("finished");
+    await engine.advance("finished");
 
     // Two failed advances with contextUpdates should increment turnCount
-    engine.advance("approved", { progress: 1 });
-    engine.advance("approved", { progress: 2 });
+    await engine.advance("approved", { progress: 1 });
+    await engine.advance("approved", { progress: 2 });
 
     // Verify turnCount via inspect
     const pos = engine.inspect("position");
@@ -174,12 +164,12 @@ describe("advance() — contextUpdates increment turnCount", () => {
 });
 
 describe("advance() — gate enforcement", () => {
-  it("blocks advance when gate validation fails", () => {
+  it("blocks advance when gate validation fails", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
-    engine.advance("work-done"); // at review gate, taskStarted still false
+    await engine.start("valid-simple");
+    await engine.advance("work-done"); // at review gate, taskStarted still false
 
-    const result = engine.advance("approved");
+    const result = await engine.advance("approved");
     expect(result.isError).toBe(true);
     if (result.isError) {
       expect(result.reason).toContain("Task must be started");
@@ -187,15 +177,15 @@ describe("advance() — gate enforcement", () => {
     }
   });
 
-  it("allows advance after satisfying gate validation", () => {
+  it("allows advance after satisfying gate validation", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
-    engine.advance("work-done");
+    await engine.start("valid-simple");
+    await engine.advance("work-done");
 
     // Set context to pass validation
     engine.contextSet({ taskStarted: true });
 
-    const result = engine.advance("approved");
+    const result = await engine.advance("approved");
     expect(result.isError).toBe(false);
     if (!result.isError) {
       expect(result.currentNode).toBe("done");
@@ -204,26 +194,26 @@ describe("advance() — gate enforcement", () => {
 });
 
 describe("advance() — conditional edges", () => {
-  it("succeeds when condition is met", () => {
+  it("succeeds when condition is met", async () => {
     const engine = makeEngine("valid-branching.workflow.yaml");
-    engine.start("valid-branching");
-    engine.advance("initialized"); // at choose-path
+    await engine.start("valid-branching");
+    await engine.advance("initialized"); // at choose-path
     engine.contextSet({ path: "left" });
 
-    const result = engine.advance("go-left");
+    const result = await engine.advance("go-left");
     expect(result.isError).toBe(false);
     if (!result.isError) {
       expect(result.currentNode).toBe("left-work");
     }
   });
 
-  it("returns error when condition is not met", () => {
+  it("returns error when condition is not met", async () => {
     const engine = makeEngine("valid-branching.workflow.yaml");
-    engine.start("valid-branching");
-    engine.advance("initialized"); // at choose-path
+    await engine.start("valid-branching");
+    await engine.advance("initialized"); // at choose-path
     engine.contextSet({ path: "left" });
 
-    const result = engine.advance("go-right");
+    const result = await engine.advance("go-right");
     expect(result.isError).toBe(true);
     if (result.isError) {
       expect(result.reason).toContain("condition not met");
@@ -232,9 +222,9 @@ describe("advance() — conditional edges", () => {
 });
 
 describe("advance() — default edges", () => {
-  it("default edge conditionMet is true when no conditional edge matches", () => {
+  it("default edge conditionMet is true when no conditional edge matches", async () => {
     const engine = makeEngine("valid-default-edge.workflow.yaml");
-    engine.start("valid-default-edge");
+    await engine.start("valid-default-edge");
 
     // route is null, so special condition is false → default should be conditionMet: true
     const pos = engine.inspect("position");
@@ -246,9 +236,9 @@ describe("advance() — default edges", () => {
     }
   });
 
-  it("default edge conditionMet is false when a conditional edge matches", () => {
+  it("default edge conditionMet is false when a conditional edge matches", async () => {
     const engine = makeEngine("valid-default-edge.workflow.yaml");
-    engine.start("valid-default-edge");
+    await engine.start("valid-default-edge");
     engine.contextSet({ route: "special" });
 
     const pos = engine.inspect("position");
@@ -262,36 +252,36 @@ describe("advance() — default edges", () => {
 });
 
 describe("contextSet()", () => {
-  it("updates context correctly", () => {
+  it("updates context correctly", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
+    await engine.start("valid-simple");
     const result = engine.contextSet({ taskStarted: true });
     expect(result.status).toBe("updated");
     expect(result.context.taskStarted).toBe(true);
   });
 
-  it("returns updated transitions", () => {
+  it("returns updated transitions", async () => {
     const engine = makeEngine("valid-branching.workflow.yaml");
-    engine.start("valid-branching");
-    engine.advance("initialized"); // at choose-path
+    await engine.start("valid-branching");
+    await engine.advance("initialized"); // at choose-path
 
     const result = engine.contextSet({ path: "left" });
     const leftEdge = result.validTransitions.find((t) => t.label === "go-left");
     expect(leftEdge?.conditionMet).toBe(true);
   });
 
-  it("increments turnCount", () => {
+  it("increments turnCount", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
+    await engine.start("valid-simple");
     const r1 = engine.contextSet({ taskStarted: true });
     expect(r1.turnCount).toBe(1);
     const r2 = engine.contextSet({ taskStarted: true });
     expect(r2.turnCount).toBe(2);
   });
 
-  it("returns turnWarning when maxTurns reached", () => {
+  it("returns turnWarning when maxTurns reached", async () => {
     const engine = makeEngine("valid-strict.workflow.yaml");
-    engine.start("valid-strict");
+    await engine.start("valid-strict");
 
     engine.contextSet({ progress: 1 });
     engine.contextSet({ progress: 2 });
@@ -301,9 +291,9 @@ describe("contextSet()", () => {
     expect(r3.turnWarning).toContain("3/3");
   });
 
-  it("rejects unknown keys with strictContext", () => {
+  it("rejects unknown keys with strictContext", async () => {
     const engine = makeEngine("valid-strict.workflow.yaml");
-    engine.start("valid-strict");
+    await engine.start("valid-strict");
 
     expect(() => engine.contextSet({ unknownKey: true })).toThrow(EngineError);
     try {
@@ -315,9 +305,9 @@ describe("contextSet()", () => {
 });
 
 describe("inspect()", () => {
-  it("position returns current node and context", () => {
+  it("position returns current node and context", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
+    await engine.start("valid-simple");
     const result = engine.inspect("position");
     expect("graphName" in result).toBe(true);
     if ("graphName" in result) {
@@ -328,11 +318,11 @@ describe("inspect()", () => {
     }
   });
 
-  it("history returns traversal and context history", () => {
+  it("history returns traversal and context history", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
+    await engine.start("valid-simple");
     engine.contextSet({ taskStarted: true });
-    engine.advance("work-done");
+    await engine.advance("work-done");
 
     const result = engine.inspect("history");
     if ("traversalHistory" in result) {
@@ -342,9 +332,9 @@ describe("inspect()", () => {
     }
   });
 
-  it("full returns the complete graph definition", () => {
+  it("full returns the complete graph definition", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
+    await engine.start("valid-simple");
     const result = engine.inspect("full");
     if ("definition" in result) {
       expect(result.definition.id).toBe("valid-simple");
@@ -352,58 +342,58 @@ describe("inspect()", () => {
     }
   });
 
-  it("throws when no traversal active", () => {
+  it("throws when no traversal active", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
     expect(() => engine.inspect("position")).toThrow(EngineError);
   });
 });
 
 describe("reset()", () => {
-  it("clears state and returns previous info", () => {
+  it("clears state and returns previous info", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
+    await engine.start("valid-simple");
     const result = engine.reset();
     expect(result.status).toBe("reset");
     expect(result.previousGraph).toBe("valid-simple");
     expect(result.previousNode).toBe("start");
   });
 
-  it("allows starting again after reset", () => {
+  it("allows starting again after reset", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
+    await engine.start("valid-simple");
     engine.reset();
-    const result = engine.start("valid-simple");
+    const result = await engine.start("valid-simple");
     expect(result.status).toBe("started");
   });
 
-  it("returns gracefully with no active traversal", () => {
+  it("returns gracefully with no active traversal", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
     const result = engine.reset();
     expect(result.status).toBe("reset");
     expect(result.previousGraph).toBeNull();
   });
 
-  it("after reset, advance/contextSet/inspect throw NO_TRAVERSAL", () => {
+  it("after reset, advance/contextSet/inspect throw NO_TRAVERSAL", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    engine.start("valid-simple");
+    await engine.start("valid-simple");
     engine.reset();
-    expect(() => engine.advance("work-done")).toThrow(EngineError);
+    await expect(engine.advance("work-done")).rejects.toThrow(EngineError);
     expect(() => engine.contextSet({ x: 1 })).toThrow(EngineError);
     expect(() => engine.inspect("position")).toThrow(EngineError);
   });
 });
 
 describe("conditionMet evaluation", () => {
-  it("edges with no condition → conditionMet: true", () => {
+  it("edges with no condition → conditionMet: true", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
-    const result = engine.start("valid-simple");
+    const result = await engine.start("valid-simple");
     expect(result.validTransitions[0].conditionMet).toBe(true);
   });
 
-  it("edges with true condition → conditionMet: true", () => {
+  it("edges with true condition → conditionMet: true", async () => {
     const engine = makeEngine("valid-branching.workflow.yaml");
-    engine.start("valid-branching");
-    engine.advance("initialized");
+    await engine.start("valid-branching");
+    await engine.advance("initialized");
     engine.contextSet({ path: "left" });
     const pos = engine.inspect("position");
     if ("validTransitions" in pos) {
@@ -412,10 +402,10 @@ describe("conditionMet evaluation", () => {
     }
   });
 
-  it("edges with false condition → conditionMet: false", () => {
+  it("edges with false condition → conditionMet: false", async () => {
     const engine = makeEngine("valid-branching.workflow.yaml");
-    engine.start("valid-branching");
-    engine.advance("initialized");
+    await engine.start("valid-branching");
+    await engine.advance("initialized");
     engine.contextSet({ path: "left" });
     const pos = engine.inspect("position");
     if ("validTransitions" in pos) {

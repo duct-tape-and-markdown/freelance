@@ -1,0 +1,39 @@
+# Freelance configuration — team-shared, committed to source control.
+# Machine-specific overrides (paths, toggles) go in config.local.yml,
+# which is gitignored automatically.
+#
+# Schema: https://github.com/duct-tape-and-markdown/freelance#configuration
+
+# onEnter hooks: node-arrival side effects run by the engine.
+#
+# Graphs can declare `onEnter: [{ call: <name-or-path>, args: {...} }]`
+# on any node. `call` resolves to either a built-in hook (e.g.
+# `memory_status`, `memory_browse`) or a local script path like
+# `./scripts/fetch.js`. SECURITY: local scripts execute with full Node
+# privileges in the host process — treat graphs that reference them
+# like code in your repo. Don't load graphs from untrusted sources.
+#
+# hooks:
+#   timeoutMs: 5000  # per-hook timeout; default 5000 if omitted
+
+memory:
+  # Whether the memory store is enabled. Defaults to true when omitted.
+  enabled: true
+
+  # Collections partition the knowledge graph. Each proposition is
+  # emitted into exactly one collection; queries can filter by
+  # collection or search across all.
+  #
+  # Custom collections MUST be declared here before a workflow can emit
+  # to them — referencing an unknown collection at emit time errors out
+  # with `Unknown collection "<name>". Available: ...`. Uncomment and
+  # edit the examples below to add your own.
+  collections:
+    - name: default
+      description: General project knowledge
+    # - name: architecture
+    #   description: High-level design decisions and constraints
+    #   paths: [docs/architecture/]
+    # - name: api
+    #   description: Public API surface and usage patterns
+    #   paths: [src/api/, docs/api/]

@@ -11,6 +11,7 @@ import path from "node:path";
 import yaml from "js-yaml";
 import { buildAndValidateGraph } from "./graph-construction.js";
 import { validateExpressions, validateReturnSchemas } from "./graph-validation.js";
+import { resolveGraphHooks } from "./hook-resolution.js";
 
 // @dagrejs/graphlib is a CJS bundle with `cjs-module-lexer` named-export
 // hints. Node's native ESM loader reads those hints and lets us import
@@ -44,8 +45,9 @@ export function loadSingleGraph(filePath: string): { id: string } & ValidatedGra
 
   const def = parseResult.data;
   const graph = validateAndBuild(def, resolved);
+  const hookResolutions = resolveGraphHooks(def, resolved);
 
-  return { id: def.id, definition: def, graph };
+  return { id: def.id, definition: def, graph, hookResolutions };
 }
 
 /**
@@ -119,8 +121,8 @@ export function loadGraphs(directory: string): Map<string, ValidatedGraph> {
 
   for (const filePath of files) {
     try {
-      const { id, definition, graph } = loadSingleGraph(filePath);
-      results.set(id, { definition, graph });
+      const { id, definition, graph, hookResolutions } = loadSingleGraph(filePath);
+      results.set(id, { definition, graph, hookResolutions });
     } catch (e) {
       errors.push(e instanceof Error ? e.message : String(e));
     }
@@ -169,8 +171,8 @@ export function loadGraphsCollecting(directories: string[]): CollectingLoadResul
     for (const filePath of files) {
       const relFile = path.relative(resolvedDir, filePath);
       try {
-        const { id, definition, graph } = loadSingleGraph(filePath);
-        graphs.set(id, { definition, graph });
+        const { id, definition, graph, hookResolutions } = loadSingleGraph(filePath);
+        graphs.set(id, { definition, graph, hookResolutions });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         errors.push({ file: relFile, message: msg });
@@ -225,13 +227,13 @@ export function loadGraphsLayered(directories: string[]): Map<string, ValidatedG
 
     for (const filePath of files) {
       try {
-        const { id, definition, graph } = loadSingleGraph(filePath);
+        const { id, definition, graph, hookResolutions } = loadSingleGraph(filePath);
         if (results.has(id)) {
           warnings.push(
             `Graph "${id}" from ${resolvedDir} shadows earlier definition from another directory`,
           );
         }
-        results.set(id, { definition, graph });
+        results.set(id, { definition, graph, hookResolutions });
       } catch (e) {
         errors.push(e instanceof Error ? e.message : String(e));
       }

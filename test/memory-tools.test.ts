@@ -34,7 +34,7 @@ describe("Memory MCP tools", () => {
     fs.writeFileSync(path.join(tmpDir, "auth.ts"), "export class Auth { validate() {} }");
 
     const graphs = loadFixtures("valid-simple.workflow.yaml");
-    const { server, memoryStore, manager } = createServer(graphs, {
+    const { server, runtime } = createServer(graphs, {
       memory: { enabled: true, db: dbPath },
       sourceRoot: tmpDir,
       stateDir: path.join(tmpDir, "traversals"),
@@ -47,8 +47,7 @@ describe("Memory MCP tools", () => {
 
     cleanup = async () => {
       await client.close();
-      if (memoryStore) memoryStore.close();
-      manager.close();
+      runtime.close();
       await server.close();
       fs.rmSync(tmpDir, { recursive: true, force: true });
     };
@@ -203,7 +202,7 @@ describe("Memory MCP tools", () => {
 
   it("memory tools not registered when memory disabled", async () => {
     const graphs = loadFixtures("valid-simple.workflow.yaml");
-    const { server: noMemServer, manager: noMemManager } = createServer(graphs);
+    const { server: noMemServer, runtime: noMemRuntime } = createServer(graphs);
     const [ct, st] = InMemoryTransport.createLinkedPair();
     const noMemClient = new Client({ name: "test-client", version: "1.0.0" });
     await noMemServer.connect(st);
@@ -214,7 +213,7 @@ describe("Memory MCP tools", () => {
     expect(memTools.length).toBe(0);
 
     await noMemClient.close();
-    noMemManager.close();
+    noMemRuntime.close();
     await noMemServer.close();
   });
 });

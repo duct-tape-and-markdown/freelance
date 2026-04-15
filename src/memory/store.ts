@@ -15,7 +15,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { hashContent } from "../sources.js";
-import { type Db, openDatabase } from "./db.js";
+import type { Db } from "./db.js";
 import {
   collectionFilter,
   computeStatus,
@@ -80,9 +80,13 @@ export class MemoryStore {
   private sourceRoot: string;
   private collections: Map<string, CollectionConfig>;
 
-  constructor(dbPath: string, sourceRoot?: string, collections?: CollectionConfig[]) {
-    this.db = openDatabase(dbPath);
-    this.sourceRoot = sourceRoot ?? process.cwd();
+  // Takes an already-opened Db handle. Opening the database (PRAGMA +
+  // DDL + schema check) is a composition-root concern and lives in
+  // src/compose.ts — keeps this constructor pure and makes the class
+  // trivially testable with an in-process db handle.
+  constructor(db: Db, sourceRoot: string, collections?: CollectionConfig[]) {
+    this.db = db;
+    this.sourceRoot = sourceRoot;
     this.collections = new Map(
       (collections && collections.length > 0 ? collections : [DEFAULT_COLLECTION]).map((c) => [
         c.name,

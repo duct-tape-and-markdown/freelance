@@ -37,6 +37,7 @@ vi.mock("../src/cli/setup.js", () => ({
   createTraversalStore: vi.fn(() => ({
     store: { close: vi.fn(), listGraphs: vi.fn(() => ({ graphs: [], activeTraversals: [] })) },
     setup: { graphsDirs: [], sourceOpts: {} },
+    runtime: { close: vi.fn() },
   })),
   createMemoryStore: vi.fn(() => ({
     store: { close: vi.fn() },
@@ -48,8 +49,8 @@ vi.mock("../src/cli/setup.js", () => ({
     sourceRoot: undefined,
     sourceOpts: {},
   })),
-  ensureStateDir: vi.fn((dir: string) => `${dir}/.state`),
-  resolveStateDir: vi.fn(() => ":memory:"),
+  ensureFreelanceDir: vi.fn((dir: string) => dir),
+  resolveTraversalsDir: vi.fn(() => ":memory:"),
   resolveMemoryConfig: vi.fn((_dirs: string[], opts: { memoryDir?: string; memory?: boolean }) => {
     if (opts.memory === false) return null;
     const db = opts.memoryDir ? `${opts.memoryDir}/memory.db` : "/tmp/test-memory.db";

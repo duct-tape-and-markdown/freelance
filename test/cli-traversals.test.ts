@@ -8,6 +8,7 @@ import {
   traversalStart,
   traversalStatus,
 } from "../src/cli/traversals.js";
+import { HookRunner } from "../src/engine/hooks.js";
 import { loadSingleGraph } from "../src/loader.js";
 import { openStateStore, TraversalStore } from "../src/state/index.js";
 import type { ValidatedGraph } from "../src/types.js";
@@ -17,7 +18,7 @@ let exitSpy: any;
 let stderrSpy: any;
 let stdoutSpy: any;
 
-beforeEach(() => {
+beforeEach(async () => {
   setCli({ json: false, quiet: false, verbose: false, noColor: false });
   exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
     throw new Error("process.exit");
@@ -26,7 +27,7 @@ beforeEach(() => {
   stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
 });
 
@@ -38,11 +39,11 @@ function createTestStore(): TraversalStore {
   const loaded = loadSingleGraph(fixture);
   const graphs = new Map<string, ValidatedGraph>([[loaded.id, loaded]]);
   const db = openStateStore(":memory:");
-  return new TraversalStore(db, graphs, { maxDepth: 5 });
+  return new TraversalStore(db, graphs, { maxDepth: 5, hookRunner: new HookRunner() });
 }
 
 describe("traversalStatus", () => {
-  it("shows graphs and no traversals (text mode)", () => {
+  it("shows graphs and no traversals (text mode)", async () => {
     const store = createTestStore();
     try {
       traversalStatus(store);
@@ -53,7 +54,7 @@ describe("traversalStatus", () => {
     }
   });
 
-  it("outputs JSON", () => {
+  it("outputs JSON", async () => {
     setCli({ json: true });
     const store = createTestStore();
     try {
@@ -69,13 +70,13 @@ describe("traversalStatus", () => {
 });
 
 describe("traversalStart", () => {
-  it("starts a traversal and prints node info", () => {
+  it("starts a traversal and prints node info", async () => {
     const store = createTestStore();
     try {
       // Use a graph from fixtures — "linear" is a simple one
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return; // skip if no fixtures
-      traversalStart(store, graphId);
+      await traversalStart(store, graphId);
       expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Started traversal"));
       expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Node:"));
     } finally {
@@ -83,13 +84,13 @@ describe("traversalStart", () => {
     }
   });
 
-  it("outputs JSON on start", () => {
+  it("outputs JSON on start", async () => {
     setCli({ json: true });
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
-      traversalStart(store, graphId);
+      await traversalStart(store, graphId);
       const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
       const parsed = JSON.parse(output);
       expect(parsed).toHaveProperty("traversalId");
@@ -99,10 +100,10 @@ describe("traversalStart", () => {
     }
   });
 
-  it("errors on unknown graph", () => {
+  it("errors on unknown graph", async () => {
     const store = createTestStore();
     try {
-      expect(() => traversalStart(store, "nonexistent-graph")).toThrow("process.exit");
+      await expect(traversalStart(store, "nonexistent-graph")).rejects.toThrow("process.exit");
     } finally {
       store.close();
     }
@@ -110,12 +111,12 @@ describe("traversalStart", () => {
 });
 
 describe("traversalInspect", () => {
-  it("shows current position", () => {
+  it("shows current position", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
-      const { traversalId } = store.createTraversal(graphId);
+      const { traversalId } = await store.createTraversal(graphId);
       traversalInspect(store, traversalId, "position");
       expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Traversal:"));
       expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Graph:"));
@@ -127,12 +128,12 @@ describe("traversalInspect", () => {
 });
 
 describe("traversalContextSet", () => {
-  it("sets key=value pairs", () => {
+  it("sets key=value pairs", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
-      store.createTraversal(graphId);
+      await store.createTraversal(graphId);
       traversalContextSet(store, ["foo=42", "bar=true"]);
       expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Updated context"));
       expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("foo = 42"));
@@ -142,12 +143,12 @@ describe("traversalContextSet", () => {
     }
   });
 
-  it("errors on invalid pair", () => {
+  it("errors on invalid pair", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
-      store.createTraversal(graphId);
+      await store.createTraversal(graphId);
       expect(() => traversalContextSet(store, ["noequalssign"])).toThrow("process.exit");
     } finally {
       store.close();
@@ -156,7 +157,7 @@ describe("traversalContextSet", () => {
 });
 
 describe("traversalReset", () => {
-  it("errors without --confirm", () => {
+  it("errors without --confirm", async () => {
     const store = createTestStore();
     try {
       expect(() => traversalReset(store, undefined, {})).toThrow("process.exit");
@@ -166,12 +167,12 @@ describe("traversalReset", () => {
     }
   });
 
-  it("resets with --confirm", () => {
+  it("resets with --confirm", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
-      const { traversalId } = store.createTraversal(graphId);
+      const { traversalId } = await store.createTraversal(graphId);
       traversalReset(store, traversalId, { confirm: true });
       expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Reset traversal"));
     } finally {
@@ -179,13 +180,13 @@ describe("traversalReset", () => {
     }
   });
 
-  it("outputs JSON on reset", () => {
+  it("outputs JSON on reset", async () => {
     setCli({ json: true });
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
-      const { traversalId } = store.createTraversal(graphId);
+      const { traversalId } = await store.createTraversal(graphId);
       traversalReset(store, traversalId, { confirm: true });
       const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
       const parsed = JSON.parse(output);

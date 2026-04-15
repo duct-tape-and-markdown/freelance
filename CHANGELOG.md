@@ -5,21 +5,154 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.3.0] - 2026-04-13
+## [1.3.0] - 2026-04-14
 
-A consolidation release that pays down substantial architectural debt. Removes
-the hidden daemon/proxy surface, drops the `better-sqlite3` native dependency
-in favor of JSON files (for traversal state) and `node:sqlite` (for memory),
-splits the library entry cleanly from the CLI bin, and removes the session
-machinery from the memory store in favor of strictly per-proposition
-provenance. Also hardens the stdio server lifecycle so parent-disconnect,
-crashes, and respawn loops no longer leave orphaned processes or WAL sidecar
-files on disk.
+A consolidation release. The original scope paid down architectural debt —
+removing the hidden daemon/proxy surface, dropping `better-sqlite3` in favor
+of JSON files (traversal state) and `node:sqlite` (memory), splitting the
+library entry cleanly from the CLI bin, and removing the session machinery
+from the memory store in favor of strictly per-proposition provenance. Also
+hardened the stdio server lifecycle so parent-disconnect, crashes, and
+respawn loops no longer leave orphaned processes or WAL sidecar files on
+disk.
 
-First shipped as `1.3.0-beta.0` on the `beta` dist-tag while the breaking
-changes bake; promoted to `latest` once the beta window closes.
+Shipped as `1.3.0-beta.0` under the `beta` dist-tag for bake-in, then
+substantially expanded during the beta window with a workflow-level
+extensibility mechanism (`onEnter` hooks), a real composition root and DI
+cleanup pass, a flattened `.freelance/` artifact layout with an
+auto-migration path from the legacy `.state/` subdirectory, and a set of
+config-surface improvements (`maxDepth` in `config.yml`, symmetric
+`--memory`/`--no-memory` CLI flags, `hooks.timeoutMs`). The `1.3.0` stable
+release below is the promotion of beta.0 plus that follow-on work, as one
+coherent consolidation release.
 
 `npx freelance-mcp@latest mcp` no longer has a native compile step.
+
+### Beta → stable additions
+
+All of the following landed between `1.3.0-beta.0` and `1.3.0` stable:
+
+- **`onEnter` hooks.** Any node can now declare an `onEnter: [{ call, args }]`
+  list of hooks that fire on node arrival, before the agent sees the node.
+  `call` resolves to either a built-in hook (`memory_status`, `memory_browse`
+  — thin wrappers over the corresponding memory tools) or a relative path to
+  a local script (`./scripts/foo.js`). Scripts are ES modules with a
+  default-export async function receiving a narrow `HookContext` (resolved
+  args, live context, narrow read-only memory interface, graphId, nodeId).
+  Return-value is merged into session context via the existing
+  `applyContextUpdates` path, so strict-context enforcement applies uniformly
+  to agent-driven and hook-driven writes. Args with string values matching
+  `context.foo.bar` are dereferenced against live context before the hook
+  runs. Per-hook timeout defaults to 5000ms, configurable via
+  `hooks.timeoutMs` in `config.yml`. See `freelance_guide onenter-hooks` for
+  the full authoring guide.
+- **Engine `start()` and `advance()` are now async.** The hook runner is on
+  the node-arrival hot path; requiring async propagated cleanly through
+  `TraversalStore.createTraversal` / `advance`, the MCP tool handlers in
+  `src/tools/start.ts` + `advance.ts`, the CLI `freelance start` / `advance`
+  subcommands, and every engine test in `test/engine.test.ts` +
+  `test/subgraph.test.ts` + `test/wait.test.ts` + `test/returns.test.ts` +
+  `test/graph-sources.test.ts`. Library consumers calling `engine.start()` /
+  `engine.advance()` directly must now `await` them.
+- **`HookRunner` + `HookContext` + `HookMemoryAccess` in `src/engine/hooks.ts`.**
+  The runner owns dynamic-import of script hooks (relying on Node's native
+  `import()` cache — no explicit script cache), arg-path resolution, timeout
+  enforcement via `Promise.race`, and error wrapping into `EngineError`.
+  `HookContext.memory` is the narrow two-method interface
+  (`status()` + `browse()`) rather than the concrete `MemoryStore`, so hook
+  scripts can't reach into write paths like `emit()`.
+- **Composition root extracted to `src/compose.ts`.** The single `composeRuntime`
+  factory wires the full runtime (state backend → memory store → hook runner
+  → traversal store) and returns a `Runtime` object with an idempotent
+  `close()`. Both the MCP server (`src/server.ts::createServer`) and the CLI
+  (`src/cli/setup.ts::createTraversalStore`) now call it. Entry-point-specific
+  concerns — file watcher, MCP tool registration, CLI argv parsing, output
+  rendering — stay in the respective callers. Eliminates duplicate wiring
+  between the two entry points.
+- **DI cleanup pass**:
+  - `MemoryStore` constructor now takes a `Db` handle (from
+    `openDatabase(path)`) + a **required** `sourceRoot: string`. The
+    constructor no longer opens a database file or falls back to
+    `process.cwd()`. All I/O lives in `composeRuntime`.
+  - `JsonDirectoryStateStore` constructor is pure; `fs.mkdirSync` moved into
+    the `openStateStore` factory in `src/state/db.ts`.
+  - `hookRunner` is required (not optional) in `GraphEngineOptions` and
+    `TraversalStore`'s options. No more `?? new HookRunner()` fallbacks in
+    domain classes — callers must inject explicitly. Tests inject
+    `new HookRunner()` directly. Removes the silent-skip footgun where a
+    graph with `onEnter` hooks could be constructed against an engine
+    without a runner and the hooks would silently never fire.
+- **Flat `.freelance/` artifact layout with auto-migration.** The
+  `.state/` subdirectory is gone. Runtime artifacts live as peer subdirs of
+  source artifacts under `.freelance/`:
+  \`\`\`
+  .freelance/
+  ├── config.yml           # source (committed)
+  ├── config.local.yml     # source (gitignored)
+  ├── *.workflow.yaml      # source (committed)
+  ├── .gitignore           # auto-generated
+  ├── memory/              # runtime (gitignored)
+  │   ├── memory.db
+  │   ├── memory.db-shm
+  │   └── memory.db-wal
+  └── traversals/          # runtime (gitignored)
+      └── tr_*.json
+  \`\`\`
+  Source vs generated distinction is maintained via the generated
+  `.gitignore`, not via directory nesting. On startup, `composeRuntime`
+  detects a legacy `.freelance/.state/` layout and migrates it in place:
+  `.state/memory.db{,-shm,-wal}` → `memory/memory.db{,-shm,-wal}`,
+  `.state/traversals/` → `traversals/`, vestigial `state.db{,-shm,-wal}`
+  from the pre-stateless-store era deleted, empty `.state/` removed. Best
+  effort; logs one stderr line on success and an actionable error message
+  on failure. Transparent to users — no manual steps required.
+- **Config surface additions**:
+  - **`maxDepth`** is now readable from `config.yml` at the top level
+    (previously CLI-flag-only via `--max-depth`). CLI flag still wins when
+    set. Default remains `5`.
+  - **`hooks.timeoutMs`** config field for per-hook timeout (default
+    5000ms). Config-only — no CLI flag — documented per-field in
+    `src/config.ts` and `README.md`.
+  - **Symmetric `--memory` / `--no-memory` CLI flags.** Previously only
+    `--no-memory` existed (Commander's auto-negation of `--memory`). Now
+    both are explicit options on `freelance mcp`, and the CLI flag always
+    wins over `memory.enabled` in `config.yml` in both directions.
+  - Dead `memory.ignore` field removed from `README.md` and
+    `templates/config.yml` (it was documented but never implemented).
+- **`freelance memory reset --confirm` CLI subcommand.** Deletes
+  `.freelance/memory/memory.db` + sidecars without opening the database,
+  so it works even when `checkSchemaCompatibility` would reject the
+  current file (the canonical "I upgraded Freelance and the old db schema
+  is incompatible" recovery path). Next run re-initializes from scratch.
+- **`freelance_guide` gains a new `onenter-hooks` topic** covering the full
+  hook authoring surface: schema, built-ins, local script contract,
+  `HookContext` shape, args path resolution, timeout + error handling,
+  when-to-use-hooks guidance, and the trust model for local scripts. Also
+  cross-referenced from the `basics` topic so agents discover the feature
+  during foundational reading.
+- **`HistoryEntry` unchanged.** No session-shape break — existing
+  traversals survive the upgrade.
+- **Composition root return shape cleanup.** `createServer` now returns
+  `{ server, stopWatcher?, runtime }`. The transitional flat
+  `memoryStore` / `manager` fields from the beta.0 shape are dropped; all
+  tests migrated to destructure `runtime` instead.
+- **Per-field config precedence table** in `README.md` and inline
+  per-field comments in `src/config.ts`, documenting which knobs accept
+  which override layers (CLI flag, env var, config file).
+- **Test helpers consolidation.** `test/helpers.ts` gains `loadFixtureGraphs`
+  and `makeEngine` helpers, collapsing identical `makeEngine` boilerplate
+  from five engine-test files (`test/engine.test.ts`,
+  `test/subgraph.test.ts`, `test/wait.test.ts`, `test/returns.test.ts`,
+  `test/graph-sources.test.ts`) into two-line delegates. Fixes a temp-dir
+  leak in `test/cli-visualize.test.ts`.
+- **Library rename**: `ensureStateDir` → `ensureFreelanceDir`,
+  `resolveStateDir` → `resolveTraversalsDir` in `src/cli/setup.ts`. Call
+  sites in the CLI and tests updated. No behavior change beyond the flat
+  layout semantics.
+- **Tests**: 583 → 589, with new coverage for onEnter hooks, layout
+  migration, config precedence (C3 `maxDepth`, C6 symmetric `--memory`,
+  `hooks.timeoutMs`), narrow `HookMemoryAccess` interface, and the
+  `memory reset` CLI subcommand.
 
 ### Breaking
 

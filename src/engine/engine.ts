@@ -24,19 +24,33 @@ import {
   checkWaitBlocking,
 } from "./gates.js";
 import { cloneContext, toNodeInfo } from "./helpers.js";
+import type { HookRunner } from "./hooks.js";
 import { maybePushSubgraph, popSubgraph } from "./subgraph.js";
 import { evaluateTransitions } from "./transitions.js";
 import { computeTimeoutAt, evaluateWaitConditions } from "./wait.js";
 
+export interface GraphEngineOptions {
+  maxDepth?: number;
+  /**
+   * Required. Hosts always know whether memory is wired; the engine
+   * does not guess. Construct via `composeRuntime` (production) or
+   * `new HookRunner()` for a no-memory runner (tests and direct
+   * library use).
+   */
+  hookRunner: HookRunner;
+}
+
 export class GraphEngine {
   private stack: SessionState[] = [];
   private maxDepth: number;
+  private hookRunner: HookRunner;
 
   constructor(
     private graphs: Map<string, ValidatedGraph>,
-    options?: { maxDepth?: number },
+    options: GraphEngineOptions,
   ) {
-    this.maxDepth = options?.maxDepth ?? 5;
+    this.maxDepth = options.maxDepth ?? 5;
+    this.hookRunner = options.hookRunner;
   }
 
   list(): GraphListResult {
@@ -49,7 +63,7 @@ export class GraphEngine {
     return { graphs };
   }
 
-  start(graphId: string, initialContext?: Record<string, unknown>): StartResult {
+  async start(graphId: string, initialContext?: Record<string, unknown>): Promise<StartResult> {
     if (this.stack.length > 0) {
       throw new EngineError(
         "A traversal is already active. Call reset() first.",
@@ -68,7 +82,7 @@ export class GraphEngine {
       ...(initialContext ?? {}),
     };
 
-    this.stack.push({
+    const session: SessionState = {
       graphId,
       currentNode: def.startNode,
       context,
@@ -76,7 +90,12 @@ export class GraphEngine {
       contextHistory: [],
       turnCount: 0,
       startedAt: new Date().toISOString(),
-    });
+    };
+    this.stack.push(session);
+
+    // Fire onEnter for the start node. Hooks may mutate session.context,
+    // so validTransitions and the response snapshot are built after.
+    await this.runHooksOnArrival(session, graph);
 
     const node = def.nodes[def.startNode];
     return {
@@ -85,15 +104,16 @@ export class GraphEngine {
       graphId,
       currentNode: def.startNode,
       node: toNodeInfo(node),
-      validTransitions: evaluateTransitions(node, context),
-      context: cloneContext(context),
+      validTransitions: evaluateTransitions(node, session.context),
+      context: cloneContext(session.context),
       ...(def.sources && def.sources.length > 0 ? { graphSources: def.sources } : {}),
     } satisfies StartResult;
   }
 
-  advance(edge: string, contextUpdates?: Record<string, unknown>): AdvanceResult {
+  async advance(edge: string, contextUpdates?: Record<string, unknown>): Promise<AdvanceResult> {
     const session = this.requireSession();
-    const def = this.currentGraphDef();
+    const graph = this.currentGraph();
+    const def = graph.definition;
     const currentNodeDef = def.nodes[session.currentNode];
 
     if (contextUpdates) {
@@ -154,7 +174,9 @@ export class GraphEngine {
     const isTerminal = newNodeDef.type === "terminal";
     const isWait = newNodeDef.type === "wait";
 
-    // Subgraph transitions
+    // Subgraph transitions. Push runs hooks on the child's start node;
+    // pop does not re-fire hooks on the resumed parent (already fired on
+    // initial arrival).
     if (isTerminal && this.stack.length > 1) {
       return popSubgraph(this.stack, this.graphs, previousNode, edge);
     }
@@ -166,8 +188,13 @@ export class GraphEngine {
         edge,
         newNodeDef,
         maxDepth: this.maxDepth,
+        hookRunner: this.hookRunner,
       });
     }
+
+    // Standard arrival: fire onEnter for the new node before building
+    // the response so hook writes land in validTransitions and context.
+    await this.runHooksOnArrival(session, graph);
 
     // Wait node arrival
     if (isWait && newNodeDef.waitOn) {
@@ -294,11 +321,24 @@ export class GraphEngine {
     return this.activeSession();
   }
 
-  private currentGraphDef() {
+  private currentGraph(): ValidatedGraph {
     const graph = this.graphs.get(this.activeSession().graphId);
     if (!graph) {
       throw new EngineError(`Graph "${this.activeSession().graphId}" not found`, "GRAPH_NOT_FOUND");
     }
-    return graph.definition;
+    return graph;
+  }
+
+  private currentGraphDef() {
+    return this.currentGraph().definition;
+  }
+
+  private async runHooksOnArrival(session: SessionState, graph: ValidatedGraph): Promise<void> {
+    await this.hookRunner.runHooksFor(
+      session,
+      graph.definition,
+      session.currentNode,
+      graph.hookResolutions,
+    );
   }
 }
