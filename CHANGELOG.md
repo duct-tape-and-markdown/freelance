@@ -5,6 +5,68 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+The memory-architecture port. Six sequential batches landed on top of 1.3.0's
+`onEnter` hooks, pushing memory intelligence out of the agent's round-trip
+path and into the traversal layer — while preserving the store's passive-sink
+principle (no schema migrations, no new write paths). Sourced from
+`docs/memory-architecture-review.md` §5 + `docs/memory-prose-porting.md`.
+
+### Added
+
+- **Four new built-in onEnter hooks**: `memory_search`, `memory_related`,
+  `memory_inspect`, `memory_by_source`. `HookMemoryAccess` now narrows the
+  full public read surface of `MemoryStore` — `emit()` and other write paths
+  stay unreachable from hooks. `memory_by_source` diverges from the single-path
+  MCP tool on purpose: the hook wrapper takes `paths: string[]` (capped at 50)
+  so a single onEnter declaration can fan out over `context.filesReadPaths`.
+- **Stage-and-address split** on `memory:compile`. The old `compiling` node
+  is replaced by `staging` (pushes raw claims into `context.stagedClaims`,
+  no `memory_emit`) and `addressing` (plans entity hub-concepts across the
+  full staged set and calls `memory_emit` once with planned entities). The
+  split exists because entity planning needs to see the whole batch — it
+  can't succeed claim-by-claim. `addressing` gets a `memory_browse` onEnter
+  so the agent arrives with the existing entity vocabulary already in
+  `context.entities`.
+- **Graph-aware reads** on `memory:compile`. `exploring` gets a
+  `memory_by_source` onEnter keyed by `context.filesReadPaths`, populating
+  `context.priorKnowledgeByPath`. The agent stages only deltas; warm exit
+  becomes emergent when every read file's delta is empty.
+- **Lens directive** (`dev` / `support` / `qa`) inlined into the staging
+  instruction via `context.lens`. Empty lens defaults to `dev`. No engine
+  templating — the prose lists all three lenses and the agent picks.
+- **`PROPOSITION_RUBRIC` prose port**: the independence test ("could either
+  claim be true while the other is false?"), the split-aggressively /
+  keep-together catalog (relationship claims are knowledge in themselves —
+  don't atomize), and a one-sentence knowledge-types taxonomy that names
+  the metacognitive bucket explicitly so it stops being silently dropped.
+- **Programmatic `onEnter` on `GraphBuilder`**. `NodeInput` now exposes
+  `onEnter`, and `build()` resolves built-in hook references via a new
+  `resolveBuiltinOnlyHooks` helper. Script paths are rejected for
+  programmatic graphs because there's no source-file directory to anchor
+  against.
+
+### Changed
+
+- **`memory:compile` and `memory:recall` no longer instruct the agent to
+  manually call `memory_status` / `memory_browse` / `memory_inspect` /
+  `memory_related` as a "first step".** Those round-trips now fire as
+  onEnter hooks: compile's `exploring` runs `memory_status` + `memory_browse`
+  + `memory_by_source`; recall's `recalling` runs `memory_status` +
+  `memory_browse`. `memory_inspect` and `memory_related` stay as suggested
+  tools because they need a specific entity arg the agent must pick from
+  the populated vocabulary. Closes #53.
+
+### Fixed
+
+- `GraphBuilder` silently dropped `onEnter` hooks — the field wasn't on
+  `NodeInput` and `build()` didn't thread it through. Programmatic graphs
+  built with hook declarations appeared to succeed but never ran the hooks
+  at node arrival. Issue #53's note that "we can reach the onEnter shape by
+  setting the field directly on the node input object" was incorrect
+  against the code as written. Fixed as part of the stage-and-address batch.
+
 ## [1.3.0] - 2026-04-14
 
 A consolidation release. The original scope paid down architectural debt —
