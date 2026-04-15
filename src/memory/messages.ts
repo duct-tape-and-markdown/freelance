@@ -18,6 +18,20 @@ const PROPOSITION_RUBRIC =
   "Emit ATOMIC propositions: ONE factual claim per proposition, one sentence strongly preferred, two sentences maximum. " +
   "If your thought uses 'and', 'also', 'plus', lists multiple facts, or tries to explain both WHAT and WHY in the same breath, SPLIT it into separate propositions. " +
   "Each prop should survive independently: if a single sub-claim changes later, only that one prop should have to go stale.\n\n" +
+  "## The independence test\n" +
+  'For every candidate proposition, ask: "Could either claim be true while the other is false?" If yes — two propositions, not one. ' +
+  "This is the semantic backstop behind the surface 'no and / also / plus' rule above. Use it whenever the surface check feels ambiguous.\n\n" +
+  "## Split aggressively\n" +
+  '- "X calls Y, then does Z" — two props: "X calls Y", "after Y, X does Z"\n' +
+  '- "X handles A, B, and C" — three props, one per responsibility\n' +
+  "- A method AND what happens after it — separate props\n\n" +
+  "## Keep together when splitting destroys meaning\n" +
+  '- "validates X by checking Y" — one action with its mechanism\n' +
+  '- "delegates to Y via Z" — one relationship\n' +
+  "Relationship claims are KNOWLEDGE IN THEMSELVES. Don't atomize 'A depends on B' into separate facts about A and B — the edge IS the claim. " +
+  "Atomizing relationships into per-entity facts destroys the graph's connectivity and is worse than under-splitting.\n\n" +
+  "## Knowledge types\n" +
+  "Propositions can be factual ('X is configured to Y'), conceptual ('X exists because Y'), procedural ('to do X, run Y then Z'), or metacognitive ('this is uncertain because we couldn't reproduce X'). The metacognitive bucket is the one most extractors silently drop — emit it explicitly when you have it.\n\n" +
   "The `entities` array names the things the claim is genuinely about. One entity for 'X does Y' claims; two or more for relationship claims like 'A depends on B', 'A was replaced by B via C', 'A uses B in the presence of C'. " +
   "Multi-entity propositions are valuable — they make the knowledge graph denser and enable relationship queries via memory_related. " +
   "Name every entity the claim is actually about, up to 4. Never pack extra entities to justify a compound prop — split the compound instead.\n\n" +
