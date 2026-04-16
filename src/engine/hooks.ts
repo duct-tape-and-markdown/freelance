@@ -52,6 +52,15 @@ export interface HookContext {
   readonly memory?: HookMemoryAccess;
   readonly graphId: string;
   readonly nodeId: string;
+  /**
+   * Merge tags into the traversal's `meta`. Present only when the host has
+   * threaded a collector — the store wrapper does this around every advance
+   * and start. Hooks that do not need to write meta ignore it; built-ins
+   * that do (e.g. `meta_set`) call it directly. Updates are batched and
+   * applied by the host *after* the hook chain returns, so they don't race
+   * the engine's own state save.
+   */
+  readonly setMeta?: (updates: Record<string, string>) => void;
 }
 
 /**
@@ -81,11 +90,34 @@ export class HookRunner {
   private readonly memory?: HookMemoryAccess;
   private readonly hookTimeoutMs: number;
   private readonly builtinHooks: ReadonlyMap<string, HookFn>;
+  // Per-call meta collector, set via withMetaCollector around an engine
+  // operation. Hook context surfaces it as `setMeta` only when present.
+  // Single-threaded by virtue of the store awaiting every engine call.
+  private currentMetaCollector?: (updates: Record<string, string>) => void;
 
   constructor(options: HookRunnerOptions = {}) {
     this.memory = options.memory;
     this.hookTimeoutMs = options.hookTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS;
     this.builtinHooks = options.builtinHooks ?? BUILTIN_HOOKS;
+  }
+
+  /**
+   * Wrap an engine operation so that hooks fired during `fn` can write to
+   * meta via `ctx.setMeta`. `collector` receives every update; the caller
+   * (typically TraversalStore) applies the merged result after `fn`
+   * resolves but before persisting the record.
+   */
+  async withMetaCollector<T>(
+    collector: (updates: Record<string, string>) => void,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.currentMetaCollector;
+    this.currentMetaCollector = collector;
+    try {
+      return await fn();
+    } finally {
+      this.currentMetaCollector = previous;
+    }
   }
 
   /**
@@ -132,6 +164,7 @@ export class HookRunner {
         memory: this.memory,
         graphId: graphDef.id,
         nodeId,
+        ...(this.currentMetaCollector && { setMeta: this.currentMetaCollector }),
       };
 
       let result: Record<string, unknown>;

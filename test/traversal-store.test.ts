@@ -290,6 +290,44 @@ describe("TraversalStore — stateless JSON", () => {
       expect(after.currentNode).toBe(before.currentNode);
     });
 
+    it("meta_set onEnter hook tags the traversal at start, not via separate setMeta call", async () => {
+      // Load the meta_set fixture into its own store (the default beforeEach
+      // graphs don't include it). Mirrors the loadFixtures helper pattern.
+      const metaGraphs = loadFixtures("hook-meta-set.workflow.yaml");
+      const metaStore = new TraversalStore(
+        openStateStore(path.join(tmpDir, "meta-traversals")),
+        metaGraphs,
+        { hookRunner: new HookRunner() },
+      );
+      try {
+        const r = await metaStore.createTraversal("hook-meta-set");
+        // The start node's meta_set hook should have populated externalKey.
+        expect(r.meta).toEqual({ externalKey: "DEV-1234" });
+        expect(metaStore.listTraversals()[0].meta).toEqual({ externalKey: "DEV-1234" });
+
+        // Advance fires the next node's meta_set hook, merging in prUrl.
+        const adv = await metaStore.advance(r.traversalId, "next");
+        expect(adv.isError).toBe(false);
+        expect(adv.meta).toEqual({
+          externalKey: "DEV-1234",
+          prUrl: "https://example/pr/7",
+        });
+
+        // Caller-supplied meta at start composes with hook-supplied meta —
+        // hook updates win on key collision (last-write-wins on each call).
+        const r2 = await metaStore.createTraversal("hook-meta-set", undefined, {
+          externalKey: "OVERRIDE",
+          owner: "alice",
+        });
+        expect(r2.meta).toEqual({
+          externalKey: "DEV-1234", // hook wrote after caller-supplied value
+          owner: "alice",
+        });
+      } finally {
+        metaStore.close();
+      }
+    });
+
     it("meta round-trips through process restart (persisted on disk)", async () => {
       const dir = path.join(tmpDir, "traversals");
       const r = await store.createTraversal("valid-simple", undefined, { externalKey: "DEV-9" });

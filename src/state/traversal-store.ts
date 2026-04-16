@@ -24,6 +24,15 @@ function generateTraversalId(): string {
   return `tr_${crypto.randomBytes(4).toString("hex")}`;
 }
 
+/** Merge two meta sources into one normalized record (or undefined when empty). */
+function mergeMeta(
+  caller?: Record<string, string>,
+  hook?: Record<string, string>,
+): Record<string, string> | undefined {
+  const merged = { ...caller, ...hook };
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
 function recordToInfo(row: TraversalRecord): TraversalInfo {
   const info: TraversalInfo = {
     traversalId: row.id,
@@ -102,15 +111,19 @@ export class TraversalStore {
   ): Promise<{ traversalId: string; meta?: Record<string, string> } & StartResult> {
     const id = generateTraversalId();
     const engine = this.newEngine();
-    const result = await engine.start(graphId, initialContext);
+    // Collect any meta written by onEnter hooks fired during start, so the
+    // initial put below already includes them (avoids a double write).
+    const hookMeta: Record<string, string> = {};
+    const result = await this.hookRunner.withMetaCollector(
+      (updates) => Object.assign(hookMeta, updates),
+      () => engine.start(graphId, initialContext),
+    );
 
     const stack = engine.getStack();
     const now = new Date().toISOString();
     const active = stack[stack.length - 1];
 
-    // Treat empty meta as no meta — keeps absent-vs-present in the JSON
-    // record unambiguous for downstream readers.
-    const hasMeta = meta !== undefined && Object.keys(meta).length > 0;
+    const merged = mergeMeta(meta, hookMeta);
 
     const record: TraversalRecord = {
       id,
@@ -120,11 +133,11 @@ export class TraversalStore {
       stackDepth: stack.length,
       createdAt: now,
       updatedAt: now,
-      ...(hasMeta && { meta }),
+      ...(merged && { meta: merged }),
     };
     this.state.put(record);
 
-    return hasMeta ? { traversalId: id, meta, ...result } : { traversalId: id, ...result };
+    return merged ? { traversalId: id, meta: merged, ...result } : { traversalId: id, ...result };
   }
 
   async advance(
@@ -133,7 +146,18 @@ export class TraversalStore {
     contextUpdates?: Record<string, unknown>,
   ): Promise<{ traversalId: string; meta?: Record<string, string> } & AdvanceResult> {
     const { engine, record } = this.loadEngine(traversalId);
-    const result = await engine.advance(edge, contextUpdates);
+    const hookMeta: Record<string, string> = {};
+    const result = await this.hookRunner.withMetaCollector(
+      (updates) => Object.assign(hookMeta, updates),
+      () => engine.advance(edge, contextUpdates),
+    );
+    // Merge collected hook updates into the in-memory record before save —
+    // saveEngine carries record.meta forward verbatim, so this is the
+    // single point of integration. Avoids a separate setMeta + extra disk
+    // write per advance.
+    if (Object.keys(hookMeta).length > 0) {
+      record.meta = { ...record.meta, ...hookMeta };
+    }
     this.saveEngine(record, engine);
     return record.meta ? { traversalId, meta: record.meta, ...result } : { traversalId, ...result };
   }

@@ -314,8 +314,9 @@ Hooks run sequentially in the order declared. Each hook's result is merged into 
 
 - **memory_status**: returns proposition/entity counts from the memory store. Arg: \`collection\` (optional).
 - **memory_browse**: returns a page of entities from the memory store. Args: \`collection\`, \`name\`, \`kind\`, \`limit\`, \`offset\` (all optional).
+- **meta_set**: tags the traversal with caller-opaque meta key/value pairs. Every arg becomes a meta entry; values must resolve to strings (use \`context.foo\` to pull from live context). Merge semantics — new keys add, existing keys overwrite. See \`freelance_guide meta\`.
 
-These are the same operations as the corresponding \`memory_*\` MCP tools, but called by the engine automatically on node arrival instead of requiring an agent round-trip.
+These are the same operations as the corresponding \`memory_*\` / \`freelance_meta_set\` MCP tools, but called by the engine automatically on node arrival instead of requiring an agent round-trip.
 
 ## Local script hooks
 
@@ -427,6 +428,24 @@ Some lookup keys aren't known at start — a PR url is created during the work, 
 \`\`\`
 
 \`meta_set\` is a merge: new keys are added, existing keys are overwritten.
+
+**Programmatic (workflow-driven via onEnter):**
+
+A node can declare an onEnter hook that tags meta automatically when the agent arrives — no separate tool call needed. The built-in \`meta_set\` hook takes args verbatim as the meta payload, with \`context.foo.bar\` resolved against live context:
+
+\`\`\`yaml
+nodes:
+  open-pr:
+    type: action
+    description: "Open the PR"
+    onEnter:
+      - call: meta_set
+        args:
+          prUrl: context.prUrl
+          branch: context.branch
+\`\`\`
+
+Use this when the workflow itself knows when a key becomes available — it removes a turn from the agent's loop.
 
 ## Reading meta back
 
