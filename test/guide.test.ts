@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import { GUIDE_TOPICS, getGuide, getGuideTopics } from "../src/guide.js";
 
 describe("freelance_guide", () => {
-  it("getGuideTopics returns all 9 topics", () => {
+  it("getGuideTopics returns all topics", () => {
     const topics = getGuideTopics();
-    expect(topics).toHaveLength(9);
+    expect(topics).toHaveLength(GUIDE_TOPICS.length);
     expect(topics).toContain("basics");
     expect(topics).toContain("conventions");
     expect(topics).toContain("gates");
     expect(topics).toContain("onenter-hooks");
+    expect(topics).toContain("meta");
     expect(topics).toContain("anti-patterns");
   });
 

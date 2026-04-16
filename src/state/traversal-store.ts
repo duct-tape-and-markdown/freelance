@@ -131,11 +131,11 @@ export class TraversalStore {
     traversalId: string,
     edge: string,
     contextUpdates?: Record<string, unknown>,
-  ): Promise<{ traversalId: string } & AdvanceResult> {
+  ): Promise<{ traversalId: string; meta?: Record<string, string> } & AdvanceResult> {
     const { engine, record } = this.loadEngine(traversalId);
     const result = await engine.advance(edge, contextUpdates);
     this.saveEngine(record, engine);
-    return { traversalId, ...result };
+    return record.meta ? { traversalId, meta: record.meta, ...result } : { traversalId, ...result };
   }
 
   contextSet(
@@ -199,8 +199,14 @@ export class TraversalStore {
 
     // Ambiguous: only now do we need the full records to build a useful error.
     const records = this.state.list();
+    const summary = records
+      .map((t) => {
+        const base = `${t.id} (${t.graphId} @ ${t.currentNode})`;
+        return t.meta ? `${base} ${JSON.stringify(t.meta)}` : base;
+      })
+      .join(", ");
     throw new EngineError(
-      `Multiple active traversals. Specify traversalId. Active: ${records.map((t) => `${t.id} (${t.graphId} @ ${t.currentNode})`).join(", ")}`,
+      `Multiple active traversals. Specify traversalId. Active: ${summary}`,
       "AMBIGUOUS_TRAVERSAL",
     );
   }

@@ -404,6 +404,52 @@ describe("MCP server — meta tags", () => {
     expect(result.isError).toBe(true);
   });
 
+  it("meta round-trips cleanly through start → advance → inspect responses (JSON shape)", async () => {
+    const start = await client.callTool({
+      name: "freelance_start",
+      arguments: {
+        graphId: "valid-simple",
+        meta: { externalKey: "DEV-1234", branch: "feature/x" },
+      },
+    });
+    const startData = parseContent(start) as { traversalId: string; meta: Record<string, string> };
+    expect(startData.meta).toEqual({ externalKey: "DEV-1234", branch: "feature/x" });
+
+    const advanced = await client.callTool({
+      name: "freelance_advance",
+      arguments: { edge: "work-done", contextUpdates: { taskStarted: true } },
+    });
+    const advData = parseContent(advanced) as { meta?: Record<string, string> };
+    expect(advData.meta).toEqual({ externalKey: "DEV-1234", branch: "feature/x" });
+
+    const list = await client.callTool({ name: "freelance_list", arguments: {} });
+    const listData = parseContent(list) as {
+      activeTraversals: Array<{ traversalId: string; meta?: Record<string, string> }>;
+    };
+    const entry = listData.activeTraversals.find((t) => t.traversalId === startData.traversalId);
+    expect(entry?.meta).toEqual({ externalKey: "DEV-1234", branch: "feature/x" });
+  });
+
+  it("AMBIGUOUS_TRAVERSAL error includes meta tags so callers can disambiguate by domain key", async () => {
+    await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "valid-simple", meta: { externalKey: "DEV-1" } },
+    });
+    await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "valid-branching", meta: { externalKey: "DEV-2" } },
+    });
+    // Omitting traversalId on advance triggers ambiguous resolution
+    const result = await client.callTool({
+      name: "freelance_advance",
+      arguments: { edge: "anything" },
+    });
+    expect(result.isError).toBe(true);
+    const text = JSON.stringify(parseContent(result));
+    expect(text).toContain("DEV-1");
+    expect(text).toContain("DEV-2");
+  });
+
   it("freelance_list returns graphs sorted by id (deterministic)", async () => {
     const result = await client.callTool({ name: "freelance_list", arguments: {} });
     const data = parseContent(result) as { graphs: Array<{ id: string }> };
