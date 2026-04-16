@@ -243,6 +243,53 @@ describe("TraversalStore — stateless JSON", () => {
       expect(result.meta).toBeUndefined();
     });
 
+    it("setMeta merges new keys into existing meta", async () => {
+      const r = await store.createTraversal("valid-simple", undefined, {
+        externalKey: "DEV-1",
+      });
+      const result = store.setMeta(r.traversalId, { prUrl: "https://example/pr/7" });
+      expect(result.meta).toEqual({ externalKey: "DEV-1", prUrl: "https://example/pr/7" });
+
+      const inspected = store.inspect(r.traversalId, "position");
+      expect(inspected.meta).toEqual({
+        externalKey: "DEV-1",
+        prUrl: "https://example/pr/7",
+      });
+    });
+
+    it("setMeta overwrites existing keys", async () => {
+      const r = await store.createTraversal("valid-simple", undefined, {
+        externalKey: "DEV-1",
+      });
+      const result = store.setMeta(r.traversalId, { externalKey: "DEV-2" });
+      expect(result.meta).toEqual({ externalKey: "DEV-2" });
+    });
+
+    it("setMeta works on traversals that had no meta at start", async () => {
+      const r = await store.createTraversal("valid-simple");
+      const result = store.setMeta(r.traversalId, { externalKey: "LATE-1" });
+      expect(result.meta).toEqual({ externalKey: "LATE-1" });
+      expect(store.listTraversals()[0].meta).toEqual({ externalKey: "LATE-1" });
+    });
+
+    it("setMeta rejects empty updates", async () => {
+      const r = await store.createTraversal("valid-simple");
+      expect(() => store.setMeta(r.traversalId, {})).toThrow(EngineError);
+    });
+
+    it("setMeta throws TRAVERSAL_NOT_FOUND for unknown id", () => {
+      expect(() => store.setMeta("tr_nope", { a: "b" })).toThrow(EngineError);
+    });
+
+    it("setMeta bumps updatedAt but preserves createdAt + stack", async () => {
+      const r = await store.createTraversal("valid-simple");
+      await store.advance(r.traversalId, "work-done", { taskStarted: true });
+      const before = store.inspect(r.traversalId, "position");
+      store.setMeta(r.traversalId, { externalKey: "X" });
+      const after = store.inspect(r.traversalId, "position");
+      expect(after.currentNode).toBe(before.currentNode);
+    });
+
     it("meta round-trips through process restart (persisted on disk)", async () => {
       const dir = path.join(tmpDir, "traversals");
       const r = await store.createTraversal("valid-simple", undefined, { externalKey: "DEV-9" });

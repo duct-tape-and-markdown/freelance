@@ -199,6 +199,29 @@ export function traversalContextSet(
   }
 }
 
+export function traversalMetaSet(
+  store: TraversalStore,
+  updates: string[],
+  opts?: { traversal?: string },
+): void {
+  try {
+    const id = store.resolveTraversalId(opts?.traversal);
+    const parsed = parseMetaPairs(updates, "meta set");
+    if (Object.keys(parsed).length === 0) {
+      throw new Error("meta set requires at least one key=value pair");
+    }
+    const result = store.setMeta(id, parsed);
+    if (cli.json) {
+      outputJson(result);
+    } else {
+      info(`Updated meta for ${result.traversalId}`);
+      info(`  Meta: ${JSON.stringify(result.meta)}`);
+    }
+  } catch (e) {
+    handleError(e);
+  }
+}
+
 export function traversalInspect(
   store: TraversalStore,
   traversalId?: string,

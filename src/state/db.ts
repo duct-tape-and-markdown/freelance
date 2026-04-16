@@ -15,10 +15,10 @@ export interface TraversalRecord {
   stackDepth: number;
   createdAt: string;
   updatedAt: string;
-  // Caller-supplied opaque tags set at createTraversal time. Freelance
-  // never interprets the keys or values — they exist purely so external
-  // systems can find a traversal by their own business key (ticket id,
-  // PR url, branch, doc path, …). Immutable after creation.
+  // Caller-supplied opaque tags set at createTraversal time and mutable
+  // thereafter via setMeta. Freelance never interprets the keys or values —
+  // they exist purely so external systems can find a traversal by their own
+  // business key (ticket id, PR url, branch, doc path, …).
   meta?: Record<string, string>;
 }
 

@@ -4,6 +4,7 @@ import { setCli } from "../src/cli/output.js";
 import {
   traversalContextSet,
   traversalInspect,
+  traversalMetaSet,
   traversalReset,
   traversalStart,
   traversalStatus,
@@ -216,6 +217,49 @@ describe("traversalInspect shows meta", () => {
       traversalInspect(store, traversalId, "position");
       expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Meta:"));
       expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("DEV-9"));
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("traversalMetaSet", () => {
+  it("merges key=value pairs and prints the updated meta", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const { traversalId } = await store.createTraversal(graphId, undefined, {
+        externalKey: "DEV-1",
+      });
+      traversalMetaSet(store, ["prUrl=https://example/pr/7"], { traversal: traversalId });
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Updated meta"));
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("prUrl"));
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("DEV-1"));
+    } finally {
+      store.close();
+    }
+  });
+
+  it("errors on invalid pair", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      await store.createTraversal(graphId);
+      expect(() => traversalMetaSet(store, ["noequalssign"])).toThrow("process.exit");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("errors on empty updates", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      await store.createTraversal(graphId);
+      expect(() => traversalMetaSet(store, [])).toThrow("process.exit");
     } finally {
       store.close();
     }

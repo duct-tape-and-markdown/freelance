@@ -148,6 +148,28 @@ export class TraversalStore {
     return { traversalId, ...result };
   }
 
+  /**
+   * Merge opaque tags into a traversal's `meta`. New keys are added, existing
+   * keys are overwritten. Pass a non-empty object — Freelance still never
+   * interprets keys or values, but rejects empty updates to avoid silent
+   * no-op calls.
+   */
+  setMeta(
+    traversalId: string,
+    updates: Record<string, string>,
+  ): { traversalId: string; meta: Record<string, string> } {
+    if (Object.keys(updates).length === 0) {
+      throw new EngineError("setMeta requires at least one key=value pair", "INVALID_META");
+    }
+    const record = this.state.get(traversalId);
+    if (!record) {
+      throw new EngineError(`Traversal "${traversalId}" not found`, "TRAVERSAL_NOT_FOUND");
+    }
+    const meta = { ...record.meta, ...updates };
+    this.state.put({ ...record, meta, updatedAt: new Date().toISOString() });
+    return { traversalId, meta };
+  }
+
   inspect(
     traversalId: string,
     detail?: "position" | "full" | "history",

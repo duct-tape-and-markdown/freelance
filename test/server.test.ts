@@ -368,6 +368,42 @@ describe("MCP server — meta tags", () => {
     expect(data.context).toMatchObject({ hint: "recover me", taskStarted: true });
   });
 
+  it("freelance_meta_set merges new keys into existing meta", async () => {
+    const start = await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "valid-simple", meta: { externalKey: "DEV-1" } },
+    });
+    const { traversalId } = parseContent(start) as { traversalId: string };
+
+    const updated = await client.callTool({
+      name: "freelance_meta_set",
+      arguments: { traversalId, meta: { prUrl: "https://example/pr/7" } },
+    });
+    expect(updated.isError).toBeFalsy();
+    const data = parseContent(updated) as { meta: Record<string, string> };
+    expect(data.meta).toEqual({ externalKey: "DEV-1", prUrl: "https://example/pr/7" });
+
+    // Visible via inspect afterward
+    const inspected = await client.callTool({
+      name: "freelance_inspect",
+      arguments: { traversalId, detail: "position" },
+    });
+    const inspData = parseContent(inspected) as { meta: Record<string, string> };
+    expect(inspData.meta).toEqual({ externalKey: "DEV-1", prUrl: "https://example/pr/7" });
+  });
+
+  it("freelance_meta_set rejects empty meta", async () => {
+    await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "valid-simple" },
+    });
+    const result = await client.callTool({
+      name: "freelance_meta_set",
+      arguments: { meta: {} },
+    });
+    expect(result.isError).toBe(true);
+  });
+
   it("freelance_list returns graphs sorted by id (deterministic)", async () => {
     const result = await client.callTool({ name: "freelance_list", arguments: {} });
     const data = parseContent(result) as { graphs: Array<{ id: string }> };

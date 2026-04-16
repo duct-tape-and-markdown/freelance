@@ -37,6 +37,7 @@ import {
   traversalAdvance,
   traversalContextSet,
   traversalInspect,
+  traversalMetaSet,
   traversalReset,
   traversalStart,
   traversalStatus,
@@ -279,6 +280,22 @@ addWorkflowsOpt(
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
     traversalContextSet(store, updates, opts);
+  } finally {
+    runtime.close();
+  }
+});
+
+const metaCmd = program.command("meta").description("Update traversal meta tags");
+
+addWorkflowsOpt(
+  metaCmd
+    .command("set <updates...>")
+    .description("Merge meta key=value tags (e.g. prUrl=https://… branch=feature/x)")
+    .option("--traversal <id>", "Traversal ID (auto-resolved if only one active)"),
+).action((updates, opts) => {
+  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
+  try {
+    traversalMetaSet(store, updates, opts);
   } finally {
     runtime.close();
   }
