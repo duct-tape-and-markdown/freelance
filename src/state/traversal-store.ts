@@ -111,7 +111,7 @@ export class TraversalStore {
         return entries.every(([k, v]) => meta[k] === v);
       })
       .map(recordToInfo);
-    return { query: { ...query }, matches };
+    return { query, matches };
   }
 
   /** Check whether any active traversal belongs to one of the given graph IDs. */
@@ -196,10 +196,9 @@ export class TraversalStore {
   resumeTraversal(traversalId: string): ResumeResult {
     const { engine, record } = this.loadEngine(traversalId);
     const inspect = engine.inspect("position") as InspectPositionResult;
-    // Build as a plain writable object, then return — TypeScript infers the
-    // ResumeResult shape at the return site. Keeps optional fields absent
-    // (not present-as-undefined) so the JSON output is tight.
-    const result: Record<string, unknown> = {
+    // Conditional spreads keep optional fields absent (not present-as-undefined)
+    // in the JSON output while preserving type inference end-to-end.
+    return {
       status: "resumed",
       traversalId: record.id,
       graphId: inspect.graphId,
@@ -211,14 +210,13 @@ export class TraversalStore {
       stackDepth: inspect.stackDepth,
       stack: inspect.stack,
       lastUpdated: record.updatedAt,
+      ...(record.meta && { meta: record.meta }),
+      ...(inspect.graphSources && { graphSources: inspect.graphSources }),
+      ...(inspect.waitStatus && { waitStatus: inspect.waitStatus }),
+      ...(inspect.waitingOn && { waitingOn: inspect.waitingOn }),
+      ...(inspect.timeout && { timeout: inspect.timeout }),
+      ...(inspect.timeoutAt && { timeoutAt: inspect.timeoutAt }),
     };
-    if (record.meta) result.meta = record.meta;
-    if (inspect.graphSources) result.graphSources = inspect.graphSources;
-    if (inspect.waitStatus) result.waitStatus = inspect.waitStatus;
-    if (inspect.waitingOn) result.waitingOn = inspect.waitingOn;
-    if (inspect.timeout) result.timeout = inspect.timeout;
-    if (inspect.timeoutAt) result.timeoutAt = inspect.timeoutAt;
-    return result as unknown as ResumeResult;
   }
 
   resetTraversal(traversalId: string): { traversalId: string } & ResetResult {
