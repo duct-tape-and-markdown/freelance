@@ -9,8 +9,12 @@
  * actually usable post-compaction: "you may have been mid-workflow,
  * check."
  *
- * Outputs JSON on stdout in the `hookSpecificOutput.additionalContext`
- * format. Uses the PostCompact event name per the schema.
+ * Uses the top-level `systemMessage` field rather than
+ * `hookSpecificOutput.additionalContext`. The Claude Code hook schema
+ * only permits `hookSpecificOutput.additionalContext` for a specific
+ * set of events (UserPromptSubmit, PostToolUse); using it on
+ * PostCompact fails output validation and the hook is dropped.
+ * `systemMessage` is schema-compliant for every event.
  */
 
 const message =
@@ -21,11 +25,4 @@ const message =
   "node, valid transitions, and context). Memory and knowledge graph " +
   "state are also persistent — call `memory_status` if you need to check.";
 
-process.stdout.write(
-  `${JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: "PostCompact",
-      additionalContext: message,
-    },
-  })}\n`,
-);
+process.stdout.write(`${JSON.stringify({ systemMessage: message })}\n`);

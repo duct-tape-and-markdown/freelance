@@ -8,8 +8,12 @@
  * nudge, no tool invocation, no configuration. If this feels noisy the
  * user can disable it via their Claude Code settings.
  *
- * Outputs JSON on stdout in the `hookSpecificOutput.additionalContext`
- * format so the message is injected as a system reminder.
+ * Uses the top-level `systemMessage` field rather than
+ * `hookSpecificOutput.additionalContext`. The Claude Code hook schema
+ * only permits `hookSpecificOutput.additionalContext` for a specific
+ * set of events (UserPromptSubmit, PostToolUse); using it on
+ * SessionStart fails output validation and the hook is dropped.
+ * `systemMessage` is schema-compliant for every event.
  */
 
 const message =
@@ -19,11 +23,4 @@ const message =
   "to check the knowledge graph (propositions, staleness, entity counts). " +
   "Workflow and memory state lives server-side and survives context compaction.";
 
-process.stdout.write(
-  `${JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: "SessionStart",
-      additionalContext: message,
-    },
-  })}\n`,
-);
+process.stdout.write(`${JSON.stringify({ systemMessage: message })}\n`);
