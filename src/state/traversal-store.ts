@@ -25,15 +25,20 @@ function generateTraversalId(): string {
 }
 
 function recordToInfo(row: TraversalRecord): TraversalInfo {
-  const info: TraversalInfo = {
+  return {
     traversalId: row.id,
     graphId: row.graphId,
     currentNode: row.currentNode,
     lastUpdated: row.updatedAt,
     stackDepth: row.stackDepth,
+    meta: row.meta ?? EMPTY_META,
   };
-  return row.meta ? { ...info, meta: row.meta } : info;
 }
+
+// Shared empty-meta sentinel for normalizing `record.meta` on reads.
+// Reusing one frozen object avoids allocating a new `{}` per read and
+// signals "intentionally empty" to downstream consumers.
+const EMPTY_META: Readonly<Record<string, string>> = Object.freeze({});
 
 export class TraversalStore {
   private state: StateStore;
@@ -99,7 +104,7 @@ export class TraversalStore {
     graphId: string,
     initialContext?: Record<string, unknown>,
     meta?: Record<string, string>,
-  ): Promise<{ traversalId: string; meta?: Record<string, string> } & StartResult> {
+  ): Promise<{ traversalId: string; meta: Record<string, string> } & StartResult> {
     const id = generateTraversalId();
     const engine = this.newEngine();
     // Collect any meta written by onEnter hooks fired during start, so the
@@ -150,14 +155,14 @@ export class TraversalStore {
     };
     this.state.put(record);
 
-    return merged ? { traversalId: id, meta: merged, ...result } : { traversalId: id, ...result };
+    return { traversalId: id, meta: merged ?? EMPTY_META, ...result };
   }
 
   async advance(
     traversalId: string,
     edge: string,
     contextUpdates?: Record<string, unknown>,
-  ): Promise<{ traversalId: string; meta?: Record<string, string> } & AdvanceResult> {
+  ): Promise<{ traversalId: string; meta: Record<string, string> } & AdvanceResult> {
     const { engine, record } = this.loadEngine(traversalId);
     const hookMeta: Record<string, string> = {};
     const result = await this.hookRunner.withMetaCollector(
@@ -172,7 +177,7 @@ export class TraversalStore {
       record.meta = { ...record.meta, ...hookMeta };
     }
     this.saveEngine(record, engine);
-    return record.meta ? { traversalId, meta: record.meta, ...result } : { traversalId, ...result };
+    return { traversalId, meta: record.meta ?? EMPTY_META, ...result };
   }
 
   contextSet(
@@ -210,10 +215,10 @@ export class TraversalStore {
   inspect(
     traversalId: string,
     detail?: "position" | "full" | "history",
-  ): { traversalId: string; meta?: Record<string, string> } & InspectResult {
+  ): { traversalId: string; meta: Record<string, string> } & InspectResult {
     const { engine, record } = this.loadEngine(traversalId);
     const result = engine.inspect(detail);
-    return record.meta ? { traversalId, meta: record.meta, ...result } : { traversalId, ...result };
+    return { traversalId, meta: record.meta ?? EMPTY_META, ...result };
   }
 
   resetTraversal(traversalId: string): { traversalId: string } & ResetResult {

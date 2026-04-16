@@ -216,7 +216,11 @@ export interface TraversalInfo {
   readonly currentNode: string;
   readonly lastUpdated: string;
   readonly stackDepth: number;
-  readonly meta?: Readonly<Record<string, string>>;
+  // Always present on responses (empty when untagged), matching the
+  // convention used for `context` — callers can read meta[key] without
+  // null-checking the map itself. On-disk TraversalRecord.meta stays
+  // optional; the store normalizes at read time.
+  readonly meta: Readonly<Record<string, string>>;
 }
 
 export interface TraversalListResult {

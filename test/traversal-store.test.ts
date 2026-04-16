@@ -200,13 +200,15 @@ describe("TraversalStore — stateless JSON", () => {
       expect(list[0].meta).toEqual({ externalKey: "DEV-1234", branch: "feature/x" });
     });
 
-    it("treats undefined/empty meta as absent (no field on record)", async () => {
+    it("normalizes unset/empty meta to an empty object on responses (matches context convention)", async () => {
       const a = await store.createTraversal("valid-simple");
       const b = await store.createTraversal("valid-branching", undefined, {});
-      expect(a.meta).toBeUndefined();
-      expect(b.meta).toBeUndefined();
+      // Always-present convention: meta is an object, empty when untagged.
+      // Matches how `context` is always present on inspect responses.
+      expect(a.meta).toEqual({});
+      expect(b.meta).toEqual({});
       for (const info of store.listTraversals()) {
-        expect(info.meta).toBeUndefined();
+        expect(info.meta).toEqual({});
       }
     });
 
@@ -237,10 +239,10 @@ describe("TraversalStore — stateless JSON", () => {
       }
     });
 
-    it("inspect omits meta when none was set", async () => {
+    it("inspect returns empty meta when none was set (always-present convention)", async () => {
       const r = await store.createTraversal("valid-simple");
       const result = store.inspect(r.traversalId, "position");
-      expect(result.meta).toBeUndefined();
+      expect(result.meta).toEqual({});
     });
 
     it("setMeta merges new keys into existing meta", async () => {
