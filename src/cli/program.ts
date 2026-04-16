@@ -97,7 +97,11 @@ program
   )
   .option("--workflows <path>", "Where to put workflow definitions")
   .addOption(
-    new Option("--starter <template>", "Starter graph to scaffold").choices(["blank", "none"]),
+    new Option("--starter <template>", "Starter graph to scaffold").choices([
+      "blank",
+      "tagged",
+      "none",
+    ]),
   )
   .option("--hooks", "Enable workflow enforcement hooks (Claude Code only)")
   .option("--yes", "Skip all prompts, use defaults")

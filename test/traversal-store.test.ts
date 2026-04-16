@@ -328,6 +328,49 @@ describe("TraversalStore — stateless JSON", () => {
       }
     });
 
+    it("requiredMeta rejects start calls that don't supply the declared keys", async () => {
+      const reqGraphs = loadFixtures("required-meta-caller.workflow.yaml");
+      const reqStore = new TraversalStore(
+        openStateStore(path.join(tmpDir, "req-traversals-a")),
+        reqGraphs,
+        { hookRunner: new HookRunner() },
+      );
+      try {
+        await expect(reqStore.createTraversal("required-meta-caller")).rejects.toThrow(
+          /externalKey/,
+        );
+        await expect(
+          reqStore.createTraversal("required-meta-caller", undefined, { other: "x" }),
+        ).rejects.toThrow(EngineError);
+        // No traversal is persisted on failure — start is transactional.
+        expect(reqStore.listTraversals()).toHaveLength(0);
+
+        // Supplying the key succeeds.
+        const ok = await reqStore.createTraversal("required-meta-caller", undefined, {
+          externalKey: "DEV-1",
+        });
+        expect(ok.meta).toEqual({ externalKey: "DEV-1" });
+      } finally {
+        reqStore.close();
+      }
+    });
+
+    it("requiredMeta can be satisfied by start-node onEnter meta_set (post-hook enforcement)", async () => {
+      const reqGraphs = loadFixtures("required-meta-hook.workflow.yaml");
+      const reqStore = new TraversalStore(
+        openStateStore(path.join(tmpDir, "req-traversals-b")),
+        reqGraphs,
+        { hookRunner: new HookRunner() },
+      );
+      try {
+        // Caller supplies no meta — the hook derives externalKey from context.
+        const r = await reqStore.createTraversal("required-meta-hook");
+        expect(r.meta).toEqual({ externalKey: "DEV-AUTO" });
+      } finally {
+        reqStore.close();
+      }
+    });
+
     it("meta round-trips through process restart (persisted on disk)", async () => {
       const dir = path.join(tmpDir, "traversals");
       const r = await store.createTraversal("valid-simple", undefined, { externalKey: "DEV-9" });

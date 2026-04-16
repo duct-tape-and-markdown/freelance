@@ -447,6 +447,22 @@ nodes:
 
 Use this when the workflow itself knows when a key becomes available — it removes a turn from the agent's loop.
 
+## Declaring required meta keys
+
+A graph can declare \`requiredMeta\` at the top level to enforce that callers supply certain tags before start succeeds:
+
+\`\`\`yaml
+id: delivery
+startNode: triage
+requiredMeta: [externalKey]
+nodes:
+  triage: ...
+\`\`\`
+
+With that, \`freelance_start\` rejects calls that don't pass \`meta.externalKey\` — unless the start node's onEnter hooks set it (meta_set fires before the requiredMeta check, so a hook can satisfy the requirement from context).
+
+Use \`requiredMeta\` for workflows that are meaningless without a specific external binding: ticket-driven delivery workflows, PR-review workflows, document-author workflows. Don't use it for optional tagging — it turns the absence of a tag into a hard error.
+
 ## Reading meta back
 
 Every traversal-state response includes meta when set:

@@ -125,6 +125,24 @@ export class TraversalStore {
 
     const merged = mergeMeta(meta, hookMeta);
 
+    // Enforce graph-declared requiredMeta *after* hook collection, so an
+    // onEnter `meta_set` hook on the start node can satisfy a required key
+    // derived from context. If still missing after hooks, the record is
+    // never persisted — start is transactional.
+    const graph = this.graphs.get(graphId);
+    const required = graph?.definition.requiredMeta;
+    if (required && required.length > 0) {
+      const missing = required.filter((k) => !merged || merged[k] === undefined);
+      if (missing.length > 0) {
+        throw new EngineError(
+          `Graph "${graphId}" requires meta keys [${missing.join(", ")}] at start. ` +
+            `Pass them via freelance_start's \`meta\` argument, or set them via an ` +
+            `onEnter meta_set hook on the start node.`,
+          "REQUIRED_META_MISSING",
+        );
+      }
+    }
+
     const record: TraversalRecord = {
       id,
       stack,

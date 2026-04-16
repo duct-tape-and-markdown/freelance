@@ -286,7 +286,11 @@ describe("MCP server — meta tags", () => {
   let cleanup: () => Promise<void>;
 
   beforeEach(async () => {
-    const graphs = loadFixtures("valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
+    const graphs = loadFixtures(
+      "valid-simple.workflow.yaml",
+      "valid-branching.workflow.yaml",
+      "required-meta-caller.workflow.yaml",
+    );
     const { server } = createServer(graphs);
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     client = new Client({ name: "test-client", version: "1.0.0" });
@@ -300,6 +304,20 @@ describe("MCP server — meta tags", () => {
 
   afterEach(async () => {
     await cleanup();
+  });
+
+  it("freelance_start rejects calls missing requiredMeta keys", async () => {
+    const result = await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "required-meta-caller" },
+    });
+    expect(result.isError).toBe(true);
+    const text = JSON.stringify(parseContent(result));
+    expect(text).toContain("externalKey");
+    // And the failed start should not have created a traversal.
+    const list = await client.callTool({ name: "freelance_list", arguments: {} });
+    const data = parseContent(list) as { activeTraversals: unknown[] };
+    expect(data.activeTraversals).toHaveLength(0);
   });
 
   it("freelance_start accepts meta and echoes it back", async () => {

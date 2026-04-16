@@ -40,7 +40,7 @@ Define these as context fields with sensible defaults. Use context enums for fie
 
 ## Step 3b: Decide on meta tags
 
-If this workflow operates on something that exists in an external system (a ticket, a PR, a doc, an entity in another tool), plan for the caller to tag the traversal with an opaque \`meta\` key at \`freelance_start\` — usually \`externalKey\` set to the upstream id. This lets the caller (and other agents) find the traversal later by domain identity, not by an opaque \`tr_xxxx\` id. Mention the expected key(s) in the graph's description so callers know what to pass. See \`freelance_guide meta\` for the pattern.
+If this workflow operates on something that exists in an external system (a ticket, a PR, a doc, an entity in another tool), plan for the caller to tag the traversal with an opaque \`meta\` key at \`freelance_start\` — usually \`externalKey\` set to the upstream id. This lets the caller (and other agents) find the traversal later by domain identity, not by an opaque \`tr_xxxx\` id. If the workflow is meaningless without this binding, declare \`requiredMeta: [externalKey]\` at the top level so \`freelance_start\` rejects calls that omit it. See \`freelance_guide meta\` for the pattern.
 
 If the workflow doesn't operate on a discrete external entity, skip this step.
 
