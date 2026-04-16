@@ -119,8 +119,6 @@ export async function startServer(
   options?: ServerOptions,
 ): Promise<void> {
   const { server, stopWatcher, runtime } = createServer(graphs, options);
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
 
   // Lifecycle breadcrumbs on stderr. By MCP stdio convention, stderr is
   // forwarded to the client's MCP log and not shown to the user. A matching
@@ -131,9 +129,11 @@ export async function startServer(
   process.stderr.write(`freelance-mcp ${VERSION} started pid=${process.pid}\n`);
 
   let shuttingDown = false;
+  let parentHeartbeat: NodeJS.Timeout | undefined;
   const shutdown = (reason: string, exitCode = 0) => {
     if (shuttingDown) return;
     shuttingDown = true;
+    if (parentHeartbeat) clearInterval(parentHeartbeat);
     process.stderr.write(`freelance-mcp shutdown pid=${process.pid} reason=${reason}\n`);
     void (async () => {
       try {
@@ -173,6 +173,11 @@ export async function startServer(
   //
   //   - `end`/`close`: clean EOF (parent closed its write end)
   //   - `error` with EBADF/EPIPE: fd revoked (macOS terminal close)
+  //
+  // Register BEFORE server.connect() — connect() is what puts stdin into
+  // flowing mode via the SDK's `data` listener, and `end` fires exactly
+  // once. If EOF lands while connect() is awaiting, a listener attached
+  // after would miss it permanently.
   process.stdin.on("end", () => shutdown("stdin-end"));
   process.stdin.on("close", () => shutdown("stdin-close"));
   process.stdin.on("error", (err: NodeJS.ErrnoException) => {
@@ -185,4 +190,39 @@ export async function startServer(
       shutdown(`stdout-${err.code.toLowerCase()}`);
     }
   });
+
+  // Parent-PID heartbeat. Pipe-close signals are unreliable when a chain of
+  // stdio-inheriting descendants outlives the parent (npx middleman,
+  // orphaned hook shells): the kernel keeps the pipe open until *every*
+  // write-end fd is closed, so stdin never hits EOF. Poll the original
+  // parent instead. Snapshot ppid now — once orphaned the kernel reparents
+  // us to init (PID 1), and PID 1 never dies. `kill(pid, 0)` is a
+  // permission/existence probe that throws ESRCH when the target is gone.
+  // Skip the heartbeat if we're already orphaned at startup (ppid=1), which
+  // means either there's no real parent to watch or the daemon was launched
+  // detached on purpose.
+  const initialPpid = process.ppid;
+  if (initialPpid > 1) {
+    parentHeartbeat = setInterval(() => {
+      try {
+        process.kill(initialPpid, 0);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ESRCH") {
+          shutdown("parent-exited");
+        }
+      }
+    }, 5000);
+    parentHeartbeat.unref();
+  }
+
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
+  // Safety net for the ordering fix above: if stdin drained and ended
+  // synchronously inside connect(), our `end` listener already fired and
+  // shutdown is in flight — this is a no-op. If for any reason the event
+  // was missed, this catches it before we return control to the event loop.
+  if (process.stdin.readableEnded) {
+    shutdown("stdin-ended-early");
+  }
 }
