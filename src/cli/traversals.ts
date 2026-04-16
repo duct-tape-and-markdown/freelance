@@ -4,7 +4,12 @@
 
 import { EngineError } from "../errors.js";
 import type { TraversalStore } from "../state/index.js";
-import type { InspectFullResult, InspectHistoryResult, InspectPositionResult } from "../types.js";
+import type {
+  InspectFullResult,
+  InspectHistoryResult,
+  InspectPositionResult,
+  WaitCondition,
+} from "../types.js";
 import { cli, info, outputJson } from "./output.js";
 
 function handleError(e: unknown): never {
@@ -210,6 +215,76 @@ export function traversalInspect(
         info("  History:");
         for (const h of hist.traversalHistory) {
           info(`    ${h.node} (${h.edge ?? "start"})`);
+        }
+      }
+    }
+  } catch (e) {
+    handleError(e);
+  }
+}
+
+interface ActiveTraversalEntry {
+  readonly traversalId: string;
+  readonly graphId: string;
+  readonly currentNode: string;
+  readonly nodeType: string;
+  readonly description: string;
+  readonly lastUpdated: string;
+  readonly stackDepth: number;
+  readonly waitStatus?: "waiting" | "ready" | "timed_out";
+  readonly waitingOn?: readonly WaitCondition[];
+  readonly timeout?: string;
+  readonly timeoutAt?: string;
+}
+
+/**
+ * List every active traversal with its current-node details. When `waitsOnly`
+ * is set, include only traversals sitting on a wait node — the shape plugin
+ * hooks rely on to nudge the agent when a blocking condition might have
+ * flipped.
+ */
+export function traversalInspectActive(
+  store: TraversalStore,
+  opts?: { waitsOnly?: boolean },
+): void {
+  try {
+    const infos = store.listTraversals();
+    const entries: ActiveTraversalEntry[] = [];
+    for (const t of infos) {
+      const raw = store.inspect(t.traversalId, "position");
+      const pos = raw as { traversalId: string } & InspectPositionResult;
+      if (opts?.waitsOnly && pos.node.type !== "wait") continue;
+      entries.push({
+        traversalId: t.traversalId,
+        graphId: t.graphId,
+        currentNode: t.currentNode,
+        nodeType: pos.node.type,
+        description: pos.node.description ?? "",
+        lastUpdated: t.lastUpdated,
+        stackDepth: t.stackDepth,
+        ...(pos.waitStatus ? { waitStatus: pos.waitStatus } : {}),
+        ...(pos.waitingOn ? { waitingOn: pos.waitingOn } : {}),
+        ...(pos.timeout ? { timeout: pos.timeout } : {}),
+        ...(pos.timeoutAt ? { timeoutAt: pos.timeoutAt } : {}),
+      });
+    }
+    if (cli.json) {
+      outputJson({ traversals: entries });
+      return;
+    }
+    if (entries.length === 0) {
+      info(opts?.waitsOnly ? "No active traversals in wait state." : "No active traversals.");
+      return;
+    }
+    info(opts?.waitsOnly ? "Active traversals in wait state:" : "Active traversals:");
+    for (const e of entries) {
+      const waitBit = e.waitStatus ? ` [${e.waitStatus}]` : "";
+      info(`  ${e.traversalId}  ${e.graphId} @ ${e.currentNode}${waitBit}`);
+      if (e.description) info(`    ${e.description}`);
+      if (e.waitingOn?.length) {
+        for (const w of e.waitingOn) {
+          const mark = w.satisfied ? "✓" : "·";
+          info(`    ${mark} ${w.key} (${w.type})${w.description ? ` — ${w.description}` : ""}`);
         }
       }
     }

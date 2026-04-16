@@ -37,6 +37,7 @@ import {
   traversalAdvance,
   traversalContextSet,
   traversalInspect,
+  traversalInspectActive,
   traversalReset,
   traversalStart,
   traversalStatus,
@@ -287,11 +288,17 @@ addWorkflowsOpt(
       new Option("--detail <level>", "Detail level")
         .choices(["position", "full", "history"])
         .default("position"),
-    ),
+    )
+    .option("--active", "List every active traversal (ignores [traversalId])")
+    .option("--waits", "With --active, include only traversals at a wait node"),
 ).action((traversalId, opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
-    traversalInspect(store, traversalId, opts.detail);
+    if (opts.active) {
+      traversalInspectActive(store, { waitsOnly: opts.waits });
+    } else {
+      traversalInspect(store, traversalId, opts.detail);
+    }
   } finally {
     runtime.close();
   }
