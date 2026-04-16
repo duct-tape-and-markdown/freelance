@@ -46,21 +46,24 @@ export interface HookMemoryAccess {
  * present only when memory is enabled. Built-in memory hooks assert
  * on its presence; user scripts that don't touch it work regardless.
  */
+/**
+ * Callback a hook can call to write tags into the traversal's `meta`.
+ * Present on HookContext only when the host threaded one — the store does
+ * this around every engine.advance / engine.start. Updates are batched
+ * (one call accumulates into the host's collector) and applied by the
+ * host *after* the hook chain returns, so hook writes can't race the
+ * engine's own state save.
+ */
+export type MetaCollector = (updates: Record<string, string>) => void;
+
 export interface HookContext {
   readonly args: Record<string, unknown>;
   readonly context: Readonly<Record<string, unknown>>;
   readonly memory?: HookMemoryAccess;
   readonly graphId: string;
   readonly nodeId: string;
-  /**
-   * Merge tags into the traversal's `meta`. Present only when the host has
-   * threaded a collector — the store wrapper does this around every advance
-   * and start. Hooks that do not need to write meta ignore it; built-ins
-   * that do (e.g. `meta_set`) call it directly. Updates are batched and
-   * applied by the host *after* the hook chain returns, so they don't race
-   * the engine's own state save.
-   */
-  readonly setMeta?: (updates: Record<string, string>) => void;
+  /** See MetaCollector. */
+  readonly setMeta?: MetaCollector;
 }
 
 /**
@@ -90,34 +93,11 @@ export class HookRunner {
   private readonly memory?: HookMemoryAccess;
   private readonly hookTimeoutMs: number;
   private readonly builtinHooks: ReadonlyMap<string, HookFn>;
-  // Per-call meta collector, set via withMetaCollector around an engine
-  // operation. Hook context surfaces it as `setMeta` only when present.
-  // Single-threaded by virtue of the store awaiting every engine call.
-  private currentMetaCollector?: (updates: Record<string, string>) => void;
 
   constructor(options: HookRunnerOptions = {}) {
     this.memory = options.memory;
     this.hookTimeoutMs = options.hookTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS;
     this.builtinHooks = options.builtinHooks ?? BUILTIN_HOOKS;
-  }
-
-  /**
-   * Wrap an engine operation so that hooks fired during `fn` can write to
-   * meta via `ctx.setMeta`. `collector` receives every update; the caller
-   * (typically TraversalStore) applies the merged result after `fn`
-   * resolves but before persisting the record.
-   */
-  async withMetaCollector<T>(
-    collector: (updates: Record<string, string>) => void,
-    fn: () => Promise<T>,
-  ): Promise<T> {
-    const previous = this.currentMetaCollector;
-    this.currentMetaCollector = collector;
-    try {
-      return await fn();
-    } finally {
-      this.currentMetaCollector = previous;
-    }
   }
 
   /**
@@ -133,6 +113,7 @@ export class HookRunner {
     graphDef: GraphDefinition,
     nodeId: string,
     hookResolutions: HookResolutionMap | undefined,
+    metaCollector?: MetaCollector,
   ): Promise<void> {
     const resolutions = hookResolutions?.get(nodeId);
     if (!resolutions || resolutions.length === 0) return;
@@ -164,7 +145,7 @@ export class HookRunner {
         memory: this.memory,
         graphId: graphDef.id,
         nodeId,
-        ...(this.currentMetaCollector && { setMeta: this.currentMetaCollector }),
+        ...(metaCollector && { setMeta: metaCollector }),
       };
 
       let result: Record<string, unknown>;

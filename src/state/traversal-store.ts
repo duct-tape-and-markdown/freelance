@@ -110,10 +110,9 @@ export class TraversalStore {
     // Collect any meta written by onEnter hooks fired during start, so the
     // initial put below already includes them (avoids a double write).
     const hookMeta: Record<string, string> = {};
-    const result = await this.hookRunner.withMetaCollector(
-      (updates) => Object.assign(hookMeta, updates),
-      () => engine.start(graphId, initialContext),
-    );
+    const result = await engine.start(graphId, initialContext, {
+      metaCollector: (updates) => Object.assign(hookMeta, updates),
+    });
 
     const stack = engine.getStack();
     const now = new Date().toISOString();
@@ -165,10 +164,9 @@ export class TraversalStore {
   ): Promise<{ traversalId: string; meta: Record<string, string> } & AdvanceResult> {
     const { engine, record } = this.loadEngine(traversalId);
     const hookMeta: Record<string, string> = {};
-    const result = await this.hookRunner.withMetaCollector(
-      (updates) => Object.assign(hookMeta, updates),
-      () => engine.advance(edge, contextUpdates),
-    );
+    const result = await engine.advance(edge, contextUpdates, {
+      metaCollector: (updates) => Object.assign(hookMeta, updates),
+    });
     // Merge collected hook updates into the in-memory record before save —
     // saveEngine carries record.meta forward verbatim, so this is the
     // single point of integration. Avoids a separate setMeta + extra disk

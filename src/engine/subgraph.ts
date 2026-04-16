@@ -8,7 +8,7 @@ import type {
   ValidatedGraph,
 } from "../types.js";
 import { cloneContext, toNodeInfo } from "./helpers.js";
-import type { HookRunner } from "./hooks.js";
+import type { HookRunner, MetaCollector } from "./hooks.js";
 import { evaluateTransitions } from "./transitions.js";
 
 interface PushSubgraphArgs {
@@ -19,10 +19,12 @@ interface PushSubgraphArgs {
   newNodeDef: NodeDefinition;
   maxDepth: number;
   hookRunner: HookRunner;
+  metaCollector?: MetaCollector;
 }
 
 export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<AdvanceSuccessResult> {
-  const { stack, graphs, previousNode, edge, newNodeDef, maxDepth, hookRunner } = args;
+  const { stack, graphs, previousNode, edge, newNodeDef, maxDepth, hookRunner, metaCollector } =
+    args;
   const parentSession = stack[stack.length - 1];
   const subgraph = newNodeDef.subgraph!;
 
@@ -101,6 +103,7 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Advance
     childDef,
     childDef.startNode,
     childGraph.hookResolutions,
+    metaCollector,
   );
 
   const childStartNode = childDef.nodes[childDef.startNode];
