@@ -4,6 +4,7 @@ import { setCli } from "../src/cli/output.js";
 import {
   traversalContextSet,
   traversalInspect,
+  traversalInspectActive,
   traversalMetaSet,
   traversalReset,
   traversalStart,
@@ -151,6 +152,81 @@ describe("traversalContextSet", () => {
       if (!graphId) return;
       await store.createTraversal(graphId);
       expect(() => traversalContextSet(store, ["noequalssign"])).toThrow("process.exit");
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("traversalInspectActive", () => {
+  function createWaitStore(): TraversalStore {
+    const fixture = path.resolve("test/fixtures/valid-wait-simple.workflow.yaml");
+    const loaded = loadSingleGraph(fixture);
+    const graphs = new Map<string, ValidatedGraph>([[loaded.id, loaded]]);
+    const db = openStateStore(":memory:");
+    return new TraversalStore(db, graphs, { maxDepth: 5, hookRunner: new HookRunner() });
+  }
+
+  it("reports an empty list when nothing is active (text)", () => {
+    const store = createTestStore();
+    try {
+      traversalInspectActive(store);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("No active traversals"));
+    } finally {
+      store.close();
+    }
+  });
+
+  it("lists active traversals including non-wait nodes", async () => {
+    setCli({ json: true });
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      await store.createTraversal(graphId);
+      traversalInspectActive(store);
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
+      const parsed = JSON.parse(output);
+      expect(parsed.traversals).toHaveLength(1);
+      expect(parsed.traversals[0]).toHaveProperty("traversalId");
+      expect(parsed.traversals[0]).toHaveProperty("nodeType");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("filters to wait nodes when waitsOnly is set", async () => {
+    setCli({ json: true });
+    const store = createWaitStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const { traversalId } = await store.createTraversal(graphId);
+      // Advance off the action node into the wait node.
+      await store.advance(traversalId, "done");
+      traversalInspectActive(store, { waitsOnly: true });
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
+      const parsed = JSON.parse(output);
+      expect(parsed.traversals).toHaveLength(1);
+      expect(parsed.traversals[0].nodeType).toBe("wait");
+      expect(parsed.traversals[0].waitStatus).toBe("waiting");
+      expect(parsed.traversals[0].waitingOn).toBeDefined();
+    } finally {
+      store.close();
+    }
+  });
+
+  it("excludes non-wait traversals when waitsOnly is set", async () => {
+    setCli({ json: true });
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      await store.createTraversal(graphId);
+      traversalInspectActive(store, { waitsOnly: true });
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
+      const parsed = JSON.parse(output);
+      expect(parsed.traversals).toHaveLength(0);
     } finally {
       store.close();
     }

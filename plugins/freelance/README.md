@@ -23,9 +23,13 @@ claude --plugin-dir ./plugins/freelance
 |-----------|---------|
 | **MCP Server** | 21 tools for workflow traversal, memory, and source provenance |
 | **SessionStart hook** | Reminds the agent about active workflows on session start |
-| **UserPromptSubmit hook** | Checks for active workflows before each prompt |
+| **PostCompact hook** | Re-orients the agent after context compaction |
 | **`/freelance:freelance-guide`** | Workflow usage instructions (auto-invoked by Claude) |
 | **`/freelance:freelance-init`** | Scaffold `.freelance/` and starter templates |
+
+## Writing your own hooks
+
+The built-in hooks are intentionally minimal. If you want reactive behaviour — nudging the agent after certain tool calls, polling for stuck traversals, auto-advancing on external signals — author a hook script against the `freelance inspect --active [--waits] --json` CLI. It returns a deterministic JSON array of every active traversal (with `waitStatus`, `waitingOn[]`, `timeout`, and `lastUpdated` for wait nodes) that your hook can filter however you like.
 
 ## Project Setup
 
