@@ -174,17 +174,19 @@ describe("MCP server integration", () => {
       expect(adv2Data.currentNode).toBe("done");
       expect(adv2Data.traversalHistory).toEqual(["start", "review", "done"]);
 
-      // Reset
-      const resetResult = await client.callTool({
-        name: "freelance_reset",
-        arguments: { confirm: true },
+      // Root terminal auto-GC: the completed traversal is gone from
+      // listTraversals without any explicit reset. freelance_start
+      // should work directly on top of a just-completed workflow.
+      const listAfterTerminal = await client.callTool({
+        name: "freelance_list",
+        arguments: {},
       });
-      expect(resetResult.isError).toBeFalsy();
-      const resetData = parseContent(resetResult) as { status: string; previousGraph: string };
-      expect(resetData.status).toBe("reset");
-      expect(resetData.previousGraph).toBe("valid-simple");
+      const listAfterData = parseContent(listAfterTerminal) as {
+        activeTraversals: Array<{ traversalId: string }>;
+      };
+      expect(listAfterData.activeTraversals).toEqual([]);
 
-      // Restart works
+      // Restart works with no preceding reset
       const restartResult = await client.callTool({
         name: "freelance_start",
         arguments: { graphId: "valid-simple" },

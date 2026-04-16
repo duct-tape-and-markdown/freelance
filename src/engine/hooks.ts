@@ -27,25 +27,19 @@ import { applyContextUpdates, enforceStrictContext } from "./context.js";
 /**
  * Narrow read interface the hook runner exposes to hooks. Built-ins
  * and user scripts see only these read methods — `emit()`, `close()`,
- * `updateConfig()`, and anything else on the concrete store stays
+ * and anything else on the concrete store stays
  * unreachable. Mirrors MemoryStore's public read surface 1:1.
  *
  * The real `MemoryStore` class satisfies this structurally — no
  * explicit `implements` needed.
  */
 export interface HookMemoryAccess {
-  status(collection?: string): StatusResult;
-  browse(options?: {
-    name?: string;
-    kind?: string;
-    limit?: number;
-    offset?: number;
-    collection?: string;
-  }): BrowseResult;
-  search(query: string, options?: { limit?: number; collection?: string }): SearchResult;
-  related(entityIdOrName: string, collection?: string): RelatedResult;
-  bySource(filePath: string, collection?: string): BySourceResult;
-  inspect(entityIdOrName: string, collection?: string): InspectResult;
+  status(): StatusResult;
+  browse(options?: { name?: string; kind?: string; limit?: number; offset?: number }): BrowseResult;
+  search(query: string, options?: { limit?: number }): SearchResult;
+  related(entityIdOrName: string): RelatedResult;
+  bySource(filePath: string): BySourceResult;
+  inspect(entityIdOrName: string): InspectResult;
 }
 
 /**

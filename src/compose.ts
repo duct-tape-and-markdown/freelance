@@ -29,7 +29,7 @@ import type { ValidatedGraph } from "./types.js";
  * or schema-version checks, this is where they go.
  */
 export function buildMemoryStore(memConfig: MemoryConfig, sourceRoot: string): MemoryStore {
-  return new MemoryStore(openDatabase(memConfig.db), sourceRoot, memConfig.collections);
+  return new MemoryStore(openDatabase(memConfig.db), sourceRoot);
 }
 
 export interface ComposeConfig {

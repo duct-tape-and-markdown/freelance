@@ -16,12 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { hashContent } from "../sources.js";
 import type { Db } from "./db.js";
-import {
-  collectionFilter,
-  computeStatus,
-  countValidForEntity,
-  getNeighbors,
-} from "./enrichment.js";
+import { computeStatus, countValidForEntity, getNeighbors } from "./enrichment.js";
 import {
   createStalenessCache,
   getStalePropositionIds,
@@ -31,7 +26,6 @@ import {
 import type {
   BrowseResult,
   BySourceResult,
-  CollectionConfig,
   EmitProposition,
   EmitResult,
   EmitWarning,
@@ -69,47 +63,32 @@ function mtimeOf(filePath: string): number | null {
   }
 }
 
-const DEFAULT_COLLECTION: CollectionConfig = {
-  name: "default",
-  description: "General project knowledge",
-  paths: [""],
-};
-
 export class MemoryStore {
   private db: Db;
   private sourceRoot: string;
-  private collections: Map<string, CollectionConfig>;
 
   // Takes an already-opened Db handle. Opening the database (PRAGMA +
   // DDL + schema check) is a composition-root concern and lives in
   // src/compose.ts — keeps this constructor pure and makes the class
   // trivially testable with an in-process db handle.
-  constructor(db: Db, sourceRoot: string, collections?: CollectionConfig[]) {
+  constructor(db: Db, sourceRoot: string) {
     this.db = db;
     this.sourceRoot = sourceRoot;
-    this.collections = new Map(
-      (collections && collections.length > 0 ? collections : [DEFAULT_COLLECTION]).map((c) => [
-        c.name,
-        c,
-      ]),
-    );
-  }
-
-  private resolveCollection(collection: string): void {
-    if (!this.collections.has(collection)) {
-      const available = [...this.collections.keys()].join(", ");
-      throw new Error(`Unknown collection "${collection}". Available: ${available}`);
-    }
-  }
-
-  updateConfig(collections?: CollectionConfig[]): void {
-    if (collections !== undefined && collections.length > 0) {
-      this.collections = new Map(collections.map((c) => [c.name, c]));
-    }
   }
 
   close(): void {
     this.db.close();
+  }
+
+  resetAll(): { deleted_propositions: number; deleted_entities: number } {
+    const propCount = (
+      this.db.prepare("SELECT COUNT(*) as c FROM propositions").get() as { c: number }
+    ).c;
+    const entCount = (this.db.prepare("SELECT COUNT(*) as c FROM entities").get() as { c: number })
+      .c;
+    this.db.exec("DELETE FROM propositions");
+    this.db.exec("DELETE FROM entities");
+    return { deleted_propositions: propCount, deleted_entities: entCount };
   }
 
   // --- Source path resolution ---
@@ -145,9 +124,8 @@ export class MemoryStore {
 
   // --- Proposition emission ---
 
-  emit(propositions: EmitProposition[], collection: string): EmitResult {
-    this.resolveCollection(collection);
-
+  emit(propositions: EmitProposition[]): EmitResult {
+    const collection = "default";
     const result: EmitResult = {
       created: 0,
       deduplicated: 0,
@@ -303,7 +281,6 @@ export class MemoryStore {
   // --- Entity lookup ---
 
   private findEntity(idOrName: string): EntityRow {
-    // Priority: id → exact name → normalized name
     const entity =
       (this.db.prepare("SELECT * FROM entities WHERE id = ?").get(idOrName) as
         | EntityRow
@@ -327,28 +304,13 @@ export class MemoryStore {
     kind?: string;
     limit?: number;
     offset?: number;
-    collection?: string;
   }): BrowseResult {
     const cache = createStalenessCache();
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
-    const collection = options?.collection;
 
-    if (collection) this.resolveCollection(collection);
-
-    let where: string;
+    let where = "1=1";
     const params: unknown[] = [];
-    let joinClause: string;
-
-    if (collection) {
-      joinClause =
-        "JOIN about a ON e.id = a.entity_id JOIN propositions p ON a.proposition_id = p.id";
-      where = "p.collection = ?";
-      params.push(collection);
-    } else {
-      joinClause = "LEFT JOIN about a ON e.id = a.entity_id";
-      where = "1=1";
-    }
 
     if (options?.name) {
       where += " AND LOWER(e.name) LIKE ?";
@@ -359,16 +321,17 @@ export class MemoryStore {
       params.push(options.kind);
     }
 
-    const countSql = collection
-      ? `SELECT COUNT(DISTINCT e.id) as total FROM entities e JOIN about a ON e.id = a.entity_id JOIN propositions p ON a.proposition_id = p.id WHERE ${where}`
-      : `SELECT COUNT(*) as total FROM entities e WHERE ${where}`;
-    const total = (this.db.prepare(countSql).get(...params) as { total: number }).total;
+    const total = (
+      this.db.prepare(`SELECT COUNT(*) as total FROM entities e WHERE ${where}`).get(...params) as {
+        total: number;
+      }
+    ).total;
 
     const rows = this.db
       .prepare(
-        `SELECT e.*, COUNT(${collection ? "DISTINCT " : ""}a.proposition_id) as proposition_count
+        `SELECT e.*, COUNT(a.proposition_id) as proposition_count
        FROM entities e
-       ${joinClause}
+       LEFT JOIN about a ON e.id = a.entity_id
        WHERE ${where}
        GROUP BY e.id
        ORDER BY e.created_at DESC
@@ -379,7 +342,7 @@ export class MemoryStore {
     const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
 
     const entities: EntityInfo[] = rows.map((row) => {
-      const validCount = countValidForEntity(this.db, row.id, stalePropIds, collection);
+      const validCount = countValidForEntity(this.db, row.id, stalePropIds);
       return {
         id: row.id,
         name: row.name,
@@ -392,17 +355,15 @@ export class MemoryStore {
     return { entities, total };
   }
 
-  inspect(entityIdOrName: string, collection?: string): InspectResult {
-    if (collection) this.resolveCollection(collection);
+  inspect(entityIdOrName: string): InspectResult {
     const cache = createStalenessCache();
     const entity = this.findEntity(entityIdOrName);
 
-    const coll = collectionFilter(collection);
     const propRows = this.db
       .prepare(
-        `SELECT p.* FROM propositions p JOIN about a ON p.id = a.proposition_id WHERE a.entity_id = ?${coll.clause} ORDER BY p.created_at DESC`,
+        `SELECT p.* FROM propositions p JOIN about a ON p.id = a.proposition_id WHERE a.entity_id = ? ORDER BY p.created_at DESC`,
       )
-      .all(entity.id, ...coll.params) as PropositionRow[];
+      .all(entity.id) as PropositionRow[];
 
     const propositions = propRows.map((p) => this.enrichProposition(p, cache));
 
@@ -416,7 +377,7 @@ export class MemoryStore {
 
     const validCount = propositions.filter((p) => p.valid).length;
     const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
-    const neighbors = getNeighbors(this.db, entity.id, stalePropIds, { collection });
+    const neighbors = getNeighbors(this.db, entity.id, stalePropIds);
 
     return {
       entity: {
@@ -432,23 +393,21 @@ export class MemoryStore {
     };
   }
 
-  bySource(filePath: string, collection?: string): BySourceResult {
-    if (collection) this.resolveCollection(collection);
+  bySource(filePath: string): BySourceResult {
     const cache = createStalenessCache();
 
     const storedPath = path.isAbsolute(filePath)
       ? path.relative(this.sourceRoot, filePath)
       : filePath;
 
-    const coll = collectionFilter(collection);
     const propRows = this.db
       .prepare(
         `SELECT DISTINCT p.* FROM propositions p
        JOIN proposition_sources ps ON p.id = ps.proposition_id
-       WHERE ps.file_path = ?${coll.clause}
+       WHERE ps.file_path = ?
        ORDER BY p.created_at DESC`,
       )
-      .all(storedPath, ...coll.params) as PropositionRow[];
+      .all(storedPath) as PropositionRow[];
 
     return {
       file_path: storedPath,
@@ -456,9 +415,7 @@ export class MemoryStore {
     };
   }
 
-  search(query: string, options?: { limit?: number; collection?: string }): SearchResult {
-    const collection = options?.collection;
-    if (collection) this.resolveCollection(collection);
+  search(query: string, options?: { limit?: number }): SearchResult {
     const cache = createStalenessCache();
     const limit = options?.limit ?? 20;
 
@@ -467,12 +424,11 @@ export class MemoryStore {
     // Preserve explicitly quoted phrases and prefix wildcards.
     const sanitized = query.replace(/(?<!["])\b(\w+)-(\w+)\b(?!["])/g, "$1 $2");
 
-    const coll = collectionFilter(collection);
     const rows = this.db
       .prepare(
-        `SELECT p.* FROM propositions p JOIN propositions_fts fts ON p.rowid = fts.rowid WHERE propositions_fts MATCH ?${coll.clause} ORDER BY fts.rank LIMIT ?`,
+        `SELECT p.* FROM propositions p JOIN propositions_fts fts ON p.rowid = fts.rowid WHERE propositions_fts MATCH ? ORDER BY fts.rank LIMIT ?`,
       )
-      .all(sanitized, ...coll.params, limit) as PropositionRow[];
+      .all(sanitized, limit) as PropositionRow[];
 
     const propositions = rows.map((p) => {
       const enriched = this.enrichProposition(p, cache);
@@ -489,35 +445,25 @@ export class MemoryStore {
     return { query, propositions };
   }
 
-  status(collection?: string): StatusResult {
-    if (collection) this.resolveCollection(collection);
+  status(): StatusResult {
     const cache = createStalenessCache();
     const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
-    return computeStatus(this.db, stalePropIds, collection);
+    return computeStatus(this.db, stalePropIds);
   }
 
-  related(entityIdOrName: string, collection?: string): RelatedResult {
-    if (collection) this.resolveCollection(collection);
+  related(entityIdOrName: string): RelatedResult {
     const cache = createStalenessCache();
     const entity = this.findEntity(entityIdOrName);
 
     const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
-    const validCount = countValidForEntity(this.db, entity.id, stalePropIds, collection);
-    const totalCount = collection
-      ? (
-          this.db
-            .prepare(
-              "SELECT COUNT(*) as c FROM about a JOIN propositions p ON a.proposition_id = p.id WHERE a.entity_id = ? AND p.collection = ?",
-            )
-            .get(entity.id, collection) as { c: number }
-        ).c
-      : (
-          this.db.prepare("SELECT COUNT(*) as c FROM about WHERE entity_id = ?").get(entity.id) as {
-            c: number;
-          }
-        ).c;
+    const validCount = countValidForEntity(this.db, entity.id, stalePropIds);
+    const totalCount = (
+      this.db.prepare("SELECT COUNT(*) as c FROM about WHERE entity_id = ?").get(entity.id) as {
+        c: number;
+      }
+    ).c;
 
-    const rows = getNeighbors(this.db, entity.id, stalePropIds, { withSample: true, collection });
+    const rows = getNeighbors(this.db, entity.id, stalePropIds, { withSample: true });
     const neighbors = rows.map((r) => ({ ...r, sample: r.sample ?? "" }));
 
     return {

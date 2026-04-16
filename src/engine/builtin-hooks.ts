@@ -72,24 +72,15 @@ function requireStringArray(args: Record<string, unknown>, key: string): string[
   return v as string[];
 }
 
-// Normalize "" to undefined so graphs with strict-context can declare a
-// default-empty collection key and still trigger the "no collection"
-// branch in the store.
-function optionalCollection(args: Record<string, unknown>): string | undefined {
-  const v = optionalString(args, "collection");
-  return v === "" ? undefined : v;
-}
-
 const memoryStatus: HookFn = async (ctx) => {
   const memory = requireMemory(ctx, "memory_status");
-  return { ...memory.status(optionalCollection(ctx.args)) };
+  return { ...memory.status() };
 };
 
 const memoryBrowse: HookFn = async (ctx) => {
   const memory = requireMemory(ctx, "memory_browse");
   return {
     ...memory.browse({
-      collection: optionalCollection(ctx.args),
       name: optionalString(ctx.args, "name"),
       kind: optionalString(ctx.args, "kind"),
       limit: optionalInt(ctx.args, "limit"),
@@ -103,7 +94,6 @@ const memorySearch: HookFn = async (ctx) => {
   const query = requireString(ctx.args, "query");
   return {
     ...memory.search(query, {
-      collection: optionalCollection(ctx.args),
       limit: optionalInt(ctx.args, "limit"),
     }),
   };
@@ -112,13 +102,13 @@ const memorySearch: HookFn = async (ctx) => {
 const memoryRelated: HookFn = async (ctx) => {
   const memory = requireMemory(ctx, "memory_related");
   const entity = requireString(ctx.args, "entity");
-  return { ...memory.related(entity, optionalCollection(ctx.args)) };
+  return { ...memory.related(entity) };
 };
 
 const memoryInspect: HookFn = async (ctx) => {
   const memory = requireMemory(ctx, "memory_inspect");
   const entity = requireString(ctx.args, "entity");
-  return { ...memory.inspect(entity, optionalCollection(ctx.args)) };
+  return { ...memory.inspect(entity) };
 };
 
 // memory_by_source diverges from the single-path MCP tool: it accepts
@@ -126,17 +116,29 @@ const memoryInspect: HookFn = async (ctx) => {
 // can fan out over context.filesReadPaths. Caller-provided lists are
 // capped at MAX_BY_SOURCE_PATHS to bound the hook's runtime against the
 // 5-second default timeout — anything longer should be a script hook.
+//
+// The returned shape is trimmed to { id, content } per proposition. The
+// full PropositionInfo (per-file hashes, mtimes, validity flags, source
+// file arrays, collection, created_at) is what the read-side MCP tool
+// returns, but for the warm-path delta check the agent only needs the
+// claim text to judge overlap — everything else was pure payload bloat
+// that blew freelance_advance responses past 50 KB on multi-file hooks.
 const MAX_BY_SOURCE_PATHS = 50;
+
+interface PriorKnowledgeEntry {
+  id: string;
+  content: string;
+}
 
 const memoryBySource: HookFn = async (ctx) => {
   const memory = requireMemory(ctx, "memory_by_source");
   const paths = requireStringArray(ctx.args, "paths");
-  const collection = optionalCollection(ctx.args);
   const capped = paths.slice(0, MAX_BY_SOURCE_PATHS);
-  const priorKnowledgeByPath: Record<string, ReturnType<typeof memory.bySource>["propositions"]> =
-    {};
+  const priorKnowledgeByPath: Record<string, PriorKnowledgeEntry[]> = {};
   for (const p of capped) {
-    priorKnowledgeByPath[p] = memory.bySource(p, collection).propositions;
+    priorKnowledgeByPath[p] = memory
+      .bySource(p)
+      .propositions.map((prop) => ({ id: prop.id, content: prop.content }));
   }
   return {
     priorKnowledgeByPath,

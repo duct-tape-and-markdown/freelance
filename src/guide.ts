@@ -295,8 +295,7 @@ nodes:
     description: "Investigate the authentication module"
     onEnter:
       - call: memory_status
-        args:
-          collection: context.collection
+        args: {}
       - call: ./scripts/read-package.js
         args:
           path: context.targetFile
@@ -313,12 +312,12 @@ Hooks run sequentially in the order declared. Each hook's result is merged into 
 
 All built-ins are read-only narrowings over the memory store; none of them mutate state. They mirror the \`memory_*\` MCP tools but fire automatically on node arrival instead of requiring an agent round-trip.
 
-- **memory_status**: proposition/entity counts. Args: \`collection\` (optional).
-- **memory_browse**: page of entities. Args: \`collection\`, \`name\`, \`kind\`, \`limit\`, \`offset\` (all optional).
-- **memory_search**: FTS5 search over propositions. Args: \`query\` (required), \`collection\`, \`limit\` (optional).
-- **memory_related**: neighbor entities sharing propositions with one entity. Args: \`entity\` (required), \`collection\` (optional).
-- **memory_inspect**: full detail (propositions, neighbors, source files) for one entity. Args: \`entity\` (required), \`collection\` (optional).
-- **memory_by_source**: prior knowledge keyed by source path. Args: \`paths\` (required string array), \`collection\` (optional). **Diverges from the single-path \`memory_by_source\` MCP tool on purpose** — the hook accepts an array so a single onEnter declaration can fan out over \`context.filesReadPaths\`. Caller-provided lists are capped at 50 paths per call (longer should be a script hook). Returns \`{ priorKnowledgeByPath, priorKnowledgePathsConsidered, priorKnowledgePathsTruncated }\`.
+- **memory_status**: proposition/entity counts. No args.
+- **memory_browse**: page of entities. Args: \`name\`, \`kind\`, \`limit\`, \`offset\` (all optional).
+- **memory_search**: FTS5 search over propositions. Args: \`query\` (required), \`limit\` (optional).
+- **memory_related**: neighbor entities sharing propositions with one entity. Args: \`entity\` (required).
+- **memory_inspect**: full detail (propositions, neighbors, source files) for one entity. Args: \`entity\` (required).
+- **memory_by_source**: prior knowledge keyed by source path. Args: \`paths\` (required string array). **Diverges from the single-path \`memory_by_source\` MCP tool on purpose** — the hook accepts an array so a single onEnter declaration can fan out over \`context.filesReadPaths\`. Caller-provided lists are capped at 50 paths per call (longer should be a script hook). Returns \`{ priorKnowledgeByPath, priorKnowledgePathsConsidered, priorKnowledgePathsTruncated }\`.
 
 ## Local script hooks
 

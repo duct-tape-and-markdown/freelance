@@ -17,7 +17,6 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
   return new GraphBuilder(RECOLLECTION_ID, "Recollection")
     .setDescription(M.description)
     .setContext({
-      collection: "",
       query: "",
       recalledEntities: 0,
       recalledPropositions: 0,
@@ -29,23 +28,19 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
       type: "action",
       description: M.nodes.recalling.description,
       instructions: M.nodes.recalling.instructions,
-      // The broad sweep of "what's already known about this collection"
-      // is deterministic — populate it via onEnter so the agent doesn't
-      // burn turns on memory_status / memory_browse round-trips. The
-      // agent still drives memory_inspect / memory_related manually for
-      // depth on specific entities it picks from the populated
-      // vocabulary.
+      // The broad sweep of "what's already known" is deterministic —
+      // populate it via onEnter so the agent doesn't burn turns on
+      // memory_status / memory_browse round-trips. The agent still
+      // drives memory_inspect / memory_related manually for depth on
+      // specific entities it picks from the populated vocabulary.
       onEnter: [
         {
           call: "memory_status",
-          args: {
-            collection: "context.collection",
-          },
+          args: {},
         },
         {
           call: "memory_browse",
           args: {
-            collection: "context.collection",
             limit: 50,
           },
         },

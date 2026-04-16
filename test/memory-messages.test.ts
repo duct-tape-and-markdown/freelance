@@ -19,30 +19,26 @@ describe("PROPOSITION_RUBRIC prose port (Batch 1)", () => {
     it("contains the independence test backstop", () => {
       expect(compilingInstructions).toContain("independence test");
       expect(compilingInstructions).toContain(
-        "Could either claim be true while the other is false?",
+        "Could either half be true while the other is false?",
       );
     });
 
-    it("contains the split-aggressively catalog", () => {
-      expect(compilingInstructions).toContain("Split aggressively");
-      expect(compilingInstructions).toContain('"X handles A, B, and C"');
+    it("warns against atomizing relationship claims", () => {
+      // The "A depends on B" edge IS the knowledge — splitting it into
+      // per-entity facts destroys graph connectivity. This intent must
+      // survive in the rubric prose (exact phrasing is flexible).
+      expect(compilingInstructions).toMatch(/relationship/i);
+      expect(compilingInstructions).toMatch(/connectivity|atomiz/i);
     });
 
-    it("contains the keep-together catalog with the relationship warning", () => {
-      expect(compilingInstructions).toContain("Keep together when splitting destroys meaning");
-      expect(compilingInstructions).toContain("validates X by checking Y");
-      expect(compilingInstructions).toContain("KNOWLEDGE IN THEMSELVES");
-    });
-
-    it("contains the knowledge-types taxonomy with metacognitive explicitly named", () => {
-      expect(compilingInstructions).toContain("Knowledge types");
+    it("names the four knowledge types including metacognitive", () => {
       expect(compilingInstructions).toContain("metacognitive");
       expect(compilingInstructions).toContain("factual");
       expect(compilingInstructions).toContain("conceptual");
       expect(compilingInstructions).toContain("procedural");
     });
 
-    it("preserves the original Biome WRONG/RIGHT example block", () => {
+    it("preserves the Biome WRONG/RIGHT example block", () => {
       expect(compilingInstructions).toContain(
         "WRONG (four independent facts mashed into one prop)",
       );
@@ -57,8 +53,8 @@ describe("PROPOSITION_RUBRIC prose port (Batch 1)", () => {
       expect(fillingInstructions).toContain("independence test");
     });
 
-    it("contains the keep-together relationship warning", () => {
-      expect(fillingInstructions).toContain("KNOWLEDGE IN THEMSELVES");
+    it("warns against atomizing relationship claims", () => {
+      expect(fillingInstructions).toMatch(/relationship/i);
     });
 
     it("contains the knowledge-types taxonomy", () => {
@@ -67,44 +63,34 @@ describe("PROPOSITION_RUBRIC prose port (Batch 1)", () => {
   });
 });
 
-describe("Lens directive prose port (Batch 2)", () => {
-  // Lens directive lives alongside the rubric in the staging node after
-  // Batch 3+5's split — entity planning happens in addressing, but the
-  // lens decides what gets staged in the first place.
+describe("Lens directive removed (Ablation 1 finding)", () => {
+  // Ablation 1 showed the lens directive produced no measurable delta
+  // between lens-ON (compile:alpha) and lens-OFF (compile:beta) variants
+  // on the runner-lib fixture. The directive was dropped from the sealed
+  // memory:compile workflow as a prose-strip win. Tests below guard the
+  // removal — if anything reintroduces lens prose or the lens context
+  // field, these fail loudly.
   const compilingInstructions = compileMessages.nodes.staging.instructions;
 
-  it("contains the lens directive section header", () => {
-    expect(compilingInstructions).toContain("Lens directive");
+  it("no longer mentions a lens directive section", () => {
+    expect(compilingInstructions).not.toMatch(/lens directive/i);
   });
 
-  it("references context.lens and the empty-default rule", () => {
-    expect(compilingInstructions).toContain("context.lens");
-    expect(compilingInstructions).toContain("default to dev");
+  it("no longer references context.lens", () => {
+    expect(compilingInstructions).not.toContain("context.lens");
   });
 
-  it("lists all three lenses with their distinguishing rules", () => {
-    expect(compilingInstructions).toContain(
-      "dev: extract implementation detail, code names, internal structure",
-    );
-    expect(compilingInstructions).toContain(
-      "support: extract ONLY user-facing behavior and business rules",
-    );
-    expect(compilingInstructions).toContain(
-      "qa: extract testable behaviors, validation rules, edge cases",
-    );
-  });
-
-  it("forbids code names and file paths under the support lens", () => {
-    expect(compilingInstructions).toContain("NO code names, file paths, or internal details");
+  it("still guides extraction via query framing", () => {
+    expect(compilingInstructions).toMatch(/query/i);
   });
 });
 
-describe("buildCompileKnowledgeWorkflow context default (Batch 2)", () => {
-  it("declares lens as an empty-string default in the start context", () => {
+describe("buildCompileKnowledgeWorkflow context default (lens removed)", () => {
+  it("no longer declares a lens field in the start context", () => {
     const graph = buildCompileKnowledgeWorkflow();
-    // GraphDefinition.context is the start-node default context map
-    // produced by GraphBuilder.setContext.
-    expect(graph.definition.context).toHaveProperty("lens", "");
+    // Ablation 1 removed the lens directive; the field was dropped
+    // from the initial context alongside the prose.
+    expect(graph.definition.context).not.toHaveProperty("lens");
   });
 });
 
@@ -196,12 +182,11 @@ describe("Exploring onEnter — graph-aware reads (Batch 4)", () => {
     expect(onEnter.some((h) => h.call === "memory_by_source")).toBe(true);
   });
 
-  it("passes context.filesReadPaths and context.collection through hook args", () => {
+  it("passes context.filesReadPaths through hook args", () => {
     const onEnter = exploring.onEnter ?? [];
     const hook = onEnter.find((h) => h.call === "memory_by_source");
     expect(hook?.args).toMatchObject({
       paths: "context.filesReadPaths",
-      collection: "context.collection",
     });
   });
 
@@ -226,7 +211,7 @@ describe("Exploring onEnter — graph-aware reads (Batch 4)", () => {
 
   it("documents the warm-exit signal", () => {
     expect(exploringInstructions).toContain("warm-exit");
-    expect(exploringInstructions).toContain("coverageSatisfied = true");
+    expect(exploringInstructions).toContain("coverageSatisfied: true");
   });
 
   it("warns when the 50-path cap was hit", () => {
@@ -289,36 +274,32 @@ describe("Stage-and-address split (Batch 3+5)", () => {
       expect(stagingInstructions).toContain("draftEntities");
     });
 
-    it("explicitly forbids calling memory_emit in this node", () => {
-      expect(stagingInstructions).toContain("NOT yet calling memory_emit");
-    });
-
-    it("inherits the rubric and the lens directive", () => {
+    it("inherits the rubric", () => {
       expect(stagingInstructions).toContain("independence test");
-      expect(stagingInstructions).toContain("Lens directive");
     });
   });
 
   describe("addressing instruction prose", () => {
-    it("teaches the 3+ propositions per entity floor", () => {
-      expect(addressingInstructions).toContain("3+ propositions");
-    });
-
-    it("teaches the staged-claims-divided-by-3 ceiling", () => {
-      expect(addressingInstructions).toContain("divided by 3");
-    });
-
-    it("includes GOOD vs BAD entity examples", () => {
-      expect(addressingInstructions).toContain("GOOD entities");
-      expect(addressingInstructions).toContain("BAD entities");
-    });
+    // The old prose encoded mechanical rules ("3+ floor", "count/3 ceiling",
+    // "GOOD vs BAD"). We've removed those — those are enforcement concerns,
+    // not agent-reading ones. Tests now assert the intent that should survive.
 
     it("references the onEnter-populated context.entities vocabulary", () => {
       expect(addressingInstructions).toContain("context.entities");
     });
 
-    it("instructs a single batched memory_emit call", () => {
-      expect(addressingInstructions).toContain("memory_emit ONCE");
+    it("tells the agent to reuse existing entity names", () => {
+      expect(addressingInstructions).toMatch(/reuse existing/i);
+    });
+
+    it("frames entities as search hubs rather than field/setting names", () => {
+      expect(addressingInstructions).toMatch(/hub/i);
+      expect(addressingInstructions).toMatch(/setting|field|config/i);
+    });
+
+    it("instructs calling memory_emit and clearing stagedClaims", () => {
+      expect(addressingInstructions).toContain("memory_emit");
+      expect(addressingInstructions).toMatch(/clear.*stagedClaims/i);
     });
   });
 });

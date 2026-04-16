@@ -82,13 +82,6 @@ describe("memory_status built-in hook", () => {
       /memory_status.*requires memory to be enabled/,
     );
   });
-
-  it("rejects non-string collection arg", async () => {
-    const memoryStatus = BUILTIN_HOOKS.get("memory_status")!;
-    await expect(
-      memoryStatus(makeCtx({ args: { collection: 42 }, memory: store })),
-    ).rejects.toThrow(/collection.*must be a string/);
-  });
 });
 
 describe("memory_browse built-in hook", () => {

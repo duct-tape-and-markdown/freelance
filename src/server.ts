@@ -2,7 +2,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Runtime } from "./compose.js";
 import { composeRuntime } from "./compose.js";
-import { loadConfigFromDirs } from "./config.js";
 import type { MemoryConfig } from "./memory/index.js";
 import { registerMemoryTools } from "./memory/index.js";
 import { buildRecollectionWorkflow, RECOLLECTION_ID } from "./memory/recollection.js";
@@ -67,14 +66,7 @@ export function createServer(
         currentLoadErrors = errors;
       },
       onConfigChange: () => {
-        if (!memoryStore || !options?.graphsDirs) return;
-        try {
-          const config = loadConfigFromDirs(options.graphsDirs);
-          memoryStore.updateConfig(config.memory.collections);
-          process.stderr.write("Freelance: memory config reloaded\n");
-        } catch {
-          process.stderr.write("Freelance: failed to reload memory config\n");
-        }
+        process.stderr.write("Freelance: config reloaded\n");
       },
     });
   }
@@ -92,8 +84,13 @@ export function createServer(
 
   // --- Memory ---
   if (memoryStore) {
-    const hasActiveMemoryTraversal = () =>
-      manager.hasActiveTraversalForGraph(COMPILE_KNOWLEDGE_ID, RECOLLECTION_ID);
+    // Gate memory writes on "must be inside SOME active traversal",
+    // not "must be inside memory:compile or memory:recall specifically".
+    // The gate exists to prevent accidental writes outside a structured
+    // flow — any workflow that reached an emit point IS structured,
+    // regardless of graph id. This lets user-authored workflows (e.g.
+    // experiments/ablations) call memory_emit without being allow-listed.
+    const hasActiveMemoryTraversal = () => manager.listTraversals().length > 0;
     registerMemoryTools(server, memoryStore, hasActiveMemoryTraversal);
 
     // Inject sealed memory workflows

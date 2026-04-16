@@ -15,9 +15,9 @@ function handleError(e: unknown): never {
   process.exit(1);
 }
 
-export function memoryStatus(store: MemoryStore, collection?: string): void {
+export function memoryStatus(store: MemoryStore): void {
   try {
-    const result = store.status(collection);
+    const result = store.status();
     if (cli.json) {
       outputJson(result);
     } else {
@@ -25,7 +25,6 @@ export function memoryStatus(store: MemoryStore, collection?: string): void {
         `Propositions: ${result.total_propositions} total, ${result.valid_propositions} valid, ${result.stale_propositions} stale`,
       );
       info(`Entities: ${result.total_entities}`);
-      if (collection) info(`Collection: ${collection}`);
     }
   } catch (e) {
     handleError(e);
@@ -34,13 +33,12 @@ export function memoryStatus(store: MemoryStore, collection?: string): void {
 
 export function memoryBrowse(
   store: MemoryStore,
-  opts?: { name?: string; kind?: string; collection?: string; limit?: string; offset?: string },
+  opts?: { name?: string; kind?: string; limit?: string; offset?: string },
 ): void {
   try {
     const result = store.browse({
       name: opts?.name,
       kind: opts?.kind,
-      collection: opts?.collection,
       limit: opts?.limit ? parseInt(opts.limit, 10) : undefined,
       offset: opts?.offset ? parseInt(opts.offset, 10) : undefined,
     });
@@ -63,9 +61,9 @@ export function memoryBrowse(
   }
 }
 
-export function memoryInspect(store: MemoryStore, entity: string, collection?: string): void {
+export function memoryInspect(store: MemoryStore, entity: string): void {
   try {
-    const result = store.inspect(entity, collection);
+    const result = store.inspect(entity);
     if (cli.json) {
       outputJson(result);
     } else {
@@ -89,14 +87,9 @@ export function memoryInspect(store: MemoryStore, entity: string, collection?: s
   }
 }
 
-export function memorySearch(
-  store: MemoryStore,
-  query: string,
-  opts?: { collection?: string; limit?: string },
-): void {
+export function memorySearch(store: MemoryStore, query: string, opts?: { limit?: string }): void {
   try {
     const result = store.search(query, {
-      collection: opts?.collection,
       limit: opts?.limit ? parseInt(opts.limit, 10) : undefined,
     });
     if (cli.json) {
@@ -118,9 +111,9 @@ export function memorySearch(
   }
 }
 
-export function memoryRelated(store: MemoryStore, entity: string, collection?: string): void {
+export function memoryRelated(store: MemoryStore, entity: string): void {
   try {
-    const result = store.related(entity, collection);
+    const result = store.related(entity);
     if (cli.json) {
       outputJson(result);
     } else {
@@ -138,9 +131,9 @@ export function memoryRelated(store: MemoryStore, entity: string, collection?: s
   }
 }
 
-export function memoryBySource(store: MemoryStore, filePath: string, collection?: string): void {
+export function memoryBySource(store: MemoryStore, filePath: string): void {
   try {
-    const result = store.bySource(filePath, collection);
+    const result = store.bySource(filePath);
     if (cli.json) {
       outputJson(result);
     } else {
@@ -159,12 +152,11 @@ export function memoryBySource(store: MemoryStore, filePath: string, collection?
   }
 }
 
-export function memoryEmit(store: MemoryStore, file: string, collection: string): void {
+export function memoryEmit(store: MemoryStore, file: string): void {
   try {
-    // Read JSON from file or stdin
     let raw: string;
     if (file === "-") {
-      raw = fs.readFileSync(0, "utf-8"); // stdin
+      raw = fs.readFileSync(0, "utf-8");
     } else {
       raw = fs.readFileSync(file, "utf-8");
     }
@@ -183,7 +175,7 @@ export function memoryEmit(store: MemoryStore, file: string, collection: string)
       throw new Error(`${source} must contain valid JSON: ${msg}`);
     }
 
-    const result = store.emit(propositions, collection);
+    const result = store.emit(propositions);
     if (cli.json) {
       outputJson(result);
     } else {

@@ -15,9 +15,7 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
   return new GraphBuilder(COMPILE_KNOWLEDGE_ID, "Compile Knowledge")
     .setDescription(M.description)
     .setContext({
-      collection: "",
       query: "",
-      lens: "",
       filesReadPaths: [],
       // Raw claim objects pushed by `staging` and drained by `addressing`.
       // Schema per claim: { content: string, sources: string[], draftEntities?: string[] }.
@@ -32,7 +30,6 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       priorKnowledgeByPath: {},
       priorKnowledgePathsConsidered: 0,
       priorKnowledgePathsTruncated: false,
-      propositionsEmitted: 0,
       coverageSatisfied: false,
     })
     .node("exploring", {
@@ -49,14 +46,11 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       onEnter: [
         {
           call: "memory_status",
-          args: {
-            collection: "context.collection",
-          },
+          args: {},
         },
         {
           call: "memory_browse",
           args: {
-            collection: "context.collection",
             limit: 50,
           },
         },
@@ -64,7 +58,6 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
           call: "memory_by_source",
           args: {
             paths: "context.filesReadPaths",
-            collection: "context.collection",
           },
         },
       ],
@@ -74,6 +67,18 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
           label: M.edges.filesRead.label,
           condition: "len(context.filesReadPaths) > 0",
           description: M.edges.filesRead.description,
+        },
+        // Warm-exit shortcut: when priorKnowledgeByPath already covers
+        // the target files (agent sets coverageSatisfied=true from the
+        // exploring node itself), skip staging/addressing/emit entirely
+        // and route straight to the evaluating decision — which then
+        // routes to complete on the same flag. Enables cold-start warm
+        // runs when the agent passes filesReadPaths via initialContext.
+        {
+          target: "evaluating",
+          label: M.edges.warmExit.label,
+          condition: "context.coverageSatisfied == true",
+          description: M.edges.warmExit.description,
         },
       ],
     })
@@ -96,14 +101,13 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       instructions: M.nodes.addressing.instructions,
       suggestedTools: ["memory_emit"],
       // onEnter populates context.entities with the existing vocabulary
-      // for this collection so the addressing prose can ground its
-      // entity-reuse rules in real names — replaces an agent round-trip
-      // that previously had to call memory_browse manually.
+      // so the addressing prose can ground its entity-reuse rules in
+      // real names — replaces an agent round-trip that previously had
+      // to call memory_browse manually.
       onEnter: [
         {
           call: "memory_browse",
           args: {
-            collection: "context.collection",
             limit: 50,
           },
         },

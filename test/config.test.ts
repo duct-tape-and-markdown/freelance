@@ -40,8 +40,6 @@ memory:
 `,
     );
     const config = loadConfig(dir);
-    expect(config.memory.collections).toHaveLength(1);
-    expect(config.memory.collections![0].name).toBe("default");
     expect(config.sources).toHaveLength(1);
   });
 

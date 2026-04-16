@@ -15,26 +15,14 @@
  * Changes here affect both sealed workflows atomically — by design.
  */
 const PROPOSITION_RUBRIC =
-  "Emit ATOMIC propositions: ONE factual claim per proposition, one sentence strongly preferred, two sentences maximum. " +
-  "If your thought uses 'and', 'also', 'plus', lists multiple facts, or tries to explain both WHAT and WHY in the same breath, SPLIT it into separate propositions. " +
-  "Each prop should survive independently: if a single sub-claim changes later, only that one prop should have to go stale.\n\n" +
+  "Emit ATOMIC propositions — one factual claim each, a single sentence preferred.\n\n" +
   "## The independence test\n" +
-  'For every candidate proposition, ask: "Could either claim be true while the other is false?" If yes — two propositions, not one. ' +
-  "This is the semantic backstop behind the surface 'no and / also / plus' rule above. Use it whenever the surface check feels ambiguous.\n\n" +
-  "## Split aggressively\n" +
-  '- "X calls Y, then does Z" — two props: "X calls Y", "after Y, X does Z"\n' +
-  '- "X handles A, B, and C" — three props, one per responsibility\n' +
-  "- A method AND what happens after it — separate props\n\n" +
-  "## Keep together when splitting destroys meaning\n" +
-  '- "validates X by checking Y" — one action with its mechanism\n' +
-  '- "delegates to Y via Z" — one relationship\n' +
-  "Relationship claims are KNOWLEDGE IN THEMSELVES. Don't atomize 'A depends on B' into separate facts about A and B — the edge IS the claim. " +
-  "Atomizing relationships into per-entity facts destroys the graph's connectivity and is worse than under-splitting.\n\n" +
-  "## Knowledge types\n" +
-  "Propositions can be factual ('X is configured to Y'), conceptual ('X exists because Y'), procedural ('to do X, run Y then Z'), or metacognitive ('this is uncertain because we couldn't reproduce X'). The metacognitive bucket is the one most extractors silently drop — emit it explicitly when you have it.\n\n" +
-  "The `entities` array names the things the claim is genuinely about. One entity for 'X does Y' claims; two or more for relationship claims like 'A depends on B', 'A was replaced by B via C', 'A uses B in the presence of C'. " +
-  "Multi-entity propositions are valuable — they make the knowledge graph denser and enable relationship queries via memory_related. " +
-  "Name every entity the claim is actually about, up to 4. Never pack extra entities to justify a compound prop — split the compound instead.\n\n" +
+  'For every candidate claim, ask: "Could either half be true while the other is false?" If yes, split. ' +
+  "This is the semantic rule behind the surface 'no and/also/plus' heuristic — use it whenever you feel the urge to conjoin facts. " +
+  "The exception is relationship claims like 'A depends on B' or 'A was replaced by B via C' — the edge IS the knowledge, and atomizing it into per-entity facts destroys the graph's connectivity.\n\n" +
+  "## Knowledge types to notice\n" +
+  "Claims can be factual ('X is configured to Y'), conceptual ('X exists because Y'), procedural ('to do X, run Y then Z'), or metacognitive ('this is uncertain because we couldn't reproduce X'). The metacognitive bucket is the one most extractors silently drop — emit it explicitly when you have it.\n\n" +
+  "## WRONG vs RIGHT\n" +
   "WRONG (four independent facts mashed into one prop):\n" +
   '  "Biome was added as the linter with space/2 indent, simple-git-hooks runs it as a pre-commit gate, the format pass touched 72 files, and noNonNullAssertion is disabled because its auto-fix broke type narrowing."\n\n' +
   "RIGHT (four atomic props, one fact each):\n" +
@@ -54,9 +42,11 @@ export const compileMessages = {
       instructions:
         "## What you arrive with\n" +
         "Three onEnter hooks have already populated this node's context for you, so you don't burn turns on routine lookups:\n" +
-        "- context.total_propositions / valid_propositions / stale_propositions / total_entities (from memory_status) — the rough size of the existing knowledge for this collection.\n" +
+        "- context.total_propositions / valid_propositions / stale_propositions / total_entities (from memory_status) — the rough size of the existing knowledge.\n" +
         "- context.entities (from memory_browse, up to 50) — the existing entity vocabulary. Skim these names; they are what the addressing node will steer toward when it plans hubs.\n" +
-        "- context.priorKnowledgeByPath (from memory_by_source) — propositions already known per file in context.filesReadPaths. See the graph-aware reading section below.\n\n" +
+        "- context.priorKnowledgeByPath (from memory_by_source) — propositions already known per file in context.filesReadPaths (each entry is { id, content } — no hashes, no timestamps; content is what you need to judge overlap). See the graph-aware reading section below.\n\n" +
+        "## Warm start — if you already know which files you want to compile\n" +
+        "Pass them as `initialContext.filesReadPaths` when calling freelance_start. The onEnter hooks fire AFTER initialContext is applied, so priorKnowledgeByPath is populated on your very first arrival — no wasted lap. Without initialContext, filesReadPaths starts empty and the first arrival's priorKnowledgeByPath is `{}`; hooks only re-fire on node arrival, so setting filesReadPaths via freelance_context_set does NOT re-query memory_by_source until you loop back through staging/addressing/evaluating and land on exploring a second time.\n\n" +
         "## What this node does\n" +
         "Read files related to the compilation query using your native Read tool. " +
         "After each read, call freelance_context_set to append the file path to " +
@@ -67,62 +57,42 @@ export const compileMessages = {
         "## Graph-aware reading — stage only deltas\n" +
         "Every time you arrive at this node, an onEnter hook calls memory_by_source for " +
         "every path currently in context.filesReadPaths and writes the result to " +
-        "context.priorKnowledgeByPath as { <path>: [<existing propositions>] }. Read this BEFORE " +
+        "context.priorKnowledgeByPath as { <path>: [{id, content}, ...] }. Read this BEFORE " +
         "deciding what to stage:\n" +
         "- If a file's prior-knowledge list already covers the claim you were about to stage, " +
         "skip it. Re-emitting hashes to the same content_hash and is a no-op, but it wastes " +
         "agent turns and clouds the staged set.\n" +
         "- Stage only DELTAS: claims the file actually says that the existing propositions " +
-        "do not already capture.\n" +
-        "- If every file you read has empty deltas, the staged set will be empty too — that's " +
-        "the warm-exit signal. Set context.coverageSatisfied = true and the next eval will " +
-        "route straight to complete instead of looping.\n" +
+        "do not already capture.\n\n" +
+        "## Warm exit — zero-delta shortcut\n" +
+        "If every file in priorKnowledgeByPath is already comprehensively covered (nothing to stage), take the `warm-exit` edge directly from here to `evaluating` — pass `{ coverageSatisfied: true }` in the same freelance_advance call. This skips staging/addressing/memory_emit entirely. It's the right path when a prior compile run already covered the same files and the sources haven't drifted since. A one-step warm exit costs one tool call instead of the 3–4 it takes to loop through the normal staging path.\n\n" +
         "If context.priorKnowledgePathsTruncated is true, the path list exceeded the 50-path " +
         "cap and not every file was checked — fall back to manual judgment for the unchecked tail.",
     },
     staging: {
-      description: "Stage raw claims in context — no entity planning, no memory_emit yet.",
+      description: "Stage atomic claims in context.",
       instructions:
         `${PROPOSITION_RUBRIC}\n\n` +
-        "## Lens directive — what to extract\n" +
-        "Read context.lens and shape your stagings accordingly. If context.lens is empty, default to dev.\n" +
-        "- dev: extract implementation detail, code names, internal structure.\n" +
-        "- support: extract ONLY user-facing behavior and business rules. NO code names, file paths, or internal details.\n" +
-        "- qa: extract testable behaviors, validation rules, edge cases.\n" +
-        "The lens flips output quality substantially — without it the agent defaults to a muddled middle-ground that serves nobody. Pick one and commit to it for every claim in this run.\n\n" +
         "## What this node does\n" +
-        "STAGING is the raw-claim pass. You are NOT yet calling memory_emit. You are pushing atomic claim objects into context.stagedClaims via freelance_context_set, where the next node (`addressing`) will read them, plan entity hub-concepts across the whole staged set, and call memory_emit once with planned entities.\n\n" +
-        "Per-claim schema:\n" +
+        "Push atomic claim objects to context.stagedClaims via freelance_context_set. Each claim:\n" +
         "  { content: string, sources: string[], draftEntities?: string[] }\n" +
-        "- content: the atomic claim itself, obeying the rubric above.\n" +
-        "- sources: cite from context.filesReadPaths — only files each claim was actually derived from.\n" +
-        "- draftEntities: optional — names you informally noticed are involved. The addressing node will rewrite these against the full vocabulary; do not over-think them here.\n\n" +
-        "Aim for 5–15 staged claims per file, applying the independence test aggressively. Splitting now is cheap; under-splitting is expensive because it forces the addressing node to atomize after the fact.\n\n" +
-        "When all relevant claims from this batch of files are staged, advance.",
+        "- content: the claim itself, per the rubric above.\n" +
+        "- sources: cite only the files in context.filesReadPaths this claim was actually derived from.\n" +
+        "- draftEntities: optional — names you noticed while writing. The addressing node reviews and rewrites these against the full vocabulary.\n\n" +
+        "Let the query shape what kind of claims you extract. When you've staged every claim this batch of files deserves, advance.",
     },
     addressing: {
-      description: "Plan entity hub-concepts across the staged claim set, then emit.",
+      description: "Review the staged claims, plan entities, emit.",
       instructions:
+        "## What you arrive with\n" +
+        "- context.stagedClaims — the claim objects you wrote in staging.\n" +
+        "- context.entities — the existing entity vocabulary (populated by an onEnter memory_browse).\n\n" +
         "## What this node does\n" +
-        "ADDRESSING drains context.stagedClaims, plans the entity vocabulary across the full set, and calls memory_emit ONCE with planned entities. This node exists separately from staging because entity planning needs to see the whole batch — it cannot succeed claim-by-claim.\n\n" +
-        "Before the agent saw this node, an onEnter hook called memory_browse and populated context.entities with the existing entity vocabulary in the collection. Read those names first — reusing existing entity names verbatim is the single highest-leverage thing you can do for graph density.\n\n" +
-        "## Hub-concept rules (these are leverage rules — follow them mechanically)\n" +
-        "1. Reuse existing entities whenever possible. Same name, exactly. context.entities already shows you what's there.\n" +
-        "2. Each entity MUST connect to 3+ propositions across the staged set. If it doesn't, merge it into a broader concept. An entity with one proposition is a content fragment masquerading as a hub.\n" +
-        "3. Maximum entity count is staged-claim-count divided by 3, rounded up. 20 staged claims → max 7 entities. 30 → max 10. This is a HARD ceiling — it forces planning instead of improvising.\n" +
-        "4. 1–2 entities per proposition. Most propositions share entities with their neighbors.\n\n" +
-        "## GOOD vs BAD entities (pattern-match these to your domain)\n" +
-        "GOOD entities (hub concepts a person would search for):\n" +
-        '  "User Authentication", "Payment Processing", "Onboarding Flow", "Configuration"\n' +
-        "BAD entities (per-field granularity — these belong inside proposition CONTENT, not as entities):\n" +
-        '  "JWT Token Expiry Setting", "Stripe API Key Field", "Welcome Email Subject Line"\n' +
-        "Rule of thumb: if an entity's name reads like a setting name or a field name, it is content, not a hub. Roll it up.\n\n" +
-        "## Procedure\n" +
-        "1. Read context.entities (existing vocabulary from the onEnter memory_browse).\n" +
-        "2. Read context.stagedClaims (this batch's raw claims).\n" +
-        "3. Plan the entity set: count claims, divide by 3, that's your ceiling. List candidate hubs. Strike anything that fails the 3+ floor or looks like a setting name. Prefer existing names.\n" +
-        "4. Call memory_emit ONCE with all staged claims, attaching the planned entities to each. Cite sources from each claim's sources field.\n" +
-        "5. Update context.propositionsEmitted with the running total. Clear context.stagedClaims (set to []) so the next loop iteration starts clean.",
+        "Read both. Decide which entity names each claim should link to, then call memory_emit once with every staged claim, attaching entities per claim. Clear context.stagedClaims afterward.\n\n" +
+        "## How to think about entities\n" +
+        "Reuse existing entity names verbatim — context.entities shows what's already there, and same-name reuse is the single highest-leverage move you can make for graph density.\n\n" +
+        "Good entities are **search hubs** — concepts someone would look up when trying to learn about this area. Bad entities are setting-names or field-names, which belong inside claim content, not as entities. If an entity name reads like a config key, it's content, not a hub.\n\n" +
+        "A hub that only shows up on one claim in the batch is usually a fragment masquerading as a hub — roll it into a broader concept that recurs across claims.",
     },
     evaluating: {
       description: "Check coverage — are there areas not yet compiled?",
@@ -158,6 +128,11 @@ export const compileMessages = {
       label: "gaps-remain",
       description: "More source files need to be read.",
     },
+    warmExit: {
+      label: "warm-exit",
+      description:
+        "priorKnowledgeByPath already covers every file, nothing to stage — skip directly to evaluating.",
+    },
   },
 } as const;
 
@@ -174,7 +149,7 @@ export const recallMessages = {
         "## What you arrive with\n" +
         "Two onEnter hooks have already populated this node's context — you don't need to call memory_status or memory_browse manually:\n" +
         "- context.total_propositions / valid_propositions / stale_propositions / total_entities (from memory_status) — the rough size of what's known.\n" +
-        "- context.entities (from memory_browse, up to 50) — the existing entity vocabulary scoped to context.collection.\n\n" +
+        "- context.entities (from memory_browse, up to 50) — the existing entity vocabulary.\n\n" +
         "## What this node does\n" +
         "Skim context.entities against the query. For the 1–5 entities most likely to carry relevant knowledge, call memory_inspect (and memory_related when you want neighbor context) to pull their full proposition lists and source files. " +
         "These targeted inspect calls are the agent's job — there's no good way to pre-fetch them automatically because we don't know which entities matter until we read context.entities.\n\n" +
@@ -210,7 +185,6 @@ export const recallMessages = {
         `${PROPOSITION_RUBRIC}\n\n` +
         "This is a gap-filling step: emit only NEW propositions — facts the sources reveal about the query that the recalled set doesn't already cover. Don't re-emit what's already known.\n\n" +
         "Cite sources from context.sourcesReadPaths — only the files each prop was actually derived from. " +
-        "Call memory_emit with context.collection as the collection parameter. " +
         "Update context.gapsFilled with the number of new propositions emitted.",
     },
     evaluating: {

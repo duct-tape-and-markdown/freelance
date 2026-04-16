@@ -50,10 +50,6 @@ export function configShow(opts: { workflows?: string | string[] }): void {
   if (config.memory.dir) {
     info(`    dir: ${config.memory.dir}`);
   }
-  if (config.memory.collections?.length) {
-    info(`    collections: ${config.memory.collections.map((c) => c.name).join(", ")}`);
-  }
-
   if (config.sources.length) {
     info(`\n  Loaded from:`);
     for (const s of config.sources) {

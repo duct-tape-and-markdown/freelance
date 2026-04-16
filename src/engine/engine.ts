@@ -219,7 +219,7 @@ export class GraphEngine {
     }
 
     // Standard advance or terminal
-    return {
+    const result: AdvanceSuccessResult = {
       status: isTerminal ? "complete" : "advanced",
       isError: false,
       previousNode,
@@ -234,7 +234,19 @@ export class GraphEngine {
           }
         : {}),
       ...(def.sources?.length ? { graphSources: def.sources } : {}),
-    } satisfies AdvanceSuccessResult;
+    };
+
+    // Root terminal GC: clear the stack so TraversalStore.saveEngine
+    // deletes the persisted record. The response is already snapshotted
+    // above — context, traversalHistory, and node info survive the pop.
+    // Post-hoc inspect via freelance_inspect is lost, but a completed
+    // traversalId is a dead handle anyway. Subgraph terminals are handled
+    // earlier in this function via popSubgraph and don't reach here.
+    if (isTerminal && this.stack.length === 1) {
+      this.stack = [];
+    }
+
+    return result;
   }
 
   contextSet(updates: Record<string, unknown>): ContextSetResult {

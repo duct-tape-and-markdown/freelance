@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import type { CollectingLoadResult } from "./loader.js";
 import { loadGraphsCollecting } from "./loader.js";
 import type { ValidatedGraph } from "./types.js";
@@ -18,11 +19,24 @@ interface WatcherOptions {
   debounceMs?: number;
 }
 
+const CONFIG_FILES = ["config.yml", "config.local.yml"] as const;
+
 /**
  * Watch directory(ies) for graph file changes and reload on modification.
  *
  * Uses fs.watch with debounce. On any change to *.workflow.yaml files,
  * re-reads all directories, validates, and calls onUpdate.
+ *
+ * Two watchers per graph dir:
+ *
+ *   1. A recursive directory watcher catches *.workflow.yaml changes
+ *      anywhere inside the dir tree.
+ *   2. Explicit per-file watchers on `config.yml` and `config.local.yml`
+ *      guarantee config reload events regardless of editor save patterns
+ *      (atomic rename, temp-file swap) that sometimes drop events on the
+ *      recursive parent watch. This is the reliable path for config
+ *      changes — the recursive watcher's config branch stays as a
+ *      belt-and-suspenders backup.
  *
  * Note: fs.watch behavior varies by platform. On Linux (inotify) it is
  * reliable. On macOS (FSEvents) it may fire duplicate or miss events.
@@ -49,22 +63,52 @@ export function watchGraphs(options: WatcherOptions): () => void {
     }
   }
 
-  const watchers = dirs.map((dir) =>
-    fs.watch(dir, { recursive: true }, (_eventType, filename) => {
+  function scheduleConfigReload(dir: string): void {
+    if (!onConfigChange) return;
+    if (configDebounce) clearTimeout(configDebounce);
+    configDebounce = setTimeout(() => onConfigChange(dir), debounceMs);
+  }
+
+  const closers: Array<() => void> = [];
+
+  for (const dir of dirs) {
+    // Recursive directory watch — picks up workflow file changes anywhere
+    // under the tree, and acts as a backup for config file changes.
+    const dirWatcher = fs.watch(dir, { recursive: true }, (_eventType, filename) => {
       if (!filename) return;
-      if ((filename === "config.yml" || filename === "config.local.yml") && onConfigChange) {
-        if (configDebounce) clearTimeout(configDebounce);
-        configDebounce = setTimeout(() => onConfigChange(dir), debounceMs);
+      const base = path.basename(filename);
+      if ((base === "config.yml" || base === "config.local.yml") && onConfigChange) {
+        scheduleConfigReload(dir);
       } else if (filename.endsWith(".workflow.yaml")) {
         if (graphDebounce) clearTimeout(graphDebounce);
         graphDebounce = setTimeout(reload, debounceMs);
       }
-    }),
-  );
+    });
+    closers.push(() => dirWatcher.close());
+
+    // Explicit per-file watches on config.yml / config.local.yml. These
+    // are the reliable path for config changes — some editor save
+    // patterns (atomic rename via temp file, write-then-move) can drop
+    // events on the parent directory watch but consistently fire on a
+    // direct file watch. If the file doesn't exist yet, skip silently.
+    if (onConfigChange) {
+      for (const cfgFile of CONFIG_FILES) {
+        const cfgPath = path.join(dir, cfgFile);
+        try {
+          if (!fs.existsSync(cfgPath)) continue;
+          const fileWatcher = fs.watch(cfgPath, () => scheduleConfigReload(dir));
+          closers.push(() => fileWatcher.close());
+        } catch {
+          // Non-fatal: if we can't watch a specific config file, the
+          // recursive dir watcher still catches most events.
+        }
+      }
+    }
+  }
 
   return () => {
     if (graphDebounce) clearTimeout(graphDebounce);
     if (configDebounce) clearTimeout(configDebounce);
-    for (const w of watchers) w.close();
+    for (const close of closers) close();
   };
 }

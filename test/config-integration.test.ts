@@ -209,10 +209,6 @@ memory:
 
     const config = loadConfigFromDirs([projectDir, userDir]);
 
-    // Arrays concatenate across directories
-    expect(config.memory.collections).toHaveLength(2);
-    expect(config.memory.collections!.map((c) => c.name)).toEqual(["project", "user"]);
-
     // Scalar from user's local overrides
     expect(config.memory.dir).toBe("/tmp/user-persistent");
 
