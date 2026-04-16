@@ -225,11 +225,18 @@ function addWorkflowsOpt(cmd: Command): Command {
 }
 
 addWorkflowsOpt(
-  program.command("status").description("Show loaded graphs and active traversals"),
+  program
+    .command("status")
+    .description("Show loaded graphs and active traversals")
+    .option(
+      "--filter <pair>",
+      "Show only traversals whose meta tags match key=value (repeatable; all must match)",
+      (value: string, previous?: string[]) => (previous ? [...previous, value] : [value]),
+    ),
 ).action((opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
-    traversalStatus(store);
+    traversalStatus(store, { filter: opts.filter });
   } finally {
     runtime.close();
   }

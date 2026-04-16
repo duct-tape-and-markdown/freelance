@@ -17,11 +17,23 @@ function handleError(e: unknown): never {
   process.exit(1);
 }
 
-export function traversalStatus(store: TraversalStore): void {
+export function traversalStatus(store: TraversalStore, opts?: { filter?: string[] }): void {
   try {
     const result = store.listGraphs();
+    // Operator-side filter — kept off the MCP surface deliberately. LLMs
+    // already see meta on every list entry and can pick; humans grepping
+    // among 50 traversals want a flag.
+    const filter = parseMetaPairs(opts?.filter, "--filter");
+    const filterEntries = Object.entries(filter);
+    const traversals =
+      filterEntries.length === 0
+        ? result.activeTraversals
+        : result.activeTraversals.filter(
+            (t) => t.meta !== undefined && filterEntries.every(([k, v]) => t.meta?.[k] === v),
+          );
+
     if (cli.json) {
-      outputJson(result);
+      outputJson({ ...result, activeTraversals: traversals });
       return;
     }
     if (result.graphs.length > 0) {
@@ -32,14 +44,20 @@ export function traversalStatus(store: TraversalStore): void {
     } else {
       info("No graphs loaded.");
     }
-    if (result.activeTraversals.length > 0) {
-      info("\nActive traversals:");
-      for (const t of result.activeTraversals) {
+    if (traversals.length > 0) {
+      const heading =
+        filterEntries.length > 0
+          ? `\nActive traversals matching ${JSON.stringify(filter)}:`
+          : "\nActive traversals:";
+      info(heading);
+      for (const t of traversals) {
         info(
           `  ${t.traversalId}  ${t.graphId} @ ${t.currentNode}  (depth: ${t.stackDepth}, updated: ${t.lastUpdated})`,
         );
         if (t.meta) info(`    meta: ${JSON.stringify(t.meta)}`);
       }
+    } else if (filterEntries.length > 0) {
+      info(`\nNo active traversals match ${JSON.stringify(filter)}.`);
     } else {
       info("\nNo active traversals.");
     }

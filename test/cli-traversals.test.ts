@@ -189,6 +189,60 @@ describe("traversalStart --meta", () => {
   });
 });
 
+describe("traversalStatus --filter (operator-side)", () => {
+  it("narrows the listing to traversals matching every key=value pair", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const a = await store.createTraversal(graphId, undefined, { externalKey: "DEV-1" });
+      await store.createTraversal(graphId, undefined, { externalKey: "DEV-2" });
+
+      traversalStatus(store, { filter: ["externalKey=DEV-1"] });
+      const printed = stderrSpy.mock.calls.map((c: [string]) => c[0] as string).join("");
+      expect(printed).toContain("matching");
+      expect(printed).toContain(a.traversalId);
+      expect(printed).toContain("DEV-1");
+      expect(printed).not.toContain("DEV-2");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("reports no matches when filter excludes everything", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      await store.createTraversal(graphId, undefined, { externalKey: "DEV-1" });
+      traversalStatus(store, { filter: ["externalKey=DEV-NONE"] });
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("No active traversals match"));
+    } finally {
+      store.close();
+    }
+  });
+
+  it("--json output reflects the filtered set", async () => {
+    setCli({ json: true });
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      await store.createTraversal(graphId, undefined, { externalKey: "DEV-1" });
+      await store.createTraversal(graphId, undefined, { externalKey: "DEV-2" });
+      traversalStatus(store, { filter: ["externalKey=DEV-1"] });
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
+      const parsed = JSON.parse(output) as {
+        activeTraversals: Array<{ meta?: Record<string, string> }>;
+      };
+      expect(parsed.activeTraversals).toHaveLength(1);
+      expect(parsed.activeTraversals[0].meta).toEqual({ externalKey: "DEV-1" });
+    } finally {
+      store.close();
+    }
+  });
+});
+
 describe("traversalStatus shows meta on active traversals", () => {
   it("prints meta tags so callers can pick a traversal by tag", async () => {
     const store = createTestStore();

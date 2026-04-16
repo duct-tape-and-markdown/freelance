@@ -261,7 +261,7 @@ freelance validate <dir>                  # Validate graph definitions
 freelance visualize <file>                # Render graph as Mermaid or DOT
 
 # Traversals
-freelance status                                    # Show loaded graphs and active traversals (with meta)
+freelance status [--filter key=value ...]           # Show loaded graphs and active traversals (with meta); --filter narrows by meta
 freelance start <graphId> [--meta key=value ...]    # Begin a workflow traversal, optionally tagged
 freelance advance [edge]                            # Move to next node via edge label
 freelance context set <key=value...>                # Update traversal context
