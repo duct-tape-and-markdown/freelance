@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setCli } from "../src/cli/output.js";
 import {
   traversalContextSet,
-  traversalFind,
   traversalInspect,
   traversalReset,
   traversalResume,
@@ -190,54 +189,16 @@ describe("traversalStart --meta", () => {
   });
 });
 
-describe("traversalFind", () => {
-  it("finds traversals by meta and prints matches", async () => {
+describe("traversalStatus shows meta on active traversals", () => {
+  it("prints meta tags so callers can pick a traversal by tag", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
-      const r = await store.createTraversal(graphId, undefined, {
-        externalKey: "DEV-1234",
-      });
-      traversalFind(store, ["externalKey=DEV-1234"]);
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Matches for"));
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining(r.traversalId));
-    } finally {
-      store.close();
-    }
-  });
-
-  it("reports no matches when none found", async () => {
-    const store = createTestStore();
-    try {
-      traversalFind(store, ["externalKey=DEV-none"]);
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("No traversals match"));
-    } finally {
-      store.close();
-    }
-  });
-
-  it("requires at least one --meta pair", async () => {
-    const store = createTestStore();
-    try {
-      expect(() => traversalFind(store, [])).toThrow("process.exit");
-    } finally {
-      store.close();
-    }
-  });
-
-  it("outputs JSON when --json set", async () => {
-    setCli({ json: true });
-    const store = createTestStore();
-    try {
-      const graphId = store.listGraphs().graphs[0]?.id;
-      if (!graphId) return;
-      await store.createTraversal(graphId, undefined, { externalKey: "DEV-1" });
-      traversalFind(store, ["externalKey=DEV-1"]);
-      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
-      const parsed = JSON.parse(output);
-      expect(parsed).toHaveProperty("query", { externalKey: "DEV-1" });
-      expect(parsed.matches).toHaveLength(1);
+      await store.createTraversal(graphId, undefined, { externalKey: "DEV-1234" });
+      traversalStatus(store);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Active traversals"));
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("DEV-1234"));
     } finally {
       store.close();
     }

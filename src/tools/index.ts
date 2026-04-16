@@ -22,7 +22,6 @@ import { registerSourcesCheckTool } from "./sources-check.js";
 import { registerSourcesHashTool } from "./sources-hash.js";
 import { registerSourcesValidateTool } from "./sources-validate.js";
 import { registerStartTool } from "./start.js";
-import { registerTraversalsFindTool } from "./traversals-find.js";
 import { registerValidateTool } from "./validate.js";
 
 // Re-exported for external consumers that construct the deps object
@@ -38,7 +37,6 @@ export function registerFreelanceTools(server: McpServer, deps: FreelanceToolDep
   registerContextSetTool(server, deps);
   registerInspectTool(server, deps);
   registerResetTool(server, deps);
-  registerTraversalsFindTool(server, deps);
   registerResumeTool(server, deps);
   registerGuideTool(server);
   registerDistillTool(server);

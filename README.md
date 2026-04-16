@@ -119,13 +119,12 @@ Read tools (available anytime):
 
 | Tool | Description |
 |------|-------------|
-| `freelance_list` | Discover available workflow graphs and active traversals |
-| `freelance_start` | Begin traversing a graph (optional `meta` tags for later lookup) |
+| `freelance_list` | Discover available workflow graphs and active traversals (each with any `meta` tags) |
+| `freelance_start` | Begin traversing a graph (optional opaque `meta` tags for later lookup) |
 | `freelance_advance` | Move to the next node via a labeled edge |
 | `freelance_context_set` | Update session context without advancing |
 | `freelance_inspect` | Read-only introspection (position, history, or full graph) |
-| `freelance_traversals_find` | Look up traversals by caller-supplied `meta` tags (e.g. `externalKey=DEV-1234`) |
-| `freelance_resume` | Restore a traversal's position, context, and meta tags |
+| `freelance_resume` | Restore a traversal's position, context, and meta tags by id |
 | `freelance_reset` | Clear traversal and start over |
 | `freelance_guide` | Authoring guidance for writing graphs |
 | `freelance_distill` | Distill a task into a new workflow |
@@ -262,12 +261,11 @@ freelance validate <dir>                  # Validate graph definitions
 freelance visualize <file>                # Render graph as Mermaid or DOT
 
 # Traversals
-freelance status                                    # Show loaded graphs and active traversals
+freelance status                                    # Show loaded graphs and active traversals (with meta)
 freelance start <graphId> [--meta key=value ...]    # Begin a workflow traversal, optionally tagged
 freelance advance [edge]                            # Move to next node via edge label
 freelance context set <key=value...>                # Update traversal context
 freelance inspect [traversalId]                     # Read-only introspection
-freelance traversals find --meta key=value [...]    # Look up traversals by opaque caller tags
 freelance resume <traversalId>                      # Restore position, context, and meta tags
 freelance reset [traversalId] --confirm             # Clear a traversal
 

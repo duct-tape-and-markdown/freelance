@@ -16,7 +16,6 @@ import type {
   ResetResult,
   ResumeResult,
   StartResult,
-  TraversalFindResult,
   TraversalInfo,
   TraversalListResult,
   ValidatedGraph,
@@ -87,31 +86,6 @@ export class TraversalStore {
 
   listTraversals(): TraversalInfo[] {
     return this.state.list().map(recordToInfo);
-  }
-
-  /**
-   * Find traversals whose `meta` tags match every entry in `query`. Matching
-   * is exact string equality on both key and value — Freelance treats the
-   * tags as opaque. Returns all matches (multiple phases of the same ticket
-   * can share an externalKey, for example) sorted by most-recently-updated.
-   */
-  findTraversalsByMeta(query: Record<string, string>): TraversalFindResult {
-    const entries = Object.entries(query);
-    if (entries.length === 0) {
-      throw new EngineError(
-        "findTraversalsByMeta requires at least one key=value pair",
-        "INVALID_QUERY",
-      );
-    }
-    const matches = this.state
-      .list()
-      .filter((row) => {
-        const meta = row.meta;
-        if (!meta) return false;
-        return entries.every(([k, v]) => meta[k] === v);
-      })
-      .map(recordToInfo);
-    return { query, matches };
   }
 
   /** Check whether any active traversal belongs to one of the given graph IDs. */

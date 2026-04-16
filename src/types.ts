@@ -224,14 +224,6 @@ export interface TraversalListResult {
   readonly activeTraversals: readonly TraversalInfo[];
 }
 
-// Result of freelance_traversals_find / store.findTraversalsByMeta.
-// Wraps the same TraversalInfo shape active traversals are already
-// serialized as, so callers have a single record type to parse.
-export interface TraversalFindResult {
-  readonly query: Readonly<Record<string, string>>;
-  readonly matches: readonly TraversalInfo[];
-}
-
 // Result of freelance_resume / store.resumeTraversal. Mirrors the
 // position-detail inspect payload so a resuming caller gets everything
 // needed to pick the workflow back up — current node, valid edges,

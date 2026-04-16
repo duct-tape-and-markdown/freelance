@@ -187,7 +187,7 @@ describe("TraversalStore — stateless JSON", () => {
     });
   });
 
-  describe("meta tags + find + resume", () => {
+  describe("meta tags + resume", () => {
     it("persists meta on createTraversal and surfaces it in list", async () => {
       const r = await store.createTraversal("valid-simple", undefined, {
         externalKey: "DEV-1234",
@@ -208,56 +208,6 @@ describe("TraversalStore — stateless JSON", () => {
       for (const info of store.listTraversals()) {
         expect(info.meta).toBeUndefined();
       }
-    });
-
-    it("findTraversalsByMeta matches exact key/value pairs", async () => {
-      const a = await store.createTraversal("valid-simple", undefined, {
-        externalKey: "DEV-1234",
-      });
-      await store.createTraversal("valid-branching", undefined, {
-        externalKey: "DEV-9999",
-      });
-
-      const hit = store.findTraversalsByMeta({ externalKey: "DEV-1234" });
-      expect(hit.query).toEqual({ externalKey: "DEV-1234" });
-      expect(hit.matches).toHaveLength(1);
-      expect(hit.matches[0].traversalId).toBe(a.traversalId);
-
-      const miss = store.findTraversalsByMeta({ externalKey: "NOPE" });
-      expect(miss.matches).toHaveLength(0);
-    });
-
-    it("findTraversalsByMeta narrows with multi-key queries (AND semantics)", async () => {
-      const a = await store.createTraversal("valid-simple", undefined, {
-        externalKey: "DEV-1234",
-        phase: "analysis",
-      });
-      await store.createTraversal("valid-branching", undefined, {
-        externalKey: "DEV-1234",
-        phase: "implementation",
-      });
-
-      const both = store.findTraversalsByMeta({
-        externalKey: "DEV-1234",
-        phase: "analysis",
-      });
-      expect(both.matches).toHaveLength(1);
-      expect(both.matches[0].traversalId).toBe(a.traversalId);
-
-      const eitherKey = store.findTraversalsByMeta({ externalKey: "DEV-1234" });
-      expect(eitherKey.matches).toHaveLength(2);
-    });
-
-    it("findTraversalsByMeta skips records without matching keys", async () => {
-      await store.createTraversal("valid-simple");
-      await store.createTraversal("valid-branching", undefined, { externalKey: "DEV-1" });
-
-      const hit = store.findTraversalsByMeta({ externalKey: "DEV-1" });
-      expect(hit.matches).toHaveLength(1);
-    });
-
-    it("findTraversalsByMeta rejects empty query", () => {
-      expect(() => store.findTraversalsByMeta({})).toThrow(EngineError);
     });
 
     it("meta survives advance/contextSet round-trips (immutable after start)", async () => {
@@ -310,9 +260,9 @@ describe("TraversalStore — stateless JSON", () => {
         hookRunner: new HookRunner(),
       });
       try {
-        const found = store2.findTraversalsByMeta({ externalKey: "DEV-9" });
-        expect(found.matches).toHaveLength(1);
-        expect(found.matches[0].traversalId).toBe(r.traversalId);
+        const list = store2.listTraversals();
+        expect(list).toHaveLength(1);
+        expect(list[0].meta).toEqual({ externalKey: "DEV-9" });
         const resumed = store2.resumeTraversal(r.traversalId);
         expect(resumed.meta).toEqual({ externalKey: "DEV-9" });
       } finally {

@@ -38,6 +38,7 @@ export function traversalStatus(store: TraversalStore): void {
         info(
           `  ${t.traversalId}  ${t.graphId} @ ${t.currentNode}  (depth: ${t.stackDepth}, updated: ${t.lastUpdated})`,
         );
+        if (t.meta) info(`    meta: ${JSON.stringify(t.meta)}`);
       }
     } else {
       info("\nNo active traversals.");
@@ -241,33 +242,6 @@ export function traversalInspect(
           info(`    ${h.node} (${h.edge ?? "start"})`);
         }
       }
-    }
-  } catch (e) {
-    handleError(e);
-  }
-}
-
-export function traversalFind(store: TraversalStore, metaPairs: string[]): void {
-  try {
-    const query = parseMetaPairs(metaPairs, "--meta");
-    if (Object.keys(query).length === 0) {
-      throw new Error("traversals find requires at least one --meta key=value pair");
-    }
-    const result = store.findTraversalsByMeta(query);
-    if (cli.json) {
-      outputJson(result);
-      return;
-    }
-    if (result.matches.length === 0) {
-      info(`No traversals match ${JSON.stringify(query)}.`);
-      return;
-    }
-    info(`Matches for ${JSON.stringify(query)}:`);
-    for (const t of result.matches) {
-      info(
-        `  ${t.traversalId}  ${t.graphId} @ ${t.currentNode}  (depth: ${t.stackDepth}, updated: ${t.lastUpdated})`,
-      );
-      if (t.meta) info(`    meta: ${JSON.stringify(t.meta)}`);
     }
   } catch (e) {
     handleError(e);

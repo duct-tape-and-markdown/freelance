@@ -36,7 +36,6 @@ import { distillRun, guideShow, sourcesCheck, sourcesHash, sourcesValidate } fro
 import {
   traversalAdvance,
   traversalContextSet,
-  traversalFind,
   traversalInspect,
   traversalReset,
   traversalResume,
@@ -313,28 +312,6 @@ addWorkflowsOpt(
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
     traversalReset(store, traversalId, opts);
-  } finally {
-    runtime.close();
-  }
-});
-
-const traversalsCmd = program
-  .command("traversals")
-  .description("Look up and resume traversals by their caller-supplied meta tags");
-
-addWorkflowsOpt(
-  traversalsCmd
-    .command("find")
-    .description("List traversals whose meta tags match every key=value pair")
-    .requiredOption(
-      "--meta <pair>",
-      "Opaque key=value tag to match (repeatable; all must match)",
-      (value: string, previous?: string[]) => (previous ? [...previous, value] : [value]),
-    ),
-).action((opts) => {
-  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
-  try {
-    traversalFind(store, opts.meta);
   } finally {
     runtime.close();
   }

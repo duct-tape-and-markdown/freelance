@@ -318,39 +318,23 @@ describe("MCP server — meta tags, find, resume", () => {
     expect(data.meta).toEqual({ externalKey: "DEV-1234", branch: "feature/x" });
   });
 
-  it("freelance_traversals_find returns matching traversalIds", async () => {
-    const startA = (await client.callTool({
+  it("freelance_list surfaces meta on each active traversal (discovery path)", async () => {
+    const startA = await client.callTool({
       name: "freelance_start",
       arguments: { graphId: "valid-simple", meta: { externalKey: "DEV-1" } },
-    })) as Awaited<ReturnType<Client["callTool"]>>;
+    });
     const a = parseContent(startA) as { traversalId: string };
-
     await client.callTool({
       name: "freelance_start",
       arguments: { graphId: "valid-branching", meta: { externalKey: "DEV-2" } },
     });
 
-    const found = await client.callTool({
-      name: "freelance_traversals_find",
-      arguments: { meta: { externalKey: "DEV-1" } },
-    });
-    expect(found.isError).toBeFalsy();
-    const data = parseContent(found) as {
-      query: Record<string, string>;
-      matches: Array<{ traversalId: string; meta?: Record<string, string> }>;
+    const list = await client.callTool({ name: "freelance_list", arguments: {} });
+    const data = parseContent(list) as {
+      activeTraversals: Array<{ traversalId: string; meta?: Record<string, string> }>;
     };
-    expect(data.query).toEqual({ externalKey: "DEV-1" });
-    expect(data.matches).toHaveLength(1);
-    expect(data.matches[0].traversalId).toBe(a.traversalId);
-    expect(data.matches[0].meta).toEqual({ externalKey: "DEV-1" });
-  });
-
-  it("freelance_traversals_find rejects empty meta", async () => {
-    const result = await client.callTool({
-      name: "freelance_traversals_find",
-      arguments: { meta: {} },
-    });
-    expect(result.isError).toBe(true);
+    const byId = new Map(data.activeTraversals.map((t) => [t.traversalId, t]));
+    expect(byId.get(a.traversalId)?.meta).toEqual({ externalKey: "DEV-1" });
   });
 
   it("freelance_resume restores position + context + meta", async () => {
