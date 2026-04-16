@@ -187,7 +187,7 @@ describe("TraversalStore — stateless JSON", () => {
     });
   });
 
-  describe("meta tags + resume", () => {
+  describe("meta tags", () => {
     it("persists meta on createTraversal and surfaces it in list", async () => {
       const r = await store.createTraversal("valid-simple", undefined, {
         externalKey: "DEV-1234",
@@ -219,7 +219,7 @@ describe("TraversalStore — stateless JSON", () => {
       expect(list[0].meta).toEqual({ externalKey: "DEV-1234" });
     });
 
-    it("resumeTraversal returns position + context + meta without mutating", async () => {
+    it("inspect returns meta at the top level regardless of detail", async () => {
       const r = await store.createTraversal(
         "valid-simple",
         { initialNote: "hello" },
@@ -228,27 +228,19 @@ describe("TraversalStore — stateless JSON", () => {
       store.contextSet(r.traversalId, { taskStarted: true });
       await store.advance(r.traversalId, "work-done");
 
-      const resumed = store.resumeTraversal(r.traversalId);
-      expect(resumed.status).toBe("resumed");
-      expect(resumed.traversalId).toBe(r.traversalId);
-      expect(resumed.currentNode).toBe("review");
-      expect(resumed.meta).toEqual({
-        externalKey: "DEV-1234",
-        prUrl: "https://example/pr/7",
-      });
-      expect(resumed.context).toMatchObject({
-        initialNote: "hello",
-        taskStarted: true,
-      });
-      expect(Array.isArray(resumed.validTransitions)).toBe(true);
-
-      // Read-only — underlying record unchanged
-      const list = store.listTraversals();
-      expect(list[0].currentNode).toBe("review");
+      for (const detail of ["position", "full", "history"] as const) {
+        const result = store.inspect(r.traversalId, detail);
+        expect(result.meta).toEqual({
+          externalKey: "DEV-1234",
+          prUrl: "https://example/pr/7",
+        });
+      }
     });
 
-    it("resumeTraversal throws TRAVERSAL_NOT_FOUND for unknown id", () => {
-      expect(() => store.resumeTraversal("tr_nonexistent")).toThrow(EngineError);
+    it("inspect omits meta when none was set", async () => {
+      const r = await store.createTraversal("valid-simple");
+      const result = store.inspect(r.traversalId, "position");
+      expect(result.meta).toBeUndefined();
     });
 
     it("meta round-trips through process restart (persisted on disk)", async () => {
@@ -263,8 +255,8 @@ describe("TraversalStore — stateless JSON", () => {
         const list = store2.listTraversals();
         expect(list).toHaveLength(1);
         expect(list[0].meta).toEqual({ externalKey: "DEV-9" });
-        const resumed = store2.resumeTraversal(r.traversalId);
-        expect(resumed.meta).toEqual({ externalKey: "DEV-9" });
+        const inspected = store2.inspect(r.traversalId, "position");
+        expect(inspected.meta).toEqual({ externalKey: "DEV-9" });
       } finally {
         store2.close();
       }

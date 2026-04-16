@@ -38,7 +38,6 @@ import {
   traversalContextSet,
   traversalInspect,
   traversalReset,
-  traversalResume,
   traversalStart,
   traversalStatus,
 } from "./traversals.js";
@@ -312,19 +311,6 @@ addWorkflowsOpt(
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
     traversalReset(store, traversalId, opts);
-  } finally {
-    runtime.close();
-  }
-});
-
-addWorkflowsOpt(
-  program
-    .command("resume <traversalId>")
-    .description("Restore a traversal's position, context, and meta without mutating it"),
-).action((traversalId, opts) => {
-  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
-  try {
-    traversalResume(store, traversalId);
   } finally {
     runtime.close();
   }

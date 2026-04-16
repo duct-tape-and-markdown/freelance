@@ -5,7 +5,6 @@ import {
   traversalContextSet,
   traversalInspect,
   traversalReset,
-  traversalResume,
   traversalStart,
   traversalStatus,
 } from "../src/cli/traversals.js";
@@ -205,8 +204,8 @@ describe("traversalStatus shows meta on active traversals", () => {
   });
 });
 
-describe("traversalResume", () => {
-  it("prints the current position and meta", async () => {
+describe("traversalInspect shows meta", () => {
+  it("prints meta tags when present on the traversal", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
@@ -214,18 +213,9 @@ describe("traversalResume", () => {
       const { traversalId } = await store.createTraversal(graphId, undefined, {
         externalKey: "DEV-9",
       });
-      traversalResume(store, traversalId);
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Resumed traversal"));
+      traversalInspect(store, traversalId, "position");
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Meta:"));
       expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("DEV-9"));
-    } finally {
-      store.close();
-    }
-  });
-
-  it("exits on unknown traversalId", async () => {
-    const store = createTestStore();
-    try {
-      expect(() => traversalResume(store, "tr_unknown")).toThrow("process.exit");
     } finally {
       store.close();
     }

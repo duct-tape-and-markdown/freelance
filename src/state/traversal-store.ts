@@ -11,10 +11,8 @@ import { EngineError } from "../errors.js";
 import type {
   AdvanceResult,
   ContextSetResult,
-  InspectPositionResult,
   InspectResult,
   ResetResult,
-  ResumeResult,
   StartResult,
   TraversalInfo,
   TraversalListResult,
@@ -156,41 +154,10 @@ export class TraversalStore {
   inspect(
     traversalId: string,
     detail?: "position" | "full" | "history",
-  ): { traversalId: string } & InspectResult {
-    const { engine } = this.loadEngine(traversalId);
-    const result = engine.inspect(detail);
-    return { traversalId, ...result };
-  }
-
-  /**
-   * Look up a traversal by id and return enough state for a caller to pick it
-   * back up: current node, valid edges, full context, meta tags. Read-only —
-   * doesn't mutate the stored record.
-   */
-  resumeTraversal(traversalId: string): ResumeResult {
+  ): { traversalId: string; meta?: Record<string, string> } & InspectResult {
     const { engine, record } = this.loadEngine(traversalId);
-    const inspect = engine.inspect("position") as InspectPositionResult;
-    // Conditional spreads keep optional fields absent (not present-as-undefined)
-    // in the JSON output while preserving type inference end-to-end.
-    return {
-      status: "resumed",
-      traversalId: record.id,
-      graphId: inspect.graphId,
-      graphName: inspect.graphName,
-      currentNode: inspect.currentNode,
-      node: inspect.node,
-      validTransitions: inspect.validTransitions,
-      context: inspect.context,
-      stackDepth: inspect.stackDepth,
-      stack: inspect.stack,
-      lastUpdated: record.updatedAt,
-      ...(record.meta && { meta: record.meta }),
-      ...(inspect.graphSources && { graphSources: inspect.graphSources }),
-      ...(inspect.waitStatus && { waitStatus: inspect.waitStatus }),
-      ...(inspect.waitingOn && { waitingOn: inspect.waitingOn }),
-      ...(inspect.timeout && { timeout: inspect.timeout }),
-      ...(inspect.timeoutAt && { timeoutAt: inspect.timeoutAt }),
-    };
+    const result = engine.inspect(detail);
+    return record.meta ? { traversalId, meta: record.meta, ...result } : { traversalId, ...result };
   }
 
   resetTraversal(traversalId: string): { traversalId: string } & ResetResult {

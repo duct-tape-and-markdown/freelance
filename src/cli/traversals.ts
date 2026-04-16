@@ -217,6 +217,7 @@ export function traversalInspect(
       info(`Traversal: ${raw.traversalId}`);
       info(`  Graph: ${raw.graphId}`);
       info(`  Node:  ${raw.currentNode}`);
+      if (raw.meta) info(`  Meta:  ${JSON.stringify(raw.meta)}`);
       if (validDetail === "position") {
         const pos = raw as { traversalId: string } & InspectPositionResult;
         if (pos.node.description) {
@@ -241,31 +242,6 @@ export function traversalInspect(
         for (const h of hist.traversalHistory) {
           info(`    ${h.node} (${h.edge ?? "start"})`);
         }
-      }
-    }
-  } catch (e) {
-    handleError(e);
-  }
-}
-
-export function traversalResume(store: TraversalStore, traversalId: string): void {
-  try {
-    const result = store.resumeTraversal(traversalId);
-    if (cli.json) {
-      outputJson(result);
-      return;
-    }
-    info(`Resumed traversal ${result.traversalId}`);
-    info(`  Graph: ${result.graphId} (${result.graphName})`);
-    info(`  Node:  ${result.currentNode}`);
-    if (result.node.description) info(`  Description: ${result.node.description}`);
-    if (result.meta) info(`  Meta: ${JSON.stringify(result.meta)}`);
-    if (result.validTransitions?.length) {
-      info("  Edges:");
-      for (const t of result.validTransitions) {
-        info(
-          `    ${t.label}${t.target ? ` → ${t.target}` : ""}${t.conditionMet === false ? " (condition not met)" : ""}`,
-        );
       }
     }
   } catch (e) {

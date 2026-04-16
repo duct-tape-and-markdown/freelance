@@ -223,27 +223,3 @@ export interface TraversalListResult {
   readonly graphs: GraphListResult["graphs"];
   readonly activeTraversals: readonly TraversalInfo[];
 }
-
-// Result of freelance_resume / store.resumeTraversal. Mirrors the
-// position-detail inspect payload so a resuming caller gets everything
-// needed to pick the workflow back up — current node, valid edges,
-// full context, plus the meta tags that led them here.
-export interface ResumeResult {
-  readonly status: "resumed";
-  readonly traversalId: string;
-  readonly graphId: string;
-  readonly graphName: string;
-  readonly currentNode: string;
-  readonly node: NodeInfo;
-  readonly validTransitions: readonly TransitionInfo[];
-  readonly context: Readonly<Record<string, unknown>>;
-  readonly stackDepth: number;
-  readonly stack: readonly StackEntry[];
-  readonly meta?: Readonly<Record<string, string>>;
-  readonly lastUpdated: string;
-  readonly graphSources?: readonly SourceBinding[];
-  readonly waitStatus?: "waiting" | "ready" | "timed_out";
-  readonly waitingOn?: readonly WaitCondition[];
-  readonly timeout?: string;
-  readonly timeoutAt?: string;
-}

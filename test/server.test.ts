@@ -281,7 +281,7 @@ describe("MCP server integration", () => {
   });
 });
 
-describe("MCP server — meta tags, find, resume", () => {
+describe("MCP server — meta tags", () => {
   let client: Client;
   let cleanup: () => Promise<void>;
 
@@ -337,12 +337,12 @@ describe("MCP server — meta tags, find, resume", () => {
     expect(byId.get(a.traversalId)?.meta).toEqual({ externalKey: "DEV-1" });
   });
 
-  it("freelance_resume restores position + context + meta", async () => {
+  it("freelance_inspect includes meta alongside position state", async () => {
     const start = await client.callTool({
       name: "freelance_start",
       arguments: {
         graphId: "valid-simple",
-        initialContext: { hint: "resume me" },
+        initialContext: { hint: "recover me" },
         meta: { externalKey: "DEV-42" },
       },
     });
@@ -353,29 +353,19 @@ describe("MCP server — meta tags, find, resume", () => {
       arguments: { edge: "work-done", contextUpdates: { taskStarted: true } },
     });
 
-    const resumed = await client.callTool({
-      name: "freelance_resume",
-      arguments: { traversalId },
+    const inspected = await client.callTool({
+      name: "freelance_inspect",
+      arguments: { traversalId, detail: "position" },
     });
-    expect(resumed.isError).toBeFalsy();
-    const data = parseContent(resumed) as {
-      status: string;
+    expect(inspected.isError).toBeFalsy();
+    const data = parseContent(inspected) as {
       currentNode: string;
       meta: Record<string, string>;
       context: Record<string, unknown>;
     };
-    expect(data.status).toBe("resumed");
     expect(data.currentNode).toBe("review");
     expect(data.meta).toEqual({ externalKey: "DEV-42" });
-    expect(data.context).toMatchObject({ hint: "resume me", taskStarted: true });
-  });
-
-  it("freelance_resume errors on unknown traversalId", async () => {
-    const result = await client.callTool({
-      name: "freelance_resume",
-      arguments: { traversalId: "tr_nonexistent" },
-    });
-    expect(result.isError).toBe(true);
+    expect(data.context).toMatchObject({ hint: "recover me", taskStarted: true });
   });
 
   it("freelance_list returns graphs sorted by id (deterministic)", async () => {
