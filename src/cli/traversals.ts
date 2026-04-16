@@ -17,6 +17,23 @@ function handleError(e: unknown): never {
   process.exit(1);
 }
 
+/**
+ * Shared primitive for CLI flags that accept `key=value` pairs. Splits on
+ * the first `=`, validates a non-empty key, and throws with a consistent
+ * error message across `--meta`, `--filter`, and `context set`. Callers
+ * layer their own value handling on top (string-only for meta, JSON-
+ * coerced for context).
+ */
+function splitKeyValue(pair: string, flag: string): [string, string] {
+  const eqIdx = pair.indexOf("=");
+  if (eqIdx === -1) {
+    throw new Error(`${flag} requires key=value pairs; got "${pair}"`);
+  }
+  const key = pair.slice(0, eqIdx);
+  if (!key) throw new Error(`${flag} key is empty in "${pair}"`);
+  return [key, pair.slice(eqIdx + 1)];
+}
+
 export function traversalStatus(store: TraversalStore, opts?: { filter?: string[] }): void {
   try {
     const result = store.listGraphs();
@@ -72,13 +89,8 @@ function parseMetaPairs(pairs: string[] | undefined, flag: string): Record<strin
   const out: Record<string, string> = {};
   if (!pairs) return out;
   for (const pair of pairs) {
-    const eqIdx = pair.indexOf("=");
-    if (eqIdx === -1) {
-      throw new Error(`${flag} requires key=value pairs; got "${pair}"`);
-    }
-    const key = pair.slice(0, eqIdx);
-    if (!key) throw new Error(`${flag} key is empty in "${pair}"`);
-    out[key] = pair.slice(eqIdx + 1);
+    const [key, value] = splitKeyValue(pair, flag);
+    out[key] = value;
   }
   return out;
 }
@@ -185,17 +197,12 @@ export function traversalContextSet(
   try {
     const id = store.resolveTraversalId(opts?.traversal);
 
-    // Parse key=value pairs
+    // Parse key=value pairs. Context accepts typed values, so JSON-coerce
+    // and fall back to the raw string — `foo=true` → boolean, `bar=1`
+    // → number, `baz=hello` → string.
     const parsed: Record<string, unknown> = {};
     for (const pair of updates) {
-      const eqIdx = pair.indexOf("=");
-      if (eqIdx === -1) {
-        info(`Error: invalid key=value pair: "${pair}"`);
-        process.exit(1);
-      }
-      const key = pair.slice(0, eqIdx);
-      const rawValue = pair.slice(eqIdx + 1);
-      // Try parsing as JSON, fall back to string
+      const [key, rawValue] = splitKeyValue(pair, "context set");
       try {
         parsed[key] = JSON.parse(rawValue);
       } catch {
