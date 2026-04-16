@@ -24,15 +24,6 @@ function generateTraversalId(): string {
   return `tr_${crypto.randomBytes(4).toString("hex")}`;
 }
 
-/** Merge two meta sources into one normalized record (or undefined when empty). */
-function mergeMeta(
-  caller?: Record<string, string>,
-  hook?: Record<string, string>,
-): Record<string, string> | undefined {
-  const merged = { ...caller, ...hook };
-  return Object.keys(merged).length > 0 ? merged : undefined;
-}
-
 function recordToInfo(row: TraversalRecord): TraversalInfo {
   const info: TraversalInfo = {
     traversalId: row.id,
@@ -123,7 +114,11 @@ export class TraversalStore {
     const now = new Date().toISOString();
     const active = stack[stack.length - 1];
 
-    const merged = mergeMeta(meta, hookMeta);
+    // hookMeta wins on key collision — the workflow's own tagging is the
+    // later, more specific write. Empty merged object collapses to undefined
+    // so the record shape stays "meta absent" rather than "meta: {}".
+    const mergedMeta = { ...meta, ...hookMeta };
+    const merged = Object.keys(mergedMeta).length > 0 ? mergedMeta : undefined;
 
     // Enforce graph-declared requiredMeta *after* hook collection, so an
     // onEnter `meta_set` hook on the start node can satisfy a required key
@@ -292,7 +287,9 @@ export class TraversalStore {
       createdAt: record.createdAt,
       updatedAt: new Date().toISOString(),
     };
-    // meta is immutable after createTraversal — carry it forward verbatim.
+    // Carry meta forward. Callers that want to update it (setMeta, the
+    // meta_set onEnter hook) mutate record.meta *before* calling saveEngine,
+    // so reading from `record` here picks up their writes.
     if (record.meta) next.meta = record.meta;
     this.state.put(next);
   }
