@@ -36,8 +36,10 @@ import { distillRun, guideShow, sourcesCheck, sourcesHash, sourcesValidate } fro
 import {
   traversalAdvance,
   traversalContextSet,
+  traversalFind,
   traversalInspect,
   traversalReset,
+  traversalResume,
   traversalStart,
   traversalStatus,
 } from "./traversals.js";
@@ -238,11 +240,16 @@ addWorkflowsOpt(
   program
     .command("start <graphId>")
     .description("Begin traversing a workflow graph")
-    .option("--context <json>", "Initial context as JSON"),
+    .option("--context <json>", "Initial context as JSON")
+    .option(
+      "--meta <pair>",
+      "Opaque key=value tag for lookup via `freelance traversals find` (repeatable)",
+      (value: string, previous?: string[]) => (previous ? [...previous, value] : [value]),
+    ),
 ).action(async (graphId, opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
-    await traversalStart(store, graphId, opts.context);
+    await traversalStart(store, graphId, opts.context, { meta: opts.meta });
   } finally {
     runtime.close();
   }
@@ -306,6 +313,41 @@ addWorkflowsOpt(
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
     traversalReset(store, traversalId, opts);
+  } finally {
+    runtime.close();
+  }
+});
+
+const traversalsCmd = program
+  .command("traversals")
+  .description("Look up and resume traversals by their caller-supplied meta tags");
+
+addWorkflowsOpt(
+  traversalsCmd
+    .command("find")
+    .description("List traversals whose meta tags match every key=value pair")
+    .requiredOption(
+      "--meta <pair>",
+      "Opaque key=value tag to match (repeatable; all must match)",
+      (value: string, previous?: string[]) => (previous ? [...previous, value] : [value]),
+    ),
+).action((opts) => {
+  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
+  try {
+    traversalFind(store, opts.meta);
+  } finally {
+    runtime.close();
+  }
+});
+
+addWorkflowsOpt(
+  program
+    .command("resume <traversalId>")
+    .description("Restore a traversal's position, context, and meta without mutating it"),
+).action((traversalId, opts) => {
+  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
+  try {
+    traversalResume(store, traversalId);
   } finally {
     runtime.close();
   }

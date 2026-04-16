@@ -3,8 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setCli } from "../src/cli/output.js";
 import {
   traversalContextSet,
+  traversalFind,
   traversalInspect,
   traversalReset,
+  traversalResume,
   traversalStart,
   traversalStatus,
 } from "../src/cli/traversals.js";
@@ -150,6 +152,119 @@ describe("traversalContextSet", () => {
       if (!graphId) return;
       await store.createTraversal(graphId);
       expect(() => traversalContextSet(store, ["noequalssign"])).toThrow("process.exit");
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("traversalStart --meta", () => {
+  it("persists meta key=value pairs and prints them", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      await traversalStart(store, graphId, undefined, {
+        meta: ["externalKey=DEV-1234", "branch=feature/x"],
+      });
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Meta:"));
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("DEV-1234"));
+      const list = store.listTraversals();
+      expect(list[0].meta).toEqual({ externalKey: "DEV-1234", branch: "feature/x" });
+    } finally {
+      store.close();
+    }
+  });
+
+  it("rejects malformed --meta pairs", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      await expect(
+        traversalStart(store, graphId, undefined, { meta: ["noequalssign"] }),
+      ).rejects.toThrow("process.exit");
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("traversalFind", () => {
+  it("finds traversals by meta and prints matches", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const r = await store.createTraversal(graphId, undefined, {
+        externalKey: "DEV-1234",
+      });
+      traversalFind(store, ["externalKey=DEV-1234"]);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Matches for"));
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining(r.traversalId));
+    } finally {
+      store.close();
+    }
+  });
+
+  it("reports no matches when none found", async () => {
+    const store = createTestStore();
+    try {
+      traversalFind(store, ["externalKey=DEV-none"]);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("No traversals match"));
+    } finally {
+      store.close();
+    }
+  });
+
+  it("requires at least one --meta pair", async () => {
+    const store = createTestStore();
+    try {
+      expect(() => traversalFind(store, [])).toThrow("process.exit");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("outputs JSON when --json set", async () => {
+    setCli({ json: true });
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      await store.createTraversal(graphId, undefined, { externalKey: "DEV-1" });
+      traversalFind(store, ["externalKey=DEV-1"]);
+      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
+      const parsed = JSON.parse(output);
+      expect(parsed).toHaveProperty("query", { externalKey: "DEV-1" });
+      expect(parsed.matches).toHaveLength(1);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("traversalResume", () => {
+  it("prints the current position and meta", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const { traversalId } = await store.createTraversal(graphId, undefined, {
+        externalKey: "DEV-9",
+      });
+      traversalResume(store, traversalId);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Resumed traversal"));
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("DEV-9"));
+    } finally {
+      store.close();
+    }
+  });
+
+  it("exits on unknown traversalId", async () => {
+    const store = createTestStore();
+    try {
+      expect(() => traversalResume(store, "tr_unknown")).toThrow("process.exit");
     } finally {
       store.close();
     }

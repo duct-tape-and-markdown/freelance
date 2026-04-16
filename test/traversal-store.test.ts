@@ -187,6 +187,166 @@ describe("TraversalStore — stateless JSON", () => {
     });
   });
 
+  describe("meta tags + find + resume", () => {
+    it("persists meta on createTraversal and surfaces it in list", async () => {
+      const r = await store.createTraversal("valid-simple", undefined, {
+        externalKey: "DEV-1234",
+        branch: "feature/x",
+      });
+      expect(r.meta).toEqual({ externalKey: "DEV-1234", branch: "feature/x" });
+
+      const list = store.listTraversals();
+      expect(list).toHaveLength(1);
+      expect(list[0].meta).toEqual({ externalKey: "DEV-1234", branch: "feature/x" });
+    });
+
+    it("treats undefined/empty meta as absent (no field on record)", async () => {
+      const a = await store.createTraversal("valid-simple");
+      const b = await store.createTraversal("valid-branching", undefined, {});
+      expect(a.meta).toBeUndefined();
+      expect(b.meta).toBeUndefined();
+      for (const info of store.listTraversals()) {
+        expect(info.meta).toBeUndefined();
+      }
+    });
+
+    it("findTraversalsByMeta matches exact key/value pairs", async () => {
+      const a = await store.createTraversal("valid-simple", undefined, {
+        externalKey: "DEV-1234",
+      });
+      await store.createTraversal("valid-branching", undefined, {
+        externalKey: "DEV-9999",
+      });
+
+      const hit = store.findTraversalsByMeta({ externalKey: "DEV-1234" });
+      expect(hit.query).toEqual({ externalKey: "DEV-1234" });
+      expect(hit.matches).toHaveLength(1);
+      expect(hit.matches[0].traversalId).toBe(a.traversalId);
+
+      const miss = store.findTraversalsByMeta({ externalKey: "NOPE" });
+      expect(miss.matches).toHaveLength(0);
+    });
+
+    it("findTraversalsByMeta narrows with multi-key queries (AND semantics)", async () => {
+      const a = await store.createTraversal("valid-simple", undefined, {
+        externalKey: "DEV-1234",
+        phase: "analysis",
+      });
+      await store.createTraversal("valid-branching", undefined, {
+        externalKey: "DEV-1234",
+        phase: "implementation",
+      });
+
+      const both = store.findTraversalsByMeta({
+        externalKey: "DEV-1234",
+        phase: "analysis",
+      });
+      expect(both.matches).toHaveLength(1);
+      expect(both.matches[0].traversalId).toBe(a.traversalId);
+
+      const eitherKey = store.findTraversalsByMeta({ externalKey: "DEV-1234" });
+      expect(eitherKey.matches).toHaveLength(2);
+    });
+
+    it("findTraversalsByMeta skips records without matching keys", async () => {
+      await store.createTraversal("valid-simple");
+      await store.createTraversal("valid-branching", undefined, { externalKey: "DEV-1" });
+
+      const hit = store.findTraversalsByMeta({ externalKey: "DEV-1" });
+      expect(hit.matches).toHaveLength(1);
+    });
+
+    it("findTraversalsByMeta rejects empty query", () => {
+      expect(() => store.findTraversalsByMeta({})).toThrow(EngineError);
+    });
+
+    it("meta survives advance/contextSet round-trips (immutable after start)", async () => {
+      const r = await store.createTraversal("valid-simple", undefined, { externalKey: "DEV-1234" });
+      store.contextSet(r.traversalId, { taskStarted: true });
+      await store.advance(r.traversalId, "work-done");
+
+      const list = store.listTraversals();
+      expect(list[0].meta).toEqual({ externalKey: "DEV-1234" });
+    });
+
+    it("resumeTraversal returns position + context + meta without mutating", async () => {
+      const r = await store.createTraversal(
+        "valid-simple",
+        { initialNote: "hello" },
+        { externalKey: "DEV-1234", prUrl: "https://example/pr/7" },
+      );
+      store.contextSet(r.traversalId, { taskStarted: true });
+      await store.advance(r.traversalId, "work-done");
+
+      const resumed = store.resumeTraversal(r.traversalId);
+      expect(resumed.status).toBe("resumed");
+      expect(resumed.traversalId).toBe(r.traversalId);
+      expect(resumed.currentNode).toBe("review");
+      expect(resumed.meta).toEqual({
+        externalKey: "DEV-1234",
+        prUrl: "https://example/pr/7",
+      });
+      expect(resumed.context).toMatchObject({
+        initialNote: "hello",
+        taskStarted: true,
+      });
+      expect(Array.isArray(resumed.validTransitions)).toBe(true);
+
+      // Read-only — underlying record unchanged
+      const list = store.listTraversals();
+      expect(list[0].currentNode).toBe("review");
+    });
+
+    it("resumeTraversal throws TRAVERSAL_NOT_FOUND for unknown id", () => {
+      expect(() => store.resumeTraversal("tr_nonexistent")).toThrow(EngineError);
+    });
+
+    it("meta round-trips through process restart (persisted on disk)", async () => {
+      const dir = path.join(tmpDir, "traversals");
+      const r = await store.createTraversal("valid-simple", undefined, { externalKey: "DEV-9" });
+      store.close();
+
+      const store2 = new TraversalStore(openStateStore(dir), graphs, {
+        hookRunner: new HookRunner(),
+      });
+      try {
+        const found = store2.findTraversalsByMeta({ externalKey: "DEV-9" });
+        expect(found.matches).toHaveLength(1);
+        expect(found.matches[0].traversalId).toBe(r.traversalId);
+        const resumed = store2.resumeTraversal(r.traversalId);
+        expect(resumed.meta).toEqual({ externalKey: "DEV-9" });
+      } finally {
+        store2.close();
+      }
+
+      // Reassign so afterEach doesn't double-close
+      store = new TraversalStore(openStateStore(dir), graphs, {
+        hookRunner: new HookRunner(),
+      });
+    });
+  });
+
+  describe("listGraphs determinism", () => {
+    it("returns graphs sorted by id regardless of insertion order", async () => {
+      // Reinstall store with graphs inserted in reverse-alphabetical order to
+      // prove `listGraphs` sorts its output rather than echoing Map order.
+      const reversed = new Map<string, ValidatedGraph>();
+      const ids = [...graphs.keys()].sort().reverse();
+      for (const id of ids) {
+        const g = graphs.get(id);
+        if (g) reversed.set(id, g);
+      }
+      store.close();
+      store = new TraversalStore(openStateStore(path.join(tmpDir, "traversals2")), reversed, {
+        hookRunner: new HookRunner(),
+      });
+
+      const listed = store.listGraphs().graphs.map((g) => g.id);
+      const expected = [...listed].sort();
+      expect(listed).toEqual(expected);
+    });
+  });
+
   describe("hasActiveTraversalForGraph", () => {
     it("returns false when no traversals exist", async () => {
       expect(store.hasActiveTraversalForGraph("valid-simple")).toBe(false);

@@ -11,9 +11,12 @@ import { EngineError } from "../errors.js";
 import type {
   AdvanceResult,
   ContextSetResult,
+  InspectPositionResult,
   InspectResult,
   ResetResult,
+  ResumeResult,
   StartResult,
+  TraversalFindResult,
   TraversalInfo,
   TraversalListResult,
   ValidatedGraph,
@@ -22,6 +25,17 @@ import type { StateStore, TraversalRecord } from "./db.js";
 
 function generateTraversalId(): string {
   return `tr_${crypto.randomBytes(4).toString("hex")}`;
+}
+
+function recordToInfo(row: TraversalRecord): TraversalInfo {
+  const info: TraversalInfo = {
+    traversalId: row.id,
+    graphId: row.graphId,
+    currentNode: row.currentNode,
+    lastUpdated: row.updatedAt,
+    stackDepth: row.stackDepth,
+  };
+  return row.meta ? { ...info, meta: row.meta } : info;
 }
 
 export class TraversalStore {
@@ -52,6 +66,9 @@ export class TraversalStore {
   // --- Read operations ---
 
   listGraphs(): TraversalListResult {
+    // Sort by id so `freelance_list` is deterministic across filesystems
+    // and runs — eval harnesses diff the output, and readdir order is not
+    // stable across platforms.
     const graphList = [];
     for (const [id, vg] of this.graphs) {
       graphList.push({
@@ -61,6 +78,7 @@ export class TraversalStore {
         description: vg.definition.description ?? "",
       });
     }
+    graphList.sort((a, b) => a.id.localeCompare(b.id));
     return {
       graphs: graphList,
       activeTraversals: this.listTraversals(),
@@ -68,13 +86,32 @@ export class TraversalStore {
   }
 
   listTraversals(): TraversalInfo[] {
-    return this.state.list().map((row) => ({
-      traversalId: row.id,
-      graphId: row.graphId,
-      currentNode: row.currentNode,
-      lastUpdated: row.updatedAt,
-      stackDepth: row.stackDepth,
-    }));
+    return this.state.list().map(recordToInfo);
+  }
+
+  /**
+   * Find traversals whose `meta` tags match every entry in `query`. Matching
+   * is exact string equality on both key and value — Freelance treats the
+   * tags as opaque. Returns all matches (multiple phases of the same ticket
+   * can share an externalKey, for example) sorted by most-recently-updated.
+   */
+  findTraversalsByMeta(query: Record<string, string>): TraversalFindResult {
+    const entries = Object.entries(query);
+    if (entries.length === 0) {
+      throw new EngineError(
+        "findTraversalsByMeta requires at least one key=value pair",
+        "INVALID_QUERY",
+      );
+    }
+    const matches = this.state
+      .list()
+      .filter((row) => {
+        const meta = row.meta;
+        if (!meta) return false;
+        return entries.every(([k, v]) => meta[k] === v);
+      })
+      .map(recordToInfo);
+    return { query: { ...query }, matches };
   }
 
   /** Check whether any active traversal belongs to one of the given graph IDs. */
@@ -89,7 +126,8 @@ export class TraversalStore {
   async createTraversal(
     graphId: string,
     initialContext?: Record<string, unknown>,
-  ): Promise<{ traversalId: string } & StartResult> {
+    meta?: Record<string, string>,
+  ): Promise<{ traversalId: string; meta?: Record<string, string> } & StartResult> {
     const id = generateTraversalId();
     const engine = this.newEngine();
     const result = await engine.start(graphId, initialContext);
@@ -98,7 +136,12 @@ export class TraversalStore {
     const now = new Date().toISOString();
     const active = stack[stack.length - 1];
 
-    this.state.put({
+    // Keep `meta` absent (vs present-and-empty) when no tags are supplied —
+    // callers treat `undefined` as "no external reference" and we want the
+    // JSON records to round-trip cleanly.
+    const normalizedMeta = meta && Object.keys(meta).length > 0 ? { ...meta } : undefined;
+
+    const record: TraversalRecord = {
       id,
       stack,
       graphId: active.graphId,
@@ -106,9 +149,13 @@ export class TraversalStore {
       stackDepth: stack.length,
       createdAt: now,
       updatedAt: now,
-    });
+    };
+    if (normalizedMeta) record.meta = normalizedMeta;
+    this.state.put(record);
 
-    return { traversalId: id, ...result };
+    return normalizedMeta
+      ? { traversalId: id, meta: normalizedMeta, ...result }
+      : { traversalId: id, ...result };
   }
 
   async advance(
@@ -139,6 +186,39 @@ export class TraversalStore {
     const { engine } = this.loadEngine(traversalId);
     const result = engine.inspect(detail);
     return { traversalId, ...result };
+  }
+
+  /**
+   * Look up a traversal by id and return enough state for a caller to pick it
+   * back up: current node, valid edges, full context, meta tags. Read-only —
+   * doesn't mutate the stored record.
+   */
+  resumeTraversal(traversalId: string): ResumeResult {
+    const { engine, record } = this.loadEngine(traversalId);
+    const inspect = engine.inspect("position") as InspectPositionResult;
+    // Build as a plain writable object, then return — TypeScript infers the
+    // ResumeResult shape at the return site. Keeps optional fields absent
+    // (not present-as-undefined) so the JSON output is tight.
+    const result: Record<string, unknown> = {
+      status: "resumed",
+      traversalId: record.id,
+      graphId: inspect.graphId,
+      graphName: inspect.graphName,
+      currentNode: inspect.currentNode,
+      node: inspect.node,
+      validTransitions: inspect.validTransitions,
+      context: inspect.context,
+      stackDepth: inspect.stackDepth,
+      stack: inspect.stack,
+      lastUpdated: record.updatedAt,
+    };
+    if (record.meta) result.meta = record.meta;
+    if (inspect.graphSources) result.graphSources = inspect.graphSources;
+    if (inspect.waitStatus) result.waitStatus = inspect.waitStatus;
+    if (inspect.waitingOn) result.waitingOn = inspect.waitingOn;
+    if (inspect.timeout) result.timeout = inspect.timeout;
+    if (inspect.timeoutAt) result.timeoutAt = inspect.timeoutAt;
+    return result as unknown as ResumeResult;
   }
 
   resetTraversal(traversalId: string): { traversalId: string } & ResetResult {
@@ -197,7 +277,7 @@ export class TraversalStore {
     }
 
     const active = stack[stack.length - 1];
-    this.state.put({
+    const next: TraversalRecord = {
       id: record.id,
       stack,
       graphId: active.graphId,
@@ -205,6 +285,9 @@ export class TraversalStore {
       stackDepth: stack.length,
       createdAt: record.createdAt,
       updatedAt: new Date().toISOString(),
-    });
+    };
+    // meta is immutable after createTraversal — carry it forward verbatim.
+    if (record.meta) next.meta = record.meta;
+    this.state.put(next);
   }
 }

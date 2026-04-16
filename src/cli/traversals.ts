@@ -47,10 +47,31 @@ export function traversalStatus(store: TraversalStore): void {
   }
 }
 
+/**
+ * Parse an array of `key=value` strings into a plain record. Used by the
+ * --meta flag on `start` and `traversals find`. Values stay strings — meta
+ * is deliberately opaque, so no JSON coercion here.
+ */
+function parseMetaPairs(pairs: string[] | undefined, flag: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!pairs) return out;
+  for (const pair of pairs) {
+    const eqIdx = pair.indexOf("=");
+    if (eqIdx === -1) {
+      throw new Error(`${flag} requires key=value pairs; got "${pair}"`);
+    }
+    const key = pair.slice(0, eqIdx);
+    if (!key) throw new Error(`${flag} key is empty in "${pair}"`);
+    out[key] = pair.slice(eqIdx + 1);
+  }
+  return out;
+}
+
 export async function traversalStart(
   store: TraversalStore,
   graphId: string,
   context?: string,
+  opts?: { meta?: string[] },
 ): Promise<void> {
   try {
     let initialContext: Record<string, unknown> | undefined;
@@ -62,7 +83,12 @@ export async function traversalStart(
         throw new Error(`--context must be valid JSON: ${msg}`);
       }
     }
-    const result = await store.createTraversal(graphId, initialContext);
+    const meta = parseMetaPairs(opts?.meta, "--meta");
+    const result = await store.createTraversal(
+      graphId,
+      initialContext,
+      Object.keys(meta).length > 0 ? meta : undefined,
+    );
     if (cli.json) {
       outputJson(result);
     } else {
@@ -70,6 +96,9 @@ export async function traversalStart(
       info(`  Node: ${result.currentNode}`);
       if (result.node.description) {
         info(`  Description: ${result.node.description}`);
+      }
+      if (result.meta) {
+        info(`  Meta: ${JSON.stringify(result.meta)}`);
       }
     }
   } catch (e) {
@@ -211,6 +240,58 @@ export function traversalInspect(
         for (const h of hist.traversalHistory) {
           info(`    ${h.node} (${h.edge ?? "start"})`);
         }
+      }
+    }
+  } catch (e) {
+    handleError(e);
+  }
+}
+
+export function traversalFind(store: TraversalStore, metaPairs: string[]): void {
+  try {
+    const query = parseMetaPairs(metaPairs, "--meta");
+    if (Object.keys(query).length === 0) {
+      throw new Error("traversals find requires at least one --meta key=value pair");
+    }
+    const result = store.findTraversalsByMeta(query);
+    if (cli.json) {
+      outputJson(result);
+      return;
+    }
+    if (result.matches.length === 0) {
+      info(`No traversals match ${JSON.stringify(query)}.`);
+      return;
+    }
+    info(`Matches for ${JSON.stringify(query)}:`);
+    for (const t of result.matches) {
+      info(
+        `  ${t.traversalId}  ${t.graphId} @ ${t.currentNode}  (depth: ${t.stackDepth}, updated: ${t.lastUpdated})`,
+      );
+      if (t.meta) info(`    meta: ${JSON.stringify(t.meta)}`);
+    }
+  } catch (e) {
+    handleError(e);
+  }
+}
+
+export function traversalResume(store: TraversalStore, traversalId: string): void {
+  try {
+    const result = store.resumeTraversal(traversalId);
+    if (cli.json) {
+      outputJson(result);
+      return;
+    }
+    info(`Resumed traversal ${result.traversalId}`);
+    info(`  Graph: ${result.graphId} (${result.graphName})`);
+    info(`  Node:  ${result.currentNode}`);
+    if (result.node.description) info(`  Description: ${result.node.description}`);
+    if (result.meta) info(`  Meta: ${JSON.stringify(result.meta)}`);
+    if (result.validTransitions?.length) {
+      info("  Edges:");
+      for (const t of result.validTransitions) {
+        info(
+          `    ${t.label}${t.target ? ` → ${t.target}` : ""}${t.conditionMet === false ? " (condition not met)" : ""}`,
+        );
       }
     }
   } catch (e) {

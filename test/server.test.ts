@@ -281,6 +281,127 @@ describe("MCP server integration", () => {
   });
 });
 
+describe("MCP server — meta tags, find, resume", () => {
+  let client: Client;
+  let cleanup: () => Promise<void>;
+
+  beforeEach(async () => {
+    const graphs = loadFixtures("valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
+    const { server } = createServer(graphs);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    cleanup = async () => {
+      await client.close();
+      await server.close();
+    };
+  });
+
+  afterEach(async () => {
+    await cleanup();
+  });
+
+  it("freelance_start accepts meta and echoes it back", async () => {
+    const result = await client.callTool({
+      name: "freelance_start",
+      arguments: {
+        graphId: "valid-simple",
+        meta: { externalKey: "DEV-1234", branch: "feature/x" },
+      },
+    });
+    expect(result.isError).toBeFalsy();
+    const data = parseContent(result) as {
+      traversalId: string;
+      meta?: Record<string, string>;
+    };
+    expect(data.meta).toEqual({ externalKey: "DEV-1234", branch: "feature/x" });
+  });
+
+  it("freelance_traversals_find returns matching traversalIds", async () => {
+    const startA = (await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "valid-simple", meta: { externalKey: "DEV-1" } },
+    })) as Awaited<ReturnType<Client["callTool"]>>;
+    const a = parseContent(startA) as { traversalId: string };
+
+    await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "valid-branching", meta: { externalKey: "DEV-2" } },
+    });
+
+    const found = await client.callTool({
+      name: "freelance_traversals_find",
+      arguments: { meta: { externalKey: "DEV-1" } },
+    });
+    expect(found.isError).toBeFalsy();
+    const data = parseContent(found) as {
+      query: Record<string, string>;
+      matches: Array<{ traversalId: string; meta?: Record<string, string> }>;
+    };
+    expect(data.query).toEqual({ externalKey: "DEV-1" });
+    expect(data.matches).toHaveLength(1);
+    expect(data.matches[0].traversalId).toBe(a.traversalId);
+    expect(data.matches[0].meta).toEqual({ externalKey: "DEV-1" });
+  });
+
+  it("freelance_traversals_find rejects empty meta", async () => {
+    const result = await client.callTool({
+      name: "freelance_traversals_find",
+      arguments: { meta: {} },
+    });
+    expect(result.isError).toBe(true);
+  });
+
+  it("freelance_resume restores position + context + meta", async () => {
+    const start = await client.callTool({
+      name: "freelance_start",
+      arguments: {
+        graphId: "valid-simple",
+        initialContext: { hint: "resume me" },
+        meta: { externalKey: "DEV-42" },
+      },
+    });
+    const { traversalId } = parseContent(start) as { traversalId: string };
+
+    await client.callTool({
+      name: "freelance_advance",
+      arguments: { edge: "work-done", contextUpdates: { taskStarted: true } },
+    });
+
+    const resumed = await client.callTool({
+      name: "freelance_resume",
+      arguments: { traversalId },
+    });
+    expect(resumed.isError).toBeFalsy();
+    const data = parseContent(resumed) as {
+      status: string;
+      currentNode: string;
+      meta: Record<string, string>;
+      context: Record<string, unknown>;
+    };
+    expect(data.status).toBe("resumed");
+    expect(data.currentNode).toBe("review");
+    expect(data.meta).toEqual({ externalKey: "DEV-42" });
+    expect(data.context).toMatchObject({ hint: "resume me", taskStarted: true });
+  });
+
+  it("freelance_resume errors on unknown traversalId", async () => {
+    const result = await client.callTool({
+      name: "freelance_resume",
+      arguments: { traversalId: "tr_nonexistent" },
+    });
+    expect(result.isError).toBe(true);
+  });
+
+  it("freelance_list returns graphs sorted by id (deterministic)", async () => {
+    const result = await client.callTool({ name: "freelance_list", arguments: {} });
+    const data = parseContent(result) as { graphs: Array<{ id: string }> };
+    const ids = data.graphs.map((g) => g.id);
+    expect(ids).toEqual([...ids].sort());
+  });
+});
+
 describe("MCP server source tools", () => {
   let client: Client;
   let cleanup: () => Promise<void>;
