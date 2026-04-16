@@ -94,8 +94,8 @@ Override with `--source-root <path>` (CLI) or `sourceRoot` (ServerOptions).
   - `builtin-hooks.ts` — `BUILTIN_HOOKS` map of name → `HookFn` (`memory_status`, `memory_browse`); `requireMemory` guard helper
   - `helpers.ts` — Shared utilities (cloneContext, toNodeInfo)
 - `src/state/` — Stateless traversal store (JSON files on disk under `.freelance/traversals/`)
-  - `traversal-store.ts` — Multi-traversal management, loads/saves state per operation
-  - `db.ts` — StateStore interface + JSON-directory and in-memory backends; `openStateStore` factory owns the `mkdirSync` (constructor is pure)
+  - `traversal-store.ts` — Multi-traversal management, loads/saves state per operation; owns `setMeta` (merge semantics) and meta enrichment of `inspect` / `advance` / `list` responses
+  - `db.ts` — `StateStore` interface + JSON-directory and in-memory backends; `TraversalRecord` carries an optional `meta: Record<string,string>` of opaque caller-supplied lookup tags (Freelance never interprets them — see `freelance_guide meta`); `openStateStore` factory owns the `mkdirSync` (constructor is pure)
 - `src/memory/` — Persistent knowledge graph (SQLite under `.freelance/memory/`)
   - `store.ts` — `MemoryStore` constructor takes an already-opened `Db` handle + required `sourceRoot` (I/O lives in `composeRuntime`)
   - `db.ts` — `openDatabase` with schema compatibility check

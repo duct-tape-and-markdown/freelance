@@ -16,6 +16,7 @@ import { registerDistillTool } from "./distill.js";
 import { registerGuideTool } from "./guide.js";
 import { registerInspectTool } from "./inspect.js";
 import { registerListTool } from "./list.js";
+import { registerMetaSetTool } from "./meta-set.js";
 import { registerResetTool } from "./reset.js";
 import { registerSourcesCheckTool } from "./sources-check.js";
 import { registerSourcesHashTool } from "./sources-hash.js";
@@ -35,6 +36,7 @@ export function registerFreelanceTools(server: McpServer, deps: FreelanceToolDep
   registerAdvanceTool(server, deps);
   registerContextSetTool(server, deps);
   registerInspectTool(server, deps);
+  registerMetaSetTool(server, deps);
   registerResetTool(server, deps);
   registerGuideTool(server);
   registerDistillTool(server);

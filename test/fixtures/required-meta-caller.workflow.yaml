@@ -1,0 +1,17 @@
+id: required-meta-caller
+version: "1.0.0"
+name: "Required Meta — Caller"
+description: "Graph requires meta.externalKey at start; caller must supply it."
+startNode: start
+requiredMeta: [externalKey]
+
+nodes:
+  start:
+    type: action
+    description: "Start"
+    edges:
+      - target: done
+        label: next
+  done:
+    type: terminal
+    description: "Done"

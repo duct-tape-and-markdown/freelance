@@ -281,6 +281,201 @@ describe("MCP server integration", () => {
   });
 });
 
+describe("MCP server — meta tags", () => {
+  let client: Client;
+  let cleanup: () => Promise<void>;
+
+  beforeEach(async () => {
+    const graphs = loadFixtures(
+      "valid-simple.workflow.yaml",
+      "valid-branching.workflow.yaml",
+      "required-meta-caller.workflow.yaml",
+    );
+    const { server } = createServer(graphs);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    cleanup = async () => {
+      await client.close();
+      await server.close();
+    };
+  });
+
+  afterEach(async () => {
+    await cleanup();
+  });
+
+  it("freelance_start rejects calls missing requiredMeta keys", async () => {
+    const result = await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "required-meta-caller" },
+    });
+    expect(result.isError).toBe(true);
+    const text = JSON.stringify(parseContent(result));
+    expect(text).toContain("externalKey");
+    // And the failed start should not have created a traversal.
+    const list = await client.callTool({ name: "freelance_list", arguments: {} });
+    const data = parseContent(list) as { activeTraversals: unknown[] };
+    expect(data.activeTraversals).toHaveLength(0);
+  });
+
+  it("freelance_start accepts meta and echoes it back", async () => {
+    const result = await client.callTool({
+      name: "freelance_start",
+      arguments: {
+        graphId: "valid-simple",
+        meta: { externalKey: "DEV-1234", branch: "feature/x" },
+      },
+    });
+    expect(result.isError).toBeFalsy();
+    const data = parseContent(result) as {
+      traversalId: string;
+      meta?: Record<string, string>;
+    };
+    expect(data.meta).toEqual({ externalKey: "DEV-1234", branch: "feature/x" });
+  });
+
+  it("freelance_list surfaces meta on each active traversal (discovery path)", async () => {
+    const startA = await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "valid-simple", meta: { externalKey: "DEV-1" } },
+    });
+    const a = parseContent(startA) as { traversalId: string };
+    await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "valid-branching", meta: { externalKey: "DEV-2" } },
+    });
+
+    const list = await client.callTool({ name: "freelance_list", arguments: {} });
+    const data = parseContent(list) as {
+      activeTraversals: Array<{ traversalId: string; meta?: Record<string, string> }>;
+    };
+    const byId = new Map(data.activeTraversals.map((t) => [t.traversalId, t]));
+    expect(byId.get(a.traversalId)?.meta).toEqual({ externalKey: "DEV-1" });
+  });
+
+  it("freelance_inspect includes meta alongside position state", async () => {
+    const start = await client.callTool({
+      name: "freelance_start",
+      arguments: {
+        graphId: "valid-simple",
+        initialContext: { hint: "recover me" },
+        meta: { externalKey: "DEV-42" },
+      },
+    });
+    const { traversalId } = parseContent(start) as { traversalId: string };
+
+    await client.callTool({
+      name: "freelance_advance",
+      arguments: { edge: "work-done", contextUpdates: { taskStarted: true } },
+    });
+
+    const inspected = await client.callTool({
+      name: "freelance_inspect",
+      arguments: { traversalId, detail: "position" },
+    });
+    expect(inspected.isError).toBeFalsy();
+    const data = parseContent(inspected) as {
+      currentNode: string;
+      meta: Record<string, string>;
+      context: Record<string, unknown>;
+    };
+    expect(data.currentNode).toBe("review");
+    expect(data.meta).toEqual({ externalKey: "DEV-42" });
+    expect(data.context).toMatchObject({ hint: "recover me", taskStarted: true });
+  });
+
+  it("freelance_meta_set merges new keys into existing meta", async () => {
+    const start = await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "valid-simple", meta: { externalKey: "DEV-1" } },
+    });
+    const { traversalId } = parseContent(start) as { traversalId: string };
+
+    const updated = await client.callTool({
+      name: "freelance_meta_set",
+      arguments: { traversalId, meta: { prUrl: "https://example/pr/7" } },
+    });
+    expect(updated.isError).toBeFalsy();
+    const data = parseContent(updated) as { meta: Record<string, string> };
+    expect(data.meta).toEqual({ externalKey: "DEV-1", prUrl: "https://example/pr/7" });
+
+    // Visible via inspect afterward
+    const inspected = await client.callTool({
+      name: "freelance_inspect",
+      arguments: { traversalId, detail: "position" },
+    });
+    const inspData = parseContent(inspected) as { meta: Record<string, string> };
+    expect(inspData.meta).toEqual({ externalKey: "DEV-1", prUrl: "https://example/pr/7" });
+  });
+
+  it("freelance_meta_set rejects empty meta", async () => {
+    await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "valid-simple" },
+    });
+    const result = await client.callTool({
+      name: "freelance_meta_set",
+      arguments: { meta: {} },
+    });
+    expect(result.isError).toBe(true);
+  });
+
+  it("meta round-trips cleanly through start → advance → inspect responses (JSON shape)", async () => {
+    const start = await client.callTool({
+      name: "freelance_start",
+      arguments: {
+        graphId: "valid-simple",
+        meta: { externalKey: "DEV-1234", branch: "feature/x" },
+      },
+    });
+    const startData = parseContent(start) as { traversalId: string; meta: Record<string, string> };
+    expect(startData.meta).toEqual({ externalKey: "DEV-1234", branch: "feature/x" });
+
+    const advanced = await client.callTool({
+      name: "freelance_advance",
+      arguments: { edge: "work-done", contextUpdates: { taskStarted: true } },
+    });
+    const advData = parseContent(advanced) as { meta?: Record<string, string> };
+    expect(advData.meta).toEqual({ externalKey: "DEV-1234", branch: "feature/x" });
+
+    const list = await client.callTool({ name: "freelance_list", arguments: {} });
+    const listData = parseContent(list) as {
+      activeTraversals: Array<{ traversalId: string; meta?: Record<string, string> }>;
+    };
+    const entry = listData.activeTraversals.find((t) => t.traversalId === startData.traversalId);
+    expect(entry?.meta).toEqual({ externalKey: "DEV-1234", branch: "feature/x" });
+  });
+
+  it("AMBIGUOUS_TRAVERSAL error includes meta tags so callers can disambiguate by domain key", async () => {
+    await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "valid-simple", meta: { externalKey: "DEV-1" } },
+    });
+    await client.callTool({
+      name: "freelance_start",
+      arguments: { graphId: "valid-branching", meta: { externalKey: "DEV-2" } },
+    });
+    // Omitting traversalId on advance triggers ambiguous resolution
+    const result = await client.callTool({
+      name: "freelance_advance",
+      arguments: { edge: "anything" },
+    });
+    expect(result.isError).toBe(true);
+    const text = JSON.stringify(parseContent(result));
+    expect(text).toContain("DEV-1");
+    expect(text).toContain("DEV-2");
+  });
+
+  it("freelance_list returns graphs sorted by id (deterministic)", async () => {
+    const result = await client.callTool({ name: "freelance_list", arguments: {} });
+    const data = parseContent(result) as { graphs: Array<{ id: string }> };
+    const ids = data.graphs.map((g) => g.id);
+    expect(ids).toEqual([...ids].sort());
+  });
+});
+
 describe("MCP server source tools", () => {
   let client: Client;
   let cleanup: () => Promise<void>;

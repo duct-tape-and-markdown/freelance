@@ -119,11 +119,12 @@ Read tools (available anytime):
 
 | Tool | Description |
 |------|-------------|
-| `freelance_list` | Discover available workflow graphs and active traversals |
-| `freelance_start` | Begin traversing a graph |
+| `freelance_list` | Discover available workflow graphs and active traversals (each with any `meta` tags) |
+| `freelance_start` | Begin traversing a graph (optional opaque `meta` tags for later lookup) |
 | `freelance_advance` | Move to the next node via a labeled edge |
 | `freelance_context_set` | Update session context without advancing |
-| `freelance_inspect` | Read-only introspection (position, history, or full graph) |
+| `freelance_meta_set` | Merge opaque `meta` tags onto a traversal (add or overwrite) |
+| `freelance_inspect` | Read-only introspection (position, history, or full graph); includes `meta` tags |
 | `freelance_reset` | Clear traversal and start over |
 | `freelance_guide` | Authoring guidance for writing graphs |
 | `freelance_distill` | Distill a task into a new workflow |
@@ -260,12 +261,13 @@ freelance validate <dir>                  # Validate graph definitions
 freelance visualize <file>                # Render graph as Mermaid or DOT
 
 # Traversals
-freelance status                          # Show loaded graphs and active traversals
-freelance start <graphId>                 # Begin a workflow traversal
-freelance advance [edge]                  # Move to next node via edge label
-freelance context set <key=value...>      # Update traversal context
-freelance inspect [traversalId]           # Read-only introspection
-freelance reset [traversalId] --confirm   # Clear a traversal
+freelance status [--filter key=value ...]           # Show loaded graphs and active traversals (with meta); --filter narrows by meta
+freelance start <graphId> [--meta key=value ...]    # Begin a workflow traversal, optionally tagged
+freelance advance [edge]                            # Move to next node via edge label
+freelance context set <key=value...>                # Update traversal context
+freelance meta set <key=value...>                   # Merge meta tags (add or overwrite)
+freelance inspect [traversalId]                     # Read-only introspection (includes meta)
+freelance reset [traversalId] --confirm             # Clear a traversal
 
 # Memory
 freelance memory status                   # Proposition and entity counts

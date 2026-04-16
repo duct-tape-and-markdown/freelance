@@ -164,7 +164,7 @@ describe("CLI init", () => {
   });
 
   it("each starter template copies correctly", async () => {
-    for (const starter of ["blank"] as const) {
+    for (const starter of ["blank", "tagged"] as const) {
       const dir = tmpDir();
       process.chdir(dir);
       await init(defaults({ starter, client: "manual" }));
