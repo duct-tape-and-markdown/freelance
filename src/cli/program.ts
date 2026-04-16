@@ -37,6 +37,7 @@ import {
   traversalAdvance,
   traversalContextSet,
   traversalInspect,
+  traversalMetaSet,
   traversalReset,
   traversalStart,
   traversalStatus,
@@ -96,7 +97,11 @@ program
   )
   .option("--workflows <path>", "Where to put workflow definitions")
   .addOption(
-    new Option("--starter <template>", "Starter graph to scaffold").choices(["blank", "none"]),
+    new Option("--starter <template>", "Starter graph to scaffold").choices([
+      "blank",
+      "tagged",
+      "none",
+    ]),
   )
   .option("--hooks", "Enable workflow enforcement hooks (Claude Code only)")
   .option("--yes", "Skip all prompts, use defaults")
@@ -224,11 +229,18 @@ function addWorkflowsOpt(cmd: Command): Command {
 }
 
 addWorkflowsOpt(
-  program.command("status").description("Show loaded graphs and active traversals"),
+  program
+    .command("status")
+    .description("Show loaded graphs and active traversals")
+    .option(
+      "--filter <pair>",
+      "Show only traversals whose meta tags match key=value (repeatable; all must match)",
+      (value: string, previous?: string[]) => (previous ? [...previous, value] : [value]),
+    ),
 ).action((opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
-    traversalStatus(store);
+    traversalStatus(store, { filter: opts.filter });
   } finally {
     runtime.close();
   }
@@ -238,11 +250,16 @@ addWorkflowsOpt(
   program
     .command("start <graphId>")
     .description("Begin traversing a workflow graph")
-    .option("--context <json>", "Initial context as JSON"),
+    .option("--context <json>", "Initial context as JSON")
+    .option(
+      "--meta <pair>",
+      "Opaque key=value tag for lookup via `freelance traversals find` (repeatable)",
+      (value: string, previous?: string[]) => (previous ? [...previous, value] : [value]),
+    ),
 ).action(async (graphId, opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
-    await traversalStart(store, graphId, opts.context);
+    await traversalStart(store, graphId, opts.context, { meta: opts.meta });
   } finally {
     runtime.close();
   }
@@ -274,6 +291,22 @@ addWorkflowsOpt(
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
     traversalContextSet(store, updates, opts);
+  } finally {
+    runtime.close();
+  }
+});
+
+const metaCmd = program.command("meta").description("Update traversal meta tags");
+
+addWorkflowsOpt(
+  metaCmd
+    .command("set <updates...>")
+    .description("Merge meta key=value tags (e.g. prUrl=https://… branch=feature/x)")
+    .option("--traversal <id>", "Traversal ID (auto-resolved if only one active)"),
+).action((updates, opts) => {
+  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
+  try {
+    traversalMetaSet(store, updates, opts);
   } finally {
     runtime.close();
   }

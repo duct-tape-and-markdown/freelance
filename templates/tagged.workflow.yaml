@@ -1,0 +1,51 @@
+id: tagged-workflow
+version: "1.0.0"
+name: "Tagged Workflow (meta starter)"
+description: |
+  A starter workflow that demonstrates the `meta` pattern for external-ref tracking.
+  Callers must start this workflow with meta.externalKey (e.g. a ticket id) — that
+  key stays on the traversal for the lifetime of the work, so other agents and
+  external systems can find this traversal by domain identity.
+startNode: start
+
+# Enforced at freelance_start: callers must pass meta.externalKey, or a start-node
+# onEnter hook must set it. Delete this line if tagging should be optional.
+requiredMeta: [externalKey]
+
+context:
+  # Declare context fields your workflow reads / writes. Keep meta separate —
+  # meta is for external lookup, context is for workflow execution.
+  prUrl: null
+
+nodes:
+  start:
+    type: action
+    description: "Begin work on the tagged entity"
+    instructions: |
+      Use the meta.externalKey value (echoed in the start response) to fetch
+      whatever upstream context is needed. Record any derived state into
+      `context`, not `meta`.
+    edges:
+      - target: opened-pr
+        label: pr-ready
+        condition: context.prUrl != null
+
+  opened-pr:
+    type: action
+    description: "PR exists — tag the traversal with its url"
+    # onEnter meta_set pulls context.prUrl into meta.prUrl so external systems
+    # (CI, review bots, downstream agents) can find this traversal by PR.
+    onEnter:
+      - call: meta_set
+        args:
+          prUrl: context.prUrl
+    instructions: |
+      Continue work on the PR. Future lookups by prUrl will resolve to this
+      traversal.
+    edges:
+      - target: done
+        label: complete
+
+  done:
+    type: terminal
+    description: "Work complete"

@@ -1,0 +1,36 @@
+id: hook-meta-set
+version: "1.0.0"
+name: "Hook Meta Set"
+description: "Built-in meta_set onEnter hook tags the traversal with values pulled from context."
+startNode: start
+
+context:
+  ticketId: "DEV-1234"
+  prUrl: "https://example/pr/7"
+
+nodes:
+  start:
+    type: action
+    description: "Start — tags meta.externalKey from context.ticketId on arrival"
+    onEnter:
+      - call: meta_set
+        args:
+          externalKey: context.ticketId
+    edges:
+      - target: opened-pr
+        label: next
+
+  opened-pr:
+    type: action
+    description: "PR-opened — adds meta.prUrl from context.prUrl"
+    onEnter:
+      - call: meta_set
+        args:
+          prUrl: context.prUrl
+    edges:
+      - target: done
+        label: next
+
+  done:
+    type: terminal
+    description: "Done"

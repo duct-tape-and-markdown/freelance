@@ -1,0 +1,25 @@
+id: required-meta-hook
+version: "1.0.0"
+name: "Required Meta — Hook-Satisfied"
+description: "Graph requires meta.externalKey; start node's onEnter meta_set derives it from context.ticketId."
+startNode: start
+
+context:
+  ticketId: "DEV-AUTO"
+
+requiredMeta: [externalKey]
+
+nodes:
+  start:
+    type: action
+    description: "Start — hook sets externalKey from context.ticketId"
+    onEnter:
+      - call: meta_set
+        args:
+          externalKey: context.ticketId
+    edges:
+      - target: done
+        label: next
+  done:
+    type: terminal
+    description: "Done"

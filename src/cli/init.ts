@@ -11,7 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // "project" writes config into the repo (committed/shared with team).
 // "user" writes config into ~/.claude.json (personal, all projects).
 export type Scope = "project" | "user";
-export type Starter = "blank" | "none";
+export type Starter = "blank" | "tagged" | "none";
 
 export interface InitOptions {
   scope: Scope;
@@ -520,7 +520,8 @@ export async function initInteractive(opts?: { dryRun?: boolean }): Promise<void
   const starter = await select<Starter>({
     message: "Start with an example graph?",
     choices: [
-      { value: "blank", name: "Blank graph (starter template)" },
+      { value: "blank", name: "Blank graph (minimal starter)" },
+      { value: "tagged", name: "Tagged workflow (demonstrates meta + requiredMeta)" },
       { value: "none", name: "No graph (I'll add my own)" },
     ],
   });

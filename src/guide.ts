@@ -7,6 +7,7 @@ export const GUIDE_TOPICS = [
   "wait-nodes",
   "onenter-hooks",
   "multi-agent",
+  "meta",
   "anti-patterns",
 ] as const;
 
@@ -313,8 +314,9 @@ Hooks run sequentially in the order declared. Each hook's result is merged into 
 
 - **memory_status**: returns proposition/entity counts from the memory store. Arg: \`collection\` (optional).
 - **memory_browse**: returns a page of entities from the memory store. Args: \`collection\`, \`name\`, \`kind\`, \`limit\`, \`offset\` (all optional).
+- **meta_set**: tags the traversal with caller-opaque meta key/value pairs. Every arg becomes a meta entry; values must resolve to strings (use \`context.foo\` to pull from live context). Merge semantics — new keys add, existing keys overwrite. See \`freelance_guide meta\`.
 
-These are the same operations as the corresponding \`memory_*\` MCP tools, but called by the engine automatically on node arrival instead of requiring an agent round-trip.
+These are the same operations as the corresponding \`memory_*\` / \`freelance_meta_set\` MCP tools, but called by the engine automatically on node arrival instead of requiring an agent round-trip.
 
 ## Local script hooks
 
@@ -402,6 +404,96 @@ Multiple agents each work on a task from the same plan, updating shared context.
 
 - Each agent should specify \`traversalId\` explicitly to avoid ambiguity when multiple traversals are active
 - Wait nodes are natural handoff points between agents`,
+
+  meta: `# Meta Tags
+
+\`meta\` is a flat map of opaque string key/value tags attached to a traversal. Freelance never interprets them — meta exists purely so external systems can find a traversal by their own business key (ticket id, PR url, branch, doc path). Think of it as a query index, not workflow state.
+
+## Setting meta
+
+**At start (preferred for primary keys):**
+
+\`\`\`json
+{ "graphId": "delivery", "meta": { "externalKey": "DEV-1234" } }
+\`\`\`
+
+This is the right place for whatever uniquely identifies what the traversal is *about* — usually the upstream ticket id. Set it once, look it up forever.
+
+**Mid-traversal (for keys that emerge):**
+
+Some lookup keys aren't known at start — a PR url is created during the work, a branch may be picked partway through. Use \`freelance_meta_set\` to merge new tags in:
+
+\`\`\`json
+{ "traversalId": "tr_abc12345", "meta": { "prUrl": "https://github.com/o/r/pull/42" } }
+\`\`\`
+
+\`meta_set\` is a merge: new keys are added, existing keys are overwritten.
+
+**Programmatic (workflow-driven via onEnter):**
+
+A node can declare an onEnter hook that tags meta automatically when the agent arrives — no separate tool call needed. The built-in \`meta_set\` hook takes args verbatim as the meta payload, with \`context.foo.bar\` resolved against live context:
+
+\`\`\`yaml
+nodes:
+  open-pr:
+    type: action
+    description: "Open the PR"
+    onEnter:
+      - call: meta_set
+        args:
+          prUrl: context.prUrl
+          branch: context.branch
+\`\`\`
+
+Use this when the workflow itself knows when a key becomes available — it removes a turn from the agent's loop.
+
+## Declaring required meta keys
+
+A graph can declare \`requiredMeta\` at the top level to enforce that callers supply certain tags before start succeeds:
+
+\`\`\`yaml
+id: delivery
+startNode: triage
+requiredMeta: [externalKey]
+nodes:
+  triage: ...
+\`\`\`
+
+With that, \`freelance_start\` rejects calls that don't pass \`meta.externalKey\` — unless the start node's onEnter hooks set it (meta_set fires before the requiredMeta check, so a hook can satisfy the requirement from context).
+
+Use \`requiredMeta\` for workflows that are meaningless without a specific external binding: ticket-driven delivery workflows, PR-review workflows, document-author workflows. Don't use it for optional tagging — it turns the absence of a tag into a hard error.
+
+## Reading meta back
+
+Every traversal-state response includes meta when set:
+- \`freelance_list\` — each entry in \`activeTraversals\` carries its meta
+- \`freelance_inspect\` — meta at the top level of the response
+- \`freelance_advance\` — meta at the top level of the response
+
+For ambient lookup ("which traversal is DEV-1234?"), call \`freelance_list\` and read tags off the entries — Freelance does not provide a server-side filter because the discovery payload is already shaped for the agent to reason over.
+
+## What meta is NOT
+
+- **Not workflow state.** Edge conditions, gate validations, and instructions read from \`context\`, not \`meta\`. If a value drives behavior, put it in context.
+- **Not typed.** All values are strings. Store richer values in context and tag a derived key (\`meta.prNumber: "42"\`, not \`meta.pr: { number: 42 }\`).
+- **Not enforced by Freelance.** The schema doesn't reserve key names. By convention, use camelCase string keys and prefer stable external identifiers.
+
+## Patterns
+
+### Connect-dev workflows
+Set \`externalKey = ticketId\` at start. Subsequent phases of the same ticket can be separate traversals tagged with the same \`externalKey\` — \`freelance_list\` will show them all.
+
+### PR-driven workflows
+Start with \`externalKey\` only. After the PR is opened, call \`freelance_meta_set\` to add \`prUrl\` and \`branch\`. External systems can then locate the traversal by any of three keys.
+
+### Multi-key cross-reference
+\`meta: { externalKey: "DEV-1234", prUrl: "...", branch: "feat/x" }\` — three independent lookup paths to the same traversal.
+
+## Tips
+
+- **Set the primary key at start.** It signals intent and avoids "tagged later or never?" ambiguity in your data.
+- **Treat meta as immutable in spirit.** \`meta_set\` allows overwrites for legitimate updates (renamed branch, replaced PR), but routine workflow logic shouldn't churn meta.
+- **Don't duplicate context in meta.** Pick one home per value. Meta is for external lookup; context is for workflow execution.`,
 
   "anti-patterns": `# Anti-Patterns
 
