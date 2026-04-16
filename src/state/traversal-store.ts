@@ -108,10 +108,9 @@ export class TraversalStore {
     const now = new Date().toISOString();
     const active = stack[stack.length - 1];
 
-    // Keep `meta` absent (vs present-and-empty) when no tags are supplied —
-    // callers treat `undefined` as "no external reference" and we want the
-    // JSON records to round-trip cleanly.
-    const normalizedMeta = meta && Object.keys(meta).length > 0 ? { ...meta } : undefined;
+    // Treat empty meta as no meta — keeps absent-vs-present in the JSON
+    // record unambiguous for downstream readers.
+    const hasMeta = meta !== undefined && Object.keys(meta).length > 0;
 
     const record: TraversalRecord = {
       id,
@@ -121,13 +120,11 @@ export class TraversalStore {
       stackDepth: stack.length,
       createdAt: now,
       updatedAt: now,
+      ...(hasMeta && { meta }),
     };
-    if (normalizedMeta) record.meta = normalizedMeta;
     this.state.put(record);
 
-    return normalizedMeta
-      ? { traversalId: id, meta: normalizedMeta, ...result }
-      : { traversalId: id, ...result };
+    return hasMeta ? { traversalId: id, meta, ...result } : { traversalId: id, ...result };
   }
 
   async advance(

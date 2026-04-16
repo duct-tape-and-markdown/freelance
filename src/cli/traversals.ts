@@ -48,11 +48,8 @@ export function traversalStatus(store: TraversalStore): void {
   }
 }
 
-/**
- * Parse an array of `key=value` strings into a plain record. Used by the
- * --meta flag on `start` and `traversals find`. Values stay strings — meta
- * is deliberately opaque, so no JSON coercion here.
- */
+// Values stay strings — meta is deliberately opaque, so (unlike
+// `freelance context set`) no JSON coercion here.
 function parseMetaPairs(pairs: string[] | undefined, flag: string): Record<string, string> {
   const out: Record<string, string> = {};
   if (!pairs) return out;
