@@ -1,6 +1,6 @@
 {
   "freelance": {
     "command": "npx",
-    "args": ["-y", "freelance-mcp@1.3.2", "mcp"]
+    "args": ["-y", "freelance-mcp@1.3.3", "mcp"]
   }
 }

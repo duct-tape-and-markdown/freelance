@@ -1,6 +1,6 @@
 {
   "name": "freelance-mcp",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "mcpName": "io.github.duct-tape-and-markdown/freelance",
   "type": "module",
   "sideEffects": false,

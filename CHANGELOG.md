@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-04-17
+
+Plugin-only patch. Server code is unchanged from 1.3.2 — this release
+exists to propagate the `.mcp.json` pinning mechanism to users whose
+`/plugin update` was silently no-op'ing on stale npx cache entries.
+
 ### Changed
 
 - **Plugin `.mcp.json` now pins an exact `freelance-mcp` version** instead
@@ -28,9 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### User action — stuck on cached 1.3.0?
 
 If `/plugin update` to 1.3.2 didn't surface the PR #63/#64 server fixes,
-your npx cache still has 1.3.0. Once on this release (or any future one),
-the cache key changes and the problem goes away — but to clear an
-already-stale 1.3.0 entry now:
+your npx cache still has 1.3.0. Once you're on 1.3.3 (or any future
+release) the cache key changes and the problem goes away — but to clear
+an already-stale 1.3.0 entry now:
 
 ```sh
 # 1. Kill any lingering freelance-mcp processes.
