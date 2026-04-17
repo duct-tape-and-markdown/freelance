@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-04-17
+
+Hotfix release for two regressions shipped in 1.3.1.
+
+### Fixed
+
+- **Plugin `.mcp.json` launcher (#70).** The 1.3.1 plugin shipped with
+  hardcoded author-machine dev paths in `plugins/freelance/.mcp.json`
+  instead of the `npx -y freelance-mcp@^1 mcp` launcher. Any fresh
+  install on a different machine would fail to start. Existing installs
+  also stayed pinned to whatever `freelance-mcp` npx resolved under
+  1.3.0 and never saw fixes from later patches. Restored the npx
+  launcher so `^1` resolves to the latest on next launch.
+- **Cross-graph validation no longer fails on sealed-memory subgraph
+  refs (#69).** User workflows that referenced `memory:compile` or
+  `memory:recall` as a subgraph target failed to load with an
+  "unknown graph" error because cross-graph validation ran before the
+  MCP server's sealed-workflow injection step. Sealed workflows were
+  available at runtime but invisible to the loader. Loader now injects
+  sealed graphs *before* cross-graph validation, and a new
+  `src/memory/sealed.ts` centralizes the sealed-graph registry so the
+  loader, server, and CLI share one source of truth.
+
 ## [1.3.1] - 2026-04-16
 
 The memory-architecture port. Pushed memory intelligence out of the agent's
