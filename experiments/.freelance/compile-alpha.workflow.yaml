@@ -1,0 +1,133 @@
+id: compile:alpha
+version: "1.0.0"
+name: "Compile Knowledge"
+description: |
+  Read source files, reason about them, and emit propositions to Memory.
+  Use this workflow to build persistent knowledge about the codebase.
+
+startNode: exploring
+
+context:
+  query: ""
+  filesReadPaths: []
+  entities: []
+  priorKnowledgeByPath: {}
+  priorKnowledgePathsConsidered: 0
+  priorKnowledgePathsTruncated: false
+  coverageSatisfied: false
+
+nodes:
+  exploring:
+    type: action
+    description: "Read source files relevant to the query."
+    instructions: |
+      ## What you arrive with
+      Three onEnter hooks have already populated this node's context for you, so you don't burn turns on routine lookups:
+      - context.total_propositions / valid_propositions / stale_propositions / total_entities (from memory_status) — the rough size of the existing knowledge.
+      - context.entities (from memory_browse, up to 50) — the existing entity vocabulary. Skim these names; they are what the compiling node will steer toward when it plans hubs.
+      - context.priorKnowledgeByPath (from memory_by_source) — propositions already known per file in context.filesReadPaths (each entry is { id, content } — no hashes, no timestamps; content is what you need to judge overlap). See the graph-aware reading section below.
+
+      ## Warm start — if you already know which files you want to compile
+      Pass them as `initialContext.filesReadPaths` when calling freelance_start. The onEnter hooks fire AFTER initialContext is applied, so priorKnowledgeByPath is populated on your very first arrival — no wasted lap. Without initialContext, filesReadPaths starts empty and the first arrival's priorKnowledgeByPath is `{}`; hooks only re-fire on node arrival, so setting filesReadPaths via freelance_context_set does NOT re-query memory_by_source until you loop back through compiling/evaluating and land on exploring a second time.
+
+      ## What this node does
+      Read files related to the compilation query using your native Read tool. After each read, call freelance_context_set to append the file path to context.filesReadPaths. The path list is your working set — when you emit propositions in the next node, you'll cite sources from this list. memory_emit hashes each cited source file at emit time for per-proposition provenance, so there's no pre-registration step: read, track the path, emit when ready.
+
+      ## Graph-aware reading — emit only deltas
+      Every time you arrive at this node, an onEnter hook calls memory_by_source for every path currently in context.filesReadPaths and writes the result to context.priorKnowledgeByPath as { <path>: [{id, content}, ...] }. Read this BEFORE deciding what to emit:
+      - If a file's prior-knowledge list already covers the claim you were about to emit, skip it. Re-emitting hashes to the same content_hash and is a no-op, but it wastes agent turns.
+      - Emit only DELTAS: claims the file actually says that the existing propositions do not already capture.
+
+      ## Warm exit — zero-delta shortcut
+      If every file in priorKnowledgeByPath is already comprehensively covered (nothing to emit), take the `warm-exit` edge directly from here to `evaluating` — pass `{ coverageSatisfied: true }` in the same freelance_advance call. This skips compiling/memory_emit entirely. It's the right path when a prior compile run already covered the same files and the sources haven't drifted since. A one-step warm exit costs one tool call instead of the 2-3 it takes to loop through the normal compiling path.
+
+      If context.priorKnowledgePathsTruncated is true, the path list exceeded the 50-path cap and not every file was checked — fall back to manual judgment for the unchecked tail.
+    suggestedTools:
+      - Read
+      - freelance_context_set
+    maxTurns: 5
+    onEnter:
+      - call: memory_status
+        args: {}
+      - call: memory_browse
+        args:
+          limit: 50
+      - call: memory_by_source
+        args:
+          paths: "context.filesReadPaths"
+    edges:
+      - target: compiling
+        label: files-read
+        condition: "len(context.filesReadPaths) > 0"
+        description: "At least one source file has been read."
+      - target: evaluating
+        label: warm-exit
+        condition: "context.coverageSatisfied == true"
+        description: "priorKnowledgeByPath already covers every file, nothing to emit — skip directly to evaluating."
+
+  compiling:
+    type: action
+    description: "Extract claims, plan entities, emit propositions."
+    maxTurns: 3
+    instructions: |
+      Emit ATOMIC propositions — one factual claim each, a single sentence preferred.
+
+      ## The independence test
+      For every candidate claim, ask: "Could either half be true while the other is false?" If yes, split. This is the semantic rule behind the surface 'no and/also/plus' heuristic — use it whenever you feel the urge to conjoin facts. The exception is relationship claims like 'A depends on B' or 'A was replaced by B via C' — the edge IS the knowledge, and atomizing it into per-entity facts destroys the graph's connectivity.
+
+      ## Knowledge types to notice
+      Claims can be factual ('X is configured to Y'), conceptual ('X exists because Y'), procedural ('to do X, run Y then Z'), or metacognitive ('this is uncertain because we couldn't reproduce X'). The metacognitive bucket is the one most extractors silently drop — emit it explicitly when you have it.
+
+      ## WRONG vs RIGHT
+      WRONG (four independent facts mashed into one prop):
+        "Biome was added as the linter with space/2 indent, simple-git-hooks runs it as a pre-commit gate, the format pass touched 72 files, and noNonNullAssertion is disabled because its auto-fix broke type narrowing."
+
+      RIGHT (four atomic props, one fact each):
+        1. "Biome v2 is the format and lint tool, configured with space/2 indent and line width 100." — entities: ["Biome", "biome.json"]
+        2. "simple-git-hooks runs `biome check` as a pre-commit gate." — entities: ["simple-git-hooks", "Biome"]
+        3. "The initial Biome format pass touched 72 files with zero semantic changes." — entities: ["Biome"]
+        4. "Biome's noNonNullAssertion rule is disabled because its auto-fix converted `!` to `?.` and broke TypeScript narrowing." — entities: ["noNonNullAssertion", "Biome"]
+
+      ## What this node does
+      For each file you read in the exploring node, extract atomic claims and emit them via memory_emit in a single step. For each claim, decide:
+      1. The claim content (per the rubric above).
+      2. Which source files it was derived from (cite only files in context.filesReadPaths).
+      3. Which entity names to link it to.
+
+      ## How to think about entities
+      context.entities shows the existing entity vocabulary (populated by an onEnter memory_browse). Reuse existing entity names verbatim — same-name reuse is the single highest-leverage move you can make for graph density.
+
+      Good entities are **search hubs** — concepts someone would look up when trying to learn about this area. Bad entities are setting-names or field-names, which belong inside claim content, not as entities. If an entity name reads like a config key, it's content, not a hub.
+
+      A hub that only shows up on one claim in the batch is usually a fragment masquerading as a hub — roll it into a broader concept that recurs across claims.
+
+      Let the query shape what kind of claims you extract. Call memory_emit with all your claims when ready, then advance.
+    suggestedTools:
+      - memory_emit
+    onEnter:
+      - call: memory_browse
+        args:
+          limit: 50
+    edges:
+      - target: evaluating
+        label: propositions-emitted
+        description: "Propositions have been written to memory with planned entities."
+
+  evaluating:
+    type: decision
+    description: "Check coverage — are there areas not yet compiled?"
+    instructions: |
+      Review what you've compiled so far against the original query. Are there source files you haven't read yet that are relevant? Are there entities or behaviors you noticed but haven't emitted propositions about? Set context.coverageSatisfied to true if coverage is adequate.
+    edges:
+      - target: complete
+        label: coverage-satisfied
+        condition: "context.coverageSatisfied == true"
+        description: "All relevant source material has been compiled."
+      - target: exploring
+        label: gaps-remain
+        condition: "context.coverageSatisfied == false"
+        description: "More source files need to be read."
+
+  complete:
+    type: terminal
+    description: "Compilation complete."

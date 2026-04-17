@@ -1,0 +1,94 @@
+id: compile:beta
+version: "1.0.0"
+name: "Compile Knowledge"
+description: |
+  Read source files, reason about them, and emit propositions to Memory.
+  Use this workflow to build persistent knowledge about the codebase.
+
+startNode: exploring
+
+context:
+  query: ""
+  filesReadPaths: []
+  entities: []
+  priorKnowledgeByPath: {}
+  priorKnowledgePathsConsidered: 0
+  priorKnowledgePathsTruncated: false
+  coverageSatisfied: false
+
+nodes:
+  exploring:
+    type: action
+    description: "Read source files relevant to the query."
+    instructions: |
+      onEnter hooks have populated: context.entities (existing vocabulary), context.priorKnowledgeByPath (prior props per file in filesReadPaths).
+
+      Read files relevant to context.query. After each read, append the file path to context.filesReadPaths via freelance_context_set. Check context.priorKnowledgeByPath to skip files already fully covered.
+
+      If all target files are already covered in priorKnowledgeByPath, set coverageSatisfied: true and advance via warm-exit. Otherwise advance via files-read once at least one file is read.
+    suggestedTools:
+      - Read
+      - freelance_context_set
+    maxTurns: 5
+    onEnter:
+      - call: memory_status
+        args: {}
+      - call: memory_browse
+        args:
+          limit: 50
+      - call: memory_by_source
+        args:
+          paths: "context.filesReadPaths"
+    edges:
+      - target: compiling
+        label: files-read
+        condition: "len(context.filesReadPaths) > 0"
+        description: "At least one source file has been read."
+      - target: evaluating
+        label: warm-exit
+        condition: "context.coverageSatisfied == true"
+        description: "priorKnowledgeByPath already covers every file — skip to evaluating."
+
+  compiling:
+    type: action
+    description: "Extract claims, plan entities, emit propositions."
+    instructions: |
+      Emit atomic propositions: one factual claim each, one sentence preferred.
+
+      Split compounds. Independence test: if either half could be false independently, it's two props.
+
+      Don't enumerate relationships the graph carries. "X, Y, Z are the N things of A" = N props each linking to A; the graph carries the enumeration.
+
+      Reuse entity names from context.entities. Entities are search hubs, not field names.
+
+      Call memory_emit with all claims. Each claim: { content, sources (from filesReadPaths), entities }.
+    suggestedTools:
+      - memory_emit
+    maxTurns: 3
+    onEnter:
+      - call: memory_browse
+        args:
+          limit: 50
+    edges:
+      - target: evaluating
+        label: propositions-emitted
+        description: "Propositions have been written to memory with planned entities."
+
+  evaluating:
+    type: decision
+    description: "Check coverage."
+    instructions: |
+      Is coverage adequate? Set context.coverageSatisfied accordingly.
+    edges:
+      - target: complete
+        label: coverage-satisfied
+        condition: "context.coverageSatisfied == true"
+        description: "All relevant source material has been compiled."
+      - target: exploring
+        label: gaps-remain
+        condition: "context.coverageSatisfied == false"
+        description: "More source files need to be read."
+
+  complete:
+    type: terminal
+    description: "Compilation complete."
