@@ -4,25 +4,27 @@ import { startParentHeartbeat } from "../src/server.js";
 const tick = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 describe("startParentHeartbeat", () => {
-  const timers: NodeJS.Timeout[] = [];
+  let stop: (() => void) | undefined;
 
   afterEach(() => {
-    while (timers.length) {
-      const t = timers.pop();
-      if (t) clearInterval(t);
-    }
+    if (stop) stop();
+    stop = undefined;
     vi.restoreAllMocks();
   });
 
-  it("returns undefined when initialPpid <= 1 (nothing to watch)", () => {
-    expect(startParentHeartbeat(0, () => {})).toBeUndefined();
-    expect(startParentHeartbeat(1, () => {})).toBeUndefined();
+  it("does nothing when ppid <= 1 (nothing to watch)", async () => {
+    const onExit = vi.fn();
+    const stop1 = startParentHeartbeat({ ppid: 0, onExit, intervalMs: 10 });
+    const stop2 = startParentHeartbeat({ ppid: 1, onExit, intervalMs: 10 });
+    await tick(60);
+    stop1();
+    stop2();
+    expect(onExit).not.toHaveBeenCalled();
   });
 
   it("does not fire when the original parent is alive and ppid is stable", async () => {
     const onExit = vi.fn();
-    const timer = startParentHeartbeat(process.ppid, onExit, 10);
-    if (timer) timers.push(timer);
+    stop = startParentHeartbeat({ ppid: process.ppid, onExit, intervalMs: 10 });
     await tick(60);
     expect(onExit).not.toHaveBeenCalled();
   });
@@ -34,8 +36,7 @@ describe("startParentHeartbeat", () => {
       throw err;
     });
     const onExit = vi.fn();
-    const timer = startParentHeartbeat(process.ppid, onExit, 10);
-    if (timer) timers.push(timer);
+    stop = startParentHeartbeat({ ppid: process.ppid, onExit, intervalMs: 10 });
     await tick(60);
     expect(onExit).toHaveBeenCalledWith("parent-exited");
   });
@@ -47,22 +48,17 @@ describe("startParentHeartbeat", () => {
       throw err;
     });
     const onExit = vi.fn();
-    const timer = startParentHeartbeat(process.ppid, onExit, 10);
-    if (timer) timers.push(timer);
+    stop = startParentHeartbeat({ ppid: process.ppid, onExit, intervalMs: 10 });
     await tick(60);
     expect(onExit).not.toHaveBeenCalled();
   });
 
   it("fires 'parent-reparented' when process.ppid drifts from the snapshot", async () => {
     const ppidDesc = Object.getOwnPropertyDescriptor(process, "ppid");
-    Object.defineProperty(process, "ppid", {
-      get: () => 1,
-      configurable: true,
-    });
+    Object.defineProperty(process, "ppid", { get: () => 1, configurable: true });
     try {
       const onExit = vi.fn();
-      const timer = startParentHeartbeat(99999, onExit, 10);
-      if (timer) timers.push(timer);
+      stop = startParentHeartbeat({ ppid: 99999, onExit, intervalMs: 10 });
       await tick(60);
       expect(onExit).toHaveBeenCalledWith("parent-reparented");
     } finally {
@@ -73,14 +69,10 @@ describe("startParentHeartbeat", () => {
   it("prefers drift detection over the kill probe (no kill call on drift)", async () => {
     const killSpy = vi.spyOn(process, "kill");
     const ppidDesc = Object.getOwnPropertyDescriptor(process, "ppid");
-    Object.defineProperty(process, "ppid", {
-      get: () => 1,
-      configurable: true,
-    });
+    Object.defineProperty(process, "ppid", { get: () => 1, configurable: true });
     try {
       const onExit = vi.fn();
-      const timer = startParentHeartbeat(99999, onExit, 10);
-      if (timer) timers.push(timer);
+      stop = startParentHeartbeat({ ppid: 99999, onExit, intervalMs: 10 });
       await tick(60);
       expect(onExit).toHaveBeenCalledWith("parent-reparented");
       expect(killSpy).not.toHaveBeenCalled();

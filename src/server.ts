@@ -33,8 +33,8 @@ export interface ServerOptions {
 
 /**
  * Watch for the startup-time parent process going away and invoke `onExit`
- * when it does. Returns the interval handle (for clearInterval in shutdown),
- * or undefined if there's nothing meaningful to watch.
+ * when it does. Returns a `stop` function for cleanup; calling stop is
+ * always safe (no-op when there was nothing to watch).
  *
  * Two detectors run on every tick, cheapest first:
  *
@@ -48,23 +48,24 @@ export interface ServerOptions {
  *      "is this process alive" — throws ESRCH when the target is gone.
  *      Kept as belt-and-braces for exotic schedulers where drift might lag.
  *
- * Skipped entirely when `initialPpid <= 1`: either we were already orphaned
- * at startup or the launcher intentionally detached us, in which case there
- * is no parent to watch.
+ * No-op when `ppid <= 1`: either we were already orphaned at startup or the
+ * launcher intentionally detached us, in which case there is no parent to
+ * watch.
  */
-export function startParentHeartbeat(
-  initialPpid: number,
-  onExit: (reason: "parent-exited" | "parent-reparented") => void,
-  intervalMs = 2000,
-): NodeJS.Timeout | undefined {
-  if (initialPpid <= 1) return undefined;
+export function startParentHeartbeat(opts: {
+  ppid: number;
+  onExit: (reason: "parent-exited" | "parent-reparented") => void;
+  intervalMs?: number;
+}): () => void {
+  const { ppid, onExit, intervalMs = 2000 } = opts;
+  if (ppid <= 1) return () => {};
   const timer = setInterval(() => {
-    if (process.ppid !== initialPpid) {
+    if (process.ppid !== ppid) {
       onExit("parent-reparented");
       return;
     }
     try {
-      process.kill(initialPpid, 0);
+      process.kill(ppid, 0);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ESRCH") {
         onExit("parent-exited");
@@ -72,7 +73,7 @@ export function startParentHeartbeat(
     }
   }, intervalMs);
   timer.unref();
-  return timer;
+  return () => clearInterval(timer);
 }
 
 export function createServer(
@@ -173,11 +174,11 @@ export async function startServer(
   process.stderr.write(`freelance-mcp ${VERSION} started pid=${process.pid}\n`);
 
   let shuttingDown = false;
-  let parentHeartbeat: NodeJS.Timeout | undefined;
+  let stopHeartbeat: () => void = () => {};
   const shutdown = (reason: string, exitCode = 0) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    if (parentHeartbeat) clearInterval(parentHeartbeat);
+    stopHeartbeat();
     process.stderr.write(`freelance-mcp shutdown pid=${process.pid} reason=${reason}\n`);
     void (async () => {
       try {
@@ -235,23 +236,15 @@ export async function startServer(
     }
   });
 
-  // Parent-PID heartbeat. Pipe-close signals are unreliable when a chain of
-  // stdio-inheriting descendants outlives the parent (npx middleman,
-  // orphaned hook shells): the kernel keeps the pipe open until *every*
-  // write-end fd is closed, so stdin never hits EOF. Poll the original
-  // parent instead. Snapshot ppid now — once orphaned the kernel reparents
-  // us to init (PID 1) or a subreaper, so a later read of process.ppid
-  // points at the wrong target. Skip the heartbeat if we're already
-  // orphaned at startup (ppid=1): there's no real parent to watch.
-  parentHeartbeat = startParentHeartbeat(process.ppid, (reason) => shutdown(reason));
+  // Snapshot ppid before connect — kernel reparents an orphaned process to
+  // init/subreaper, so reading later gives the wrong target.
+  stopHeartbeat = startParentHeartbeat({ ppid: process.ppid, onExit: shutdown });
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  // Safety net for the ordering fix above: if stdin drained and ended
-  // synchronously inside connect(), our `end` listener already fired and
-  // shutdown is in flight — this is a no-op. If for any reason the event
-  // was missed, this catches it before we return control to the event loop.
+  // If stdin drained and ended synchronously inside connect(), our `end`
+  // listener already fired and shutdown is in flight — this is a no-op.
   if (process.stdin.readableEnded) {
     shutdown("stdin-ended-early");
   }
