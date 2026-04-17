@@ -62,6 +62,14 @@ vi.mock("../src/loader.js", () => ({
   loadGraphsLayered: vi.fn(() => new Map([["test", {}]])),
   loadGraphsCollecting: vi.fn(() => ({ graphs: new Map([["test", {}]]), errors: [] })),
 }));
+// Stub sealed graph builder — irrelevant to these wiring tests and pulls in GraphBuilder.
+vi.mock("../src/memory/sealed.js", () => ({
+  getSealedGraphs: vi.fn(() => new Map()),
+  mergeSealedGraphs: vi.fn((target: Map<string, unknown>) => target),
+  SEALED_GRAPH_IDS: new Set<string>(),
+  COMPILE_KNOWLEDGE_ID: "memory:compile",
+  RECOLLECTION_ID: "memory:recall",
+}));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let exitSpy: any;

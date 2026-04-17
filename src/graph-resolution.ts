@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { loadConfigFromDirs } from "./config.js";
+import type { LoadGraphsOptions } from "./loader.js";
 import { loadGraphsCollecting } from "./loader.js";
+import { mergeSealedGraphs } from "./memory/sealed.js";
 import type { ValidatedGraph } from "./types.js";
 
 /**
@@ -88,12 +90,17 @@ interface GracefulLoadResult {
  * Always returns both graphs and structured errors. Suitable for long-running
  * servers that should start even without valid graphs (the watcher can pick them up later).
  */
-export function loadGraphsGraceful(graphsDirs?: string | string[] | null): GracefulLoadResult {
+export function loadGraphsGraceful(
+  graphsDirs?: string | string[] | null,
+  options?: LoadGraphsOptions,
+): GracefulLoadResult {
   const dirs = resolveGraphsDirs(graphsDirs);
 
   if (dirs.length === 0) {
-    return { graphs: new Map(), errors: [] };
+    const graphs = new Map<string, ValidatedGraph>();
+    if (options?.sealedGraphs) mergeSealedGraphs(graphs, options.sealedGraphs);
+    return { graphs, errors: [] };
   }
 
-  return loadGraphsCollecting(dirs);
+  return loadGraphsCollecting(dirs, options);
 }

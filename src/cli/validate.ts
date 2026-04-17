@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { findGraphFiles, loadSingleGraph, validateCrossGraphRefs } from "../loader.js";
+import { SEALED_GRAPH_IDS } from "../memory/sealed.js";
 import { extractSection } from "../section-resolver.js";
 import type { SourceOptions } from "../sources.js";
 import { getDetailedDrift, validateGraphSources } from "../sources.js";
@@ -96,10 +97,11 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
     }
   }
 
-  // Phase 2: if all individual files passed, run cross-graph validation (subgraph refs)
+  // Phase 2: cross-graph validation. Sealed memory workflows exist at
+  // runtime but not on disk — accept them as valid subgraph targets.
   if (result.errors.length === 0) {
     try {
-      validateCrossGraphRefs(parsed);
+      validateCrossGraphRefs(parsed, { extraAvailableIds: SEALED_GRAPH_IDS });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       result.errors.push({ file: resolvedDir, message: msg });

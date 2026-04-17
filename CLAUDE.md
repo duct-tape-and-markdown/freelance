@@ -8,6 +8,8 @@ Graph-based workflow enforcement for AI coding agents.
 - `npm test` — run all tests
 - `npm run dev` — run in development mode
 
+After a non-trivial batch of code changes (multiple files or a cohesive multi-step edit), run `/simplify` before reporting the task complete. Skip for single-line fixes, test-only tweaks, or pure config/docs edits.
+
 ## Code navigation
 
 Prefer AST-aware tools over plain text search when exploring or refactoring TypeScript:

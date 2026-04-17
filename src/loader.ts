@@ -12,6 +12,7 @@ import yaml from "js-yaml";
 import { buildAndValidateGraph } from "./graph-construction.js";
 import { validateExpressions, validateReturnSchemas } from "./graph-validation.js";
 import { resolveGraphHooks } from "./hook-resolution.js";
+import { mergeSealedGraphs } from "./memory/sealed.js";
 
 // @dagrejs/graphlib is a CJS bundle with `cjs-module-lexer` named-export
 // hints. Node's native ESM loader reads those hints and lets us import
@@ -98,12 +99,20 @@ export function findGraphFiles(dir: string): string[] {
   return results;
 }
 
+export interface LoadGraphsOptions {
+  /** Built-ins merged before cross-graph validation. User entries win. */
+  sealedGraphs?: Map<string, ValidatedGraph>;
+}
+
 /**
  * Load and validate all *.workflow.yaml files from a directory (recursively).
  * Returns a Map of graphId → ValidatedGraph.
  * Throws on any validation failure with descriptive errors.
  */
-export function loadGraphs(directory: string): Map<string, ValidatedGraph> {
+export function loadGraphs(
+  directory: string,
+  options?: LoadGraphsOptions,
+): Map<string, ValidatedGraph> {
   const resolvedDir = path.resolve(directory);
 
   if (!fs.existsSync(resolvedDir)) {
@@ -138,6 +147,8 @@ export function loadGraphs(directory: string): Map<string, ValidatedGraph> {
     );
   }
 
+  if (options?.sealedGraphs) mergeSealedGraphs(results, options.sealedGraphs);
+
   // Cross-graph validation: subgraph references and circular detection
   validateCrossGraphRefs(results);
 
@@ -154,7 +165,10 @@ export interface CollectingLoadResult {
  * throwing or writing to stderr. Always returns both graphs and errors.
  * Suitable for contexts where partial success should be surfaced.
  */
-export function loadGraphsCollecting(directories: string[]): CollectingLoadResult {
+export function loadGraphsCollecting(
+  directories: string[],
+  options?: LoadGraphsOptions,
+): CollectingLoadResult {
   const graphs = new Map<string, ValidatedGraph>();
   const errors: Array<{ file: string; message: string }> = [];
 
@@ -162,6 +176,7 @@ export function loadGraphsCollecting(directories: string[]): CollectingLoadResul
   const existingDirs = resolvedDirs.filter((d) => fs.existsSync(d));
 
   if (existingDirs.length === 0) {
+    if (options?.sealedGraphs) mergeSealedGraphs(graphs, options.sealedGraphs);
     return { graphs, errors };
   }
 
@@ -179,6 +194,8 @@ export function loadGraphsCollecting(directories: string[]): CollectingLoadResul
       }
     }
   }
+
+  if (options?.sealedGraphs) mergeSealedGraphs(graphs, options.sealedGraphs);
 
   // Cross-graph validation (only if we have graphs)
   if (graphs.size > 0) {
@@ -199,7 +216,10 @@ export function loadGraphsCollecting(directories: string[]): CollectingLoadResul
  * Non-existent or empty directories are skipped with warnings.
  * Returns a Map of graphId → ValidatedGraph.
  */
-export function loadGraphsLayered(directories: string[]): Map<string, ValidatedGraph> {
+export function loadGraphsLayered(
+  directories: string[],
+  options?: LoadGraphsOptions,
+): Map<string, ValidatedGraph> {
   const results = new Map<string, ValidatedGraph>();
   const warnings: string[] = [];
 
@@ -258,10 +278,17 @@ export function loadGraphsLayered(directories: string[]): Map<string, ValidatedG
     process.stderr.write(`Warnings:\n${warnings.join("\n")}\n`);
   }
 
+  if (options?.sealedGraphs) mergeSealedGraphs(results, options.sealedGraphs);
+
   // Cross-graph validation: subgraph references and circular detection
   validateCrossGraphRefs(results);
 
   return results;
+}
+
+export interface ValidateCrossGraphRefsOptions {
+  /** IDs accepted as valid subgraph targets without a materialized graph. Treated as leaves by cycle detection. */
+  extraAvailableIds?: ReadonlySet<string>;
 }
 
 /**
@@ -269,7 +296,12 @@ export function loadGraphsLayered(directories: string[]): Map<string, ValidatedG
  * 1. Verify all subgraph.graphId references exist in the loaded graph set.
  * 2. Detect circular subgraph references via DFS.
  */
-export function validateCrossGraphRefs(graphs: Map<string, ValidatedGraph>): void {
+export function validateCrossGraphRefs(
+  graphs: Map<string, ValidatedGraph>,
+  options?: ValidateCrossGraphRefsOptions,
+): void {
+  const extra = options?.extraAvailableIds;
+
   // Build adjacency list for subgraph references
   const subgraphEdges = new Map<string, Set<string>>();
 
@@ -281,7 +313,7 @@ export function validateCrossGraphRefs(graphs: Map<string, ValidatedGraph>): voi
         const targetId = node.subgraph.graphId;
 
         // Verify referenced graph exists
-        if (!graphs.has(targetId)) {
+        if (!graphs.has(targetId) && !extra?.has(targetId)) {
           throw new Error(
             `Graph "${graphId}", node "${nodeId}": subgraph references unknown graph "${targetId}"`,
           );

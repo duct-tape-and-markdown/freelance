@@ -17,6 +17,8 @@ interface WatcherOptions {
   onConfigChange?: (dir: string) => void;
   /** Debounce interval in ms (default: 200) */
   debounceMs?: number;
+  /** Built-ins merged into every reload before cross-graph validation. */
+  sealedGraphs?: Map<string, ValidatedGraph>;
 }
 
 /**
@@ -56,7 +58,15 @@ const RUNTIME_SUBDIRS: ReadonlySet<string> = new Set(["memory", "traversals"]);
  * Returns a cleanup function that stops watching.
  */
 export function watchGraphs(options: WatcherOptions): () => void {
-  const { graphsDir, onUpdate, onError, onLoadErrors, onConfigChange, debounceMs = 200 } = options;
+  const {
+    graphsDir,
+    onUpdate,
+    onError,
+    onLoadErrors,
+    onConfigChange,
+    debounceMs = 200,
+    sealedGraphs,
+  } = options;
   const dirs = Array.isArray(graphsDir) ? graphsDir : [graphsDir];
 
   let graphDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -64,7 +74,7 @@ export function watchGraphs(options: WatcherOptions): () => void {
 
   function reload() {
     try {
-      const { graphs, errors } = loadGraphsCollecting(dirs);
+      const { graphs, errors } = loadGraphsCollecting(dirs, { sealedGraphs });
       onUpdate(graphs);
       if (onLoadErrors) {
         onLoadErrors(errors);
