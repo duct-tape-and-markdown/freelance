@@ -30,12 +30,13 @@ are documented in `experiments/FINDINGS.md`; design intent lives in
   `recalling → evaluating` on the same flag (skip sourcing/comparing/filling
   when recalled propositions cover the query). Fixes the stuck-at-sourcing
   state when memory already satisfies the query.
-- **`hashPropContent`** for proposition dedup — stricter normalization
+- **Proposition dedup normalizes superficial variance** — the memory
+  store hashes proposition content with stricter normalization
   (lowercase, whitespace collapse, trailing punctuation strip) so
-  superficial variance doesn't create duplicate propositions. Each
-  transform is binary — no thresholds. `hashContent` (minimal CRLF→LF +
-  trimEnd) remains for source file hashing where stricter normalization
-  would mask real drift.
+  "X validates Y" and "x validates y." collide on the same hash. Each
+  transform is binary — no thresholds. Source-file hashing still uses
+  minimal CRLF→LF + trimEnd normalization; file drift detection needs
+  to notice real edits.
 - **`PROPOSITION_RUBRIC`** — atomicity directive + independence test +
   relationship exception (~60 tokens). Deliberately minimal based on
   ablation evidence (see below). Shared across both sealed workflows.
@@ -107,10 +108,10 @@ are documented in `experiments/FINDINGS.md`; design intent lives in
 ### Upgrade notes
 
 - Existing `memory.db` files keep working but propositions emitted before
-  this release were hashed with the older `hashContent` normalization.
-  Same-content propositions emitted after the upgrade may not dedupe
-  against the old rows (they'll hash to a different value under the
-  stricter `hashPropContent`). To rebuild under the new hash regime,
+  this release were hashed under the older minimal normalization. Same-
+  content propositions emitted after the upgrade may not dedupe against
+  the old rows (they'll hash to a different value under the stricter
+  proposition-dedup normalization). To rebuild under the new regime,
   run `freelance memory reset --confirm` and re-compile. Not required —
   both hash formats remain valid data.
 - `memory.collections` in `config.yml` is a no-op now and will be ignored.

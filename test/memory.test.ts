@@ -86,6 +86,36 @@ describe("MemoryStore", () => {
       expect(r2.deduplicated).toBe(1);
     });
 
+    it("dedupes across case, whitespace, and trailing punctuation variance", () => {
+      // Proposition dedup normalizes superficial variance (case,
+      // whitespace runs, trailing sentence punctuation) so "X does Y"
+      // and "x  does y." collide. Internal punctuation and genuinely
+      // different wording are preserved as distinct.
+      writeFile(tmpDir, "auth.ts", "class Auth {}");
+
+      store.emit([{ content: "Foo does bar.", entities: ["Foo"], sources: ["auth.ts"] }]);
+      const dupCase = store.emit([
+        { content: "foo does bar", entities: ["Foo"], sources: ["auth.ts"] },
+      ]);
+      expect(dupCase.deduplicated).toBe(1);
+
+      const dupWhitespace = store.emit([
+        { content: "Foo  does\tbar", entities: ["Foo"], sources: ["auth.ts"] },
+      ]);
+      expect(dupWhitespace.deduplicated).toBe(1);
+
+      const dupPunct = store.emit([
+        { content: "Foo does bar!", entities: ["Foo"], sources: ["auth.ts"] },
+      ]);
+      expect(dupPunct.deduplicated).toBe(1);
+
+      // Internal punctuation carries meaning — different claim, not dedup.
+      const distinct = store.emit([
+        { content: "Foo, does bar", entities: ["Foo"], sources: ["auth.ts"] },
+      ]);
+      expect(distinct.created).toBe(1);
+    });
+
     it("creates multiple entities", () => {
       writeFile(tmpDir, "auth.ts", "class Auth {}");
 

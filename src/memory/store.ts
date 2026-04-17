@@ -14,7 +14,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { hashContent, hashPropContent } from "../sources.js";
+import { hashContent } from "../sources.js";
 import type { Db } from "./db.js";
 import { computeStatus, countValidForEntity, getNeighbors } from "./enrichment.js";
 import {
@@ -61,6 +61,28 @@ function mtimeOf(filePath: string): number | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Hash proposition content for dedup. Normalizes superficial variance
+ * that doesn't change the claim — case, whitespace runs, trailing
+ * sentence punctuation — before hashing. Internal punctuation is
+ * preserved (commas/colons can carry meaning). Each transform is binary:
+ * two claims collide on hash only when their normalized forms are
+ * byte-identical. No thresholds, no similarity scoring.
+ *
+ * Stricter than the `hashContent` used for source-file hashing — file
+ * drift detection needs minimal normalization so a real edit isn't
+ * masked.
+ */
+function hashPropContent(content: string): string {
+  const normalized = content
+    .replace(/\r\n/g, "\n")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[.!?…]+\s*$/u, "")
+    .trim();
+  return crypto.createHash("sha256").update(normalized).digest("hex").substring(0, 16);
 }
 
 export class MemoryStore {

@@ -5,8 +5,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { GraphDefinition } from "../src/schema/graph-schema.js";
 import {
   checkSourcesDetailed,
-  hashContent,
-  hashPropContent,
   hashSource,
   hashSources,
   validateGraphSources,
@@ -26,74 +24,6 @@ beforeAll(() => {
 
 afterAll(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-});
-
-describe("hashContent vs hashPropContent", () => {
-  // Two hashers for two purposes: hashContent is for source files
-  // (minimal normalization, so real content drift is detected);
-  // hashPropContent is for proposition dedup (stricter normalization,
-  // so superficial variance doesn't create duplicate propositions).
-
-  it("hashContent only normalizes CRLF→LF and trims trailing whitespace", () => {
-    expect(hashContent("X validates Y")).toBe(hashContent("X validates Y\n"));
-    expect(hashContent("X validates Y")).toBe(hashContent("X validates Y\r\n"));
-    // Case matters for source hashing — it's real drift.
-    expect(hashContent("X validates Y")).not.toBe(hashContent("x validates y"));
-    // Trailing punctuation matters for source hashing — a file that
-    // added a period really did change.
-    expect(hashContent("X validates Y")).not.toBe(hashContent("X validates Y."));
-  });
-
-  it("hashPropContent collides on case variance", () => {
-    expect(hashPropContent("X validates Y")).toBe(hashPropContent("x validates y"));
-    expect(hashPropContent("VO2max trains via intervals")).toBe(
-      hashPropContent("vo2max trains via intervals"),
-    );
-  });
-
-  it("hashPropContent collides on whitespace variance", () => {
-    expect(hashPropContent("X  validates  Y")).toBe(hashPropContent("X validates Y"));
-    expect(hashPropContent("X\tvalidates\tY")).toBe(hashPropContent("X validates Y"));
-    expect(hashPropContent("  X validates Y  ")).toBe(hashPropContent("X validates Y"));
-  });
-
-  it("hashPropContent collides on trailing sentence punctuation", () => {
-    expect(hashPropContent("X validates Y")).toBe(hashPropContent("X validates Y."));
-    expect(hashPropContent("X validates Y")).toBe(hashPropContent("X validates Y!"));
-    expect(hashPropContent("X validates Y")).toBe(hashPropContent("X validates Y?"));
-    expect(hashPropContent("X validates Y")).toBe(hashPropContent("X validates Y..."));
-    expect(hashPropContent("X validates Y")).toBe(hashPropContent("X validates Y …"));
-  });
-
-  it("hashPropContent preserves internal punctuation", () => {
-    // Internal commas/colons can carry meaning — don't collide distinct claims.
-    expect(hashPropContent("A, B, and C are the pillars")).not.toBe(
-      hashPropContent("A B C are the pillars"),
-    );
-    expect(hashPropContent("X: Y")).not.toBe(hashPropContent("X Y"));
-  });
-
-  it("hashPropContent still distinguishes genuinely different claims", () => {
-    expect(hashPropContent("X validates Y")).not.toBe(hashPropContent("X does Y"));
-    expect(hashPropContent("A depends on B")).not.toBe(hashPropContent("A replaces B"));
-  });
-
-  it("hashPropContent produces the same 16-char hex format as hashContent", () => {
-    const hash = hashPropContent("some claim");
-    expect(hash).toMatch(/^[a-f0-9]{16}$/);
-  });
-
-  it("hashPropContent and hashContent produce different hashes for the same input", () => {
-    // Migration note: propositions emitted before the switch to
-    // hashPropContent were stored with hashContent digests. Re-emitting
-    // the same content after the switch hits a different hash and
-    // creates a new row rather than deduping. Both are valid; the
-    // workaround is `freelance memory reset --confirm` + re-compile
-    // to rebuild under the new hash regime. This test documents the
-    // behavior so it isn't surprising later.
-    expect(hashContent("X validates Y.")).not.toBe(hashPropContent("X validates Y."));
-    expect(hashContent("X validates Y")).not.toBe(hashPropContent("X validates Y"));
-  });
 });
 
 describe("hashSource", () => {

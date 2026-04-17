@@ -19,47 +19,15 @@ function normalizeContent(content: string): string {
 }
 
 /**
- * Normalize proposition content for dedup hashing. Stricter than file
- * normalization — targets superficial variance that doesn't change the
- * claim: case, whitespace runs, trailing sentence punctuation. Internal
- * punctuation is preserved (commas/colons/quotes can carry meaning).
- *
- * Each transform is a deterministic, binary invariant (applied or not) —
- * no thresholds or similarity scoring. Two claims collide on hash only
- * when their normalized forms are byte-identical.
- */
-function normalizePropContent(content: string): string {
-  return content
-    .replace(/\r\n/g, "\n")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .replace(/[.!?…]+\s*$/u, "")
-    .trim();
-}
-
-/**
  * Hash content using SHA-256, returning the first 16 hex characters.
  * Content is normalized (CRLF→LF, trimEnd) before hashing. Used for
- * source file hashing where stricter normalization would mask real
- * content drift.
+ * source file hashing; see `hashPropContent` in `memory/store.ts` for
+ * the stricter normalization used on proposition content.
  */
 export function hashContent(content: string): string {
   return crypto
     .createHash("sha256")
     .update(normalizeContent(content))
-    .digest("hex")
-    .substring(0, 16);
-}
-
-/**
- * Hash proposition content for dedup. Uses `normalizePropContent` so
- * "X validates Y" and "x validates y." collide on the same hash —
- * superficial variance doesn't create duplicate propositions.
- */
-export function hashPropContent(content: string): string {
-  return crypto
-    .createHash("sha256")
-    .update(normalizePropContent(content))
     .digest("hex")
     .substring(0, 16);
 }
