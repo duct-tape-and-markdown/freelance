@@ -10,6 +10,21 @@ Graph-based workflow enforcement for AI coding agents.
 
 After a non-trivial batch of code changes (multiple files or a cohesive multi-step edit), run `/simplify` before reporting the task complete. Skip for single-line fixes, test-only tweaks, or pure config/docs edits.
 
+## Releases
+
+npm publishing is **CI-driven by GitHub Releases** (`.github/workflows/publish.yml` fires on `release: published` and runs `npm publish --provenance`). Do NOT `npm publish` from a local machine — the workflow uses an OIDC token and provenance that local publishes won't produce.
+
+Flow for a patch release (e.g. 1.3.2 → 1.3.3):
+
+1. Graduate `[Unreleased]` in `CHANGELOG.md` to `[<version>] - YYYY-MM-DD`. Leave a fresh empty `[Unreleased]` above it.
+2. `npm version patch --no-git-tag-version` — bumps `package.json` + `package-lock.json`, runs the `version` script which invokes `scripts/sync-plugin-version.mjs` to rewrite `plugin.json`, `marketplace.json`, and `plugins/freelance/.mcp.json` (exact pin `freelance-mcp@<version>`).
+3. The `version` script only `git add`s `plugin.json` — **manually stage the rest**: `git add CHANGELOG.md package.json package-lock.json .claude-plugin/marketplace.json plugins/freelance/.mcp.json`.
+4. `git commit -m "release: <version>"` and `git tag v<version>`.
+5. Push main + tag: `git push origin main v<version>`.
+6. `gh release create v<version> --title "v<version>" --notes "$(...)"` — CI workflow picks this up and publishes to npm.
+
+Why `.mcp.json` pins exactly (not `^<major>`): npx keys its `_npx/<hash>` cache by the raw spec string, so a range reuses any satisfying cached version and never re-resolves (npm/cli#7838, #6804). Exact pinning changes the cache key each release so `/plugin update` actually delivers the new server. See CHANGELOG [1.3.3] and the file-header comment in `scripts/sync-plugin-version.mjs`.
+
 ## Code navigation
 
 Prefer AST-aware tools over plain text search when exploring or refactoring TypeScript:
