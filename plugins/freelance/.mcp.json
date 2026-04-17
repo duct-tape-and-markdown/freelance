@@ -1,13 +1,6 @@
 {
   "freelance": {
-    "command": "node",
-    "args": [
-      "/home/jwcam/repos/freelance/dist/bin.js",
-      "mcp",
-      "--workflows",
-      "/home/jwcam/repos/freelance/.freelance",
-      "--workflows",
-      "/home/jwcam/repos/freelance/experiments/.freelance"
-    ]
+    "command": "npx",
+    "args": ["-y", "freelance-mcp@^1", "mcp"]
   }
 }
