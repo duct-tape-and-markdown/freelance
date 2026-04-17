@@ -57,7 +57,7 @@ describe("Memory MCP tools", () => {
     await cleanup();
   });
 
-  it("registers 7 memory tools", async () => {
+  it("registers 8 memory tools", async () => {
     const tools = await client.listTools();
     const memTools = tools.tools.filter((t) => t.name.startsWith("memory_"));
     const names = memTools.map((t) => t.name).sort();
@@ -67,6 +67,7 @@ describe("Memory MCP tools", () => {
       "memory_emit",
       "memory_inspect",
       "memory_related",
+      "memory_reset",
       "memory_search",
       "memory_status",
     ]);
@@ -83,7 +84,7 @@ describe("Memory MCP tools", () => {
     });
     expect(emitResult.isError).toBeTruthy();
     const emitErr = parseContent(emitResult) as { error: string };
-    expect(emitErr.error).toContain("active memory workflow traversal");
+    expect(emitErr.error).toContain("active workflow traversal");
   });
 
   it("read tools available without active memory traversal", async () => {

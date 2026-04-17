@@ -25,6 +25,10 @@ describe("BUILTIN_HOOK_NAMES + isBuiltinHook", () => {
   it("isBuiltinHook true for registered names, false otherwise", () => {
     expect(isBuiltinHook("memory_status")).toBe(true);
     expect(isBuiltinHook("memory_browse")).toBe(true);
+    expect(isBuiltinHook("memory_search")).toBe(true);
+    expect(isBuiltinHook("memory_related")).toBe(true);
+    expect(isBuiltinHook("memory_inspect")).toBe(true);
+    expect(isBuiltinHook("memory_by_source")).toBe(true);
     expect(isBuiltinHook("meta_set")).toBe(true);
     expect(isBuiltinHook("memory_emit")).toBe(false);
     expect(isBuiltinHook("not-a-hook")).toBe(false);
@@ -114,13 +118,6 @@ describe("memory_status built-in hook", () => {
       /memory_status.*requires memory to be enabled/,
     );
   });
-
-  it("rejects non-string collection arg", async () => {
-    const memoryStatus = BUILTIN_HOOKS.get("memory_status")!;
-    await expect(
-      memoryStatus(makeCtx({ args: { collection: 42 }, memory: store })),
-    ).rejects.toThrow(/collection.*must be a string/);
-  });
 });
 
 describe("memory_browse built-in hook", () => {
@@ -184,5 +181,166 @@ describe("memory_browse built-in hook", () => {
     );
 
     expect(result.entities).toHaveLength(0);
+  });
+});
+
+// The four read-narrowing hooks (search, related, inspect, by_source)
+// share a fixture that emits one proposition so the store has something
+// to return. Each suite asserts the happy-path shape and the
+// memory-disabled error path mirroring the status/browse pattern.
+describe("memory_search, memory_related, memory_inspect, memory_by_source built-in hooks", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let sourcePath: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "builtin-hook-"));
+    store = new MemoryStore(openDatabase(path.join(tmpDir, "memory.db")), tmpDir);
+    sourcePath = "fixture.md";
+    fs.writeFileSync(path.join(tmpDir, sourcePath), "# fixture\nBiome formats the repo.\n");
+    store.emit(
+      [
+        {
+          content: "Biome formats and lints the freelance repo.",
+          entities: ["Biome", "freelance"],
+          sources: [sourcePath],
+        },
+      ],
+      "default",
+    );
+  });
+
+  afterEach(() => {
+    store.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  describe("memory_search", () => {
+    it("returns search shape from a live MemoryStore", async () => {
+      const memorySearch = BUILTIN_HOOKS.get("memory_search")!;
+      const result = await memorySearch(makeCtx({ args: { query: "Biome" }, memory: store }));
+
+      expect(result).toHaveProperty("query", "Biome");
+      expect(Array.isArray(result.propositions)).toBe(true);
+      expect((result.propositions as unknown[]).length).toBeGreaterThan(0);
+    });
+
+    it("threads limit + collection args through", async () => {
+      const memorySearch = BUILTIN_HOOKS.get("memory_search")!;
+      const result = await memorySearch(
+        makeCtx({
+          args: { query: "Biome", limit: 5, collection: "default" },
+          memory: store,
+        }),
+      );
+      expect(result.query).toBe("Biome");
+    });
+
+    it("throws when ctx.memory is undefined", async () => {
+      const memorySearch = BUILTIN_HOOKS.get("memory_search")!;
+      await expect(memorySearch(makeCtx({ args: { query: "x" } }))).rejects.toThrow(
+        /memory_search.*requires memory to be enabled/,
+      );
+    });
+
+    it("rejects missing query arg", async () => {
+      const memorySearch = BUILTIN_HOOKS.get("memory_search")!;
+      await expect(memorySearch(makeCtx({ memory: store }))).rejects.toThrow(
+        /query.*non-empty string/,
+      );
+    });
+  });
+
+  describe("memory_related", () => {
+    it("returns related shape from a live MemoryStore", async () => {
+      const memoryRelated = BUILTIN_HOOKS.get("memory_related")!;
+      const result = await memoryRelated(makeCtx({ args: { entity: "Biome" }, memory: store }));
+
+      expect(result).toHaveProperty("entity");
+      expect(result).toHaveProperty("neighbors");
+      expect(Array.isArray(result.neighbors)).toBe(true);
+    });
+
+    it("throws when ctx.memory is undefined", async () => {
+      const memoryRelated = BUILTIN_HOOKS.get("memory_related")!;
+      await expect(memoryRelated(makeCtx({ args: { entity: "Biome" } }))).rejects.toThrow(
+        /memory_related.*requires memory to be enabled/,
+      );
+    });
+
+    it("rejects missing entity arg", async () => {
+      const memoryRelated = BUILTIN_HOOKS.get("memory_related")!;
+      await expect(memoryRelated(makeCtx({ memory: store }))).rejects.toThrow(
+        /entity.*non-empty string/,
+      );
+    });
+  });
+
+  describe("memory_inspect", () => {
+    it("returns inspect shape from a live MemoryStore", async () => {
+      const memoryInspect = BUILTIN_HOOKS.get("memory_inspect")!;
+      const result = await memoryInspect(makeCtx({ args: { entity: "Biome" }, memory: store }));
+
+      expect(result).toHaveProperty("entity");
+      expect(result).toHaveProperty("propositions");
+      expect(result).toHaveProperty("neighbors");
+      expect(result).toHaveProperty("source_files");
+      expect((result.propositions as unknown[]).length).toBeGreaterThan(0);
+    });
+
+    it("throws when ctx.memory is undefined", async () => {
+      const memoryInspect = BUILTIN_HOOKS.get("memory_inspect")!;
+      await expect(memoryInspect(makeCtx({ args: { entity: "Biome" } }))).rejects.toThrow(
+        /memory_inspect.*requires memory to be enabled/,
+      );
+    });
+  });
+
+  describe("memory_by_source", () => {
+    it("returns priorKnowledgeByPath keyed by each path", async () => {
+      const memoryBySource = BUILTIN_HOOKS.get("memory_by_source")!;
+      const result = await memoryBySource(
+        makeCtx({ args: { paths: [sourcePath] }, memory: store }),
+      );
+
+      expect(result).toHaveProperty("priorKnowledgeByPath");
+      expect(result).toHaveProperty("priorKnowledgePathsConsidered", 1);
+      expect(result).toHaveProperty("priorKnowledgePathsTruncated", false);
+      const byPath = result.priorKnowledgeByPath as Record<string, unknown[]>;
+      expect(byPath[sourcePath]).toBeDefined();
+      expect(byPath[sourcePath].length).toBeGreaterThan(0);
+    });
+
+    it("returns empty array entries for unknown paths", async () => {
+      const memoryBySource = BUILTIN_HOOKS.get("memory_by_source")!;
+      const result = await memoryBySource(
+        makeCtx({ args: { paths: ["does-not-exist.md"] }, memory: store }),
+      );
+      const byPath = result.priorKnowledgeByPath as Record<string, unknown[]>;
+      expect(byPath["does-not-exist.md"]).toEqual([]);
+    });
+
+    it("caps paths at 50 and reports truncation", async () => {
+      const memoryBySource = BUILTIN_HOOKS.get("memory_by_source")!;
+      const manyPaths = Array.from({ length: 75 }, (_, i) => `f${i}.md`);
+      const result = await memoryBySource(makeCtx({ args: { paths: manyPaths }, memory: store }));
+
+      expect(result.priorKnowledgePathsConsidered).toBe(50);
+      expect(result.priorKnowledgePathsTruncated).toBe(true);
+    });
+
+    it("throws when ctx.memory is undefined", async () => {
+      const memoryBySource = BUILTIN_HOOKS.get("memory_by_source")!;
+      await expect(memoryBySource(makeCtx({ args: { paths: [sourcePath] } }))).rejects.toThrow(
+        /memory_by_source.*requires memory to be enabled/,
+      );
+    });
+
+    it("rejects non-array paths arg", async () => {
+      const memoryBySource = BUILTIN_HOOKS.get("memory_by_source")!;
+      await expect(
+        memoryBySource(makeCtx({ args: { paths: "single.md" }, memory: store })),
+      ).rejects.toThrow(/paths.*string array/);
+    });
   });
 });

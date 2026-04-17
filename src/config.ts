@@ -6,7 +6,7 @@
  *   .freelance/config.local.yml  — gitignored, machine-specific (plugin hooks)
  *
  * Merge rules:
- *   - Arrays (workflows, memory.collections) concatenate across files
+ *   - Arrays (workflows) concatenate across files
  *   - Scalars (memory.enabled, memory.dir, maxDepth, hooks.timeoutMs)
  *     use local over base
  *
@@ -27,21 +27,13 @@ import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import { z } from "zod";
-import type { CollectionConfig } from "./memory/types.js";
 
 // --- Schema ---
-
-const collectionSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().default(""),
-  paths: z.array(z.string()).default([]),
-});
 
 const memorySchema = z
   .object({
     enabled: z.boolean().optional(),
     dir: z.string().optional(),
-    collections: z.array(collectionSchema).optional(),
   })
   .optional();
 
@@ -66,7 +58,6 @@ export interface FreelanceConfig {
   memory: {
     enabled?: boolean;
     dir?: string;
-    collections?: CollectionConfig[];
   };
   hooks: {
     timeoutMs?: number;
@@ -127,7 +118,6 @@ function mergeConfigs(
       ...baseMem,
       ...(overlay.memory.enabled !== undefined ? { enabled: overlay.memory.enabled } : {}),
       ...(overlay.memory.dir !== undefined ? { dir: overlay.memory.dir } : {}),
-      collections: [...(baseMem.collections ?? []), ...(overlay.memory.collections ?? [])],
     };
   }
 
@@ -149,9 +139,6 @@ function toFreelanceConfig(merged: FreelanceConfigFile, sources: string[]): Free
     memory: {
       enabled: merged.memory?.enabled,
       dir: merged.memory?.dir,
-      collections: merged.memory?.collections?.length
-        ? (merged.memory.collections as CollectionConfig[])
-        : undefined,
     },
     hooks: {
       timeoutMs: merged.hooks?.timeoutMs,

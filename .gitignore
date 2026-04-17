@@ -26,6 +26,18 @@ logs/
 *.pem
 
 # Project
-.freelance/
+# Ignore the .freelance/ directory's contents by default, but keep
+# committed workflows listed explicitly below so the MCP server can
+# auto-load them and others can reference them. Uses the "ignore
+# contents then un-ignore specifics" pattern (.freelance/ as a directory
+# pattern would swallow un-ignores).
+.freelance/*
+!.freelance/memory-architecture-port.workflow.yaml
 .claude/settings.local.json
-docs/
+# Ignore docs/ contents by default, then un-ignore specific specs that
+# inform committed work. Same ".freelance/*" pattern — a bare "docs/"
+# directory ignore would swallow the un-ignore below.
+docs/*
+!docs/memory-architecture-review.md
+!docs/memory-prose-porting.md
+!docs/memory-intent.md

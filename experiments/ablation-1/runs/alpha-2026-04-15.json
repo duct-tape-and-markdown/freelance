@@ -1,0 +1,76 @@
+{
+  "variant": "alpha",
+  "timestamp": "2026-04-15T16:27:30Z",
+  "collection": "ablation-1-alpha",
+  "graph_id": "compile:alpha",
+  "fixture": "ablation-1",
+  "status": {
+    "total_propositions": 52,
+    "valid_propositions": 52,
+    "stale_propositions": 0,
+    "total_entities": 35
+  },
+  "entities": [
+    { "name": "token-store", "kind": "module", "prop_count": 1, "new": true },
+    { "name": "ROAR", "kind": "source", "prop_count": 1, "new": true },
+    { "name": "Female-Specific Physiology", "kind": "concept", "prop_count": 9, "new": true },
+    { "name": "Cardiovascular Adaptation", "kind": "concept", "prop_count": 1, "new": true },
+    { "name": "Daniels Running Formula", "kind": "source", "prop_count": 8, "new": true },
+    { "name": "Altitude Training", "kind": "concept", "prop_count": 2, "new": true },
+    { "name": "Physiology Topic", "kind": "topic", "prop_count": 7, "new": true },
+    { "name": "Google Calendar Connector", "kind": "module", "prop_count": 3, "new": false },
+    { "name": "Strava Connector", "kind": "module", "prop_count": 3, "new": false },
+    { "name": "run-sync.js", "kind": "script", "prop_count": 15, "new": false },
+    { "name": "Stacy Sims", "kind": "person", "prop_count": 1, "new": false },
+    { "name": "Menopause", "kind": "concept", "prop_count": 2, "new": false },
+    { "name": "Bone Density", "kind": "concept", "prop_count": 2, "new": false },
+    { "name": "Menstrual Cycle", "kind": "concept", "prop_count": 2, "new": false },
+    { "name": "Thermoregulation", "kind": "concept", "prop_count": 2, "new": false },
+    { "name": "Polarized Training", "kind": "concept", "prop_count": 2, "new": false },
+    { "name": "Glycogen Depletion", "kind": "concept", "prop_count": 1, "new": false },
+    { "name": "Psychobiological Model", "kind": "theory", "prop_count": 1, "new": false },
+    { "name": "Central Governor Theory", "kind": "theory", "prop_count": 2, "new": false },
+    { "name": "Frontier Fiber Model", "kind": "theory", "prop_count": 1, "new": false },
+    { "name": "VDOT", "kind": "concept", "prop_count": 1, "new": false },
+    { "name": "Lactate Threshold", "kind": "concept", "prop_count": 3, "new": false },
+    { "name": "Running Economy", "kind": "concept", "prop_count": 3, "new": false },
+    { "name": "VO2max", "kind": "concept", "prop_count": 6, "new": false },
+    { "name": "Aerobic Deficiency Syndrome", "kind": "concept", "prop_count": 2, "new": false },
+    { "name": "Muscle Fiber Plasticity", "kind": "concept", "prop_count": 1, "new": false },
+    { "name": "Capillary Density", "kind": "concept", "prop_count": 1, "new": false },
+    { "name": "Aerobic Adaptation", "kind": "concept", "prop_count": 6, "new": false },
+    { "name": "AMPK Pathway", "kind": "concept", "prop_count": 3, "new": false },
+    { "name": "Mitochondrial Biogenesis", "kind": "concept", "prop_count": 1, "new": false },
+    { "name": "George Brooks", "kind": "person", "prop_count": 1, "new": false },
+    { "name": "Lactate Shuttle", "kind": "concept", "prop_count": 2, "new": false },
+    { "name": "Fat Oxidation", "kind": "concept", "prop_count": 2, "new": false },
+    { "name": "Anaerobic Threshold", "kind": "concept", "prop_count": 3, "new": false },
+    { "name": "Aerobic Threshold", "kind": "concept", "prop_count": 4, "new": false }
+  ],
+  "per_source_counts": {
+    "physiology.md": 37,
+    "run-sync.js": 15
+  },
+  "subagent_report": {
+    "tool_calls": 10,
+    "new_entities_created": 7,
+    "reused_entities": 28,
+    "entity_kind_conflicts": [
+      "Frontier Fiber Model (theory vs concept)",
+      "Central Governor Theory",
+      "Psychobiological Model"
+    ],
+    "hard_to_atomize": [
+      "four pillars of aerobic adaptation (structural framing felt artificial to separate)",
+      "menstrual cycle 5-system oscillation (kept compound)",
+      "run-sync.js .env loader (three sub-facts kept together)"
+    ],
+    "prose_feedback": {
+      "useful": "staging WRONG/RIGHT rubric with Biome example — reaches for it as the canonical atomicity test",
+      "too_long_on_cold_run": "exploring node onEnter + warm-exit prose is thorough but long; cold runs don't use the warm-start path",
+      "redundant": "exploring and addressing both repeat the 'sources hashed at emit time' fact",
+      "unclear": "addressing tells you to 'clear context.stagedClaims afterward' without specifying whether clearing is required or hygiene",
+      "new_finding": "context.entities was empty at addressing despite pre-existing entities in the global store — hook is collection-scoped but entity resolution isn't, so the agent doesn't see the vocabulary they're about to get resolved against"
+    }
+  }
+}

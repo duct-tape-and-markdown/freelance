@@ -17,7 +17,6 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
   return new GraphBuilder(RECOLLECTION_ID, "Recollection")
     .setDescription(M.description)
     .setContext({
-      collection: "",
       query: "",
       recalledEntities: 0,
       recalledPropositions: 0,
@@ -29,12 +28,39 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
       type: "action",
       description: M.nodes.recalling.description,
       instructions: M.nodes.recalling.instructions,
-      suggestedTools: ["memory_browse", "memory_inspect", "memory_related"],
+      // The broad sweep of "what's already known" is deterministic —
+      // populate it via onEnter so the agent doesn't burn turns on
+      // memory_status / memory_browse round-trips. The agent still
+      // drives memory_inspect / memory_related manually for depth on
+      // specific entities it picks from the populated vocabulary.
+      onEnter: [
+        {
+          call: "memory_status",
+          args: {},
+        },
+        {
+          call: "memory_browse",
+          args: {
+            limit: 50,
+          },
+        },
+      ],
+      suggestedTools: ["memory_inspect", "memory_related"],
       edges: [
         {
           target: "sourcing",
           label: M.edges.recalled.label,
           description: M.edges.recalled.description,
+        },
+        // Warm-exit shortcut: when the recalled propositions already
+        // comprehensively cover the query, skip sourcing/comparing/filling
+        // entirely and route straight to evaluating. Saves 3–4 turns and
+        // avoids redundant source reads when memory is already sufficient.
+        {
+          target: "evaluating",
+          label: M.edges.warmExit.label,
+          condition: "context.coverageSatisfied == true",
+          description: M.edges.warmExit.description,
         },
       ],
     })

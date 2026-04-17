@@ -90,7 +90,7 @@ describe("TraversalStore — stateless JSON", () => {
     }
   });
 
-  it("completes a full traversal lifecycle", async () => {
+  it("completes a full traversal lifecycle and auto-GCs the terminal record", async () => {
     const start = await store.createTraversal("valid-simple");
     const id = start.traversalId;
     expect(start.status).toBe("started");
@@ -104,7 +104,9 @@ describe("TraversalStore — stateless JSON", () => {
       expect(adv2.status).toBe("complete");
     }
 
-    store.resetTraversal(id);
+    // Reaching a root terminal node clears the persisted record
+    // automatically — no explicit reset call needed. Completed
+    // traversals shouldn't clutter listTraversals().
     expect(store.listTraversals()).toHaveLength(0);
   });
 

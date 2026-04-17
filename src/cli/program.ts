@@ -358,14 +358,11 @@ const memoryCmd = program
   .description("Query and manage the persistent knowledge graph");
 
 addWorkflowsOpt(
-  memoryCmd
-    .command("status")
-    .description("Show proposition and entity counts")
-    .option("--collection <name>", "Scope to a collection"),
+  memoryCmd.command("status").description("Show proposition and entity counts"),
 ).action((opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
   try {
-    memoryStatus(store, opts.collection);
+    memoryStatus(store);
   } finally {
     store.close();
   }
@@ -377,7 +374,6 @@ addWorkflowsOpt(
     .description("Find entities by name, kind, or partial match")
     .option("--name <pattern>", "Partial name match (case-insensitive)")
     .option("--kind <kind>", "Filter by entity kind")
-    .option("--collection <name>", "Scope to a collection")
     .option("--limit <n>", "Maximum results")
     .option("--offset <n>", "Skip first N results"),
 ).action((opts) => {
@@ -392,12 +388,11 @@ addWorkflowsOpt(
 addWorkflowsOpt(
   memoryCmd
     .command("inspect <entity>")
-    .description("Full entity details — propositions, neighbors, sources")
-    .option("--collection <name>", "Scope to a collection"),
+    .description("Full entity details — propositions, neighbors, sources"),
 ).action((entity, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
   try {
-    memoryInspect(store, entity, opts.collection);
+    memoryInspect(store, entity);
   } finally {
     store.close();
   }
@@ -407,7 +402,6 @@ addWorkflowsOpt(
   memoryCmd
     .command("search <query>")
     .description("Full-text search across proposition content")
-    .option("--collection <name>", "Scope to a collection")
     .option("--limit <n>", "Maximum results"),
 ).action((query, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
@@ -421,26 +415,22 @@ addWorkflowsOpt(
 addWorkflowsOpt(
   memoryCmd
     .command("related <entity>")
-    .description("Show entities related via shared propositions")
-    .option("--collection <name>", "Scope to a collection"),
+    .description("Show entities related via shared propositions"),
 ).action((entity, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
   try {
-    memoryRelated(store, entity, opts.collection);
+    memoryRelated(store, entity);
   } finally {
     store.close();
   }
 });
 
 addWorkflowsOpt(
-  memoryCmd
-    .command("by-source <file>")
-    .description("All propositions derived from a source file")
-    .option("--collection <name>", "Scope to a collection"),
+  memoryCmd.command("by-source <file>").description("All propositions derived from a source file"),
 ).action((file, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
   try {
-    memoryBySource(store, file, opts.collection);
+    memoryBySource(store, file);
   } finally {
     store.close();
   }
@@ -449,12 +439,11 @@ addWorkflowsOpt(
 addWorkflowsOpt(
   memoryCmd
     .command("emit <file>")
-    .description("Write propositions from JSON file (use - for stdin)")
-    .option("--collection <name>", "Target collection", "default"),
+    .description("Write propositions from JSON file (use - for stdin)"),
 ).action((file, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
   try {
-    memoryEmit(store, file, opts.collection);
+    memoryEmit(store, file);
   } finally {
     store.close();
   }

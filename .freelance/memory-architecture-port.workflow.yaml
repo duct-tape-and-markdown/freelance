@@ -1,0 +1,331 @@
+id: memory-architecture-port
+version: "1.0.0"
+name: "Memory Architecture Port"
+description: >
+  Sequential batch executor for the memory-architecture-review.md /
+  memory-prose-porting.md port. Walks 6 self-contained batches; each batch
+  goes plan → implement → verify (typecheck + tests) → commit before the
+  loop advances. Verification failures route back to implement without
+  losing batch state. Sourced from the locked plan in conversation
+  on 2026-04-14.
+startNode: start
+strictContext: false
+
+context:
+  batchIndex: 0
+  batchCount: 6
+  currentBatchName: ""
+  currentBatchScope: ""
+  planAcknowledged: false
+  implementationDone: false
+  typecheckPassed: false
+  testsPassed: false
+  verificationPassed: false
+  findingDescription: ""
+  committed: false
+
+nodes:
+  start:
+    type: action
+    description: "Read the batch ledger and confirm starting position"
+    instructions: |
+      You are about to execute the memory-architecture port as 6 sequential
+      batches. The full ledger lives in the `planning` node — read it there
+      when you arrive. Each batch is self-contained: it compiles, tests, and
+      commits cleanly before the next one starts.
+
+      Ground rules for the whole run:
+      - Touch only what the current batch's scope says to touch. Do not
+        sneak in fixes from later batches.
+      - Architectural cleanliness: the memory store stays a passive sink.
+        No new write paths, no new server-side intelligence. If a batch
+        seems to require either, stop and re-discuss the scope.
+      - Built-in hooks expose read-only narrowing over MemoryStore. Do not
+        widen them with mutating methods.
+      - Prose batches need at least one assertion that the new substring
+        lands in the rendered instruction; structural batches need
+        integration coverage.
+
+      Confirm context.batchIndex is 0 (the start of Batch 0) and advance.
+    edges:
+      - target: planning
+        label: ready
+        description: "Ready to plan Batch 0"
+
+  planning:
+    type: action
+    description: "Identify the current batch from the ledger and plan its steps"
+    instructions: |
+      The batch ledger (read the row for context.batchIndex):
+
+      ## Batch 0 — Built-in hook surface (4 wrappers)
+      Files: src/engine/hooks.ts, src/engine/builtin-hooks.ts,
+             src/guide.ts, test/builtin-hooks.test.ts
+      Scope:
+        - Widen HookMemoryAccess (src/engine/hooks.ts:29) with read-only
+          search(), related(), bySource(), inspect(). Mirror MemoryStore's
+          public signatures from src/memory/store.ts.
+        - Add memory_search, memory_related, memory_by_source, memory_inspect
+          to BUILTIN_HOOKS in src/engine/builtin-hooks.ts. Reuse the
+          requireMemory + optionalString/optionalInt/optionalCollection
+          helpers; one hook function per built-in.
+        - memory_by_source wrapper accepts paths: string[] and loops
+          internally — diverges from the single-path MCP tool signature
+          on purpose; document inline.
+        - Extend test/builtin-hooks.test.ts with one happy-path assertion
+          per new built-in (returns a context-update object) and one
+          memory-disabled error-path assertion.
+        - Update the onenter-hooks topic in src/guide.ts so the built-ins
+          list reflects all six.
+      Done when: typecheck + tests green; new built-ins resolvable from
+      a fixture node's onEnter.
+
+      ## Batch 1 — Rubric prose port (independence test + split/keep + taxonomy)
+      Files: src/memory/messages.ts, test/memory-tools.test.ts (or new)
+      Scope:
+        - Append to PROPOSITION_RUBRIC in src/memory/messages.ts:17:
+          (a) the independence test ("could either claim be true while
+              the other is false?"), (b) the split-aggressively /
+              keep-together catalog from
+              docs/memory-prose-porting.md:42-51, (c) one sentence on the
+              factual / conceptual / procedural / metacognitive taxonomy.
+        - Snapshot-level test: render the compiling-node instruction and
+          assert each new substring is present.
+      Done when: rubric reads as one cohesive block; both sealed
+      workflows still typecheck against the as-const messages.
+
+      ## Batch 2 — Lens directive (option-b inline prose)
+      Files: src/memory/messages.ts, src/memory/workflow.ts (only context
+             default), test/memory-tools.test.ts
+      Scope:
+        - Add lens: "" to compile workflow's setContext default in
+          src/memory/workflow.ts.
+        - Inline a "lens directive" block in the compiling instruction
+          listing dev / support / qa rules verbatim from
+          docs/memory-prose-porting.md:60-65. The agent picks based on
+          context.lens.
+        - No engine templating, no sibling workflows. If lens is empty,
+          the prose tells the agent to default to dev.
+        - Test: starting compile with each lens value still typechecks
+          and the substring is in the rendered instruction.
+      Done when: agent can read context.lens and route emission style
+      without the engine touching the instruction string.
+
+      ## Batch 3+5 — Stage-and-address split + addressing onEnter (merged)
+      Files: src/memory/workflow.ts, src/memory/messages.ts,
+             test/memory-tools.test.ts (or new integration test)
+      Scope:
+        - Replace the single `compiling` node in
+          src/memory/workflow.ts:37 with `staging` and `addressing`.
+          Topology: exploring → staging → addressing → evaluating →
+          (complete | exploring on gaps).
+        - `staging` instruction: emit raw claim objects into
+          context.stagedClaims via freelance_context_set. Schema per
+          claim: { content, sources, draftEntities? }. NO call to
+          memory_emit. NO store changes.
+        - `addressing` instruction: hub-concept rules — 3+ propositions
+          per entity floor, props/3 entity ceiling, reuse existing
+          names — from docs/memory-prose-porting.md:75-92. Then call
+          memory_emit once with planned entities. Cite sources from
+          each staged claim.
+        - GOOD/BAD entity examples: parameterize via collection config
+          if present, otherwise inline placeholders. Decide in batch.
+        - `addressing` gets onEnter:
+            - call: memory_browse
+              args: { collection: "context.collection", limit: 50 }
+          Inject result keys into context so the addressing instruction
+          can reference current vocabulary.
+        - Add new STAGING_INSTRUCTION / ADDRESSING_INSTRUCTION exports
+          to messages.ts.
+        - Integration test: stage-then-address run produces propositions
+          whose entity counts satisfy the floor/ceiling.
+      Done when: compile workflow's stage/address split runs end-to-end
+      in tests; no schema migration; memory store untouched.
+
+      ## Batch 4 — Exploring onEnter (graph-aware reads)
+      Files: src/memory/workflow.ts, src/memory/messages.ts,
+             test/memory-tools.test.ts (or new)
+      Scope:
+        - Add onEnter to the `exploring` node:
+            - call: memory_by_source
+              args: { paths: "context.filesReadPaths",
+                      collection: "context.collection" }
+        - The wrapper from Batch 0 loops over paths internally and
+          returns a single context update like
+          { priorKnowledgeByPath: { <path>: <propositions[]> } }.
+        - Update exploring's instruction to reference
+          context.priorKnowledgeByPath and stage only deltas.
+        - Test: exploring entered with a file already in memory
+          surfaces existing propositions in the next agent-visible
+          response.
+        - Note hook timeout: if filesReadPaths grows long, the wrapper
+          should cap iterations or honor hooks.timeoutMs override on
+          the node spec. Cap at 50 paths for now.
+      Done when: warm-exit behavior is emergent — addressing produces
+      zero new propositions when the file's deltas are empty.
+
+      ## Batch 6 — Issue #53 finish (drop manual prose, attach onEnter)
+      Files: src/memory/messages.ts, src/memory/workflow.ts,
+             src/memory/recollection.ts, integration tests
+      Scope:
+        - Compile: attach
+            - call: memory_status
+              args: { collection: "context.collection" }
+            - call: memory_browse
+              args: { collection: "context.collection", limit: 50 }
+          to the `exploring` node's onEnter (alongside Batch 4's
+          memory_by_source). Remove "first call memory_status" and
+          "use memory_browse to see what's there" language from
+          messages.ts:exploring instructions.
+        - Recall: attach memory_status + memory_browse + memory_inspect
+          + memory_related to either `recalling` (kept as a hook-only
+          landing node) or `sourcing` (and delete `recalling`). Decide
+          in batch — the conversation flagged this as a workflow-
+          authoring call. Drop "use memory_browse and memory_inspect"
+          prose from messages.ts:recalling instructions.
+        - Verify with a dogfood `freelance_start memory:compile` run:
+          first node's response carries proposition/entity counts in
+          context without an agent-side tool call.
+        - Update `freelance_guide onenter-hooks` examples if any drift.
+        - Close out gh issue #53.
+      Done when: traversal turn count for memory:compile and
+      memory:recall drops by the number of collapsed manual tool-call
+      turns; integration tests cover hook-populated context shape.
+
+      ---
+
+      Read the row matching context.batchIndex. Set:
+        - context.currentBatchName = the batch label (e.g. "Batch 0")
+        - context.currentBatchScope = a one-sentence scope summary
+        - context.planAcknowledged = true
+
+      Then write a TodoWrite breakdown of the steps inside this batch
+      (one todo per bullet under "Scope") so progress is trackable.
+    edges:
+      - target: implementing
+        label: planned
+        condition: "context.planAcknowledged == true"
+        description: "Plan acknowledged, begin implementation"
+
+  implementing:
+    type: action
+    description: "Edit the files listed in the current batch's scope"
+    instructions: |
+      Execute the batch as planned. Constraints:
+
+      - Touch only the files listed in this batch's scope. Anything else
+        is scope creep — finish the current batch, advance, then revisit.
+      - Prefer Edit over Write. Read before edit.
+      - If you discover the batch is wrong (e.g. a hidden dependency on
+        another batch), stop and report the conflict to the user before
+        deviating.
+      - Mark each TodoWrite item completed as the corresponding edit lands.
+
+      Set context.implementationDone = true when every scope bullet is
+      addressed. Reset context.verificationPassed = false so the next
+      verification cycle starts clean.
+    edges:
+      - target: verifying
+        label: implementation-done
+        condition: "context.implementationDone == true"
+        description: "Edits complete, verify"
+
+  verifying:
+    type: action
+    description: "Typecheck and run tests for the current batch"
+    instructions: |
+      Run, in order:
+        1. npm run build  → sets context.typecheckPassed
+        2. npm test       → sets context.testsPassed
+
+      Both must be true to pass verification. Set
+      context.verificationPassed = (typecheckPassed && testsPassed).
+
+      If either step fails:
+        - Set context.verificationPassed = false.
+        - Set context.findingDescription to the smallest accurate
+          summary of what failed (file:line + error class is enough).
+        - Do NOT advance. The edge below routes you back to
+          implementing.
+
+      If both pass: leave findingDescription empty and advance to
+      committing.
+    edges:
+      - target: committing
+        label: verified
+        condition: "context.verificationPassed == true"
+        description: "Typecheck + tests both green"
+      - target: implementing
+        label: verification-failed
+        condition: "context.verificationPassed == false"
+        description: "Loop back to fix the finding before re-verifying"
+
+  committing:
+    type: gate
+    description: "Commit the batch as one atomic change"
+    instructions: |
+      Create one commit covering this batch's edits. Format:
+
+        memory-port: <Batch N> — <one-line scope summary>
+
+        <2-3 line body explaining what changed and why this batch
+         existed in the locked plan>
+
+        Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+
+      Use git add with explicit file paths from the batch's scope —
+      never `git add -A` here, because TodoWrite scratch or unrelated
+      edits could leak into the commit.
+
+      Set context.committed = true after the commit lands.
+    validations:
+      - expr: "context.verificationPassed == true"
+        message: "Cannot commit: verification did not pass."
+      - expr: "context.implementationDone == true"
+        message: "Cannot commit: implementation is not marked done."
+    edges:
+      - target: next-or-done
+        label: committed
+        condition: "context.committed == true"
+        description: "Batch committed, decide whether to continue"
+
+  next-or-done:
+    type: decision
+    description: "Increment the batch counter and either loop or finish"
+    instructions: |
+      Increment context.batchIndex by 1.
+      Reset for the next iteration:
+        - context.currentBatchName = ""
+        - context.currentBatchScope = ""
+        - context.planAcknowledged = false
+        - context.implementationDone = false
+        - context.typecheckPassed = false
+        - context.testsPassed = false
+        - context.verificationPassed = false
+        - context.committed = false
+        - context.findingDescription = ""
+
+      If context.batchIndex >= context.batchCount, advance to done.
+      Otherwise advance back to planning for the next batch.
+    edges:
+      - target: planning
+        label: more-batches
+        condition: "context.batchIndex < context.batchCount"
+        description: "Loop back to plan the next batch"
+      - target: done
+        label: all-batches-done
+        condition: "context.batchIndex >= context.batchCount"
+        description: "All 6 batches committed"
+
+  done:
+    type: terminal
+    description: "Memory architecture port complete"
+    instructions: |
+      All 6 batches landed. Suggested follow-ups (not part of this
+      workflow):
+        - Open a tracking issue for memory-architecture-review.md items
+          beyond §5 (consolidation vocabulary, bi-temporal, embeddings,
+          PPR-lite, procedural memory) — each is its own schema-lift
+          workstream.
+        - Sanity-check the 1.4.0 changelog / release notes mention the
+          stage-and-address split and the new built-in hooks.

@@ -174,17 +174,19 @@ describe("MCP server integration", () => {
       expect(adv2Data.currentNode).toBe("done");
       expect(adv2Data.traversalHistory).toEqual(["start", "review", "done"]);
 
-      // Reset
-      const resetResult = await client.callTool({
-        name: "freelance_reset",
-        arguments: { confirm: true },
+      // Root terminal auto-GC: the completed traversal is gone from
+      // listTraversals without any explicit reset. freelance_start
+      // should work directly on top of a just-completed workflow.
+      const listAfterTerminal = await client.callTool({
+        name: "freelance_list",
+        arguments: {},
       });
-      expect(resetResult.isError).toBeFalsy();
-      const resetData = parseContent(resetResult) as { status: string; previousGraph: string };
-      expect(resetData.status).toBe("reset");
-      expect(resetData.previousGraph).toBe("valid-simple");
+      const listAfterData = parseContent(listAfterTerminal) as {
+        activeTraversals: Array<{ traversalId: string }>;
+      };
+      expect(listAfterData.activeTraversals).toEqual([]);
 
-      // Restart works
+      // Restart works with no preceding reset
       const restartResult = await client.callTool({
         name: "freelance_start",
         arguments: { graphId: "valid-simple" },
@@ -803,6 +805,55 @@ describe("MCP server hot-reload", () => {
     const graphs = loadFixtures("valid-simple.workflow.yaml");
     const { stopWatcher } = createServer(graphs);
     expect(stopWatcher).toBeUndefined();
+  });
+
+  it("sealed memory workflows survive watcher reloads", async () => {
+    // Guard regression: when the watcher fires and replaces the graphs
+    // map with a fresh on-disk load, sealed memory workflows (injected
+    // only at startup) would get wiped. Fix: injectSealedGraphs runs
+    // in the onUpdate callback too.
+    const graphsDir = fs.mkdtempSync(path.join(os.tmpdir(), "server-sealed-"));
+    copyFixtures(graphsDir, "valid-simple.workflow.yaml");
+    const graphs = loadGraphs(graphsDir);
+    const dbPath = path.join(graphsDir, "memory.db");
+
+    const { server, stopWatcher } = createServer(graphs, {
+      graphsDirs: [graphsDir],
+      sourceRoot: graphsDir,
+      memory: { enabled: true, db: dbPath },
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    try {
+      // Sealed workflows present at startup
+      const before = parseContent(
+        await client.callTool({ name: "freelance_list", arguments: {} }),
+      ) as { graphs: Array<{ id: string }> };
+      const idsBefore = before.graphs.map((g) => g.id);
+      expect(idsBefore).toContain("memory:compile");
+      expect(idsBefore).toContain("memory:recall");
+
+      // Trigger a watcher reload by adding a new .workflow.yaml file
+      copyFixtures(graphsDir, "valid-branching.workflow.yaml");
+      await new Promise((r) => setTimeout(r, 500));
+
+      // Sealed workflows must still be present after the reload
+      const after = parseContent(
+        await client.callTool({ name: "freelance_list", arguments: {} }),
+      ) as { graphs: Array<{ id: string }> };
+      const idsAfter = after.graphs.map((g) => g.id);
+      expect(idsAfter).toContain("memory:compile");
+      expect(idsAfter).toContain("memory:recall");
+      expect(idsAfter).toContain("valid-branching");
+    } finally {
+      if (stopWatcher) stopWatcher();
+      await client.close();
+      await server.close();
+      fs.rmSync(graphsDir, { recursive: true, force: true });
+    }
   });
 });
 

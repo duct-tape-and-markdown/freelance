@@ -40,6 +40,15 @@ const RUNTIME_SUBDIRS: ReadonlySet<string> = new Set(["memory", "traversals"]);
  * created inside a brand-new subdir before that arm completes are not
  * guaranteed to trigger a reload; restart the server to pick them up.
  *
+ * Per graph dir:
+ *
+ *   1. A non-recursive watcher on the dir itself — picks up top-level
+ *      config.yml / config.local.yml changes, new *.workflow.yaml files
+ *      at the root, and new subdirectory creation events.
+ *   2. A recursive watcher per existing non-runtime subdirectory — picks
+ *      up nested *.workflow.yaml changes without paying the recursive
+ *      cost on the high-churn `memory/` and `traversals/` subtrees.
+ *
  * Note: fs.watch behavior varies by platform. On Linux (inotify) it is
  * reliable. On macOS (FSEvents) it may fire duplicate or miss events.
  * The debounce mitigates duplicate fires.

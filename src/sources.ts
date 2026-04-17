@@ -20,7 +20,9 @@ function normalizeContent(content: string): string {
 
 /**
  * Hash content using SHA-256, returning the first 16 hex characters.
- * Content is normalized (CRLF→LF, trimEnd) before hashing.
+ * Content is normalized (CRLF→LF, trimEnd) before hashing. Used for
+ * source file hashing; see `hashPropContent` in `memory/store.ts` for
+ * the stricter normalization used on proposition content.
  */
 export function hashContent(content: string): string {
   return crypto

@@ -125,14 +125,7 @@ export interface StatusResult {
   total_entities: number;
 }
 
-export interface CollectionConfig {
-  name: string;
-  description: string;
-  paths: string[];
-}
-
 export interface MemoryConfig {
   enabled: boolean;
   db: string;
-  collections?: CollectionConfig[];
 }

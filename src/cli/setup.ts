@@ -128,7 +128,6 @@ export function resolveMemoryConfig(
   return {
     enabled: true,
     db: dbPath,
-    collections: cfg.memory.collections,
   };
 }
 

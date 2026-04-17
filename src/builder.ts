@@ -6,6 +6,7 @@
  * and graphlib topology checks.
  */
 
+import { resolveBuiltinOnlyHooks } from "./hook-resolution.js";
 import { validateAndBuild } from "./loader.js";
 import type { EdgeDefinition, GraphDefinition, NodeDefinition } from "./schema/graph-schema.js";
 import { graphDefinitionSchema } from "./schema/graph-schema.js";
@@ -27,6 +28,11 @@ export interface NodeInput {
     default?: boolean;
     nextStepHint?: string;
   }>;
+  // Programmatic graphs may declare onEnter hooks that resolve to
+  // BUILT-IN hook names only — script paths are rejected at build()
+  // time because there's no source-file directory to anchor them
+  // against (see resolveBuiltinOnlyHooks in hook-resolution.ts).
+  onEnter?: NodeDefinition["onEnter"];
   subgraph?: NodeDefinition["subgraph"];
   returns?: NodeDefinition["returns"];
   waitOn?: NodeDefinition["waitOn"];
@@ -117,6 +123,7 @@ export class GraphBuilder {
         readOnly: input.readOnly,
         validations: input.validations,
         edges,
+        onEnter: input.onEnter,
         subgraph: input.subgraph,
         returns: input.returns,
         waitOn: input.waitOn,
@@ -152,6 +159,16 @@ export class GraphBuilder {
     const source = `GraphBuilder("${this.id}")`;
     const graph = validateAndBuild(definition, source);
 
-    return { definition, graph };
+    // Resolve onEnter hook references (built-ins only — script paths are
+    // rejected because there's no source-file directory to anchor them).
+    // Returns an empty map if no node has hooks, which the engine treats
+    // identically to "no resolutions provided".
+    const hookResolutions = resolveBuiltinOnlyHooks(definition);
+
+    return {
+      definition,
+      graph,
+      hookResolutions: hookResolutions.size > 0 ? hookResolutions : undefined,
+    };
   }
 }

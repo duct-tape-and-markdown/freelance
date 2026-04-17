@@ -63,6 +63,56 @@ export function resolveGraphHooks(def: GraphDefinition, graphFilePath: string): 
 }
 
 /**
+ * Resolve every `onEnter` entry on a programmatically built graph,
+ * accepting BUILT-IN HOOK NAMES ONLY. Script paths are rejected because
+ * a programmatic graph has no source-file directory to anchor them
+ * against. Throws a single error listing every problem found.
+ */
+export function resolveBuiltinOnlyHooks(def: GraphDefinition): HookResolutionMap {
+  const resolutions = new Map<string, ResolvedHook[]>();
+  const errors: string[] = [];
+
+  for (const [nodeId, node] of Object.entries(def.nodes)) {
+    if (!node.onEnter || node.onEnter.length === 0) continue;
+
+    const nodeResolutions: ResolvedHook[] = [];
+    for (const [i, hook] of node.onEnter.entries()) {
+      const call = hook.call;
+      if (call.length === 0) {
+        errors.push(`Node "${nodeId}", onEnter[${i}]: empty call value`);
+        continue;
+      }
+      if (call.startsWith("./") || call.startsWith("../") || call.includes("/")) {
+        errors.push(
+          `Node "${nodeId}", onEnter[${i}]: programmatic graphs may only reference ` +
+            `built-in hooks by name; script paths like "${call}" require a YAML graph ` +
+            `with a source-file directory to anchor against.`,
+        );
+        continue;
+      }
+      if (!BUILTIN_HOOK_NAMES.has(call)) {
+        errors.push(
+          `Node "${nodeId}", onEnter[${i}]: unknown built-in hook "${call}". ` +
+            `Registered built-ins: [${[...BUILTIN_HOOK_NAMES].join(", ")}]`,
+        );
+        continue;
+      }
+      nodeResolutions.push({ kind: "builtin", call, name: call });
+    }
+    if (nodeResolutions.length > 0) {
+      resolutions.set(nodeId, nodeResolutions);
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(
+      `Programmatic graph hook resolution failed:\n${errors.map((e) => `  ${e}`).join("\n")}`,
+    );
+  }
+  return resolutions;
+}
+
+/**
  * Resolve a single `call:` string. Returns the resolved hook on success
  * or an error string on failure so the caller can collect multiple
  * failures into one error message.
