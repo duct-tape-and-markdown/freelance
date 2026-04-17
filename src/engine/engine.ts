@@ -24,7 +24,7 @@ import {
   checkWaitBlocking,
 } from "./gates.js";
 import { cloneContext, toNodeInfo } from "./helpers.js";
-import type { HookRunner } from "./hooks.js";
+import type { HookRunner, MetaCollector } from "./hooks.js";
 import { maybePushSubgraph, popSubgraph } from "./subgraph.js";
 import { evaluateTransitions } from "./transitions.js";
 import { computeTimeoutAt, evaluateWaitConditions } from "./wait.js";
@@ -63,7 +63,11 @@ export class GraphEngine {
     return { graphs };
   }
 
-  async start(graphId: string, initialContext?: Record<string, unknown>): Promise<StartResult> {
+  async start(
+    graphId: string,
+    initialContext?: Record<string, unknown>,
+    options?: { metaCollector?: MetaCollector },
+  ): Promise<StartResult> {
     if (this.stack.length > 0) {
       throw new EngineError(
         "A traversal is already active. Call reset() first.",
@@ -95,7 +99,7 @@ export class GraphEngine {
 
     // Fire onEnter for the start node. Hooks may mutate session.context,
     // so validTransitions and the response snapshot are built after.
-    await this.runHooksOnArrival(session, graph);
+    await this.runHooksOnArrival(session, graph, options?.metaCollector);
 
     const node = def.nodes[def.startNode];
     return {
@@ -110,7 +114,11 @@ export class GraphEngine {
     } satisfies StartResult;
   }
 
-  async advance(edge: string, contextUpdates?: Record<string, unknown>): Promise<AdvanceResult> {
+  async advance(
+    edge: string,
+    contextUpdates?: Record<string, unknown>,
+    options?: { metaCollector?: MetaCollector },
+  ): Promise<AdvanceResult> {
     const session = this.requireSession();
     const graph = this.currentGraph();
     const def = graph.definition;
@@ -189,12 +197,13 @@ export class GraphEngine {
         newNodeDef,
         maxDepth: this.maxDepth,
         hookRunner: this.hookRunner,
+        metaCollector: options?.metaCollector,
       });
     }
 
     // Standard arrival: fire onEnter for the new node before building
     // the response so hook writes land in validTransitions and context.
-    await this.runHooksOnArrival(session, graph);
+    await this.runHooksOnArrival(session, graph, options?.metaCollector);
 
     // Wait node arrival
     if (isWait && newNodeDef.waitOn) {
@@ -345,12 +354,17 @@ export class GraphEngine {
     return this.currentGraph().definition;
   }
 
-  private async runHooksOnArrival(session: SessionState, graph: ValidatedGraph): Promise<void> {
+  private async runHooksOnArrival(
+    session: SessionState,
+    graph: ValidatedGraph,
+    metaCollector?: MetaCollector,
+  ): Promise<void> {
     await this.hookRunner.runHooksFor(
       session,
       graph.definition,
       session.currentNode,
       graph.hookResolutions,
+      metaCollector,
     );
   }
 }

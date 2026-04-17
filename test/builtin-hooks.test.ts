@@ -29,8 +29,44 @@ describe("BUILTIN_HOOK_NAMES + isBuiltinHook", () => {
     expect(isBuiltinHook("memory_related")).toBe(true);
     expect(isBuiltinHook("memory_inspect")).toBe(true);
     expect(isBuiltinHook("memory_by_source")).toBe(true);
+    expect(isBuiltinHook("meta_set")).toBe(true);
     expect(isBuiltinHook("memory_emit")).toBe(false);
     expect(isBuiltinHook("not-a-hook")).toBe(false);
+  });
+});
+
+describe("meta_set built-in hook", () => {
+  it("forwards every arg as a meta update via the host-provided collector", async () => {
+    const collected: Record<string, string>[] = [];
+    const metaSet = BUILTIN_HOOKS.get("meta_set");
+    expect(metaSet).toBeDefined();
+    const result = await metaSet!(
+      makeCtx({
+        args: { externalKey: "DEV-1234", branch: "feature/x" },
+        setMeta: (u) => collected.push(u),
+      }),
+    );
+    expect(result).toEqual({});
+    expect(collected).toEqual([{ externalKey: "DEV-1234", branch: "feature/x" }]);
+  });
+
+  it("rejects non-string arg values (e.g. unresolved context paths)", async () => {
+    const metaSet = BUILTIN_HOOKS.get("meta_set")!;
+    await expect(
+      metaSet(makeCtx({ args: { externalKey: 1234 }, setMeta: () => {} })),
+    ).rejects.toThrow(/must resolve to a string/);
+  });
+
+  it("requires at least one arg", async () => {
+    const metaSet = BUILTIN_HOOKS.get("meta_set")!;
+    await expect(metaSet(makeCtx({ args: {}, setMeta: () => {} }))).rejects.toThrow(
+      /at least one key=value/,
+    );
+  });
+
+  it("throws if no collector is threaded (host bug)", async () => {
+    const metaSet = BUILTIN_HOOKS.get("meta_set")!;
+    await expect(metaSet(makeCtx({ args: { x: "y" } }))).rejects.toThrow(/meta collector/);
   });
 });
 

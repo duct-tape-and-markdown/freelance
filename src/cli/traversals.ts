@@ -4,7 +4,12 @@
 
 import { EngineError } from "../errors.js";
 import type { TraversalStore } from "../state/index.js";
-import type { InspectFullResult, InspectHistoryResult, InspectPositionResult } from "../types.js";
+import type {
+  InspectFullResult,
+  InspectHistoryResult,
+  InspectPositionResult,
+  WaitCondition,
+} from "../types.js";
 import { cli, info, outputJson } from "./output.js";
 
 function handleError(e: unknown): never {
@@ -17,11 +22,40 @@ function handleError(e: unknown): never {
   process.exit(1);
 }
 
-export function traversalStatus(store: TraversalStore): void {
+/**
+ * Shared primitive for CLI flags that accept `key=value` pairs. Splits on
+ * the first `=`, validates a non-empty key, and throws with a consistent
+ * error message across `--meta`, `--filter`, and `context set`. Callers
+ * layer their own value handling on top (string-only for meta, JSON-
+ * coerced for context).
+ */
+function splitKeyValue(pair: string, flag: string): [string, string] {
+  const eqIdx = pair.indexOf("=");
+  if (eqIdx === -1) {
+    throw new Error(`${flag} requires key=value pairs; got "${pair}"`);
+  }
+  const key = pair.slice(0, eqIdx);
+  if (!key) throw new Error(`${flag} key is empty in "${pair}"`);
+  return [key, pair.slice(eqIdx + 1)];
+}
+
+export function traversalStatus(store: TraversalStore, opts?: { filter?: string[] }): void {
   try {
     const result = store.listGraphs();
+    // Operator-side filter — kept off the MCP surface deliberately. LLMs
+    // already see meta on every list entry and can pick; humans grepping
+    // among 50 traversals want a flag.
+    const filter = parseMetaPairs(opts?.filter, "--filter");
+    const filterEntries = Object.entries(filter);
+    const traversals =
+      filterEntries.length === 0
+        ? result.activeTraversals
+        : result.activeTraversals.filter(
+            (t) => t.meta !== undefined && filterEntries.every(([k, v]) => t.meta?.[k] === v),
+          );
+
     if (cli.json) {
-      outputJson(result);
+      outputJson({ ...result, activeTraversals: traversals });
       return;
     }
     if (result.graphs.length > 0) {
@@ -32,13 +66,20 @@ export function traversalStatus(store: TraversalStore): void {
     } else {
       info("No graphs loaded.");
     }
-    if (result.activeTraversals.length > 0) {
-      info("\nActive traversals:");
-      for (const t of result.activeTraversals) {
+    if (traversals.length > 0) {
+      const heading =
+        filterEntries.length > 0
+          ? `\nActive traversals matching ${JSON.stringify(filter)}:`
+          : "\nActive traversals:";
+      info(heading);
+      for (const t of traversals) {
         info(
           `  ${t.traversalId}  ${t.graphId} @ ${t.currentNode}  (depth: ${t.stackDepth}, updated: ${t.lastUpdated})`,
         );
+        if (t.meta) info(`    meta: ${JSON.stringify(t.meta)}`);
       }
+    } else if (filterEntries.length > 0) {
+      info(`\nNo active traversals match ${JSON.stringify(filter)}.`);
     } else {
       info("\nNo active traversals.");
     }
@@ -47,10 +88,23 @@ export function traversalStatus(store: TraversalStore): void {
   }
 }
 
+// Values stay strings — meta is deliberately opaque, so (unlike
+// `freelance context set`) no JSON coercion here.
+function parseMetaPairs(pairs: string[] | undefined, flag: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!pairs) return out;
+  for (const pair of pairs) {
+    const [key, value] = splitKeyValue(pair, flag);
+    out[key] = value;
+  }
+  return out;
+}
+
 export async function traversalStart(
   store: TraversalStore,
   graphId: string,
   context?: string,
+  opts?: { meta?: string[] },
 ): Promise<void> {
   try {
     let initialContext: Record<string, unknown> | undefined;
@@ -62,7 +116,12 @@ export async function traversalStart(
         throw new Error(`--context must be valid JSON: ${msg}`);
       }
     }
-    const result = await store.createTraversal(graphId, initialContext);
+    const meta = parseMetaPairs(opts?.meta, "--meta");
+    const result = await store.createTraversal(
+      graphId,
+      initialContext,
+      Object.keys(meta).length > 0 ? meta : undefined,
+    );
     if (cli.json) {
       outputJson(result);
     } else {
@@ -70,6 +129,9 @@ export async function traversalStart(
       info(`  Node: ${result.currentNode}`);
       if (result.node.description) {
         info(`  Description: ${result.node.description}`);
+      }
+      if (result.meta) {
+        info(`  Meta: ${JSON.stringify(result.meta)}`);
       }
     }
   } catch (e) {
@@ -140,17 +202,12 @@ export function traversalContextSet(
   try {
     const id = store.resolveTraversalId(opts?.traversal);
 
-    // Parse key=value pairs
+    // Parse key=value pairs. Context accepts typed values, so JSON-coerce
+    // and fall back to the raw string — `foo=true` → boolean, `bar=1`
+    // → number, `baz=hello` → string.
     const parsed: Record<string, unknown> = {};
     for (const pair of updates) {
-      const eqIdx = pair.indexOf("=");
-      if (eqIdx === -1) {
-        info(`Error: invalid key=value pair: "${pair}"`);
-        process.exit(1);
-      }
-      const key = pair.slice(0, eqIdx);
-      const rawValue = pair.slice(eqIdx + 1);
-      // Try parsing as JSON, fall back to string
+      const [key, rawValue] = splitKeyValue(pair, "context set");
       try {
         parsed[key] = JSON.parse(rawValue);
       } catch {
@@ -172,6 +229,29 @@ export function traversalContextSet(
   }
 }
 
+export function traversalMetaSet(
+  store: TraversalStore,
+  updates: string[],
+  opts?: { traversal?: string },
+): void {
+  try {
+    const id = store.resolveTraversalId(opts?.traversal);
+    const parsed = parseMetaPairs(updates, "meta set");
+    if (Object.keys(parsed).length === 0) {
+      throw new Error("meta set requires at least one key=value pair");
+    }
+    const result = store.setMeta(id, parsed);
+    if (cli.json) {
+      outputJson(result);
+    } else {
+      info(`Updated meta for ${result.traversalId}`);
+      info(`  Meta: ${JSON.stringify(result.meta)}`);
+    }
+  } catch (e) {
+    handleError(e);
+  }
+}
+
 export function traversalInspect(
   store: TraversalStore,
   traversalId?: string,
@@ -187,6 +267,7 @@ export function traversalInspect(
       info(`Traversal: ${raw.traversalId}`);
       info(`  Graph: ${raw.graphId}`);
       info(`  Node:  ${raw.currentNode}`);
+      if (raw.meta) info(`  Meta:  ${JSON.stringify(raw.meta)}`);
       if (validDetail === "position") {
         const pos = raw as { traversalId: string } & InspectPositionResult;
         if (pos.node.description) {
@@ -210,6 +291,76 @@ export function traversalInspect(
         info("  History:");
         for (const h of hist.traversalHistory) {
           info(`    ${h.node} (${h.edge ?? "start"})`);
+        }
+      }
+    }
+  } catch (e) {
+    handleError(e);
+  }
+}
+
+interface ActiveTraversalEntry {
+  readonly traversalId: string;
+  readonly graphId: string;
+  readonly currentNode: string;
+  readonly nodeType: string;
+  readonly description: string;
+  readonly lastUpdated: string;
+  readonly stackDepth: number;
+  readonly waitStatus?: "waiting" | "ready" | "timed_out";
+  readonly waitingOn?: readonly WaitCondition[];
+  readonly timeout?: string;
+  readonly timeoutAt?: string;
+}
+
+/**
+ * List every active traversal with its current-node details. When `waitsOnly`
+ * is set, include only traversals sitting on a wait node — the shape plugin
+ * hooks rely on to nudge the agent when a blocking condition might have
+ * flipped.
+ */
+export function traversalInspectActive(
+  store: TraversalStore,
+  opts?: { waitsOnly?: boolean },
+): void {
+  try {
+    const infos = store.listTraversals();
+    const entries: ActiveTraversalEntry[] = [];
+    for (const t of infos) {
+      const raw = store.inspect(t.traversalId, "position");
+      const pos = raw as { traversalId: string } & InspectPositionResult;
+      if (opts?.waitsOnly && pos.node.type !== "wait") continue;
+      entries.push({
+        traversalId: t.traversalId,
+        graphId: t.graphId,
+        currentNode: t.currentNode,
+        nodeType: pos.node.type,
+        description: pos.node.description ?? "",
+        lastUpdated: t.lastUpdated,
+        stackDepth: t.stackDepth,
+        ...(pos.waitStatus ? { waitStatus: pos.waitStatus } : {}),
+        ...(pos.waitingOn ? { waitingOn: pos.waitingOn } : {}),
+        ...(pos.timeout ? { timeout: pos.timeout } : {}),
+        ...(pos.timeoutAt ? { timeoutAt: pos.timeoutAt } : {}),
+      });
+    }
+    if (cli.json) {
+      outputJson({ traversals: entries });
+      return;
+    }
+    if (entries.length === 0) {
+      info(opts?.waitsOnly ? "No active traversals in wait state." : "No active traversals.");
+      return;
+    }
+    info(opts?.waitsOnly ? "Active traversals in wait state:" : "Active traversals:");
+    for (const e of entries) {
+      const waitBit = e.waitStatus ? ` [${e.waitStatus}]` : "";
+      info(`  ${e.traversalId}  ${e.graphId} @ ${e.currentNode}${waitBit}`);
+      if (e.description) info(`    ${e.description}`);
+      if (e.waitingOn?.length) {
+        for (const w of e.waitingOn) {
+          const mark = w.satisfied ? "✓" : "·";
+          info(`    ${mark} ${w.key} (${w.type})${w.description ? ` — ${w.description}` : ""}`);
         }
       }
     }

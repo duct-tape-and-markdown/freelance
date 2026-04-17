@@ -19,24 +19,35 @@ interface WatcherOptions {
   debounceMs?: number;
 }
 
-const CONFIG_FILES = ["config.yml", "config.local.yml"] as const;
+/**
+ * Immediate-child subdirectories of each graphsDir that hold high-churn
+ * runtime data (SQLite WAL frames, per-traversal JSON files). Excluded from
+ * the watch tree: on Windows, recursive ReadDirectoryChangesW can pin a CPU
+ * core when WAL writes flood the internal event buffer. Scoped to direct
+ * children only — a nested `memory/` inside a user-authored domain folder
+ * is unusual and not special-cased.
+ */
+const RUNTIME_SUBDIRS: ReadonlySet<string> = new Set(["memory", "traversals"]);
 
 /**
  * Watch directory(ies) for graph file changes and reload on modification.
  *
- * Uses fs.watch with debounce. On any change to *.workflow.yaml files,
- * re-reads all directories, validates, and calls onUpdate.
+ * Each graphsDir is watched non-recursively for top-level changes, and each
+ * existing immediate subdirectory (except RUNTIME_SUBDIRS) is watched
+ * recursively so nested `*.workflow.yaml` files still hot-reload. New
+ * top-level subdirs created after startup are armed with a recursive
+ * watcher when their creation event lands on the top-level watcher — files
+ * created inside a brand-new subdir before that arm completes are not
+ * guaranteed to trigger a reload; restart the server to pick them up.
  *
- * Two watchers per graph dir:
+ * Per graph dir:
  *
- *   1. A recursive directory watcher catches *.workflow.yaml changes
- *      anywhere inside the dir tree.
- *   2. Explicit per-file watchers on `config.yml` and `config.local.yml`
- *      guarantee config reload events regardless of editor save patterns
- *      (atomic rename, temp-file swap) that sometimes drop events on the
- *      recursive parent watch. This is the reliable path for config
- *      changes — the recursive watcher's config branch stays as a
- *      belt-and-suspenders backup.
+ *   1. A non-recursive watcher on the dir itself — picks up top-level
+ *      config.yml / config.local.yml changes, new *.workflow.yaml files
+ *      at the root, and new subdirectory creation events.
+ *   2. A recursive watcher per existing non-runtime subdirectory — picks
+ *      up nested *.workflow.yaml changes without paying the recursive
+ *      cost on the high-churn `memory/` and `traversals/` subtrees.
  *
  * Note: fs.watch behavior varies by platform. On Linux (inotify) it is
  * reliable. On macOS (FSEvents) it may fire duplicate or miss events.
@@ -63,52 +74,65 @@ export function watchGraphs(options: WatcherOptions): () => void {
     }
   }
 
-  function scheduleConfigReload(dir: string): void {
-    if (!onConfigChange) return;
-    if (configDebounce) clearTimeout(configDebounce);
-    configDebounce = setTimeout(() => onConfigChange(dir), debounceMs);
+  function scheduleReload() {
+    if (graphDebounce) clearTimeout(graphDebounce);
+    graphDebounce = setTimeout(reload, debounceMs);
   }
 
-  const closers: Array<() => void> = [];
+  const watchers: fs.FSWatcher[] = [];
+  const watchedSubdirs = new Set<string>();
+
+  function armSubdirWatcher(subdirPath: string) {
+    if (watchedSubdirs.has(subdirPath)) return;
+    watchedSubdirs.add(subdirPath);
+    watchers.push(
+      fs.watch(subdirPath, { recursive: true }, (_eventType, filename) => {
+        if (filename?.endsWith(".workflow.yaml")) scheduleReload();
+      }),
+    );
+  }
+
+  function handleTopLevel(dir: string, filename: string | null) {
+    if (!filename) return;
+    if ((filename === "config.yml" || filename === "config.local.yml") && onConfigChange) {
+      if (configDebounce) clearTimeout(configDebounce);
+      configDebounce = setTimeout(() => onConfigChange(dir), debounceMs);
+      return;
+    }
+    if (filename.endsWith(".workflow.yaml")) {
+      scheduleReload();
+      return;
+    }
+    if (RUNTIME_SUBDIRS.has(filename)) return;
+    const full = path.join(dir, filename);
+    if (watchedSubdirs.has(full)) return;
+    try {
+      if (!fs.statSync(full).isDirectory()) return;
+    } catch {
+      return;
+    }
+    armSubdirWatcher(full);
+  }
 
   for (const dir of dirs) {
-    // Recursive directory watch — picks up workflow file changes anywhere
-    // under the tree, and acts as a backup for config file changes.
-    const dirWatcher = fs.watch(dir, { recursive: true }, (_eventType, filename) => {
-      if (!filename) return;
-      const base = path.basename(filename);
-      if ((base === "config.yml" || base === "config.local.yml") && onConfigChange) {
-        scheduleConfigReload(dir);
-      } else if (filename.endsWith(".workflow.yaml")) {
-        if (graphDebounce) clearTimeout(graphDebounce);
-        graphDebounce = setTimeout(reload, debounceMs);
-      }
-    });
-    closers.push(() => dirWatcher.close());
+    watchers.push(fs.watch(dir, (_eventType, filename) => handleTopLevel(dir, filename)));
 
-    // Explicit per-file watches on config.yml / config.local.yml. These
-    // are the reliable path for config changes — some editor save
-    // patterns (atomic rename via temp file, write-then-move) can drop
-    // events on the parent directory watch but consistently fire on a
-    // direct file watch. If the file doesn't exist yet, skip silently.
-    if (onConfigChange) {
-      for (const cfgFile of CONFIG_FILES) {
-        const cfgPath = path.join(dir, cfgFile);
-        try {
-          if (!fs.existsSync(cfgPath)) continue;
-          const fileWatcher = fs.watch(cfgPath, () => scheduleConfigReload(dir));
-          closers.push(() => fileWatcher.close());
-        } catch {
-          // Non-fatal: if we can't watch a specific config file, the
-          // recursive dir watcher still catches most events.
-        }
-      }
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (RUNTIME_SUBDIRS.has(entry.name)) continue;
+      armSubdirWatcher(path.join(dir, entry.name));
     }
   }
 
   return () => {
     if (graphDebounce) clearTimeout(graphDebounce);
     if (configDebounce) clearTimeout(configDebounce);
-    for (const close of closers) close();
+    for (const w of watchers) w.close();
   };
 }

@@ -51,12 +51,24 @@ export interface HookMemoryAccess {
  * present only when memory is enabled. Built-in memory hooks assert
  * on its presence; user scripts that don't touch it work regardless.
  */
+/**
+ * Callback a hook can call to write tags into the traversal's `meta`.
+ * Present on HookContext only when the host threaded one — the store does
+ * this around every engine.advance / engine.start. Updates are batched
+ * (one call accumulates into the host's collector) and applied by the
+ * host *after* the hook chain returns, so hook writes can't race the
+ * engine's own state save.
+ */
+export type MetaCollector = (updates: Record<string, string>) => void;
+
 export interface HookContext {
   readonly args: Record<string, unknown>;
   readonly context: Readonly<Record<string, unknown>>;
   readonly memory?: HookMemoryAccess;
   readonly graphId: string;
   readonly nodeId: string;
+  /** See MetaCollector. */
+  readonly setMeta?: MetaCollector;
 }
 
 /**
@@ -106,6 +118,7 @@ export class HookRunner {
     graphDef: GraphDefinition,
     nodeId: string,
     hookResolutions: HookResolutionMap | undefined,
+    metaCollector?: MetaCollector,
   ): Promise<void> {
     const resolutions = hookResolutions?.get(nodeId);
     if (!resolutions || resolutions.length === 0) return;
@@ -137,6 +150,7 @@ export class HookRunner {
         memory: this.memory,
         graphId: graphDef.id,
         nodeId,
+        ...(metaCollector && { setMeta: metaCollector }),
       };
 
       let result: Record<string, unknown>;

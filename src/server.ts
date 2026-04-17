@@ -30,6 +30,51 @@ export interface ServerOptions {
   hookTimeoutMs?: number;
 }
 
+/**
+ * Watch for the startup-time parent process going away and invoke `onExit`
+ * when it does. Returns a `stop` function for cleanup; calling stop is
+ * always safe (no-op when there was nothing to watch).
+ *
+ * Two detectors run on every tick, cheapest first:
+ *
+ *   1. **ppid drift.** When the original parent dies, the kernel reparents
+ *      us to init or a subreaper, so `process.ppid` changes atomically. This
+ *      is stronger than the existence probe: it's immune to PID recycling
+ *      and it catches the case where we're reparented to PID 1 (which never
+ *      dies, so `kill(1, 0)` always succeeds).
+ *
+ *   2. **Existence probe.** `kill(ppid, 0)` is the documented Node idiom for
+ *      "is this process alive" — throws ESRCH when the target is gone.
+ *      Kept as belt-and-braces for exotic schedulers where drift might lag.
+ *
+ * No-op when `ppid <= 1`: either we were already orphaned at startup or the
+ * launcher intentionally detached us, in which case there is no parent to
+ * watch.
+ */
+export function startParentHeartbeat(opts: {
+  ppid: number;
+  onExit: (reason: "parent-exited" | "parent-reparented") => void;
+  intervalMs?: number;
+}): () => void {
+  const { ppid, onExit, intervalMs = 2000 } = opts;
+  if (ppid <= 1) return () => {};
+  const timer = setInterval(() => {
+    if (process.ppid !== ppid) {
+      onExit("parent-reparented");
+      return;
+    }
+    try {
+      process.kill(ppid, 0);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ESRCH") {
+        onExit("parent-exited");
+      }
+    }
+  }, intervalMs);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
 export function createServer(
   graphs: Map<string, ValidatedGraph>,
   options?: ServerOptions,
@@ -128,8 +173,6 @@ export async function startServer(
   options?: ServerOptions,
 ): Promise<void> {
   const { server, stopWatcher, runtime } = createServer(graphs, options);
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
 
   // Lifecycle breadcrumbs on stderr. By MCP stdio convention, stderr is
   // forwarded to the client's MCP log and not shown to the user. A matching
@@ -140,9 +183,11 @@ export async function startServer(
   process.stderr.write(`freelance-mcp ${VERSION} started pid=${process.pid}\n`);
 
   let shuttingDown = false;
+  let stopHeartbeat: () => void = () => {};
   const shutdown = (reason: string, exitCode = 0) => {
     if (shuttingDown) return;
     shuttingDown = true;
+    stopHeartbeat();
     process.stderr.write(`freelance-mcp shutdown pid=${process.pid} reason=${reason}\n`);
     void (async () => {
       try {
@@ -182,6 +227,11 @@ export async function startServer(
   //
   //   - `end`/`close`: clean EOF (parent closed its write end)
   //   - `error` with EBADF/EPIPE: fd revoked (macOS terminal close)
+  //
+  // Register BEFORE server.connect() — connect() is what puts stdin into
+  // flowing mode via the SDK's `data` listener, and `end` fires exactly
+  // once. If EOF lands while connect() is awaiting, a listener attached
+  // after would miss it permanently.
   process.stdin.on("end", () => shutdown("stdin-end"));
   process.stdin.on("close", () => shutdown("stdin-close"));
   process.stdin.on("error", (err: NodeJS.ErrnoException) => {
@@ -194,4 +244,17 @@ export async function startServer(
       shutdown(`stdout-${err.code.toLowerCase()}`);
     }
   });
+
+  // Snapshot ppid before connect — kernel reparents an orphaned process to
+  // init/subreaper, so reading later gives the wrong target.
+  stopHeartbeat = startParentHeartbeat({ ppid: process.ppid, onExit: shutdown });
+
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
+  // If stdin drained and ended synchronously inside connect(), our `end`
+  // listener already fired and shutdown is in flight — this is a no-op.
+  if (process.stdin.readableEnded) {
+    shutdown("stdin-ended-early");
+  }
 }

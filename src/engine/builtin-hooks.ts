@@ -147,6 +147,35 @@ const memoryBySource: HookFn = async (ctx) => {
   };
 };
 
+// meta_set lets a workflow tag the traversal with caller-opaque keys at
+// node arrival — e.g. write `meta.prUrl = context.prUrl` once the PR
+// exists. Args are taken verbatim as the meta payload, after string-typing.
+// Returns {} (no context update); meta lands via the host-provided
+// collector which the store applies before persisting the record.
+const metaSet: HookFn = async (ctx) => {
+  if (!ctx.setMeta) {
+    throw new Error(
+      `Built-in hook "meta_set" on node "${ctx.nodeId}" needs a meta collector — ` +
+        `the host did not thread one. Internal bug; please report.`,
+    );
+  }
+  const updates: Record<string, string> = {};
+  for (const [key, value] of Object.entries(ctx.args)) {
+    if (typeof value !== "string") {
+      throw new TypeError(
+        `meta_set arg "${key}" must resolve to a string; got ${typeof value} (${JSON.stringify(value)}). ` +
+          `If sourcing from context, check that the referenced field is a string.`,
+      );
+    }
+    updates[key] = value;
+  }
+  if (Object.keys(updates).length === 0) {
+    throw new Error(`meta_set on node "${ctx.nodeId}" requires at least one key=value pair`);
+  }
+  ctx.setMeta(updates);
+  return {};
+};
+
 export const BUILTIN_HOOKS: ReadonlyMap<string, HookFn> = new Map<string, HookFn>([
   ["memory_status", memoryStatus],
   ["memory_browse", memoryBrowse],
@@ -154,6 +183,7 @@ export const BUILTIN_HOOKS: ReadonlyMap<string, HookFn> = new Map<string, HookFn
   ["memory_related", memoryRelated],
   ["memory_inspect", memoryInspect],
   ["memory_by_source", memoryBySource],
+  ["meta_set", metaSet],
 ]);
 
 export const BUILTIN_HOOK_NAMES: ReadonlySet<string> = new Set(BUILTIN_HOOKS.keys());
