@@ -116,10 +116,11 @@ describe("CLI init", () => {
 
   it("skips starter when starter=none", async () => {
     await init(defaults({ starter: "none" }));
-    const entries = fs.readdirSync(path.join(workDir, ".freelance"));
+    const entries = fs.readdirSync(path.join(workDir, ".freelance")).sort();
     // config.yml is always written as a schema reference for memory.collections;
-    // "starter=none" only skips the workflow graph file itself.
-    expect(entries).toEqual(["config.yml"]);
+    // .gitignore is dropped by ensureFreelanceDir. "starter=none" only
+    // skips the workflow graph file itself.
+    expect(entries).toEqual([".gitignore", "config.yml"]);
     expect(entries.some((e) => e.endsWith(".workflow.yaml"))).toBe(false);
   });
 
