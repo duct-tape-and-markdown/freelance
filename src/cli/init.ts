@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { allClientChoices, type Client, clientDisplayName, detectClients } from "./clients.js";
 import { cli, displayPath, EXIT, fatal, homeDir, info, outputJson } from "./output.js";
+import { ensureFreelanceDir } from "./setup.js";
 
 export type { Client } from "./clients.js";
 
@@ -269,6 +270,14 @@ export async function init(options: InitOptions): Promise<void> {
     actions.push({ verb: "create", target: `${graphsDisplayPath}/` });
   }
 
+  // 1b. Auto-generated .gitignore covering runtime artifacts. Mirrors
+  // the lazy drop done by ensureFreelanceDir on MCP startup — we do it
+  // eagerly here so users inspecting `.freelance/` right after `init`
+  // see the file they'd expect.
+  if (!fs.existsSync(path.join(graphsDir, ".gitignore"))) {
+    actions.push({ verb: "create", target: `${graphsDisplayPath}/.gitignore` });
+  }
+
   // 2. Starter graph
   if (starter !== "none") {
     const destFile = path.join(graphsDir, `${starter}.workflow.yaml`);
@@ -369,6 +378,16 @@ export async function init(options: InitOptions): Promise<void> {
     fs.mkdirSync(graphsDir, { recursive: true });
     results.push(`Created ${graphsDisplayPath}/`);
     filesCreated.push(graphsDir);
+  }
+
+  // 1b. Drop the runtime .gitignore eagerly (marker-gated upsert, safe
+  // to call repeatedly — see ensureGitignore in setup.ts).
+  const ignorePath = path.join(graphsDir, ".gitignore");
+  const ignorePreexisted = fs.existsSync(ignorePath);
+  ensureFreelanceDir(graphsDir);
+  if (!ignorePreexisted && fs.existsSync(ignorePath)) {
+    results.push(`Created ${graphsDisplayPath}/.gitignore`);
+    filesCreated.push(ignorePath);
   }
 
   // 2. Copy starter graph
