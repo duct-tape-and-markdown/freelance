@@ -31,6 +31,50 @@ export interface ServerOptions {
   hookTimeoutMs?: number;
 }
 
+/**
+ * Watch for the startup-time parent process going away and invoke `onExit`
+ * when it does. Returns the interval handle (for clearInterval in shutdown),
+ * or undefined if there's nothing meaningful to watch.
+ *
+ * Two detectors run on every tick, cheapest first:
+ *
+ *   1. **ppid drift.** When the original parent dies, the kernel reparents
+ *      us to init or a subreaper, so `process.ppid` changes atomically. This
+ *      is stronger than the existence probe: it's immune to PID recycling
+ *      and it catches the case where we're reparented to PID 1 (which never
+ *      dies, so `kill(1, 0)` always succeeds).
+ *
+ *   2. **Existence probe.** `kill(ppid, 0)` is the documented Node idiom for
+ *      "is this process alive" — throws ESRCH when the target is gone.
+ *      Kept as belt-and-braces for exotic schedulers where drift might lag.
+ *
+ * Skipped entirely when `initialPpid <= 1`: either we were already orphaned
+ * at startup or the launcher intentionally detached us, in which case there
+ * is no parent to watch.
+ */
+export function startParentHeartbeat(
+  initialPpid: number,
+  onExit: (reason: "parent-exited" | "parent-reparented") => void,
+  intervalMs = 2000,
+): NodeJS.Timeout | undefined {
+  if (initialPpid <= 1) return undefined;
+  const timer = setInterval(() => {
+    if (process.ppid !== initialPpid) {
+      onExit("parent-reparented");
+      return;
+    }
+    try {
+      process.kill(initialPpid, 0);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ESRCH") {
+        onExit("parent-exited");
+      }
+    }
+  }, intervalMs);
+  timer.unref();
+  return timer;
+}
+
 export function createServer(
   graphs: Map<string, ValidatedGraph>,
   options?: ServerOptions,
@@ -196,24 +240,10 @@ export async function startServer(
   // orphaned hook shells): the kernel keeps the pipe open until *every*
   // write-end fd is closed, so stdin never hits EOF. Poll the original
   // parent instead. Snapshot ppid now — once orphaned the kernel reparents
-  // us to init (PID 1), and PID 1 never dies. `kill(pid, 0)` is a
-  // permission/existence probe that throws ESRCH when the target is gone.
-  // Skip the heartbeat if we're already orphaned at startup (ppid=1), which
-  // means either there's no real parent to watch or the daemon was launched
-  // detached on purpose.
-  const initialPpid = process.ppid;
-  if (initialPpid > 1) {
-    parentHeartbeat = setInterval(() => {
-      try {
-        process.kill(initialPpid, 0);
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === "ESRCH") {
-          shutdown("parent-exited");
-        }
-      }
-    }, 5000);
-    parentHeartbeat.unref();
-  }
+  // us to init (PID 1) or a subreaper, so a later read of process.ppid
+  // points at the wrong target. Skip the heartbeat if we're already
+  // orphaned at startup (ppid=1): there's no real parent to watch.
+  parentHeartbeat = startParentHeartbeat(process.ppid, (reason) => shutdown(reason));
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
