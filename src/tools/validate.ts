@@ -49,10 +49,8 @@ export function registerValidateTool(server: McpServer, deps: FreelanceToolDeps)
           }
         }
 
-        // Cross-graph validation (only if individual files passed).
-        // Sealed memory workflows are runtime-injected — treat their ids as
-        // valid subgraph targets so user references to memory:recall /
-        // memory:compile don't trip "unknown graph" at validate time.
+        // Cross-graph validation. Sealed memory workflows are runtime-
+        // injected — accept their ids as valid subgraph targets.
         if (errors.length === 0 && parsed.size > 0) {
           try {
             validateCrossGraphRefs(parsed, { extraAvailableIds: SEALED_GRAPH_IDS });

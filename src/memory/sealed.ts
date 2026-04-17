@@ -1,11 +1,8 @@
 /**
- * Sealed workflows registry. Single source of truth for the workflow graphs
- * that ship built-in with memory — `memory:compile` and `memory:recall`.
- *
- * Centralized so the loader, the MCP server, and the CLI `validate` command
- * all see the same set of sealed graph ids. Cross-graph validation needs
- * these to resolve subgraph references from user-authored workflows before
- * the server has had a chance to inject them into the runtime graphs map.
+ * Built-in memory workflows (`memory:compile`, `memory:recall`) and the
+ * helpers used to merge them into a graphs map. The loader needs these
+ * visible during cross-graph validation or user workflows that subgraph
+ * into memory:* fail as "unknown graph" before runtime injection.
  */
 
 import type { ValidatedGraph } from "../types.js";
@@ -14,13 +11,11 @@ import { buildCompileKnowledgeWorkflow, COMPILE_KNOWLEDGE_ID } from "./workflow.
 
 export { COMPILE_KNOWLEDGE_ID, RECOLLECTION_ID };
 
-/** IDs of all sealed workflows. Cheap to compute — no graph construction. */
 export const SEALED_GRAPH_IDS: ReadonlySet<string> = new Set([
   COMPILE_KNOWLEDGE_ID,
   RECOLLECTION_ID,
 ]);
 
-/** Build a fresh Map of sealed workflow id → ValidatedGraph. */
 export function getSealedGraphs(): Map<string, ValidatedGraph> {
   const sealed = new Map<string, ValidatedGraph>();
   sealed.set(COMPILE_KNOWLEDGE_ID, buildCompileKnowledgeWorkflow());
@@ -28,11 +23,7 @@ export function getSealedGraphs(): Map<string, ValidatedGraph> {
   return sealed;
 }
 
-/**
- * Merge sealed graphs into a target map. User-authored entries take
- * precedence — a sealed id only lands if nothing has claimed it yet.
- * Mutates `target` in place and returns it for convenience.
- */
+/** Merge sealed graphs into `target`. User-authored ids win. Mutates `target`. */
 export function mergeSealedGraphs(
   target: Map<string, ValidatedGraph>,
   sealed: Map<string, ValidatedGraph>,

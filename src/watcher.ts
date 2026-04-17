@@ -17,11 +17,7 @@ interface WatcherOptions {
   onConfigChange?: (dir: string) => void;
   /** Debounce interval in ms (default: 200) */
   debounceMs?: number;
-  /**
-   * Built-in workflows to merge into every reload before cross-graph
-   * validation runs. Prevents "unknown graph" errors when user workflows
-   * reference sealed ids (e.g. memory:recall) on hot-reload.
-   */
+  /** Built-ins merged into every reload before cross-graph validation. */
   sealedGraphs?: Map<string, ValidatedGraph>;
 }
 

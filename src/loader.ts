@@ -12,6 +12,7 @@ import yaml from "js-yaml";
 import { buildAndValidateGraph } from "./graph-construction.js";
 import { validateExpressions, validateReturnSchemas } from "./graph-validation.js";
 import { resolveGraphHooks } from "./hook-resolution.js";
+import { mergeSealedGraphs } from "./memory/sealed.js";
 
 // @dagrejs/graphlib is a CJS bundle with `cjs-module-lexer` named-export
 // hints. Node's native ESM loader reads those hints and lets us import
@@ -98,25 +99,9 @@ export function findGraphFiles(dir: string): string[] {
   return results;
 }
 
-/**
- * Options for bulk loaders. `sealedGraphs` are built-in workflows (e.g. the
- * memory:* pair) merged into the result map — user-authored entries win —
- * BEFORE cross-graph validation runs, so workflows can safely reference
- * sealed ids as subgraph targets without the validator seeing a partial
- * graph set.
- */
 export interface LoadGraphsOptions {
+  /** Built-ins merged before cross-graph validation. User entries win. */
   sealedGraphs?: Map<string, ValidatedGraph>;
-}
-
-function mergeSealed(
-  target: Map<string, ValidatedGraph>,
-  sealed: Map<string, ValidatedGraph> | undefined,
-): void {
-  if (!sealed) return;
-  for (const [id, graph] of sealed) {
-    if (!target.has(id)) target.set(id, graph);
-  }
 }
 
 /**
@@ -162,10 +147,7 @@ export function loadGraphs(
     );
   }
 
-  // Sealed graphs must be present before cross-graph validation so
-  // user workflows that subgraph into memory:recall / memory:compile
-  // don't trip "unknown graph" errors.
-  mergeSealed(results, options?.sealedGraphs);
+  if (options?.sealedGraphs) mergeSealedGraphs(results, options.sealedGraphs);
 
   // Cross-graph validation: subgraph references and circular detection
   validateCrossGraphRefs(results);
@@ -194,7 +176,7 @@ export function loadGraphsCollecting(
   const existingDirs = resolvedDirs.filter((d) => fs.existsSync(d));
 
   if (existingDirs.length === 0) {
-    mergeSealed(graphs, options?.sealedGraphs);
+    if (options?.sealedGraphs) mergeSealedGraphs(graphs, options.sealedGraphs);
     return { graphs, errors };
   }
 
@@ -213,7 +195,7 @@ export function loadGraphsCollecting(
     }
   }
 
-  mergeSealed(graphs, options?.sealedGraphs);
+  if (options?.sealedGraphs) mergeSealedGraphs(graphs, options.sealedGraphs);
 
   // Cross-graph validation (only if we have graphs)
   if (graphs.size > 0) {
@@ -296,7 +278,7 @@ export function loadGraphsLayered(
     process.stderr.write(`Warnings:\n${warnings.join("\n")}\n`);
   }
 
-  mergeSealed(results, options?.sealedGraphs);
+  if (options?.sealedGraphs) mergeSealedGraphs(results, options.sealedGraphs);
 
   // Cross-graph validation: subgraph references and circular detection
   validateCrossGraphRefs(results);
@@ -305,13 +287,7 @@ export function loadGraphsLayered(
 }
 
 export interface ValidateCrossGraphRefsOptions {
-  /**
-   * Additional graph IDs to treat as valid subgraph targets without needing
-   * a full ValidatedGraph. Useful when the caller knows a workflow will be
-   * injected at runtime (e.g. sealed memory:* graphs) but doesn't want to
-   * include it in the "validated user graphs" list. Since these entries
-   * have no definition, the DFS treats them as leaves for cycle detection.
-   */
+  /** IDs accepted as valid subgraph targets without a materialized graph. Treated as leaves by cycle detection. */
   extraAvailableIds?: ReadonlySet<string>;
 }
 

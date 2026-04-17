@@ -62,8 +62,7 @@ vi.mock("../src/loader.js", () => ({
   loadGraphsLayered: vi.fn(() => new Map([["test", {}]])),
   loadGraphsCollecting: vi.fn(() => ({ graphs: new Map([["test", {}]]), errors: [] })),
 }));
-// Sealed graphs aren't relevant to these wiring tests — stub the builder so
-// the mcp command can resolve it without pulling in the real GraphBuilder.
+// Stub sealed graph builder — irrelevant to these wiring tests and pulls in GraphBuilder.
 vi.mock("../src/memory/sealed.js", () => ({
   getSealedGraphs: vi.fn(() => new Map()),
   mergeSealedGraphs: vi.fn((target: Map<string, unknown>) => target),

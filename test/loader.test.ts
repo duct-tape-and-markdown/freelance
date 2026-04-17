@@ -464,11 +464,9 @@ describe("cross-graph validation with sealed graphs", () => {
       path.join(tmpDir, "parent-with-sealed-subgraph.workflow.yaml"),
     );
     try {
-      // Without sealedGraphs — the reference to memory:recall dangles.
       const bare = loadGraphsCollecting([tmpDir]);
       expect(bare.errors.some((e) => /memory:recall/.test(e.message))).toBe(true);
 
-      // With sealedGraphs — validation passes and sealed are present in result.
       const { graphs, errors } = loadGraphsCollecting([tmpDir], {
         sealedGraphs: getSealedGraphs(),
       });
@@ -499,8 +497,6 @@ describe("cross-graph validation with sealed graphs", () => {
 
   it("user-authored graph with sealed id wins over sealed default", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sealed-override-test-"));
-    // User authors their own memory:recall workflow — mergeSealed must skip
-    // the sealed builder output in favor of the user's file.
     const userYaml = `id: "memory:recall"
 version: "9.9.9"
 name: "User Recall Override"
@@ -533,11 +529,7 @@ nodes:
       path.join(tmpDir, "parent-with-sealed-subgraph.workflow.yaml"),
     );
     try {
-      // Load the user file alone (no sealed merge). Cross-graph validation
-      // would normally fail, but extraAvailableIds unblocks it.
       const { graphs } = loadGraphsCollecting([tmpDir]);
-      // Remove the error-producing validation from the result map — take
-      // a fresh single-graph map and call validateCrossGraphRefs directly.
       const map = new Map(graphs);
       expect(() =>
         validateCrossGraphRefs(map, { extraAvailableIds: SEALED_GRAPH_IDS }),

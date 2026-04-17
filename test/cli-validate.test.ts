@@ -145,10 +145,6 @@ describe("CLI validate", () => {
   });
 
   it("accepts subgraph references to sealed memory:* workflows", () => {
-    // Regression: cross-graph validation used to fire before sealed
-    // memory workflows were injected, so a user workflow that subgraphs
-    // into memory:recall would fail validate even though the id exists
-    // at runtime.
     const dir = tmpDir();
     copyFixtures(dir, "parent-with-sealed-subgraph.workflow.yaml");
     validate(dir);

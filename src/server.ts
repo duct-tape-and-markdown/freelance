@@ -98,10 +98,8 @@ export function createServer(
   // read through the getter below so they always see the current value.
   let currentLoadErrors: Array<{ file: string; message: string }> = options?.loadErrors ?? [];
 
-  // Sealed memory workflows. User-authored workflows with the sealed ids
-  // take precedence (mergeSealedGraphs skips ids already claimed). Built
-  // once here and threaded to the loader/watcher so cross-graph validation
-  // sees sealed ids BEFORE flagging them as unknown subgraph targets.
+  // Built once, reused by watcher reloads so sealed graphs survive
+  // on-disk-only loads without a rebuild per reload.
   const sealedGraphs = memoryStore ? getSealedGraphs() : undefined;
 
   let stopWatcher: (() => void) | undefined;
@@ -146,10 +144,8 @@ export function createServer(
     const hasActiveMemoryTraversal = () => manager.listTraversals().length > 0;
     registerMemoryTools(server, memoryStore, hasActiveMemoryTraversal);
 
-    // Belt-and-braces: the caller is expected to have merged sealed
-    // graphs before calling createServer (so cross-graph validation sees
-    // them). Re-merge here to cover programmatic callers that passed a
-    // bare graphs map. Idempotent — user-authored ids win.
+    // Programmatic callers may pass a bare graphs map; idempotent merge
+    // ensures runtime always has the sealed workflows available.
     mergeSealedGraphs(graphs, sealedGraphs);
     manager.updateGraphs(graphs);
   }

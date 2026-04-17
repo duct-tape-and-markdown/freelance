@@ -97,9 +97,8 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
     }
   }
 
-  // Phase 2: if all individual files passed, run cross-graph validation (subgraph refs).
-  // Sealed memory workflows aren't on disk but exist at runtime when memory is
-  // enabled — treat them as valid subgraph targets so references don't fail here.
+  // Phase 2: cross-graph validation. Sealed memory workflows exist at
+  // runtime but not on disk — accept them as valid subgraph targets.
   if (result.errors.length === 0) {
     try {
       validateCrossGraphRefs(parsed, { extraAvailableIds: SEALED_GRAPH_IDS });

@@ -3,6 +3,7 @@ import path from "node:path";
 import { loadConfigFromDirs } from "./config.js";
 import type { LoadGraphsOptions } from "./loader.js";
 import { loadGraphsCollecting } from "./loader.js";
+import { mergeSealedGraphs } from "./memory/sealed.js";
 import type { ValidatedGraph } from "./types.js";
 
 /**
@@ -97,9 +98,7 @@ export function loadGraphsGraceful(
 
   if (dirs.length === 0) {
     const graphs = new Map<string, ValidatedGraph>();
-    if (options?.sealedGraphs) {
-      for (const [id, graph] of options.sealedGraphs) graphs.set(id, graph);
-    }
+    if (options?.sealedGraphs) mergeSealedGraphs(graphs, options.sealedGraphs);
     return { graphs, errors: [] };
   }
 

@@ -188,10 +188,7 @@ program
       { memoryDir: opts.memoryDir, memory: opts.memory },
       config,
     );
-    // Sealed memory workflows have to be present in the graph map
-    // *before* cross-graph validation, otherwise a user workflow that
-    // references memory:recall as a subgraph target fails load with
-    // "unknown graph" and the error is cached in loadErrors.
+    // Sealed graphs must reach the loader before cross-graph validation.
     const sealedGraphs = memoryConfig ? getSealedGraphs() : undefined;
     const { graphs, errors: loadErrors } = loadGraphsGraceful(dirs, { sealedGraphs });
     const sourceRoot = resolveSourceRoot(dirs, opts.sourceRoot);
