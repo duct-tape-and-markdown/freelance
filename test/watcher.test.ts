@@ -133,6 +133,78 @@ describe("Graph watcher", () => {
     expect(updateCount).toBeLessThanOrEqual(2);
   });
 
+  it("reloads on changes to nested *.workflow.yaml files in existing subdirs", async () => {
+    const dir = tmpGraphDir();
+    const subdir = path.join(dir, "domain-a");
+    fs.mkdirSync(subdir);
+    const nested = path.join(subdir, "nested.workflow.yaml");
+    fs.copyFileSync(path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"), nested);
+
+    let updateCount = 0;
+    const stop = watchGraphs({
+      graphsDir: dir,
+      onUpdate: () => {
+        updateCount++;
+      },
+      onError: () => {},
+      debounceMs: 50,
+    });
+    cleanups.push(stop);
+
+    fs.writeFileSync(nested, fs.readFileSync(nested, "utf-8"));
+    await waitFor(() => updateCount > 0);
+    expect(updateCount).toBeGreaterThan(0);
+  });
+
+  it("does not reload on writes inside memory/ or traversals/ subdirs", async () => {
+    const dir = tmpGraphDir();
+    fs.mkdirSync(path.join(dir, "memory"));
+    fs.mkdirSync(path.join(dir, "traversals"));
+
+    let updateCount = 0;
+    const stop = watchGraphs({
+      graphsDir: dir,
+      onUpdate: () => {
+        updateCount++;
+      },
+      onError: () => {},
+      debounceMs: 50,
+    });
+    cleanups.push(stop);
+
+    for (let i = 0; i < 20; i++) {
+      fs.writeFileSync(path.join(dir, "memory", `wal-${i}.bin`), "x".repeat(100));
+      fs.writeFileSync(path.join(dir, "traversals", `t-${i}.json`), "{}");
+    }
+    await new Promise((r) => setTimeout(r, 300));
+    expect(updateCount).toBe(0);
+  });
+
+  it("arms a recursive watcher on a new top-level subdir created after startup", async () => {
+    const dir = tmpGraphDir();
+    let updateCount = 0;
+    const stop = watchGraphs({
+      graphsDir: dir,
+      onUpdate: () => {
+        updateCount++;
+      },
+      onError: () => {},
+      debounceMs: 50,
+    });
+    cleanups.push(stop);
+
+    const newDomain = path.join(dir, "new-domain");
+    fs.mkdirSync(newDomain);
+    // Give the top-level watcher time to fire + stat + arm recursive watcher.
+    await new Promise((r) => setTimeout(r, 150));
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(newDomain, "added.workflow.yaml"),
+    );
+    await waitFor(() => updateCount > 0);
+    expect(updateCount).toBeGreaterThan(0);
+  });
+
   it("stop function prevents further callbacks", async () => {
     const dir = tmpGraphDir();
     let updateCount = 0;
