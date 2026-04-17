@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Plugin `.mcp.json` now pins an exact `freelance-mcp` version** instead
+  of the `^1` range. Caught by a field report after 1.3.2: npx keys its
+  `_npx/<hash>` cache on the raw spec string, so `freelance-mcp@^1`
+  reuses whatever 1.x is already cached and never re-resolves against
+  the registry — a known npm/cli bug ([#7838], [#6804]). Result: the
+  1.3.2 plugin hotfix landed correctly but the *server* running inside
+  it could still be 1.3.0 code on machines that used the plugin during
+  the 1.3.0 → 1.3.1 window. Exact pinning changes the cache key on
+  every release and forces a fresh registry fetch, so `/plugin update`
+  actually delivers server-side fixes. `scripts/sync-plugin-version.mjs`
+  now rewrites the pin from `package.json#version` on every
+  `npm version`, alongside `plugin.json` and `marketplace.json`.
+
+[#7838]: https://github.com/npm/cli/issues/7838
+[#6804]: https://github.com/npm/cli/issues/6804
+
+### User action — stuck on cached 1.3.0?
+
+If `/plugin update` to 1.3.2 didn't surface the PR #63/#64 server fixes,
+your npx cache still has 1.3.0. Once on this release (or any future one),
+the cache key changes and the problem goes away — but to clear an
+already-stale 1.3.0 entry now:
+
+```sh
+# 1. Kill any lingering freelance-mcp processes.
+#    macOS/Linux:
+pkill -f freelance-mcp || true
+#    Windows (PowerShell):
+# Get-CimInstance Win32_Process |
+#   Where-Object { $_.CommandLine -like '*freelance-mcp*' } |
+#   ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+
+# 2. Clear the stale npx cache entry. `npm cache clean` does NOT touch
+#    _npx — it's a separate directory (npm/cli#6664).
+rm -rf ~/.npm/_npx
+# Windows: rm -rf "$env:LOCALAPPDATA\npm-cache\_npx"
+
+# 3. Restart Claude Code. npx re-resolves and pulls the current version.
+```
+
 ## [1.3.2] - 2026-04-17
 
 Hotfix release for two regressions shipped in 1.3.1.
