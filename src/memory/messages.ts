@@ -14,13 +14,11 @@
  *
  * Changes here affect both sealed workflows atomically — by design.
  */
-// The rubric is the only prose that demonstrably shapes agent behavior
-// (ablation 4 confirmed entity guidance moves the needle; ablation 7a/7b
-// showed knowledge-types and independence-test sub-parts are noise or
-// inverse). Kept minimal: one directive + one semantic check + its
-// relationship exception. The relationship exception is structural —
-// without it, agents atomize "A depends on B" into per-entity fragments,
-// destroying edges the graph needs.
+// Minimal rubric. The relationship exception is load-bearing — without it
+// an agent applying the independence test will atomize "A depends on B"
+// into per-entity fragments, destroying the edge that IS the knowledge.
+// See `docs/memory-intent.md` and `experiments/FINDINGS.md` for the
+// empirical basis of this shape.
 const PROPOSITION_RUBRIC =
   "Emit atomic propositions — one factual claim each. " +
   'Apply the independence test: for each candidate claim, ask "could either half be true while the other is false?" If yes, split.\n\n' +

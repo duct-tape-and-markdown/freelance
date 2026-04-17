@@ -27,7 +27,7 @@ Two config files in `.freelance/`, same schema, layered:
 
 Precedence: CLI flags > env vars > config.local.yml > config.yml > defaults
 
-Schema: `workflows` (string[]), `memory.enabled` (bool), `memory.dir` (string), `memory.collections` (CollectionConfig[]), `maxDepth` (number), `hooks.timeoutMs` (number).
+Schema: `workflows` (string[]), `memory.enabled` (bool), `memory.dir` (string), `maxDepth` (number), `hooks.timeoutMs` (number).
 
 Arrays concatenate across files. Scalars use highest-precedence value. Per-field CLI/env/config surface is documented in `src/config.ts` and in the README's Configuration section.
 
@@ -97,7 +97,7 @@ Override with `--source-root <path>` (CLI) or `sourceRoot` (ServerOptions).
   - `traversal-store.ts` — Multi-traversal management, loads/saves state per operation; owns `setMeta` (merge semantics) and meta enrichment of `inspect` / `advance` / `list` responses
   - `db.ts` — `StateStore` interface + JSON-directory and in-memory backends; `TraversalRecord` carries an optional `meta: Record<string,string>` of opaque caller-supplied lookup tags (Freelance never interprets them — see `freelance_guide meta`); `openStateStore` factory owns the `mkdirSync` (constructor is pure)
 - `src/memory/` — Persistent knowledge graph (SQLite under `.freelance/memory/`)
-  - `store.ts` — `MemoryStore` constructor takes an already-opened `Db` handle + required `sourceRoot` (I/O lives in `composeRuntime`). **Collection scoping asymmetry:** propositions are collection-scoped (via `propositions.collection` column), but entities are GLOBAL — `resolveEntity` hits the `entities` table directly without a collection join. Two collections using the same entity name share the same row and id. The `context.entities` view surfaced to hooks IS collection-scoped (browses through `about → propositions`), so an agent working in a fresh collection sees an empty vocabulary but silently reuses entities at emit time. This means ablation runs in separate collections against the same fixtures are not fully independent. See `resolveEntity`'s docstring for the full contract.
+  - `store.ts` — `MemoryStore` constructor takes an already-opened `Db` handle + required `sourceRoot` (I/O lives in `composeRuntime`). Memory is a single flat namespace — no collections. Dedup uses `hashPropContent` (stricter normalization: case, whitespace, trailing punctuation) so superficial variance doesn't create duplicate propositions. `hashContent` is still used for source file hashing where stricter normalization would mask real drift.
   - `db.ts` — `openDatabase` with schema compatibility check
 - `src/builder.ts` — Programmatic workflow graph construction (GraphBuilder)
 - `src/config.ts` — Unified config loader (config.yml + config.local.yml schema, merging, writing); per-field CLI/env/config surface documented inline

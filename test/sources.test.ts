@@ -82,6 +82,18 @@ describe("hashContent vs hashPropContent", () => {
     const hash = hashPropContent("some claim");
     expect(hash).toMatch(/^[a-f0-9]{16}$/);
   });
+
+  it("hashPropContent and hashContent produce different hashes for the same input", () => {
+    // Migration note: propositions emitted before the switch to
+    // hashPropContent were stored with hashContent digests. Re-emitting
+    // the same content after the switch hits a different hash and
+    // creates a new row rather than deduping. Both are valid; the
+    // workaround is `freelance memory reset --confirm` + re-compile
+    // to rebuild under the new hash regime. This test documents the
+    // behavior so it isn't surprising later.
+    expect(hashContent("X validates Y.")).not.toBe(hashPropContent("X validates Y."));
+    expect(hashContent("X validates Y")).not.toBe(hashPropContent("X validates Y"));
+  });
 });
 
 describe("hashSource", () => {

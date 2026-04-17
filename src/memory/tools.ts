@@ -34,7 +34,7 @@ export function registerMemoryTools(
     "memory_emit",
     {
       description:
-        "Write propositions to the knowledge graph. Each proposition is ONE atomic factual claim in natural prose — single sentence strongly preferred, two max. If you're tempted to use 'and' or 'also' or list multiple facts, split into separate propositions instead. The entities array names every entity the claim is genuinely about: one for 'X does Y' claims, two or more for relationships like 'A depends on B' or 'A was replaced by B via C'. Multi-entity propositions make the graph denser — prefer them for relationship claims, but never pack entities to justify a compound prop. Sources are hashed at emit time and attached per-proposition so staleness can be computed against current file state on every read. Deduplication is by content hash (emitting the same content twice is a no-op). Entities are resolved by exact name, then case-insensitive name, created if missing; pass entityKinds to tag new entities at creation. Gated: requires any active workflow traversal — start one first.",
+        "Write propositions to the knowledge graph. Each proposition is one atomic factual claim. Apply the independence test: if either half of a candidate claim could be true while the other is false, it's two propositions, not one. Exception: relationship claims like 'A depends on B' — the edge IS the knowledge; atomizing them destroys graph connectivity. The entities array names every entity the claim is about (1-4): one for subject-verb claims, multiple for relationships. Sources are required, hashed at emit time, and attached per-proposition for drift detection. Dedup is by normalized content hash — same claim with varying case or trailing punctuation is a no-op. Entities resolve by exact then case-insensitive name. Gated: requires an active workflow traversal — start one first.",
       inputSchema: {
         propositions: z
           .array(
@@ -43,14 +43,14 @@ export function registerMemoryTools(
                 .string()
                 .min(1)
                 .describe(
-                  "ONE atomic factual claim in natural prose. Single sentence strongly preferred. If you'd write 'and', 'also', or list multiple facts, emit two propositions instead.",
+                  "One atomic factual claim. If either half could be true while the other is false, emit two propositions instead. Exception: relationship claims ('A depends on B') — keep the edge intact.",
                 ),
               entities: z
                 .array(z.string().min(1))
                 .min(1)
                 .max(4)
                 .describe(
-                  "Every entity the claim is genuinely about (1-4). Use 1 for subject-verb claims; 2+ for relationship claims ('A depends on B', 'A was replaced by B via C'). Multi-entity props make the graph denser via memory_related. Never pack extra entities to justify a compound prop — split the compound instead. >4 usually means the prop is a hub and should be split.",
+                  "Every entity the claim is about (1-4). One for subject-verb claims; two or more for relationships. Multi-entity props drive graph density via shared edges — reuse existing entity names verbatim where they apply.",
                 ),
               sources: z
                 .array(z.string().min(1))

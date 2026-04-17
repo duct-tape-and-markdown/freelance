@@ -158,11 +158,8 @@ export function createServer(
 
     // Initial injection at startup. The watcher's onUpdate also calls
     // injectSealedGraphs, so sealed workflows survive file reloads.
-    const sizeBefore = graphs.size;
     injectSealedGraphs(graphs);
-    if (graphs.size > sizeBefore) {
-      manager.updateGraphs(graphs);
-    }
+    manager.updateGraphs(graphs);
   }
 
   return { server, stopWatcher, runtime };

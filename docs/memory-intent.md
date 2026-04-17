@@ -18,9 +18,11 @@ MemoryStore has no extraction, no summarization, no embedding, no policy. It own
 
 ### Emit is gated by traversal
 
-`memory_emit` requires an active `memory:compile` (or `memory:recall`) traversal. There is no off-the-books knowledge creation. The agent cannot write memory from a conversation turn that isn't inside a memory workflow.
+`memory_emit` requires an active workflow traversal — the sealed `memory:compile` or `memory:recall`, or any user-authored graph. There is no off-the-books knowledge creation from bare conversation turns.
 
-**Why this matters:** gating forces intentional knowledge capture. Off-the-cuff emissions produce noise that degrades recall.
+The gate used to allow-list only the sealed memory workflows. It was widened to "any structured flow" so user-authored workflows (domain-specific compiles, experiments, ablations) can write memory without being registered in code. The invariant that matters stays the same: emission happens inside a workflow the caller deliberately started, not as an incidental side effect.
+
+**Why this matters:** gating forces intentional knowledge capture. Off-the-cuff emissions produce noise that degrades recall. Allow-listing by graph id would re-create the collection-management burden under a different name — workflow registration — which isn't the invariant worth defending.
 
 ### Propositions are first-order, claims not chunks
 
@@ -147,7 +149,9 @@ Naming the shape we're avoiding.
 We index claims, not passages. Retrieval is topological (entity joins, provenance edges) and textual (FTS5), not semantic similarity. Embeddings may come (see architecture review), but they supplement — they don't replace — the graph.
 
 ### Not a prescriptive shape enforcer
-We do not impose "3+ propositions per entity" as a rule. We do not cap entities at `propositions / 3`. Numeric floors and ceilings force the agent to reason about compliance instead of content. The guidance teaches the pattern; numeric enforcement is an anti-pattern.
+We do not impose "3+ propositions per entity" as a rule. We do not cap entities at `propositions / 3`. We do not score content similarity against a threshold. Numeric thresholds that shape **knowledge** force the agent to reason about compliance instead of content — an anti-pattern.
+
+Runtime safety limits are a different category. `maxTurns` on a cycling action node is a runaway guard (prevents infinite loops when the agent fails to set the cycle-exit flag), not a shape constraint. Same for the 50-path cap on `memory_by_source` onEnter hook arguments (bounds hook latency against the 5s timeout). These exist to keep the system behaviorally bounded, not to filter knowledge. When the number leaks into knowledge shape ("only keep entities with 3+ propositions"), that's the anti-pattern.
 
 ### Not a transcript recorder
 Every claim is a reasoned fact about the source, not a log entry of what the agent read. "I read file X" is not a proposition. "File X validates Y by checking Z" is.

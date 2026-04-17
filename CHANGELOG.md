@@ -7,65 +7,119 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The memory-architecture port. Six sequential batches landed on top of 1.3.0's
-`onEnter` hooks, pushing memory intelligence out of the agent's round-trip
-path and into the traversal layer — while preserving the store's passive-sink
-principle (no schema migrations, no new write paths). Sourced from
-`docs/memory-architecture-review.md` §5 + `docs/memory-prose-porting.md`.
+The memory-architecture port. Pushed memory intelligence out of the agent's
+round-trip path and into the traversal layer while preserving the store's
+passive-sink principle. Ablation-driven throughout: decisions (and retractions)
+are documented in `experiments/FINDINGS.md`; design intent lives in
+`docs/memory-intent.md`.
 
 ### Added
 
 - **Four new built-in onEnter hooks**: `memory_search`, `memory_related`,
-  `memory_inspect`, `memory_by_source`. `HookMemoryAccess` now narrows the
-  full public read surface of `MemoryStore` — `emit()` and other write paths
-  stay unreachable from hooks. `memory_by_source` diverges from the single-path
-  MCP tool on purpose: the hook wrapper takes `paths: string[]` (capped at 50)
-  so a single onEnter declaration can fan out over `context.filesReadPaths`.
-- **Stage-and-address split** on `memory:compile`. The old `compiling` node
-  is replaced by `staging` (pushes raw claims into `context.stagedClaims`,
-  no `memory_emit`) and `addressing` (plans entity hub-concepts across the
-  full staged set and calls `memory_emit` once with planned entities). The
-  split exists because entity planning needs to see the whole batch — it
-  can't succeed claim-by-claim. `addressing` gets a `memory_browse` onEnter
-  so the agent arrives with the existing entity vocabulary already in
-  `context.entities`.
-- **Graph-aware reads** on `memory:compile`. `exploring` gets a
+  `memory_inspect`, `memory_by_source`. `HookMemoryAccess` narrows the full
+  public read surface of `MemoryStore`. `memory_by_source` diverges from the
+  single-path MCP tool on purpose: the hook takes `paths: string[]` (capped
+  at 50) so a single onEnter declaration can fan out over
+  `context.filesReadPaths`.
+- **Graph-aware reads** on `memory:compile`. `exploring` node gets a
   `memory_by_source` onEnter keyed by `context.filesReadPaths`, populating
-  `context.priorKnowledgeByPath`. The agent stages only deltas; warm exit
-  becomes emergent when every read file's delta is empty.
-- **Lens directive** (`dev` / `support` / `qa`) inlined into the staging
-  instruction via `context.lens`. Empty lens defaults to `dev`. No engine
-  templating — the prose lists all three lenses and the agent picks.
-- **`PROPOSITION_RUBRIC` prose port**: the independence test ("could either
-  claim be true while the other is false?"), the split-aggressively /
-  keep-together catalog (relationship claims are knowledge in themselves —
-  don't atomize), and a one-sentence knowledge-types taxonomy that names
-  the metacognitive bucket explicitly so it stops being silently dropped.
+  `context.priorKnowledgeByPath`. The agent emits only deltas.
+- **Warm-exit edges** on both sealed workflows. `memory:compile` adds
+  `exploring → evaluating` gated on `coverageSatisfied` (skip compile/emit
+  when priorKnowledgeByPath shows full coverage). `memory:recall` adds
+  `recalling → evaluating` on the same flag (skip sourcing/comparing/filling
+  when recalled propositions cover the query). Fixes the stuck-at-sourcing
+  state when memory already satisfies the query.
+- **`hashPropContent`** for proposition dedup — stricter normalization
+  (lowercase, whitespace collapse, trailing punctuation strip) so
+  superficial variance doesn't create duplicate propositions. Each
+  transform is binary — no thresholds. `hashContent` (minimal CRLF→LF +
+  trimEnd) remains for source file hashing where stricter normalization
+  would mask real drift.
+- **`PROPOSITION_RUBRIC`** — atomicity directive + independence test +
+  relationship exception (~60 tokens). Deliberately minimal based on
+  ablation evidence (see below). Shared across both sealed workflows.
 - **Programmatic `onEnter` on `GraphBuilder`**. `NodeInput` now exposes
-  `onEnter`, and `build()` resolves built-in hook references via a new
-  `resolveBuiltinOnlyHooks` helper. Script paths are rejected for
-  programmatic graphs because there's no source-file directory to anchor
-  against.
+  `onEnter`, and `build()` resolves built-in hook references.
+- **`memory_reset` MCP tool** — clears propositions and entities on the
+  live db handle (no split-brain from deleting files under a running
+  server). Gated by `confirm: true`.
+- **Sealed compile workflow uses full authoring surface**: `suggestedTools`
+  on exploring (`Read`, `freelance_context_set`) and compiling
+  (`memory_emit`); `maxTurns` on both action nodes as runaway guards.
+- **`docs/memory-intent.md`** — design intent: architectural invariants,
+  emergent output qualities, agent interaction qualities, where memory
+  earns its keep, anti-patterns.
+- **`experiments/`** — ablation infrastructure + 11-run findings
+  (`experiments/FINDINGS.md`).
 
 ### Changed
 
+- **Sealed workflows keep a single `compiling` node** (previously staging +
+  addressing). The two-phase split cost +25% tokens and +40% wall time
+  without producing better knowledge (ablation 3).
+- **Sealed workflows never wiped by watcher reloads.** `injectSealedGraphs`
+  now runs at startup AND on every `.workflow.yaml` reload — previously
+  any file change under the watched dir cleared `memory:compile` and
+  `memory:recall` from the graphs map until restart.
+- **`memory_emit` gate widened** from "must be in memory:compile or
+  memory:recall" to "must be in ANY active traversal". Preserves the
+  intentional-write invariant while letting user-authored workflows
+  (experiments, domain-specific compiles) write memory without being
+  allow-listed. The gate still prevents writes outside any structured flow.
 - **`memory:compile` and `memory:recall` no longer instruct the agent to
   manually call `memory_status` / `memory_browse` / `memory_inspect` /
-  `memory_related` as a "first step".** Those round-trips now fire as
-  onEnter hooks: compile's `exploring` runs `memory_status` + `memory_browse`
-  + `memory_by_source`; recall's `recalling` runs `memory_status` +
-  `memory_browse`. `memory_inspect` and `memory_related` stay as suggested
-  tools because they need a specific entity arg the agent must pick from
-  the populated vocabulary. Closes #53.
+  `memory_related` as a "first step".** Those round-trips fire as onEnter
+  hooks. `memory_inspect` and `memory_related` stay as suggested tools
+  because they need a specific entity arg the agent must pick from the
+  populated vocabulary. Closes #53.
+
+### Removed
+
+- **Collections concept** — config surface and interface burden not
+  justified by the capability. Memory is a single flat namespace.
+  `memory.collections` config field, `memory_emit.collection` param, and
+  all per-collection scoping on read tools removed.
+- **Lens directive** (`dev`/`support`/`qa`) — ablation 1 showed no
+  measurable effect. Removed from context, prose, and config.
+- **Stage/address split** — ablation 3 showed two-phase cost +25% tokens,
+  +40% time, fewer claims. Merged into single `compiling` node.
+- **Rubric prose reduced from ~400 tokens to ~60.** Ablations 5, 7a, 7b,
+  and 11 converged on the same finding: only entity guidance (in the
+  compiling node) reliably moves the needle (-35% entity fragmentation,
+  ablation 4). The knowledge-types taxonomy, WRONG/RIGHT Biome example,
+  and an earlier content-vs-graph-structure addition were stripped or
+  retracted. The retained rubric has the atomicity directive, the
+  independence test, and the relationship exception (which prevents
+  "A depends on B" from being atomized into disconnected per-entity
+  fragments — structural, not stylistic).
 
 ### Fixed
 
 - `GraphBuilder` silently dropped `onEnter` hooks — the field wasn't on
   `NodeInput` and `build()` didn't thread it through. Programmatic graphs
-  built with hook declarations appeared to succeed but never ran the hooks
-  at node arrival. Issue #53's note that "we can reach the onEnter shape by
-  setting the field directly on the node input object" was incorrect
-  against the code as written. Fixed as part of the stage-and-address batch.
+  built with hook declarations appeared to succeed but never ran the hooks.
+  Fixed as part of the memory port.
+- Root terminal auto-GC: when a traversal reaches a root terminal node,
+  the engine now clears the stack so the persisted record is removed on
+  save. Previously terminal traversals cluttered `freelance_list` forever.
+
+### Upgrade notes
+
+- Existing `memory.db` files keep working but propositions emitted before
+  this release were hashed with the older `hashContent` normalization.
+  Same-content propositions emitted after the upgrade may not dedupe
+  against the old rows (they'll hash to a different value under the
+  stricter `hashPropContent`). To rebuild under the new hash regime,
+  run `freelance memory reset --confirm` and re-compile. Not required —
+  both hash formats remain valid data.
+- `memory.collections` in `config.yml` is a no-op now and will be ignored.
+
+### Follow-ups (tracked)
+
+- #65 — Staleness hash caching + watched invalidation (read-path perf)
+- #66 — Section-level source provenance for memory propositions
+- #67 — Ablations 8-10: warm-path efficiency tests
 
 ## [1.3.0] - 2026-04-14
 
