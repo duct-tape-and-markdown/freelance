@@ -14,22 +14,17 @@
  *
  * Changes here affect both sealed workflows atomically — by design.
  */
+// The rubric is the only prose that demonstrably shapes agent behavior
+// (ablation 4 confirmed entity guidance moves the needle; ablation 7a/7b
+// showed knowledge-types and independence-test sub-parts are noise or
+// inverse). Kept minimal: one directive + one semantic check + its
+// relationship exception. The relationship exception is structural —
+// without it, agents atomize "A depends on B" into per-entity fragments,
+// destroying edges the graph needs.
 const PROPOSITION_RUBRIC =
-  "Emit ATOMIC propositions — one factual claim each, a single sentence preferred.\n\n" +
-  "## The independence test\n" +
-  'For every candidate claim, ask: "Could either half be true while the other is false?" If yes, split. ' +
-  "This is the semantic rule behind the surface 'no and/also/plus' heuristic — use it whenever you feel the urge to conjoin facts. " +
-  "The exception is relationship claims like 'A depends on B' or 'A was replaced by B via C' — the edge IS the knowledge, and atomizing it into per-entity facts destroys the graph's connectivity.\n\n" +
-  "## Knowledge types to notice\n" +
-  "Claims can be factual ('X is configured to Y'), conceptual ('X exists because Y'), procedural ('to do X, run Y then Z'), or metacognitive ('this is uncertain because we couldn't reproduce X'). The metacognitive bucket is the one most extractors silently drop — emit it explicitly when you have it.\n\n" +
-  "## WRONG vs RIGHT\n" +
-  "WRONG (four independent facts mashed into one prop):\n" +
-  '  "Biome was added as the linter with space/2 indent, simple-git-hooks runs it as a pre-commit gate, the format pass touched 72 files, and noNonNullAssertion is disabled because its auto-fix broke type narrowing."\n\n' +
-  "RIGHT (four atomic props, one fact each):\n" +
-  '  1. "Biome v2 is the format and lint tool, configured with space/2 indent and line width 100." — entities: ["Biome", "biome.json"]\n' +
-  '  2. "simple-git-hooks runs `biome check` as a pre-commit gate." — entities: ["simple-git-hooks", "Biome"]\n' +
-  '  3. "The initial Biome format pass touched 72 files with zero semantic changes." — entities: ["Biome"]\n' +
-  '  4. "Biome\'s noNonNullAssertion rule is disabled because its auto-fix converted `!` to `?.` and broke TypeScript narrowing." — entities: ["noNonNullAssertion", "Biome"]';
+  "Emit atomic propositions — one factual claim each. " +
+  'Apply the independence test: for each candidate claim, ask "could either half be true while the other is false?" If yes, split.\n\n' +
+  "Exception: relationship claims like 'A depends on B' or 'A was replaced by B via C' — the edge IS the knowledge. Atomizing them into per-entity facts destroys graph connectivity.";
 
 export const compileMessages = {
   description:
@@ -43,10 +38,10 @@ export const compileMessages = {
         "## What you arrive with\n" +
         "Three onEnter hooks have already populated this node's context for you, so you don't burn turns on routine lookups:\n" +
         "- context.total_propositions / valid_propositions / stale_propositions / total_entities (from memory_status) — the rough size of the existing knowledge.\n" +
-        "- context.entities (from memory_browse, up to 50) — the existing entity vocabulary. Skim these names; they are what the addressing node will steer toward when it plans hubs.\n" +
+        "- context.entities (from memory_browse, up to 50) — the existing entity vocabulary. Skim these names; they are what the compiling node will steer toward when it plans hubs.\n" +
         "- context.priorKnowledgeByPath (from memory_by_source) — propositions already known per file in context.filesReadPaths (each entry is { id, content } — no hashes, no timestamps; content is what you need to judge overlap). See the graph-aware reading section below.\n\n" +
         "## Warm start — if you already know which files you want to compile\n" +
-        "Pass them as `initialContext.filesReadPaths` when calling freelance_start. The onEnter hooks fire AFTER initialContext is applied, so priorKnowledgeByPath is populated on your very first arrival — no wasted lap. Without initialContext, filesReadPaths starts empty and the first arrival's priorKnowledgeByPath is `{}`; hooks only re-fire on node arrival, so setting filesReadPaths via freelance_context_set does NOT re-query memory_by_source until you loop back through staging/addressing/evaluating and land on exploring a second time.\n\n" +
+        "Pass them as `initialContext.filesReadPaths` when calling freelance_start. The onEnter hooks fire AFTER initialContext is applied, so priorKnowledgeByPath is populated on your very first arrival — no wasted lap. Without initialContext, filesReadPaths starts empty and the first arrival's priorKnowledgeByPath is `{}`; hooks only re-fire on node arrival, so setting filesReadPaths via freelance_context_set does NOT re-query memory_by_source until you loop back through compiling/evaluating and land on exploring a second time.\n\n" +
         "## What this node does\n" +
         "Read files related to the compilation query using your native Read tool. " +
         "After each read, call freelance_context_set to append the file path to " +
@@ -54,45 +49,36 @@ export const compileMessages = {
         "propositions in the next node, you'll cite sources from this list. memory_emit " +
         "hashes each cited source file at emit time for per-proposition provenance, so " +
         "there's no pre-registration step: read, track the path, emit when ready.\n\n" +
-        "## Graph-aware reading — stage only deltas\n" +
+        "## Graph-aware reading — emit only deltas\n" +
         "Every time you arrive at this node, an onEnter hook calls memory_by_source for " +
         "every path currently in context.filesReadPaths and writes the result to " +
         "context.priorKnowledgeByPath as { <path>: [{id, content}, ...] }. Read this BEFORE " +
-        "deciding what to stage:\n" +
-        "- If a file's prior-knowledge list already covers the claim you were about to stage, " +
+        "deciding what to emit:\n" +
+        "- If a file's prior-knowledge list already covers the claim you were about to emit, " +
         "skip it. Re-emitting hashes to the same content_hash and is a no-op, but it wastes " +
-        "agent turns and clouds the staged set.\n" +
-        "- Stage only DELTAS: claims the file actually says that the existing propositions " +
+        "agent turns.\n" +
+        "- Emit only DELTAS: claims the file actually says that the existing propositions " +
         "do not already capture.\n\n" +
         "## Warm exit — zero-delta shortcut\n" +
-        "If every file in priorKnowledgeByPath is already comprehensively covered (nothing to stage), take the `warm-exit` edge directly from here to `evaluating` — pass `{ coverageSatisfied: true }` in the same freelance_advance call. This skips staging/addressing/memory_emit entirely. It's the right path when a prior compile run already covered the same files and the sources haven't drifted since. A one-step warm exit costs one tool call instead of the 3–4 it takes to loop through the normal staging path.\n\n" +
+        "If every file in priorKnowledgeByPath is already comprehensively covered (nothing to emit), take the `warm-exit` edge directly from here to `evaluating` — pass `{ coverageSatisfied: true }` in the same freelance_advance call. This skips compiling/memory_emit entirely. It's the right path when a prior compile run already covered the same files and the sources haven't drifted since. A one-step warm exit costs one tool call instead of the 2–3 it takes to loop through the normal compiling path.\n\n" +
         "If context.priorKnowledgePathsTruncated is true, the path list exceeded the 50-path " +
         "cap and not every file was checked — fall back to manual judgment for the unchecked tail.",
     },
-    staging: {
-      description: "Stage atomic claims in context.",
+    compiling: {
+      description: "Extract claims, plan entities, emit propositions.",
       instructions:
         `${PROPOSITION_RUBRIC}\n\n` +
         "## What this node does\n" +
-        "Push atomic claim objects to context.stagedClaims via freelance_context_set. Each claim:\n" +
-        "  { content: string, sources: string[], draftEntities?: string[] }\n" +
-        "- content: the claim itself, per the rubric above.\n" +
-        "- sources: cite only the files in context.filesReadPaths this claim was actually derived from.\n" +
-        "- draftEntities: optional — names you noticed while writing. The addressing node reviews and rewrites these against the full vocabulary.\n\n" +
-        "Let the query shape what kind of claims you extract. When you've staged every claim this batch of files deserves, advance.",
-    },
-    addressing: {
-      description: "Review the staged claims, plan entities, emit.",
-      instructions:
-        "## What you arrive with\n" +
-        "- context.stagedClaims — the claim objects you wrote in staging.\n" +
-        "- context.entities — the existing entity vocabulary (populated by an onEnter memory_browse).\n\n" +
-        "## What this node does\n" +
-        "Read both. Decide which entity names each claim should link to, then call memory_emit once with every staged claim, attaching entities per claim. Clear context.stagedClaims afterward.\n\n" +
+        "For each file you read in the exploring node, extract atomic claims and emit them via memory_emit in a single step. For each claim, decide:\n" +
+        "1. The claim content (per the rubric above).\n" +
+        "2. Which source files it was derived from (cite only files in context.filesReadPaths).\n" +
+        "3. Which entity names to link it to.\n\n" +
         "## How to think about entities\n" +
-        "Reuse existing entity names verbatim — context.entities shows what's already there, and same-name reuse is the single highest-leverage move you can make for graph density.\n\n" +
+        "context.entities shows the existing entity vocabulary (populated by an onEnter memory_browse). " +
+        "Reuse existing entity names verbatim — same-name reuse is the single highest-leverage move you can make for graph density.\n\n" +
         "Good entities are **search hubs** — concepts someone would look up when trying to learn about this area. Bad entities are setting-names or field-names, which belong inside claim content, not as entities. If an entity name reads like a config key, it's content, not a hub.\n\n" +
-        "A hub that only shows up on one claim in the batch is usually a fragment masquerading as a hub — roll it into a broader concept that recurs across claims.",
+        "A hub that only shows up on one claim in the batch is usually a fragment masquerading as a hub — roll it into a broader concept that recurs across claims.\n\n" +
+        "Let the query shape what kind of claims you extract. Call memory_emit with all your claims when ready, then advance.",
     },
     evaluating: {
       description: "Check coverage — are there areas not yet compiled?",
@@ -111,10 +97,6 @@ export const compileMessages = {
     filesRead: {
       label: "files-read",
       description: "At least one source file has been read.",
-    },
-    claimsStaged: {
-      label: "claims-staged",
-      description: "Raw claims have been pushed into context.stagedClaims.",
     },
     propositionsEmitted: {
       label: "propositions-emitted",
@@ -154,8 +136,10 @@ export const recallMessages = {
         "Skim context.entities against the query. For the 1–5 entities most likely to carry relevant knowledge, call memory_inspect (and memory_related when you want neighbor context) to pull their full proposition lists and source files. " +
         "These targeted inspect calls are the agent's job — there's no good way to pre-fetch them automatically because we don't know which entities matter until we read context.entities.\n\n" +
         "Catalog what's already known from those inspects — the propositions and the source_files lists. " +
-        "The next node will read those source files. " +
-        "Update context.recalledEntities (the count you actually inspected) and context.recalledPropositions (sum across the inspects).",
+        "Update context.recalledEntities (the count you actually inspected) and context.recalledPropositions (sum across the inspects).\n\n" +
+        "## Warm exit — memory already covers the query\n" +
+        "If the recalled propositions comprehensively answer the query — no gaps, no need to re-read sources to find new facts — take the `warm-exit` edge directly to `evaluating`. Pass `{ coverageSatisfied: true }` in the same freelance_advance call. This skips sourcing/comparing/filling entirely; the evaluating node will confirm and route to complete. Use this when the existing memory is sufficient.\n\n" +
+        "Otherwise, take the `recalled` edge — the sourcing node will read the source_files from your inspects to check for gaps.",
     },
     sourcing: {
       description: "Read source files guided by provenance from recalled propositions.",
@@ -205,6 +189,11 @@ export const recallMessages = {
     recalled: {
       label: "recalled",
       description: "Existing knowledge cataloged, proceed to read sources.",
+    },
+    warmExit: {
+      label: "warm-exit",
+      description:
+        "Recalled propositions already cover the query — skip sourcing/comparing/filling, route straight to evaluating.",
     },
     sourcesRead: {
       label: "sources-read",

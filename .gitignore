@@ -40,3 +40,4 @@ logs/
 docs/*
 !docs/memory-architecture-review.md
 !docs/memory-prose-porting.md
+!docs/memory-intent.md

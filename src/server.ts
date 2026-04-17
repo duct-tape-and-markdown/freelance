@@ -54,11 +54,29 @@ export function createServer(
   // read through the getter below so they always see the current value.
   let currentLoadErrors: Array<{ file: string; message: string }> = options?.loadErrors ?? [];
 
+  // Inject sealed memory workflows into a fresh graph map. Must run at
+  // startup AND on every watcher reload — the watcher replaces the
+  // graphs map with on-disk-only loads, which would wipe the sealed
+  // graphs. User-authored workflows with the sealed ids take precedence
+  // (the `has` check preserves overrides from .workflow.yaml files).
+  const injectSealedGraphs = (target: Map<string, ValidatedGraph>): void => {
+    if (!memoryStore) return;
+    if (!target.has(COMPILE_KNOWLEDGE_ID)) {
+      target.set(COMPILE_KNOWLEDGE_ID, buildCompileKnowledgeWorkflow());
+    }
+    if (!target.has(RECOLLECTION_ID)) {
+      target.set(RECOLLECTION_ID, buildRecollectionWorkflow());
+    }
+  };
+
   let stopWatcher: (() => void) | undefined;
   if (options?.graphsDirs?.length) {
     stopWatcher = watchGraphs({
       graphsDir: options.graphsDirs,
-      onUpdate: (newGraphs) => manager.updateGraphs(newGraphs),
+      onUpdate: (newGraphs) => {
+        injectSealedGraphs(newGraphs);
+        manager.updateGraphs(newGraphs);
+      },
       onError: (err) => {
         process.stderr.write(`Graph reload failed: ${err.message}\n`);
       },
@@ -93,17 +111,11 @@ export function createServer(
     const hasActiveMemoryTraversal = () => manager.listTraversals().length > 0;
     registerMemoryTools(server, memoryStore, hasActiveMemoryTraversal);
 
-    // Inject sealed memory workflows
-    let injected = false;
-    if (!graphs.has(COMPILE_KNOWLEDGE_ID)) {
-      graphs.set(COMPILE_KNOWLEDGE_ID, buildCompileKnowledgeWorkflow());
-      injected = true;
-    }
-    if (!graphs.has(RECOLLECTION_ID)) {
-      graphs.set(RECOLLECTION_ID, buildRecollectionWorkflow());
-      injected = true;
-    }
-    if (injected) {
+    // Initial injection at startup. The watcher's onUpdate also calls
+    // injectSealedGraphs, so sealed workflows survive file reloads.
+    const sizeBefore = graphs.size;
+    injectSealedGraphs(graphs);
+    if (graphs.size > sizeBefore) {
       manager.updateGraphs(graphs);
     }
   }

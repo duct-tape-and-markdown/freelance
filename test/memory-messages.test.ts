@@ -8,47 +8,39 @@ import { buildCompileKnowledgeWorkflow } from "../src/memory/workflow.js";
 // compiling/filling instructions we lose teaching value silently. These
 // tests fail loudly on regressions in the prose rather than the topology.
 
-describe("PROPOSITION_RUBRIC prose port (Batch 1)", () => {
-  // After Batch 3+5 the compile workflow's rubric prose lives in the
-  // `staging` node, not `compiling` (which no longer exists). The recall
-  // workflow's `filling` node is unchanged.
-  const compilingInstructions = compileMessages.nodes.staging.instructions;
+describe("PROPOSITION_RUBRIC — minimal load-bearing prose", () => {
+  // The rubric was stripped to only the prose that ablations proved
+  // effective OR that is structurally necessary. Kept:
+  //   - Atomicity directive (opener)
+  //   - Independence test (semantic check)
+  //   - Relationship exception (prevents edge destruction)
+  // Cut:
+  //   - Knowledge types taxonomy (ablation 7a: no effect)
+  //   - Content vs graph structure (retracted — based on flawed premise)
+  //   - WRONG/RIGHT conjunctions (marginal, entity reuse taught by entity guidance)
+  //   - WRONG/RIGHT enumerations (retracted alongside content-vs-graph)
+  const compilingInstructions = compileMessages.nodes.compiling.instructions;
   const fillingInstructions = recallMessages.nodes.filling.instructions;
 
-  describe("compileMessages.nodes.staging.instructions", () => {
+  describe("compileMessages.nodes.compiling.instructions", () => {
     it("contains the independence test backstop", () => {
       expect(compilingInstructions).toContain("independence test");
       expect(compilingInstructions).toContain(
-        "Could either half be true while the other is false?",
+        "could either half be true while the other is false?",
       );
     });
 
     it("warns against atomizing relationship claims", () => {
-      // The "A depends on B" edge IS the knowledge — splitting it into
-      // per-entity facts destroys graph connectivity. This intent must
-      // survive in the rubric prose (exact phrasing is flexible).
+      // The "A depends on B" edge IS the knowledge. Without this
+      // exception an agent following the independence test would
+      // destroy relationship edges — this is structural, not stylistic.
       expect(compilingInstructions).toMatch(/relationship/i);
-      expect(compilingInstructions).toMatch(/connectivity|atomiz/i);
-    });
-
-    it("names the four knowledge types including metacognitive", () => {
-      expect(compilingInstructions).toContain("metacognitive");
-      expect(compilingInstructions).toContain("factual");
-      expect(compilingInstructions).toContain("conceptual");
-      expect(compilingInstructions).toContain("procedural");
-    });
-
-    it("preserves the Biome WRONG/RIGHT example block", () => {
-      expect(compilingInstructions).toContain(
-        "WRONG (four independent facts mashed into one prop)",
-      );
-      expect(compilingInstructions).toContain("RIGHT (four atomic props, one fact each)");
+      expect(compilingInstructions).toMatch(/connectivity|destroys/i);
     });
   });
 
   describe("recallMessages.nodes.filling.instructions", () => {
-    // Same rubric is interpolated into the filling node, so the prose
-    // port lands in both workflows atomically.
+    // Same rubric is interpolated into the filling node.
     it("contains the independence test backstop", () => {
       expect(fillingInstructions).toContain("independence test");
     });
@@ -56,10 +48,34 @@ describe("PROPOSITION_RUBRIC prose port (Batch 1)", () => {
     it("warns against atomizing relationship claims", () => {
       expect(fillingInstructions).toMatch(/relationship/i);
     });
+  });
+});
 
-    it("contains the knowledge-types taxonomy", () => {
-      expect(fillingInstructions).toContain("metacognitive");
-    });
+describe("Rubric strips (retracted prose)", () => {
+  // These sections were added then retracted based on evidence or
+  // flawed premises. Tests below guard the removal — if anything
+  // reintroduces them, these fail loudly.
+  const compilingInstructions = compileMessages.nodes.compiling.instructions;
+  const fillingInstructions = recallMessages.nodes.filling.instructions;
+
+  it("no longer teaches the knowledge types taxonomy (ablation 7a: no effect)", () => {
+    expect(compilingInstructions).not.toContain("metacognitive");
+    expect(fillingInstructions).not.toContain("metacognitive");
+  });
+
+  it("no longer includes the Content vs graph structure section (retracted)", () => {
+    // The principle was wrong — enumerations can name authoritative
+    // sets, which is content, not redundancy with graph edges.
+    expect(compilingInstructions).not.toContain("Content vs graph structure");
+    expect(fillingInstructions).not.toContain("Content vs graph structure");
+  });
+
+  it("no longer includes WRONG/RIGHT example blocks", () => {
+    // Marginal effect per ablation 5; any entity-reuse teaching is
+    // carried by the dedicated entity guidance in the compiling node.
+    expect(compilingInstructions).not.toContain("WRONG vs RIGHT");
+    expect(compilingInstructions).not.toContain("WRONG (four independent facts");
+    expect(compilingInstructions).not.toContain("WRONG vs RIGHT — enumerations");
   });
 });
 
@@ -70,7 +86,7 @@ describe("Lens directive removed (Ablation 1 finding)", () => {
   // memory:compile workflow as a prose-strip win. Tests below guard the
   // removal — if anything reintroduces lens prose or the lens context
   // field, these fail loudly.
-  const compilingInstructions = compileMessages.nodes.staging.instructions;
+  const compilingInstructions = compileMessages.nodes.compiling.instructions;
 
   it("no longer mentions a lens directive section", () => {
     expect(compilingInstructions).not.toMatch(/lens directive/i);
@@ -94,7 +110,7 @@ describe("buildCompileKnowledgeWorkflow context default (lens removed)", () => {
   });
 });
 
-describe("Issue #53 finish — manual prose dropped, onEnter populated (Batch 6)", () => {
+describe("onEnter hooks populated, manual prose dropped (Batch 6 + Ablation 3)", () => {
   describe("compile workflow exploring node", () => {
     const graph = buildCompileKnowledgeWorkflow();
     const exploring = graph.definition.nodes.exploring;
@@ -152,6 +168,20 @@ describe("Issue #53 finish — manual prose dropped, onEnter populated (Batch 6)
       expect(recalling.suggestedTools).toContain("memory_related");
     });
 
+    it("recalling node offers a warm-exit edge to evaluating (Ablation 6 finding)", () => {
+      // Without this, a query fully covered by memory still forces the
+      // agent through sourcing/comparing/filling — wasted work.
+      const warmExit = recalling.edges?.find((e) => e.target === "evaluating");
+      expect(warmExit).toBeDefined();
+      expect(warmExit?.label).toBe("warm-exit");
+      expect(warmExit?.condition).toBe("context.coverageSatisfied == true");
+    });
+
+    it("recalling instruction documents the warm-exit path", () => {
+      expect(recallingInstructions).toContain("warm-exit");
+      expect(recallingInstructions).toContain("coverageSatisfied");
+    });
+
     it("recalling does NOT list memory_browse as suggestedTools anymore", () => {
       // Browse moved to onEnter — listing it as suggested would tell the
       // agent to call something it already has.
@@ -204,9 +234,9 @@ describe("Exploring onEnter — graph-aware reads (Batch 4)", () => {
     expect(graph.definition.context).toHaveProperty("priorKnowledgePathsTruncated", false);
   });
 
-  it("instructs the agent to stage only deltas", () => {
+  it("instructs the agent to emit only deltas", () => {
     expect(exploringInstructions).toContain("priorKnowledgeByPath");
-    expect(exploringInstructions).toContain("Stage only DELTAS");
+    expect(exploringInstructions).toContain("Emit only DELTAS");
   });
 
   it("documents the warm-exit signal", () => {
@@ -219,87 +249,74 @@ describe("Exploring onEnter — graph-aware reads (Batch 4)", () => {
   });
 });
 
-describe("Stage-and-address split (Batch 3+5)", () => {
+describe("Merged compiling node (Ablation 3 finding)", () => {
+  // Ablation 3 proved two-phase staging+addressing costs +25% tokens and
+  // +40% wall time without producing better knowledge. Merged into a single
+  // `compiling` node: exploring → compiling → evaluating.
   const graph = buildCompileKnowledgeWorkflow();
   const nodes = graph.definition.nodes;
-  const stagingInstructions = compileMessages.nodes.staging.instructions;
-  const addressingInstructions = compileMessages.nodes.addressing.instructions;
+  const compilingInstructions = compileMessages.nodes.compiling.instructions;
 
   describe("topology", () => {
-    it("removes the old `compiling` node", () => {
-      expect(nodes).not.toHaveProperty("compiling");
+    it("has no staging or addressing nodes", () => {
+      expect(nodes).not.toHaveProperty("staging");
+      expect(nodes).not.toHaveProperty("addressing");
     });
 
-    it("introduces `staging` and `addressing` nodes", () => {
-      expect(nodes).toHaveProperty("staging");
-      expect(nodes).toHaveProperty("addressing");
+    it("has a compiling node", () => {
+      expect(nodes).toHaveProperty("compiling");
     });
 
-    it("wires exploring → staging → addressing → evaluating", () => {
-      const exploring = nodes.exploring;
-      expect(exploring.edges?.some((e) => e.target === "staging")).toBe(true);
-
-      const staging = nodes.staging;
-      expect(staging.edges?.some((e) => e.target === "addressing")).toBe(true);
-
-      const addressing = nodes.addressing;
-      expect(addressing.edges?.some((e) => e.target === "evaluating")).toBe(true);
+    it("wires exploring → compiling → evaluating", () => {
+      expect(nodes.exploring.edges?.some((e) => e.target === "compiling")).toBe(true);
+      expect(nodes.compiling.edges?.some((e) => e.target === "evaluating")).toBe(true);
     });
 
-    it("declares stagedClaims and entities as start-context defaults", () => {
-      expect(graph.definition.context).toHaveProperty("stagedClaims");
+    it("does not declare stagedClaims in start context", () => {
+      expect(graph.definition.context).not.toHaveProperty("stagedClaims");
+    });
+
+    it("declares entities as start-context default", () => {
       expect(graph.definition.context).toHaveProperty("entities");
     });
   });
 
-  describe("addressing onEnter (memory_browse)", () => {
-    it("attaches a memory_browse onEnter hook to addressing", () => {
-      const addressing = nodes.addressing;
-      const onEnter = addressing.onEnter ?? [];
+  describe("compiling onEnter (memory_browse)", () => {
+    it("attaches a memory_browse onEnter hook to compiling", () => {
+      const compiling = nodes.compiling;
+      const onEnter = compiling.onEnter ?? [];
       expect(onEnter.length).toBeGreaterThan(0);
       expect(onEnter.some((h) => h.call === "memory_browse")).toBe(true);
     });
 
-    it("resolves the addressing onEnter hook into hookResolutions", () => {
-      const resolutions = graph.hookResolutions?.get("addressing");
+    it("resolves the compiling onEnter hook into hookResolutions", () => {
+      const resolutions = graph.hookResolutions?.get("compiling");
       expect(resolutions).toBeDefined();
       expect(resolutions?.length).toBeGreaterThan(0);
       expect(resolutions?.[0]).toMatchObject({ kind: "builtin", name: "memory_browse" });
     });
   });
 
-  describe("staging instruction prose", () => {
-    it("references context.stagedClaims and the per-claim schema", () => {
-      expect(stagingInstructions).toContain("context.stagedClaims");
-      expect(stagingInstructions).toContain("draftEntities");
-    });
-
+  describe("compiling instruction prose", () => {
     it("inherits the rubric", () => {
-      expect(stagingInstructions).toContain("independence test");
+      expect(compilingInstructions).toContain("independence test");
     });
-  });
 
-  describe("addressing instruction prose", () => {
-    // The old prose encoded mechanical rules ("3+ floor", "count/3 ceiling",
-    // "GOOD vs BAD"). We've removed those — those are enforcement concerns,
-    // not agent-reading ones. Tests now assert the intent that should survive.
-
-    it("references the onEnter-populated context.entities vocabulary", () => {
-      expect(addressingInstructions).toContain("context.entities");
+    it("references context.entities vocabulary", () => {
+      expect(compilingInstructions).toContain("context.entities");
     });
 
     it("tells the agent to reuse existing entity names", () => {
-      expect(addressingInstructions).toMatch(/reuse existing/i);
+      expect(compilingInstructions).toMatch(/reuse existing/i);
     });
 
     it("frames entities as search hubs rather than field/setting names", () => {
-      expect(addressingInstructions).toMatch(/hub/i);
-      expect(addressingInstructions).toMatch(/setting|field|config/i);
+      expect(compilingInstructions).toMatch(/hub/i);
+      expect(compilingInstructions).toMatch(/setting|field|config/i);
     });
 
-    it("instructs calling memory_emit and clearing stagedClaims", () => {
-      expect(addressingInstructions).toContain("memory_emit");
-      expect(addressingInstructions).toMatch(/clear.*stagedClaims/i);
+    it("instructs calling memory_emit", () => {
+      expect(compilingInstructions).toContain("memory_emit");
     });
   });
 });

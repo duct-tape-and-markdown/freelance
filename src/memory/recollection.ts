@@ -52,6 +52,16 @@ export function buildRecollectionWorkflow(): ValidatedGraph {
           label: M.edges.recalled.label,
           description: M.edges.recalled.description,
         },
+        // Warm-exit shortcut: when the recalled propositions already
+        // comprehensively cover the query, skip sourcing/comparing/filling
+        // entirely and route straight to evaluating. Saves 3–4 turns and
+        // avoids redundant source reads when memory is already sufficient.
+        {
+          target: "evaluating",
+          label: M.edges.warmExit.label,
+          condition: "context.coverageSatisfied == true",
+          description: M.edges.warmExit.description,
+        },
       ],
     })
     .node("sourcing", {

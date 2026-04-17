@@ -14,7 +14,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { hashContent } from "../sources.js";
+import { hashContent, hashPropContent } from "../sources.js";
 import type { Db } from "./db.js";
 import { computeStatus, countValidForEntity, getNeighbors } from "./enrichment.js";
 import {
@@ -157,7 +157,7 @@ export class MemoryStore {
     );
 
     for (const prop of propositions) {
-      const contentHash = hashContent(prop.content);
+      const contentHash = hashPropContent(prop.content);
       const newId = generateId();
       const inserted = upsertProp.get(newId, prop.content, contentHash, collection, now()) as
         | { id: string }
