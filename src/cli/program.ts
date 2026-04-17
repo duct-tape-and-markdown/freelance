@@ -9,6 +9,7 @@ import path from "node:path";
 import { Command, Option } from "commander";
 import { loadConfigFromDirs } from "../config.js";
 import { loadGraphsGraceful, resolveGraphsDirs, resolveSourceRoot } from "../graph-resolution.js";
+import { getSealedGraphs } from "../memory/sealed.js";
 import { extractSection } from "../section-resolver.js";
 import { startServer } from "../server.js";
 import { VERSION } from "../version.js";
@@ -181,7 +182,18 @@ program
   .option("--no-memory", "Disable memory (overrides memory.enabled=true in config)")
   .action(async (opts) => {
     const dirs = resolveGraphsDirs(opts.workflows);
-    const { graphs, errors: loadErrors } = loadGraphsGraceful(dirs);
+    const config = loadConfigFromDirs(dirs);
+    const memoryConfig = resolveMemoryConfig(
+      dirs,
+      { memoryDir: opts.memoryDir, memory: opts.memory },
+      config,
+    );
+    // Sealed memory workflows have to be present in the graph map
+    // *before* cross-graph validation, otherwise a user workflow that
+    // references memory:recall as a subgraph target fails load with
+    // "unknown graph" and the error is cached in loadErrors.
+    const sealedGraphs = memoryConfig ? getSealedGraphs() : undefined;
+    const { graphs, errors: loadErrors } = loadGraphsGraceful(dirs, { sealedGraphs });
     const sourceRoot = resolveSourceRoot(dirs, opts.sourceRoot);
     const sectionResolver = (filePath: string, section: string) =>
       extractSection(filePath, section);
@@ -190,12 +202,6 @@ program
         `Freelance: ${loadErrors.length} graph(s) failed validation — call freelance_validate for details`,
       );
     }
-    const config = loadConfigFromDirs(dirs);
-    const memoryConfig = resolveMemoryConfig(
-      dirs,
-      { memoryDir: opts.memoryDir, memory: opts.memory },
-      config,
-    );
     if (memoryConfig) {
       info(`Freelance: memory enabled (${memoryConfig.db})`);
     }

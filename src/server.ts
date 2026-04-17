@@ -4,8 +4,7 @@ import type { Runtime } from "./compose.js";
 import { composeRuntime } from "./compose.js";
 import type { MemoryConfig } from "./memory/index.js";
 import { registerMemoryTools } from "./memory/index.js";
-import { buildRecollectionWorkflow, RECOLLECTION_ID } from "./memory/recollection.js";
-import { buildCompileKnowledgeWorkflow, COMPILE_KNOWLEDGE_ID } from "./memory/workflow.js";
+import { getSealedGraphs, mergeSealedGraphs } from "./memory/sealed.js";
 import type { SectionResolver } from "./sources.js";
 import { registerFreelanceTools } from "./tools/index.js";
 import type { ValidatedGraph } from "./types.js";
@@ -99,27 +98,18 @@ export function createServer(
   // read through the getter below so they always see the current value.
   let currentLoadErrors: Array<{ file: string; message: string }> = options?.loadErrors ?? [];
 
-  // Inject sealed memory workflows into a fresh graph map. Must run at
-  // startup AND on every watcher reload — the watcher replaces the
-  // graphs map with on-disk-only loads, which would wipe the sealed
-  // graphs. User-authored workflows with the sealed ids take precedence
-  // (the `has` check preserves overrides from .workflow.yaml files).
-  const injectSealedGraphs = (target: Map<string, ValidatedGraph>): void => {
-    if (!memoryStore) return;
-    if (!target.has(COMPILE_KNOWLEDGE_ID)) {
-      target.set(COMPILE_KNOWLEDGE_ID, buildCompileKnowledgeWorkflow());
-    }
-    if (!target.has(RECOLLECTION_ID)) {
-      target.set(RECOLLECTION_ID, buildRecollectionWorkflow());
-    }
-  };
+  // Sealed memory workflows. User-authored workflows with the sealed ids
+  // take precedence (mergeSealedGraphs skips ids already claimed). Built
+  // once here and threaded to the loader/watcher so cross-graph validation
+  // sees sealed ids BEFORE flagging them as unknown subgraph targets.
+  const sealedGraphs = memoryStore ? getSealedGraphs() : undefined;
 
   let stopWatcher: (() => void) | undefined;
   if (options?.graphsDirs?.length) {
     stopWatcher = watchGraphs({
       graphsDir: options.graphsDirs,
+      sealedGraphs,
       onUpdate: (newGraphs) => {
-        injectSealedGraphs(newGraphs);
         manager.updateGraphs(newGraphs);
       },
       onError: (err) => {
@@ -146,7 +136,7 @@ export function createServer(
   });
 
   // --- Memory ---
-  if (memoryStore) {
+  if (memoryStore && sealedGraphs) {
     // Gate memory writes on "must be inside SOME active traversal",
     // not "must be inside memory:compile or memory:recall specifically".
     // The gate exists to prevent accidental writes outside a structured
@@ -156,9 +146,11 @@ export function createServer(
     const hasActiveMemoryTraversal = () => manager.listTraversals().length > 0;
     registerMemoryTools(server, memoryStore, hasActiveMemoryTraversal);
 
-    // Initial injection at startup. The watcher's onUpdate also calls
-    // injectSealedGraphs, so sealed workflows survive file reloads.
-    injectSealedGraphs(graphs);
+    // Belt-and-braces: the caller is expected to have merged sealed
+    // graphs before calling createServer (so cross-graph validation sees
+    // them). Re-merge here to cover programmatic callers that passed a
+    // bare graphs map. Idempotent — user-authored ids win.
+    mergeSealedGraphs(graphs, sealedGraphs);
     manager.updateGraphs(graphs);
   }
 

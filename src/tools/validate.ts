@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { findGraphFiles, loadSingleGraph, validateCrossGraphRefs } from "../loader.js";
 import { errorResponse, handleError, jsonResponse } from "../mcp-helpers.js";
+import { SEALED_GRAPH_IDS } from "../memory/sealed.js";
 import type { ValidatedGraph } from "../types.js";
 import type { FreelanceToolDeps } from "./deps.js";
 
@@ -48,10 +49,13 @@ export function registerValidateTool(server: McpServer, deps: FreelanceToolDeps)
           }
         }
 
-        // Cross-graph validation (only if individual files passed)
+        // Cross-graph validation (only if individual files passed).
+        // Sealed memory workflows are runtime-injected — treat their ids as
+        // valid subgraph targets so user references to memory:recall /
+        // memory:compile don't trip "unknown graph" at validate time.
         if (errors.length === 0 && parsed.size > 0) {
           try {
-            validateCrossGraphRefs(parsed);
+            validateCrossGraphRefs(parsed, { extraAvailableIds: SEALED_GRAPH_IDS });
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             errors.push({ file: "(cross-graph)", message: msg });

@@ -8,7 +8,9 @@ import {
   loadGraphsCollecting,
   loadGraphsLayered,
   resolveContextDefaults,
+  validateCrossGraphRefs,
 } from "../src/loader.js";
+import { getSealedGraphs, SEALED_GRAPH_IDS } from "../src/memory/sealed.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
@@ -451,5 +453,97 @@ describe("loadGraphsCollecting", () => {
     const { graphs, errors } = loadGraphsCollecting(["/nonexistent/path"]);
     expect(graphs.size).toBe(0);
     expect(errors).toHaveLength(0);
+  });
+});
+
+describe("cross-graph validation with sealed graphs", () => {
+  it("loadGraphsCollecting: subgraph ref to memory:recall resolves when sealedGraphs supplied", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sealed-load-test-"));
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "parent-with-sealed-subgraph.workflow.yaml"),
+      path.join(tmpDir, "parent-with-sealed-subgraph.workflow.yaml"),
+    );
+    try {
+      // Without sealedGraphs — the reference to memory:recall dangles.
+      const bare = loadGraphsCollecting([tmpDir]);
+      expect(bare.errors.some((e) => /memory:recall/.test(e.message))).toBe(true);
+
+      // With sealedGraphs — validation passes and sealed are present in result.
+      const { graphs, errors } = loadGraphsCollecting([tmpDir], {
+        sealedGraphs: getSealedGraphs(),
+      });
+      expect(errors).toHaveLength(0);
+      expect(graphs.has("parent-with-sealed")).toBe(true);
+      expect(graphs.has("memory:recall")).toBe(true);
+      expect(graphs.has("memory:compile")).toBe(true);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("loadGraphs: throws without sealedGraphs, passes with them", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sealed-load-test-"));
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "parent-with-sealed-subgraph.workflow.yaml"),
+      path.join(tmpDir, "parent-with-sealed-subgraph.workflow.yaml"),
+    );
+    try {
+      expect(() => loadGraphs(tmpDir)).toThrow(/memory:recall/);
+      const graphs = loadGraphs(tmpDir, { sealedGraphs: getSealedGraphs() });
+      expect(graphs.has("parent-with-sealed")).toBe(true);
+      expect(graphs.has("memory:recall")).toBe(true);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("user-authored graph with sealed id wins over sealed default", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sealed-override-test-"));
+    // User authors their own memory:recall workflow — mergeSealed must skip
+    // the sealed builder output in favor of the user's file.
+    const userYaml = `id: "memory:recall"
+version: "9.9.9"
+name: "User Recall Override"
+description: "User override"
+startNode: start
+context: {}
+nodes:
+  start:
+    type: terminal
+    description: "user-authored terminal"
+`;
+    fs.writeFileSync(path.join(tmpDir, "user-recall.workflow.yaml"), userYaml);
+    try {
+      const { graphs, errors } = loadGraphsCollecting([tmpDir], {
+        sealedGraphs: getSealedGraphs(),
+      });
+      expect(errors).toHaveLength(0);
+      const recall = graphs.get("memory:recall");
+      expect(recall).toBeDefined();
+      expect(recall?.definition.version).toBe("9.9.9");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("validateCrossGraphRefs: extraAvailableIds accepts sealed ids without merging them", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sealed-ids-test-"));
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "parent-with-sealed-subgraph.workflow.yaml"),
+      path.join(tmpDir, "parent-with-sealed-subgraph.workflow.yaml"),
+    );
+    try {
+      // Load the user file alone (no sealed merge). Cross-graph validation
+      // would normally fail, but extraAvailableIds unblocks it.
+      const { graphs } = loadGraphsCollecting([tmpDir]);
+      // Remove the error-producing validation from the result map — take
+      // a fresh single-graph map and call validateCrossGraphRefs directly.
+      const map = new Map(graphs);
+      expect(() =>
+        validateCrossGraphRefs(map, { extraAvailableIds: SEALED_GRAPH_IDS }),
+      ).not.toThrow();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

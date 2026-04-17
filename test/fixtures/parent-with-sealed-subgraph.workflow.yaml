@@ -1,0 +1,35 @@
+id: parent-with-sealed
+version: "1.0.0"
+name: "Parent With Sealed Subgraph"
+description: "A workflow that subgraphs into a sealed memory:* workflow"
+startNode: start
+context:
+  recalled: false
+
+nodes:
+  start:
+    type: action
+    description: "Begin parent workflow"
+    instructions: "Do work, then delegate to memory:recall."
+    edges:
+      - target: recall
+        label: work-done
+
+  recall:
+    type: gate
+    description: "Delegate to sealed recall workflow"
+    instructions: "Invoke memory:recall as a subgraph."
+    subgraph:
+      graphId: memory:recall
+      contextMap: {}
+    validations:
+      - expr: "true"
+        message: "Always pass — the subgraph's own returns gate the step."
+    edges:
+      - target: finalize
+        label: recalled
+
+  finalize:
+    type: terminal
+    description: "Workflow complete"
+    instructions: "Summarize results."
