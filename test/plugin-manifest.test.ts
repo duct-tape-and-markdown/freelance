@@ -2,22 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-// Plugin manifest integrity tests. The plugin distribution has three
-// files that must stay coherent with each other and with package.json:
-//
-//   1. plugins/freelance/.mcp.json — launcher config. Must use the
-//      public `npx -y freelance-mcp@^<major>` form so the plugin works
-//      on any machine and picks up patch releases automatically. Was
-//      shipped broken in 1.3.1 with hardcoded dev paths (#70).
-//   2. plugins/freelance/.claude-plugin/plugin.json — plugin version.
-//      Claude Code's plugin cache uses plugin.json#version to decide
-//      whether to refresh an installed plugin.
+// Plugin manifest integrity tests. Three files must stay coherent with
+// each other and with package.json:
+//   1. plugins/freelance/.mcp.json — launcher config (must use the
+//      public `npx -y freelance-mcp@^<major>` form so it works on any
+//      machine). Shipped broken in 1.3.1 with hardcoded dev paths (#70).
+//   2. plugins/freelance/.claude-plugin/plugin.json — version the Claude
+//      Code plugin cache uses to refresh installs.
 //   3. .claude-plugin/marketplace.json — marketplace listing version.
-//
-// `sync-plugin-version.mjs` runs on `npm version` and keeps (2)+(3) in
-// lockstep with package.json. These tests catch any manual edit that
-// skips that hook, plus #70's class of bug where the .mcp.json ships
-// with machine-local paths.
+// sync-plugin-version.mjs runs on `npm version` and keeps (2)+(3) in
+// lockstep with package.json. These tests catch manual edits that skip
+// the hook plus the #70 class of bug where .mcp.json ships machine-local.
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
@@ -51,10 +46,6 @@ const plugin = readJson<PluginJson>("plugins/freelance/.claude-plugin/plugin.jso
 const marketplace = readJson<MarketplaceJson>(".claude-plugin/marketplace.json");
 
 describe("plugin .mcp.json launcher shape", () => {
-  // Regression guard for #70: the 1.3.1 plugin shipped with
-  // hardcoded /home/jwcam/... paths, silently breaking every install
-  // on any machine that wasn't the author's dev box.
-
   const server = mcp.freelance;
 
   it("has a freelance server entry", () => {
@@ -66,12 +57,13 @@ describe("plugin .mcp.json launcher shape", () => {
   });
 
   it("has no absolute filesystem paths in args", () => {
-    // Catches /home/.../, /Users/.../, C:\..., and bare-drive absolutes.
-    // A public plugin manifest should not reference any machine-local path.
-    const absolutePathPattern = /^(\/|[A-Za-z]:[\\/])/;
+    // Reject both POSIX (/home/...) and Win32 (C:\...) absolutes so the
+    // test catches machine-local paths regardless of the CI/dev platform
+    // where they were introduced. A public plugin manifest must be portable.
     for (const arg of server.args) {
+      const isAbsolute = path.posix.isAbsolute(arg) || path.win32.isAbsolute(arg);
       expect(
-        absolutePathPattern.test(arg),
+        isAbsolute,
         `arg "${arg}" looks like an absolute path — the plugin manifest must be portable`,
       ).toBe(false);
     }
