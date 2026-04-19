@@ -36,6 +36,22 @@ Source attribution lives in `proposition_sources` as a join table with `(path, c
 
 **Why this matters:** provenance as data means blast radius (what to invalidate when a file changes) is cheap. Provenance as metadata means scans.
 
+### Knowledge is append-only across corpus frames
+
+A `proposition_sources` row — `(proposition_id, file_path, content_hash)` — is a coordinate in **corpus-version space**. It says "this claim was derivable from `file_path` when the file hashed to H." The `content_hash` is not metadata; it IS the frame of reference.
+
+Staleness is frame-relative, not terminal. `isFileChanged` asks "does the stored hash match the file on disk *right now*?" — not "was this claim ever true?" When the file reverts (branch switch, `git revert`, checkout of an older tag), rows that matched the old hash become current again. No data loss, no recompile.
+
+**Why this matters:** real codebases are multi-frame. A developer on a feature branch recompiles against the new spec. Main-branch knowledge doesn't become wrong — it becomes *relative to a different frame*. Switching back makes the old frame current again. Deleting rows at emit time collapses a multi-frame store into a single-frame one and turns every branch switch into a recompile.
+
+**Consequences:**
+
+- **Emits are additive.** `memory_emit` only INSERTs. A file that used to yield P1 and now yields P2 produces *both* rows — `(P1, X, H_old)` and `(P2, X, H_new)`. Whichever `content_hash` matches the file on disk is the one currently visible. The read-time staleness join is the lens; the rows are the history.
+- **Orphan hiding is a lens, not a cleanup.** The default `valid_proposition_count == 0` filter on `memory_browse` (and the analogous filters on `memory_search`, `memory_inspect`) chooses *which frame to show*; it does not delete. Flipping branches flips what appears.
+- **Unbounded accumulation is a real but separate concern.** Over a long project with many branch switches, source rows accumulate. A future user-initiated, scope-bounded prune tool ("drop rows whose hash isn't reachable from any tracked ref"; "drop rows older than N days") can handle this — explicitly, never as a side effect of writes.
+
+This principle is what makes the bi-temporal roadmap (#54 §3 — `valid_from` / `valid_to` / `invalidated_at`) a formalization of what's already latent in the schema, rather than a new direction. Provenance-hash-as-frame is the informal version; bi-temporal columns are the explicit version.
+
 ## Emergent qualities — what the output should look like
 
 These are qualities the system should *produce* through correct usage, not enforce through mechanical rules.
@@ -164,6 +180,9 @@ Memory is knowledge derived from sources, not a history of what was discussed. C
 
 ### Not autonomous
 The store does not write itself. All writes route through the gated emit path. The workflow layer decides what to persist. An agent cannot spontaneously commit knowledge without a memory workflow traversal.
+
+### Not an emit-time garbage collector
+`memory_emit` never removes stale provenance. A proposition whose source file no longer derives it stays at its original `content_hash`, flagged stale against the current frame and hidden by the default orphan filter — but recoverable the instant the file reverts. Emit-time deletion would coerce a multi-frame store into a single-frame one and break the branch-switch reversibility that "append-only across corpus frames" depends on. Pruning — if we ever ship it — is an explicit, scope-bounded, user-initiated operation, never a side effect of a normal write.
 
 ## How this doc should be used
 
