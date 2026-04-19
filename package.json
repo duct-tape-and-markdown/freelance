@@ -78,7 +78,7 @@
     "pre-commit": "npx biome check --no-errors-on-unmatched"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.11",
+    "@biomejs/biome": "2.4.12",
     "@types/js-yaml": "^4.0.9",
     "@types/mdast": "^4.0.4",
     "@types/node": "^25.5.0",
