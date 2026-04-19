@@ -45,6 +45,17 @@ function optionalInt(args: Record<string, unknown>, key: string): number | undef
   return v;
 }
 
+function optionalBool(args: Record<string, unknown>, key: string): boolean | undefined {
+  const v = args[key];
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== "boolean") {
+    throw new TypeError(
+      `Hook arg "${key}" must be a boolean; got ${typeof v} (${JSON.stringify(v)})`,
+    );
+  }
+  return v;
+}
+
 function requireString(args: Record<string, unknown>, key: string): string {
   const v = args[key];
   if (typeof v !== "string" || v.length === 0) {
@@ -85,6 +96,7 @@ const memoryBrowse: HookFn = async (ctx) => {
       kind: optionalString(ctx.args, "kind"),
       limit: optionalInt(ctx.args, "limit"),
       offset: optionalInt(ctx.args, "offset"),
+      includeOrphans: optionalBool(ctx.args, "includeOrphans"),
     }),
   };
 };

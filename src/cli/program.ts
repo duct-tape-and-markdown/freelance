@@ -378,7 +378,11 @@ addWorkflowsOpt(
     .option("--name <pattern>", "Partial name match (case-insensitive)")
     .option("--kind <kind>", "Filter by entity kind")
     .option("--limit <n>", "Maximum results")
-    .option("--offset <n>", "Skip first N results"),
+    .option("--offset <n>", "Skip first N results")
+    .option(
+      "--include-orphans",
+      "Include entities whose valid_proposition_count is 0 (hidden by default)",
+    ),
 ).action((opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
   try {

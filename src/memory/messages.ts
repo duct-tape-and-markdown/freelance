@@ -36,7 +36,7 @@ export const compileMessages = {
         "## What you arrive with\n" +
         "Three onEnter hooks have already populated this node's context for you, so you don't burn turns on routine lookups:\n" +
         "- context.total_propositions / valid_propositions / stale_propositions / total_entities (from memory_status) — the rough size of the existing knowledge.\n" +
-        "- context.entities (from memory_browse, up to 50) — the existing entity vocabulary. Skim these names; they are what the compiling node will steer toward when it plans hubs.\n" +
+        "- context.entities (from memory_browse, up to 50) — the existing entity vocabulary. Orphan entities (valid_proposition_count: 0, every linked proposition is stale) are filtered out so the names here reflect what current sources support. Skim these names; they are what the compiling node will steer toward when it plans hubs.\n" +
         "- context.priorKnowledgeByPath (from memory_by_source) — propositions already known per file in context.filesReadPaths (each entry is { id, content } — no hashes, no timestamps; content is what you need to judge overlap). See the graph-aware reading section below.\n\n" +
         "## Warm start — if you already know which files you want to compile\n" +
         "Pass them as `initialContext.filesReadPaths` when calling freelance_start. The onEnter hooks fire AFTER initialContext is applied, so priorKnowledgeByPath is populated on your very first arrival — no wasted lap. Without initialContext, filesReadPaths starts empty and the first arrival's priorKnowledgeByPath is `{}`; hooks only re-fire on node arrival, so setting filesReadPaths via freelance_context_set does NOT re-query memory_by_source until you loop back through compiling/evaluating and land on exploring a second time.\n\n" +
@@ -129,7 +129,7 @@ export const recallMessages = {
         "## What you arrive with\n" +
         "Two onEnter hooks have already populated this node's context — you don't need to call memory_status or memory_browse manually:\n" +
         "- context.total_propositions / valid_propositions / stale_propositions / total_entities (from memory_status) — the rough size of what's known.\n" +
-        "- context.entities (from memory_browse, up to 50) — the existing entity vocabulary.\n\n" +
+        "- context.entities (from memory_browse, up to 50) — the existing entity vocabulary. Orphan entities (every linked proposition is stale) are filtered out.\n\n" +
         "## What this node does\n" +
         "Skim context.entities against the query. For the 1–5 entities most likely to carry relevant knowledge, call memory_inspect (and memory_related when you want neighbor context) to pull their full proposition lists and source files. " +
         "These targeted inspect calls are the agent's job — there's no good way to pre-fetch them automatically because we don't know which entities matter until we read context.entities.\n\n" +

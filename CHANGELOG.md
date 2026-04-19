@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`memory_browse` now hides orphan entities by default** — those whose
+  `valid_proposition_count` is 0 because every linked proposition is
+  derived from a source file that has since drifted. Without the filter
+  the vocabulary returned to the agent (and surfaced as
+  `context.entities` on `memory:compile` / `memory:recall`) leaked
+  names from superseded drafts — e.g. a rename in a spec file left the
+  old entity visible indefinitely because `emit()` is append-only per
+  source. Pass `includeOrphans: true` (MCP tool, hook arg) or
+  `--include-orphans` (CLI) to see all entities — useful for audit
+  tooling that wants to find prune candidates.
+
 ### Fixed
 
 - **Memory drift detection no longer trusts mtime.** The staleness

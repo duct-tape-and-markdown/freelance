@@ -184,6 +184,53 @@ describe("MemoryStore", () => {
       expect(page1.total).toBe(5);
       expect(page1.entities).toHaveLength(2);
     });
+
+    it("hides orphan entities (every linked proposition is stale) by default", () => {
+      writeFile(tmpDir, "active.ts", "x");
+      writeFile(tmpDir, "dropped.ts", "y");
+
+      store.emit([
+        { content: "Live fact.", entities: ["Live"], sources: ["active.ts"] },
+        { content: "Abandoned fact.", entities: ["Abandoned"], sources: ["dropped.ts"] },
+      ]);
+
+      // Drift only the file that supports the Abandoned entity. Live stays
+      // valid; Abandoned's sole proposition becomes stale, and the entity
+      // should drop out of browse.
+      writeFile(tmpDir, "dropped.ts", "z-changed");
+
+      const defaulted = store.browse();
+      expect(defaulted.total).toBe(1);
+      expect(defaulted.entities.map((e) => e.name)).toEqual(["Live"]);
+
+      const all = store.browse({ includeOrphans: true });
+      expect(all.total).toBe(2);
+      expect(all.entities.map((e) => e.name).sort()).toEqual(["Abandoned", "Live"]);
+      const abandoned = all.entities.find((e) => e.name === "Abandoned");
+      expect(abandoned?.proposition_count).toBe(1);
+      expect(abandoned?.valid_proposition_count).toBe(0);
+    });
+
+    it("pagination total matches the orphan-filtered set", () => {
+      writeFile(tmpDir, "active.ts", "x");
+      writeFile(tmpDir, "dropped.ts", "y");
+
+      for (let i = 0; i < 3; i++) {
+        store.emit([{ content: `Live ${i}.`, entities: [`Live${i}`], sources: ["active.ts"] }]);
+      }
+      for (let i = 0; i < 2; i++) {
+        store.emit([{ content: `Gone ${i}.`, entities: [`Gone${i}`], sources: ["dropped.ts"] }]);
+      }
+
+      writeFile(tmpDir, "dropped.ts", "z-changed");
+
+      const filtered = store.browse({ limit: 10 });
+      expect(filtered.total).toBe(3);
+      expect(filtered.entities).toHaveLength(3);
+
+      const unfiltered = store.browse({ limit: 10, includeOrphans: true });
+      expect(unfiltered.total).toBe(5);
+    });
   });
 
   describe("inspect", () => {
