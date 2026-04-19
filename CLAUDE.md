@@ -10,6 +10,10 @@ Graph-based workflow enforcement for AI coding agents.
 
 After a non-trivial batch of code changes (multiple files or a cohesive multi-step edit), run `/simplify` before reporting the task complete. Skip for single-line fixes, test-only tweaks, or pure config/docs edits.
 
+## Design iteration
+
+When iterating on a design (proposal, issue body, new mode/option, added column), check each addition against existing system invariants **before** drafting. If the case the addition addresses isn't expressible in the current schema or types, the addition is solving an imaginary problem — kill it at the premise, not at review. Memory invariants live in `docs/memory-intent.md` (architectural qualities + anti-patterns) and in the schemas under `src/memory/` + `src/schema/`; read both before proposing a new mode, column, or tool. Concrete example: `memory_emit` requires `sources: [min 1]` on every proposition, so there is no "non-source-aligned" proposition — a prune mode scoped to that case would be solving a case the schema makes malformed.
+
 ## Releases
 
 npm publishing is **CI-driven by GitHub Releases** (`.github/workflows/publish.yml` fires on `release: published` and runs `npm publish --provenance`). Do NOT `npm publish` from a local machine — the workflow uses an OIDC token and provenance that local publishes won't produce.
