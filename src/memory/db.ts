@@ -78,6 +78,9 @@ CREATE TABLE IF NOT EXISTS proposition_sources (
   proposition_id TEXT NOT NULL REFERENCES propositions(id) ON DELETE CASCADE,
   file_path TEXT NOT NULL,
   content_hash TEXT NOT NULL,
+  -- Retained on the table for pre-1.3.4 rows. Not written to by new emits
+  -- and not read anywhere — mtime proved unsafe as a drift signal (can be
+  -- preserved across edits by git checkout, rsync -t, touch -r, etc.).
   mtime_ms REAL,
   PRIMARY KEY (proposition_id, file_path)
 );

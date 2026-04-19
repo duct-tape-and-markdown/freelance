@@ -371,6 +371,28 @@ describe("MemoryStore", () => {
       writeFile(tmpDir, "b.ts", "b2");
       expect(store.inspect("Multi").propositions[0].valid).toBe(false);
     });
+
+    it("detects content drift even when mtime is preserved across edits", () => {
+      // Regression guard for the no-mtime-fast-path invariant; see the
+      // header comment in src/memory/staleness.ts for why mtime alone
+      // isn't a trustworthy drift signal.
+      const filePath = path.join(tmpDir, "spec.md");
+      fs.writeFileSync(filePath, "version A content");
+      const pinnedSec = 1700000000;
+      fs.utimesSync(filePath, pinnedSec, pinnedSec);
+
+      store.emit([{ content: "Claim one.", entities: ["X"], sources: ["spec.md"] }]);
+
+      expect(store.inspect("X").propositions[0].valid).toBe(true);
+
+      // Content edit, but mtime restored to the exact pre-edit value.
+      fs.writeFileSync(filePath, "version B completely different content");
+      fs.utimesSync(filePath, pinnedSec, pinnedSec);
+
+      const result = store.inspect("X");
+      expect(result.propositions[0].source_files[0].current_match).toBe(false);
+      expect(result.propositions[0].valid).toBe(false);
+    });
   });
 
   describe("cross-session knowledge", () => {
