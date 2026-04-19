@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Memory drift detection no longer trusts mtime.** The staleness
+  check used an mtime fast-path — if the file's current mtime matched
+  what was recorded at emit time, it skipped the content hash and
+  returned "not changed". But mtime is routinely preserved across real
+  edits: `git checkout`, `rsync -t`, `touch -r`, archive extraction,
+  package managers, and filesystems with coarse mtime resolution all
+  leave an edited file with its original mtime. In those cases the
+  fast-path silently marked stale content as `current_match: true`,
+  defeating the one promise the API makes to readers. Drift is now
+  detected by re-hashing content every time; the per-call cache in
+  `StalenessCache` amortizes reads across source files shared by
+  multiple propositions in one query, so the honest check is cheap in
+  practice. The `mtime_ms` column on `proposition_sources` stays in
+  the schema for existing databases but is no longer written or read.
 - **`.freelance/.gitignore` now upserts when stale.** Previously
   create-if-missing, so pre-1.3 installs carried a legacy file ignoring
   `.state/` — a path that no longer exists — while the new `memory/`

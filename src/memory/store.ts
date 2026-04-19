@@ -55,14 +55,6 @@ function hashFile(filePath: string): string | null {
   }
 }
 
-function mtimeOf(filePath: string): number | null {
-  try {
-    return fs.statSync(filePath).mtimeMs;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Hash proposition content for dedup. Normalizes superficial variance
  * that doesn't change the claim — case, whitespace runs, trailing
@@ -175,7 +167,7 @@ export class MemoryStore {
       "INSERT OR IGNORE INTO about (proposition_id, entity_id) VALUES (?, ?)",
     );
     const insertPropSource = this.db.prepare(
-      "INSERT OR IGNORE INTO proposition_sources (proposition_id, file_path, content_hash, mtime_ms) VALUES (?, ?, ?, ?)",
+      "INSERT OR IGNORE INTO proposition_sources (proposition_id, file_path, content_hash) VALUES (?, ?, ?)",
     );
 
     for (const prop of propositions) {
@@ -213,8 +205,7 @@ export class MemoryStore {
         if (hash === null) {
           throw new Error(`Cannot read source file "${sourcePath}" during emit.`);
         }
-        const mtime = mtimeOf(resolvedPath);
-        insertPropSource.run(propId, storedPath, hash, mtime);
+        insertPropSource.run(propId, storedPath, hash);
       }
 
       for (const entityName of prop.entities) {
@@ -504,21 +495,13 @@ export class MemoryStore {
 
   private enrichProposition(row: PropositionRow, cache: StalenessCache): PropositionInfo {
     const propSources = this.db
-      .prepare(
-        "SELECT file_path, content_hash, mtime_ms FROM proposition_sources WHERE proposition_id = ?",
-      )
-      .all(row.id) as Array<{ file_path: string; content_hash: string; mtime_ms: number | null }>;
+      .prepare("SELECT file_path, content_hash FROM proposition_sources WHERE proposition_id = ?")
+      .all(row.id) as Array<{ file_path: string; content_hash: string }>;
 
     const sourceFiles = propSources.map((sf) => ({
       path: sf.file_path,
       hash: sf.content_hash,
-      current_match: !isFileChanged(
-        this.sourceRoot,
-        cache,
-        sf.file_path,
-        sf.content_hash,
-        sf.mtime_ms,
-      ),
+      current_match: !isFileChanged(this.sourceRoot, cache, sf.file_path, sf.content_hash),
     }));
 
     const valid = sourceFiles.length === 0 || sourceFiles.every((sf) => sf.current_match);
