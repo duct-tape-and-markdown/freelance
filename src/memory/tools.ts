@@ -86,17 +86,23 @@ export function registerMemoryTools(
     "memory_browse",
     {
       description:
-        "Find entities by name (partial, case-insensitive), kind, or both. Returns each entity with its total proposition count and its valid (non-stale) count. Stale propositions happen when source files drift on disk — to refresh, re-run the memory:compile workflow against the changed sources. Use this for 'what entities exist matching X?'; use memory_search instead for 'what propositions mention X?'.",
+        "Find entities by name (partial, case-insensitive), kind, or both. Returns each entity with its total proposition count and its valid (non-stale) count. Orphan entities (valid_proposition_count is 0) are hidden by default — see includeOrphans. Stale propositions happen when source files drift on disk — to refresh, re-run the memory:compile workflow against the changed sources. Use this for 'what entities exist matching X?'; use memory_search instead for 'what propositions mention X?'.",
       inputSchema: {
         name: z.string().optional().describe("Partial name match (case-insensitive)"),
         kind: z.string().optional().describe("Filter by entity kind"),
         limit: z.number().int().min(1).max(200).default(50).optional(),
         offset: z.number().int().min(0).default(0).optional(),
+        includeOrphans: z
+          .boolean()
+          .optional()
+          .describe(
+            "Include entities whose valid_proposition_count is 0 (every linked proposition is stale or the entity has no propositions). Default false — orphans are hidden so the returned vocabulary reflects what the current sources support.",
+          ),
       },
     },
-    ({ name, kind, limit, offset }) => {
+    ({ name, kind, limit, offset, includeOrphans }) => {
       try {
-        return jsonResponse(store.browse({ name, kind, limit, offset }));
+        return jsonResponse(store.browse({ name, kind, limit, offset, includeOrphans }));
       } catch (e) {
         return handleError(e);
       }

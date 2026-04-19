@@ -35,7 +35,13 @@ import { applyContextUpdates, enforceStrictContext } from "./context.js";
  */
 export interface HookMemoryAccess {
   status(): StatusResult;
-  browse(options?: { name?: string; kind?: string; limit?: number; offset?: number }): BrowseResult;
+  browse(options?: {
+    name?: string;
+    kind?: string;
+    limit?: number;
+    offset?: number;
+    includeOrphans?: boolean;
+  }): BrowseResult;
   search(query: string, options?: { limit?: number }): SearchResult;
   related(entityIdOrName: string): RelatedResult;
   bySource(filePath: string): BySourceResult;

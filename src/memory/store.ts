@@ -317,53 +317,62 @@ export class MemoryStore {
     kind?: string;
     limit?: number;
     offset?: number;
+    includeOrphans?: boolean;
   }): BrowseResult {
     const cache = createStalenessCache();
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
+    const includeOrphans = options?.includeOrphans ?? false;
 
     let where = "1=1";
-    const params: unknown[] = [];
+    const whereParams: unknown[] = [];
 
     if (options?.name) {
       where += " AND LOWER(e.name) LIKE ?";
-      params.push(`%${options.name.toLowerCase()}%`);
+      whereParams.push(`%${options.name.toLowerCase()}%`);
     }
     if (options?.kind) {
       where += " AND e.kind = ?";
-      params.push(options.kind);
+      whereParams.push(options.kind);
     }
 
+    const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
+    const staleParams = [...stalePropIds];
+    const notStale =
+      staleParams.length > 0
+        ? `a.proposition_id NOT IN (${staleParams.map(() => "?").join(",")})`
+        : "1";
+    const having = includeOrphans ? "" : "HAVING valid_count > 0";
+
+    const selectExpr = `
+      SELECT e.*,
+        COUNT(a.proposition_id) as proposition_count,
+        COUNT(CASE WHEN a.proposition_id IS NOT NULL AND ${notStale} THEN 1 END) as valid_count
+      FROM entities e
+      LEFT JOIN about a ON e.id = a.entity_id
+      WHERE ${where}
+      GROUP BY e.id
+      ${having}`;
+
     const total = (
-      this.db.prepare(`SELECT COUNT(*) as total FROM entities e WHERE ${where}`).get(...params) as {
-        total: number;
-      }
+      this.db
+        .prepare(`SELECT COUNT(*) as total FROM (${selectExpr})`)
+        .get(...staleParams, ...whereParams) as { total: number }
     ).total;
 
     const rows = this.db
-      .prepare(
-        `SELECT e.*, COUNT(a.proposition_id) as proposition_count
-       FROM entities e
-       LEFT JOIN about a ON e.id = a.entity_id
-       WHERE ${where}
-       GROUP BY e.id
-       ORDER BY e.created_at DESC
-       LIMIT ? OFFSET ?`,
-      )
-      .all(...params, limit, offset) as Array<EntityRow & { proposition_count: number }>;
+      .prepare(`${selectExpr} ORDER BY e.created_at DESC LIMIT ? OFFSET ?`)
+      .all(...staleParams, ...whereParams, limit, offset) as Array<
+      EntityRow & { proposition_count: number; valid_count: number }
+    >;
 
-    const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
-
-    const entities: EntityInfo[] = rows.map((row) => {
-      const validCount = countValidForEntity(this.db, row.id, stalePropIds);
-      return {
-        id: row.id,
-        name: row.name,
-        kind: row.kind,
-        proposition_count: row.proposition_count,
-        valid_proposition_count: validCount,
-      };
-    });
+    const entities: EntityInfo[] = rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      kind: row.kind,
+      proposition_count: row.proposition_count,
+      valid_proposition_count: row.valid_count,
+    }));
 
     return { entities, total };
   }

@@ -33,7 +33,13 @@ export function memoryStatus(store: MemoryStore): void {
 
 export function memoryBrowse(
   store: MemoryStore,
-  opts?: { name?: string; kind?: string; limit?: string; offset?: string },
+  opts?: {
+    name?: string;
+    kind?: string;
+    limit?: string;
+    offset?: string;
+    includeOrphans?: boolean;
+  },
 ): void {
   try {
     const result = store.browse({
@@ -41,6 +47,7 @@ export function memoryBrowse(
       kind: opts?.kind,
       limit: opts?.limit ? parseInt(opts.limit, 10) : undefined,
       offset: opts?.offset ? parseInt(opts.offset, 10) : undefined,
+      includeOrphans: opts?.includeOrphans,
     });
     if (cli.json) {
       outputJson(result);
