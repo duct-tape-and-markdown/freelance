@@ -10,19 +10,24 @@ export function registerInspectTool(server: McpServer, deps: FreelanceToolDeps):
     "freelance_inspect",
     {
       description:
-        "Read-only view of traversal state. Primary recovery tool after context compaction. Detail: 'position' (default: current node + validTransitions + context) or 'history' (+ stack and transitions taken). Optional `fields` adds graph-structure projections: 'currentNode' (full NodeDefinition), 'neighbors' (one-edge-away NodeDefinitions), 'contextSchema' (declared schema), 'definition' (entire graph — escape hatch). Meta tags always included.",
+        "Read-only view of traversal state. Primary recovery tool after context compaction. Detail: 'position' (default: current node + validTransitions + context) or 'history' (+ paginated transitions and context writes; totalSteps/totalContextWrites report the pre-pagination size). Optional `fields` adds graph-structure projections: 'currentNode' (full NodeDefinition), 'neighbors' (one-edge-away NodeDefinitions), 'contextSchema' (declared schema), 'definition' (entire graph — escape hatch). For history: `limit`/`offset` paginate (default 50, max 200), and per-step contextSnapshots are stripped unless `includeSnapshots: true`. Meta tags always included.",
       inputSchema: {
         traversalId: z.string().optional(),
         detail: z.enum(["position", "history"]).default("position"),
         fields: z
           .array(z.enum(["currentNode", "neighbors", "contextSchema", "definition"]))
           .optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+        offset: z.number().int().min(0).optional(),
+        includeSnapshots: z.boolean().optional(),
       },
     },
-    ({ traversalId, detail, fields }) => {
+    ({ traversalId, detail, fields, limit, offset, includeSnapshots }) => {
       try {
         const id = manager.resolveTraversalId(traversalId);
-        return jsonResponse(manager.inspect(id, detail, fields));
+        return jsonResponse(
+          manager.inspect(id, detail, fields, { limit, offset, includeSnapshots }),
+        );
       } catch (e) {
         return handleError(e);
       }

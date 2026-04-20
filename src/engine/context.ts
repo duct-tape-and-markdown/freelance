@@ -2,6 +2,7 @@ import { EngineError } from "../errors.js";
 import type {
   ContextSetResult,
   GraphDefinition,
+  HistoryEntryProjection,
   InspectField,
   InspectFieldProjections,
   InspectHistoryResult,
@@ -178,26 +179,72 @@ function buildFieldProjections(
   return out as InspectFieldProjections;
 }
 
+/**
+ * Options for `detail: "history"` responses. `limit`/`offset` slice both
+ * `traversalHistory` and `contextHistory`; `includeSnapshots` toggles
+ * inclusion of the per-step `contextSnapshot` blob (which otherwise
+ * grows the response quadratically on long traversals).
+ */
+export interface InspectHistoryOptions {
+  readonly limit?: number;
+  readonly offset?: number;
+  readonly includeSnapshots?: boolean;
+}
+
+/** Default page size for history arrays. Matches `memory_browse`'s default. */
+export const DEFAULT_HISTORY_LIMIT = 50;
+/** Hard upper bound on `limit`. Pairs with Zod `.max(200)` at the MCP boundary. */
+export const MAX_HISTORY_LIMIT = 200;
+
+function resolveHistoryPagination(opts: InspectHistoryOptions): { limit: number; offset: number } {
+  const limit = Math.min(Math.max(1, opts.limit ?? DEFAULT_HISTORY_LIMIT), MAX_HISTORY_LIMIT);
+  const offset = Math.max(0, opts.offset ?? 0);
+  return { limit, offset };
+}
+
+function projectHistoryEntries(
+  entries: SessionState["history"],
+  offset: number,
+  limit: number,
+  includeSnapshots: boolean,
+): HistoryEntryProjection[] {
+  const slice = entries.slice(offset, offset + limit);
+  if (includeSnapshots) return slice.map((e) => ({ ...e }));
+  return slice.map(({ contextSnapshot: _drop, ...rest }) => rest);
+}
+
 export function buildInspectResult(
   detail: "position" | "history",
   session: SessionState,
   def: GraphDefinition,
   stack: SessionState[],
   fields: readonly InspectField[] = [],
+  historyOpts: InspectHistoryOptions = {},
 ): InspectResult {
   const projections = buildFieldProjections(fields, def, session.currentNode);
 
   switch (detail) {
-    case "history":
+    case "history": {
+      const { limit, offset } = resolveHistoryPagination(historyOpts);
       return {
         graphId: session.graphId,
         currentNode: session.currentNode,
-        traversalHistory: session.history,
-        contextHistory: session.contextHistory,
+        traversalHistory: projectHistoryEntries(
+          session.history,
+          offset,
+          limit,
+          historyOpts.includeSnapshots === true,
+        ),
+        contextHistory: session.contextHistory.slice(offset, offset + limit),
+        totalSteps: session.history.length,
+        totalContextWrites: session.contextHistory.length,
         ...projections,
       } satisfies InspectHistoryResult;
+    }
 
     case "position": {
+      // historyOpts are intentionally ignored for non-history detail —
+      // pagination and snapshot toggles have no meaning here.
       const currentNodeDef = def.nodes[session.currentNode];
       const waitInfo = computeWaitInfo(session, currentNodeDef);
 

@@ -178,6 +178,19 @@ export interface HistoryEntry {
   readonly contextSnapshot: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * History entry as it appears in a `detail: "history"` response.
+ * `contextSnapshot` is populated only when the caller opts in via
+ * `includeSnapshots: true` — by default it's stripped so responses
+ * don't grow quadratically on long traversals.
+ */
+export interface HistoryEntryProjection {
+  readonly node: string;
+  readonly edge: string;
+  readonly timestamp: string;
+  readonly contextSnapshot?: Readonly<Record<string, unknown>>;
+}
+
 export interface ContextHistoryEntry {
   readonly key: string;
   readonly value: unknown;
@@ -188,8 +201,14 @@ export interface ContextHistoryEntry {
 export interface InspectHistoryResult extends InspectFieldProjections {
   readonly graphId: string;
   readonly currentNode: string;
-  readonly traversalHistory: readonly HistoryEntry[];
+  /** Paginated entries — starts at `offset`, capped at `limit`. `contextSnapshot` present only when `includeSnapshots: true`. */
+  readonly traversalHistory: readonly HistoryEntryProjection[];
+  /** Paginated entries — starts at `offset`, capped at `limit`. */
   readonly contextHistory: readonly ContextHistoryEntry[];
+  /** Total edges taken across the whole traversal (before pagination). */
+  readonly totalSteps: number;
+  /** Total context writes across the whole traversal (before pagination). */
+  readonly totalContextWrites: number;
 }
 
 export type InspectResult = InspectPositionResult | InspectHistoryResult;

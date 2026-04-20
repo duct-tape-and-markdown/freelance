@@ -5,7 +5,7 @@
  */
 
 import crypto from "node:crypto";
-import type { ContextCaps } from "../engine/context.js";
+import type { ContextCaps, InspectHistoryOptions } from "../engine/context.js";
 import type { HookRunner } from "../engine/hooks.js";
 import { GraphEngine } from "../engine/index.js";
 import { EngineError } from "../errors.js";
@@ -218,9 +218,10 @@ export class TraversalStore {
     traversalId: string,
     detail?: "position" | "history",
     fields?: readonly InspectField[],
+    historyOpts?: InspectHistoryOptions,
   ): { traversalId: string; meta: Record<string, string> } & InspectResult {
     const { engine, record } = this.loadEngine(traversalId);
-    const result = engine.inspect(detail, fields);
+    const result = engine.inspect(detail, fields, historyOpts);
     return { traversalId, meta: record.meta ?? EMPTY_META, ...result };
   }
 
