@@ -80,6 +80,7 @@ function hashPropContent(content: string): string {
 export class MemoryStore {
   private db: Db;
   private sourceRoot: string;
+  private closed = false;
 
   // Takes an already-opened Db handle. Opening the database (PRAGMA +
   // DDL + schema check) is a composition-root concern and lives in
@@ -90,7 +91,24 @@ export class MemoryStore {
     this.sourceRoot = sourceRoot;
   }
 
+  // `prune` lives outside this class (content-reachability needs git
+  // subprocesses; MemoryStore stays SQLite-only). The getters below
+  // are a deliberate narrow window for that caller — not a general
+  // "expose internals" pattern.
+  getDb(): Db {
+    return this.db;
+  }
+  getSourceRoot(): string {
+    return this.sourceRoot;
+  }
+
+  // Idempotent — CLI paths that `process.exit` mid-command want to
+  // close before exit, and the caller's `finally` also closes. Without
+  // this guard, the second close hits an already-closed node:sqlite
+  // handle and throws.
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
     this.db.close();
   }
 

@@ -7,6 +7,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { errorResponse, jsonResponse } from "../mcp-helpers.js";
+import { prune } from "./prune.js";
 import type { MemoryStore } from "./store.js";
 
 function handleError(e: unknown) {
@@ -195,6 +196,35 @@ export function registerMemoryTools(
     () => {
       try {
         return jsonResponse(store.status());
+      } catch (e) {
+        return handleError(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "memory_prune",
+    {
+      description:
+        "Scope-bounded delete of proposition_sources rows whose content_hash doesn't match the file at any --keep ref tip (or current disk). Uses git cat-file to read ref blobs without touching the working tree; no branch switching. Rebase/squash/amend robust because it checks tree content, not commit reachability. Unresolvable --keep refs hard-error before touching the db. Intended for manual, user-initiated cleanup — not wired into memory:compile or memory:recall. Gated: requires an active workflow traversal.",
+      inputSchema: {
+        keep: z
+          .array(z.string().min(1))
+          .min(1)
+          .describe(
+            "Preserve refs — anything git rev-parse accepts (branches, tags, remote refs, raw SHAs). A row is preserved when its content_hash matches the file at the tip of any of these refs or the current working tree.",
+          ),
+        dryRun: z
+          .boolean()
+          .optional()
+          .describe("If true, return the plan without deleting anything."),
+      },
+    },
+    ({ keep, dryRun }) => {
+      try {
+        const blocked = requireMemoryTraversal();
+        if (blocked) return errorResponse(blocked);
+        return jsonResponse(prune(store, { keep, dryRun }));
       } catch (e) {
         return handleError(e);
       }

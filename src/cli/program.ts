@@ -19,6 +19,7 @@ import {
   memoryBySource,
   memoryEmit,
   memoryInspect,
+  memoryPrune,
   memoryRelated,
   memoryReset,
   memorySearch,
@@ -451,6 +452,30 @@ addWorkflowsOpt(
   const { store } = createMemoryStore({ workflows: opts.workflows });
   try {
     memoryEmit(store, file);
+  } finally {
+    store.close();
+  }
+});
+
+addWorkflowsOpt(
+  memoryCmd
+    .command("prune")
+    .description("Delete source rows whose content isn't live at any --keep ref or disk")
+    .option(
+      "--keep <ref>",
+      "Preserve ref (repeatable; required). Concatenates with memory.prune.keep in config.",
+      (value: string, previous?: string[]) => (previous ? [...previous, value] : [value]),
+    )
+    .option("--dry-run", "Show what would be pruned without deleting")
+    .option("--yes", "Execute the prune (required unless --dry-run)"),
+).action((opts) => {
+  const dirs = resolveGraphsDirs(opts.workflows);
+  const fileConfig = loadConfigFromDirs(dirs);
+  // CLI --keep concatenates on top of memory.prune.keep in config.
+  const mergedKeep = [...(fileConfig.memory.prune?.keep ?? []), ...(opts.keep ?? [])];
+  const { store } = createMemoryStore({ workflows: opts.workflows });
+  try {
+    memoryPrune(store, { keep: mergedKeep, dryRun: opts.dryRun, yes: opts.yes });
   } finally {
     store.close();
   }

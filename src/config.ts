@@ -30,10 +30,22 @@ import { z } from "zod";
 
 // --- Schema ---
 
+const pruneSchema = z
+  .object({
+    /**
+     * Default preserve set for `memory prune --keep`. CLI `--keep`
+     * flags concatenate on top of this list. No hardcoded `main` —
+     * users opt in to a preserve set explicitly.
+     */
+    keep: z.array(z.string()).optional(),
+  })
+  .optional();
+
 const memorySchema = z
   .object({
     enabled: z.boolean().optional(),
     dir: z.string().optional(),
+    prune: pruneSchema,
   })
   .optional();
 
@@ -58,6 +70,9 @@ export interface FreelanceConfig {
   memory: {
     enabled?: boolean;
     dir?: string;
+    prune?: {
+      keep?: string[];
+    };
   };
   hooks: {
     timeoutMs?: number;
@@ -114,10 +129,17 @@ function mergeConfigs(
 
   if (overlay.memory) {
     const baseMem = base.memory ?? {};
+    // `keep` concatenates like top-level `workflows` so plugin/local
+    // config can extend the preserve set without clobbering project
+    // defaults.
+    const mergedPrune = overlay.memory.prune?.keep?.length
+      ? { keep: [...(baseMem.prune?.keep ?? []), ...overlay.memory.prune.keep] }
+      : baseMem.prune;
     merged.memory = {
       ...baseMem,
       ...(overlay.memory.enabled !== undefined ? { enabled: overlay.memory.enabled } : {}),
       ...(overlay.memory.dir !== undefined ? { dir: overlay.memory.dir } : {}),
+      ...(mergedPrune ? { prune: mergedPrune } : {}),
     };
   }
 
@@ -134,11 +156,13 @@ function mergeConfigs(
 
 /** Normalize a raw config file into the resolved FreelanceConfig shape. */
 function toFreelanceConfig(merged: FreelanceConfigFile, sources: string[]): FreelanceConfig {
+  const keep = merged.memory?.prune?.keep;
   return {
     workflows: merged.workflows ?? [],
     memory: {
       enabled: merged.memory?.enabled,
       dir: merged.memory?.dir,
+      ...(keep?.length ? { prune: { keep } } : {}),
     },
     hooks: {
       timeoutMs: merged.hooks?.timeoutMs,
