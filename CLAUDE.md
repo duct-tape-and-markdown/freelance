@@ -14,6 +14,16 @@ After a non-trivial batch of code changes (multiple files or a cohesive multi-st
 
 When iterating on a design (proposal, issue body, new mode/option, added column), check each addition against existing system invariants **before** drafting. If the case the addition addresses isn't expressible in the current schema or types, the addition is solving an imaginary problem — kill it at the premise, not at review. Memory invariants live in `docs/memory-intent.md` (architectural qualities + anti-patterns) and in the schemas under `src/memory/` + `src/schema/`; read both before proposing a new mode, column, or tool. Concrete example: `memory_emit` requires `sources: [min 1]` on every proposition, so there is no "non-source-aligned" proposition — a prune mode scoped to that case would be solving a case the schema makes malformed.
 
+## WHY-comments vs decisions log
+
+Inline WHY comments are fine when a reader scanning *this file* needs the context at the point of reading: a local invariant, a subtle workaround, a non-obvious choice the code itself can't express. When the WHY has cross-file implications — names an invariant other modules rely on, documents a tradeoff a future change elsewhere would break, or captures a decision deliberated in an issue thread — elevate to `docs/decisions.md` and optionally cross-link from the inline comment.
+
+The test: could a contributor refactoring a sibling file violate the invariant without reading this comment? If yes, it belongs in the decisions log, not buried as a comment in one file. Narrating what the code does, referencing the current task/PR, or summarizing obvious flow is never a valid comment — delete on sight.
+
+## Refactor backlog
+
+`/simplify` surfaces findings that aren't always in-scope to fix on the current PR. Anything you decide NOT to fix — out-of-scope, pre-existing, low impact on this path — append as a one-line entry to `docs/debt.md`: `<file>:<line> — <finding> — <rationale for skipping>`. Flat list, no categories, no status column; keep append cheap. Mark entries done by deleting them. Before opening a refactor PR, scan the file for candidates.
+
 ## Releases
 
 npm publishing is **CI-driven by GitHub Releases** (`.github/workflows/publish.yml` fires on `release: published` and runs `npm publish --provenance`). Do NOT `npm publish` from a local machine — the workflow uses an OIDC token and provenance that local publishes won't produce.
