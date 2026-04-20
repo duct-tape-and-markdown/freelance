@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Runtime CLI verbs are JSON-only (BREAKING).** `freelance status`,
+  `start`, `advance`, `context set`, `meta set`, `inspect`, `reset`,
+  and `memory *` always emit structured JSON to stdout with semantic
+  exit codes (0 success, 1 internal, 2 blocked, 3 validation, 4 not
+  found, 5 invalid input). The human-readable output mode is removed
+  from these commands — they are the primary execution surface for
+  the Claude Agent Skill, which has no human audience. Authoring
+  verbs (`init`, `validate`, `visualize`, `config`, `sources *`)
+  retain their human-first rendering. Error responses match the MCP
+  shape: `{ isError: true, error: { code, message } }`. See issue
+  #99 Phase 1.
 - **`freelance_inspect --detail=history` paginates `traversalHistory`
   and strips snapshots by default.** `traversalHistory` is sliced by
   `limit` (default 50, max 200) and `offset`. Per-entry

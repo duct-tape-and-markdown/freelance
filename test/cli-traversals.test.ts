@@ -15,7 +15,7 @@ import { loadSingleGraph } from "../src/loader.js";
 import { openStateStore, TraversalStore } from "../src/state/index.js";
 import type { ValidatedGraph } from "../src/types.js";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: vitest spy types
 let exitSpy: any;
 let stderrSpy: any;
 let stdoutSpy: any;
@@ -33,10 +33,9 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-// --- Direct store-based CLI tests ---
+// --- Helpers ---
 
 function createTestStore(): TraversalStore {
-  // Load a single valid graph to avoid circular subgraph errors
   const fixture = path.resolve("test/fixtures/valid-branching.workflow.yaml");
   const loaded = loadSingleGraph(fixture);
   const graphs = new Map<string, ValidatedGraph>([[loaded.id, loaded]]);
@@ -44,25 +43,24 @@ function createTestStore(): TraversalStore {
   return new TraversalStore(db, graphs, { maxDepth: 5, hookRunner: new HookRunner() });
 }
 
-describe("traversalStatus", () => {
-  it("shows graphs and no traversals (text mode)", async () => {
-    const store = createTestStore();
-    try {
-      traversalStatus(store);
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Graphs:"));
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("No active traversals"));
-    } finally {
-      store.close();
-    }
-  });
+function stdoutJson(): unknown {
+  const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
+  return JSON.parse(output);
+}
 
-  it("outputs JSON", async () => {
-    setCli({ json: true });
+// Runtime CLI handlers are JSON-only per docs/decisions.md § CLI-primary.
+// All assertions go against stdout (parsed JSON) — stderr is for
+// breadcrumbs and does not carry any response data.
+
+describe("traversalStatus", () => {
+  it("outputs JSON with graphs and activeTraversals", () => {
     const store = createTestStore();
     try {
       traversalStatus(store);
-      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
-      const parsed = JSON.parse(output);
+      const parsed = stdoutJson() as {
+        graphs: unknown[];
+        activeTraversals: unknown[];
+      };
       expect(parsed).toHaveProperty("graphs");
       expect(parsed).toHaveProperty("activeTraversals");
     } finally {
@@ -72,29 +70,13 @@ describe("traversalStatus", () => {
 });
 
 describe("traversalStart", () => {
-  it("starts a traversal and prints node info", async () => {
-    const store = createTestStore();
-    try {
-      // Use a graph from fixtures — "linear" is a simple one
-      const graphId = store.listGraphs().graphs[0]?.id;
-      if (!graphId) return; // skip if no fixtures
-      await traversalStart(store, graphId);
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Started traversal"));
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Node:"));
-    } finally {
-      store.close();
-    }
-  });
-
-  it("outputs JSON on start", async () => {
-    setCli({ json: true });
+  it("starts a traversal and outputs JSON with traversalId + currentNode", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await traversalStart(store, graphId);
-      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
-      const parsed = JSON.parse(output);
+      const parsed = stdoutJson() as { traversalId: string; currentNode: string };
       expect(parsed).toHaveProperty("traversalId");
       expect(parsed).toHaveProperty("currentNode");
     } finally {
@@ -102,10 +84,14 @@ describe("traversalStart", () => {
     }
   });
 
-  it("errors on unknown graph", async () => {
+  it("errors on unknown graph with GRAPH_NOT_FOUND code", async () => {
     const store = createTestStore();
     try {
       await expect(traversalStart(store, "nonexistent-graph")).rejects.toThrow("process.exit");
+      const parsed = stdoutJson() as { isError: true; error: { code: string } };
+      expect(parsed.isError).toBe(true);
+      expect(parsed.error.code).toBe("GRAPH_NOT_FOUND");
+      expect(exitSpy).toHaveBeenCalledWith(4); // EXIT.NOT_FOUND
     } finally {
       store.close();
     }
@@ -113,16 +99,17 @@ describe("traversalStart", () => {
 });
 
 describe("traversalInspect", () => {
-  it("shows current position", async () => {
+  it("outputs JSON with currentNode and node info", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       const { traversalId } = await store.createTraversal(graphId);
       traversalInspect(store, traversalId, "position");
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Traversal:"));
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Graph:"));
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Node:"));
+      const parsed = stdoutJson() as { traversalId: string; currentNode: string; node: unknown };
+      expect(parsed.traversalId).toBe(traversalId);
+      expect(parsed.currentNode).toBeDefined();
+      expect(parsed.node).toBeDefined();
     } finally {
       store.close();
     }
@@ -130,28 +117,33 @@ describe("traversalInspect", () => {
 });
 
 describe("traversalContextSet", () => {
-  it("sets key=value pairs", async () => {
+  it("sets key=value pairs and outputs updated context", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await store.createTraversal(graphId);
-      traversalContextSet(store, ["foo=42", "bar=true"]);
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Updated context"));
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("foo = 42"));
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("bar = true"));
+      traversalContextSet(store, ["qualityPassed=true", 'path="left"']);
+      const parsed = stdoutJson() as { status: string; context: Record<string, unknown> };
+      expect(parsed.status).toBe("updated");
+      expect(parsed.context.qualityPassed).toBe(true);
+      expect(parsed.context.path).toBe("left");
     } finally {
       store.close();
     }
   });
 
-  it("errors on invalid pair", async () => {
+  it("errors on invalid pair with INTERNAL exit code (thrown Error)", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await store.createTraversal(graphId);
       expect(() => traversalContextSet(store, ["noequalssign"])).toThrow("process.exit");
+      const parsed = stdoutJson() as { isError: true; error: { code: string } };
+      expect(parsed.isError).toBe(true);
+      expect(parsed.error.code).toBe("INTERNAL");
+      expect(exitSpy).toHaveBeenCalledWith(1);
     } finally {
       store.close();
     }
@@ -167,26 +159,27 @@ describe("traversalInspectActive", () => {
     return new TraversalStore(db, graphs, { maxDepth: 5, hookRunner: new HookRunner() });
   }
 
-  it("reports an empty list when nothing is active (text)", () => {
+  it("outputs an empty traversals array when nothing is active", () => {
     const store = createTestStore();
     try {
       traversalInspectActive(store);
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("No active traversals"));
+      const parsed = stdoutJson() as { traversals: unknown[] };
+      expect(parsed.traversals).toEqual([]);
     } finally {
       store.close();
     }
   });
 
   it("lists active traversals including non-wait nodes", async () => {
-    setCli({ json: true });
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await store.createTraversal(graphId);
       traversalInspectActive(store);
-      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
-      const parsed = JSON.parse(output);
+      const parsed = stdoutJson() as {
+        traversals: Array<{ traversalId: string; nodeType: string }>;
+      };
       expect(parsed.traversals).toHaveLength(1);
       expect(parsed.traversals[0]).toHaveProperty("traversalId");
       expect(parsed.traversals[0]).toHaveProperty("nodeType");
@@ -196,17 +189,16 @@ describe("traversalInspectActive", () => {
   });
 
   it("filters to wait nodes when waitsOnly is set", async () => {
-    setCli({ json: true });
     const store = createWaitStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       const { traversalId } = await store.createTraversal(graphId);
-      // Advance off the action node into the wait node.
       await store.advance(traversalId, "done");
       traversalInspectActive(store, { waitsOnly: true });
-      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
-      const parsed = JSON.parse(output);
+      const parsed = stdoutJson() as {
+        traversals: Array<{ nodeType: string; waitStatus?: string; waitingOn?: unknown }>;
+      };
       expect(parsed.traversals).toHaveLength(1);
       expect(parsed.traversals[0].nodeType).toBe("wait");
       expect(parsed.traversals[0].waitStatus).toBe("waiting");
@@ -217,15 +209,13 @@ describe("traversalInspectActive", () => {
   });
 
   it("excludes non-wait traversals when waitsOnly is set", async () => {
-    setCli({ json: true });
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await store.createTraversal(graphId);
       traversalInspectActive(store, { waitsOnly: true });
-      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
-      const parsed = JSON.parse(output);
+      const parsed = stdoutJson() as { traversals: unknown[] };
       expect(parsed.traversals).toHaveLength(0);
     } finally {
       store.close();
@@ -234,7 +224,7 @@ describe("traversalInspectActive", () => {
 });
 
 describe("traversalStart --meta", () => {
-  it("persists meta key=value pairs and prints them", async () => {
+  it("persists meta tags and includes them in the JSON response", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
@@ -242,8 +232,8 @@ describe("traversalStart --meta", () => {
       await traversalStart(store, graphId, undefined, {
         meta: ["externalKey=DEV-1234", "branch=feature/x"],
       });
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Meta:"));
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("DEV-1234"));
+      const parsed = stdoutJson() as { meta: Record<string, string> };
+      expect(parsed.meta).toEqual({ externalKey: "DEV-1234", branch: "feature/x" });
       const list = store.listTraversals();
       expect(list[0].meta).toEqual({ externalKey: "DEV-1234", branch: "feature/x" });
     } finally {
@@ -266,40 +256,7 @@ describe("traversalStart --meta", () => {
 });
 
 describe("traversalStatus --filter (operator-side)", () => {
-  it("narrows the listing to traversals matching every key=value pair", async () => {
-    const store = createTestStore();
-    try {
-      const graphId = store.listGraphs().graphs[0]?.id;
-      if (!graphId) return;
-      const a = await store.createTraversal(graphId, undefined, { externalKey: "DEV-1" });
-      await store.createTraversal(graphId, undefined, { externalKey: "DEV-2" });
-
-      traversalStatus(store, { filter: ["externalKey=DEV-1"] });
-      const printed = stderrSpy.mock.calls.map((c: [string]) => c[0] as string).join("");
-      expect(printed).toContain("matching");
-      expect(printed).toContain(a.traversalId);
-      expect(printed).toContain("DEV-1");
-      expect(printed).not.toContain("DEV-2");
-    } finally {
-      store.close();
-    }
-  });
-
-  it("reports no matches when filter excludes everything", async () => {
-    const store = createTestStore();
-    try {
-      const graphId = store.listGraphs().graphs[0]?.id;
-      if (!graphId) return;
-      await store.createTraversal(graphId, undefined, { externalKey: "DEV-1" });
-      traversalStatus(store, { filter: ["externalKey=DEV-NONE"] });
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("No active traversals match"));
-    } finally {
-      store.close();
-    }
-  });
-
-  it("--json output reflects the filtered set", async () => {
-    setCli({ json: true });
+  it("JSON output reflects the filtered set", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
@@ -307,8 +264,7 @@ describe("traversalStatus --filter (operator-side)", () => {
       await store.createTraversal(graphId, undefined, { externalKey: "DEV-1" });
       await store.createTraversal(graphId, undefined, { externalKey: "DEV-2" });
       traversalStatus(store, { filter: ["externalKey=DEV-1"] });
-      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
-      const parsed = JSON.parse(output) as {
+      const parsed = stdoutJson() as {
         activeTraversals: Array<{ meta?: Record<string, string> }>;
       };
       expect(parsed.activeTraversals).toHaveLength(1);
@@ -317,18 +273,34 @@ describe("traversalStatus --filter (operator-side)", () => {
       store.close();
     }
   });
+
+  it("returns an empty activeTraversals when filter matches nothing", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      await store.createTraversal(graphId, undefined, { externalKey: "DEV-1" });
+      traversalStatus(store, { filter: ["externalKey=DEV-NONE"] });
+      const parsed = stdoutJson() as { activeTraversals: unknown[] };
+      expect(parsed.activeTraversals).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
 });
 
 describe("traversalStatus shows meta on active traversals", () => {
-  it("prints meta tags so callers can pick a traversal by tag", async () => {
+  it("JSON response surfaces meta tags", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await store.createTraversal(graphId, undefined, { externalKey: "DEV-1234" });
       traversalStatus(store);
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Active traversals"));
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("DEV-1234"));
+      const parsed = stdoutJson() as {
+        activeTraversals: Array<{ meta?: Record<string, string> }>;
+      };
+      expect(parsed.activeTraversals[0].meta).toEqual({ externalKey: "DEV-1234" });
     } finally {
       store.close();
     }
@@ -336,7 +308,7 @@ describe("traversalStatus shows meta on active traversals", () => {
 });
 
 describe("traversalInspect shows meta", () => {
-  it("prints meta tags when present on the traversal", async () => {
+  it("includes meta at the top level of the response", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
@@ -345,8 +317,8 @@ describe("traversalInspect shows meta", () => {
         externalKey: "DEV-9",
       });
       traversalInspect(store, traversalId, "position");
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Meta:"));
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("DEV-9"));
+      const parsed = stdoutJson() as { meta?: Record<string, string> };
+      expect(parsed.meta).toEqual({ externalKey: "DEV-9" });
     } finally {
       store.close();
     }
@@ -354,7 +326,7 @@ describe("traversalInspect shows meta", () => {
 });
 
 describe("traversalMetaSet", () => {
-  it("merges key=value pairs and prints the updated meta", async () => {
+  it("merges key=value pairs and outputs the updated meta", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
@@ -363,9 +335,11 @@ describe("traversalMetaSet", () => {
         externalKey: "DEV-1",
       });
       traversalMetaSet(store, ["prUrl=https://example/pr/7"], { traversal: traversalId });
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Updated meta"));
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("prUrl"));
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("DEV-1"));
+      const parsed = stdoutJson() as { meta: Record<string, string> };
+      expect(parsed.meta).toEqual({
+        externalKey: "DEV-1",
+        prUrl: "https://example/pr/7",
+      });
     } finally {
       store.close();
     }
@@ -397,40 +371,28 @@ describe("traversalMetaSet", () => {
 });
 
 describe("traversalReset", () => {
-  it("errors without --confirm", async () => {
+  it("errors without --confirm (CONFIRM_REQUIRED / EXIT 5)", () => {
     const store = createTestStore();
     try {
       expect(() => traversalReset(store, undefined, {})).toThrow("process.exit");
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("--confirm"));
+      const parsed = stdoutJson() as { isError: true; error: { code: string } };
+      expect(parsed.isError).toBe(true);
+      expect(parsed.error.code).toBe("CONFIRM_REQUIRED");
+      expect(exitSpy).toHaveBeenCalledWith(5); // EXIT.INVALID_INPUT
     } finally {
       store.close();
     }
   });
 
-  it("resets with --confirm", async () => {
+  it("resets with --confirm and outputs JSON", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       const { traversalId } = await store.createTraversal(graphId);
       traversalReset(store, traversalId, { confirm: true });
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Reset traversal"));
-    } finally {
-      store.close();
-    }
-  });
-
-  it("outputs JSON on reset", async () => {
-    setCli({ json: true });
-    const store = createTestStore();
-    try {
-      const graphId = store.listGraphs().graphs[0]?.id;
-      if (!graphId) return;
-      const { traversalId } = await store.createTraversal(graphId);
-      traversalReset(store, traversalId, { confirm: true });
-      const output = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
-      const parsed = JSON.parse(output);
-      expect(parsed).toHaveProperty("status", "reset");
+      const parsed = stdoutJson() as { status: string };
+      expect(parsed.status).toBe("reset");
     } finally {
       store.close();
     }
