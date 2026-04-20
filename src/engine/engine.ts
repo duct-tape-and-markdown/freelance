@@ -20,6 +20,7 @@ import {
   DEFAULT_CONTEXT_CAPS,
   enforceContextCaps,
   enforceStrictContext,
+  type InspectHistoryOptions,
 } from "./context.js";
 import {
   checkEdgeCondition,
@@ -291,10 +292,11 @@ export class GraphEngine {
   inspect(
     detail: "position" | "history" = "position",
     fields: readonly InspectField[] = [],
+    historyOpts: InspectHistoryOptions = {},
   ): InspectResult {
     const session = this.requireSession();
     const def = this.currentGraphDef();
-    return buildInspectResult(detail, session, def, this.stack, fields);
+    return buildInspectResult(detail, session, def, this.stack, fields, historyOpts);
   }
 
   reset(): ResetResult {

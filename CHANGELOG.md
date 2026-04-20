@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`freelance_inspect --detail=history` paginates `traversalHistory`
+  and strips snapshots by default.** `traversalHistory` is sliced by
+  `limit` (default 50, max 200) and `offset`. Per-entry
+  `contextSnapshot` — which made the response grow quadratically on
+  long traversals — is omitted by default; opt back in with
+  `includeSnapshots: true` when you genuinely need per-step state.
+  `contextHistory` ships in full (entries are small — key + value +
+  two timestamps). The response reports `totalSteps` and
+  `totalContextWrites` so callers can sense the traversal's size and
+  page `traversalHistory` further if needed. See issue #84.
 - **`freelance_inspect` separates state from projection (BREAKING).**
   `detail` is now just `"position"` (default) or `"history"` — `"full"`
   is removed. A new optional `fields` parameter projects graph-
