@@ -9,6 +9,7 @@ import {
 import { HookRunner } from "../src/engine/hooks.js";
 import { GraphEngine } from "../src/engine/index.js";
 import { EngineError } from "../src/errors.js";
+import { handleError } from "../src/mcp-helpers.js";
 import { loadFixtureGraphs } from "./helpers.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
@@ -182,6 +183,33 @@ describe("GraphEngine cap enforcement", () => {
     } catch (e) {
       expect((e as EngineError).code).toBe("CONTEXT_TOTAL_TOO_LARGE");
     }
+  });
+});
+
+describe("MCP error response surfaces EngineError code", () => {
+  it("includes structured code alongside the error message", () => {
+    const err = new EngineError('Context value "x" is too big.', "CONTEXT_VALUE_TOO_LARGE");
+    const resp = handleError(err);
+    expect(resp.isError).toBe(true);
+    const payload = JSON.parse(resp.content[0].text);
+    expect(payload).toEqual({
+      error: 'Context value "x" is too big.',
+      code: "CONTEXT_VALUE_TOO_LARGE",
+    });
+  });
+
+  it("surfaces CONTEXT_TOTAL_TOO_LARGE code the same way", () => {
+    const err = new EngineError("Total too large.", "CONTEXT_TOTAL_TOO_LARGE");
+    const resp = handleError(err);
+    const payload = JSON.parse(resp.content[0].text);
+    expect(payload.code).toBe("CONTEXT_TOTAL_TOO_LARGE");
+  });
+
+  it("non-EngineError throws still surface as a plain error (no code field)", () => {
+    const resp = handleError(new Error("something unrelated"));
+    const payload = JSON.parse(resp.content[0].text);
+    expect(payload.error).toContain("Internal error");
+    expect(payload.code).toBeUndefined();
   });
 });
 
