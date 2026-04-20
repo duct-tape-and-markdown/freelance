@@ -5,6 +5,7 @@ import type {
   AdvanceSuccessResult,
   ContextSetResult,
   GraphListResult,
+  InspectField,
   InspectResult,
   ResetResult,
   SessionState,
@@ -287,10 +288,13 @@ export class GraphEngine {
     return buildContextSetResult(session, def.nodes[session.currentNode]);
   }
 
-  inspect(detail: "position" | "full" | "history" = "position"): InspectResult {
+  inspect(
+    detail: "position" | "history" = "position",
+    fields: readonly InspectField[] = [],
+  ): InspectResult {
     const session = this.requireSession();
     const def = this.currentGraphDef();
-    return buildInspectResult(detail, session, def, this.stack);
+    return buildInspectResult(detail, session, def, this.stack, fields);
   }
 
   reset(): ResetResult {

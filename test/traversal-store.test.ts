@@ -232,7 +232,7 @@ describe("TraversalStore — stateless JSON", () => {
       store.contextSet(r.traversalId, { taskStarted: true });
       await store.advance(r.traversalId, "work-done");
 
-      for (const detail of ["position", "full", "history"] as const) {
+      for (const detail of ["position", "history"] as const) {
         const result = store.inspect(r.traversalId, detail);
         expect(result.meta).toEqual({
           externalKey: "DEV-1234",

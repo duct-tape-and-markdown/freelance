@@ -4,12 +4,7 @@
 
 import { EngineError } from "../errors.js";
 import type { TraversalStore } from "../state/index.js";
-import type {
-  InspectFullResult,
-  InspectHistoryResult,
-  InspectPositionResult,
-  WaitCondition,
-} from "../types.js";
+import type { InspectHistoryResult, InspectPositionResult, WaitCondition } from "../types.js";
 import { cli, info, outputJson } from "./output.js";
 
 function handleError(e: unknown): never {
@@ -259,7 +254,7 @@ export function traversalInspect(
 ): void {
   try {
     const id = store.resolveTraversalId(traversalId);
-    const validDetail = detail === "full" || detail === "history" ? detail : "position";
+    const validDetail = detail === "history" ? "history" : "position";
     const raw = store.inspect(id, validDetail);
     if (cli.json) {
       outputJson(raw);
@@ -268,7 +263,13 @@ export function traversalInspect(
       info(`  Graph: ${raw.graphId}`);
       info(`  Node:  ${raw.currentNode}`);
       if (raw.meta) info(`  Meta:  ${JSON.stringify(raw.meta)}`);
-      if (validDetail === "position") {
+      if (validDetail === "history") {
+        const hist = raw as { traversalId: string } & InspectHistoryResult;
+        info("  History:");
+        for (const h of hist.traversalHistory) {
+          info(`    ${h.node} (${h.edge ?? "start"})`);
+        }
+      } else {
         const pos = raw as { traversalId: string } & InspectPositionResult;
         if (pos.node.description) {
           info(`  Description: ${pos.node.description}`);
@@ -280,17 +281,6 @@ export function traversalInspect(
               `    ${t.label}${t.target ? ` → ${t.target}` : ""}${t.conditionMet === false ? " (condition not met)" : ""}`,
             );
           }
-        }
-      }
-      if (validDetail === "full") {
-        const full = raw as { traversalId: string } & InspectFullResult;
-        info(`  Context: ${JSON.stringify(full.context)}`);
-      }
-      if (validDetail === "history") {
-        const hist = raw as { traversalId: string } & InspectHistoryResult;
-        info("  History:");
-        for (const h of hist.traversalHistory) {
-          info(`    ${h.node} (${h.edge ?? "start"})`);
         }
       }
     }

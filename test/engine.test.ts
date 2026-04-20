@@ -332,14 +332,13 @@ describe("inspect()", () => {
     }
   });
 
-  it("full returns the complete graph definition", async () => {
+  it("fields: ['definition'] returns the complete graph definition", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
     await engine.start("valid-simple");
-    const result = engine.inspect("full");
-    if ("definition" in result) {
-      expect(result.definition.id).toBe("valid-simple");
-      expect(result.definition.nodes).toBeDefined();
-    }
+    const result = engine.inspect("position", ["definition"]);
+    expect(result.definition).toBeDefined();
+    expect(result.definition?.id).toBe("valid-simple");
+    expect(result.definition?.nodes).toBeDefined();
   });
 
   it("throws when no traversal active", async () => {

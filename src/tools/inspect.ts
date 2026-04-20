@@ -10,16 +10,19 @@ export function registerInspectTool(server: McpServer, deps: FreelanceToolDeps):
     "freelance_inspect",
     {
       description:
-        "Read-only view of traversal state. Primary recovery tool after context compaction — traversal state lives on the server and survives. Detail: 'position' (default: current node + validTransitions), 'full' (+ context), 'history' (+ stack and transitions taken). Meta tags always included.",
+        "Read-only view of traversal state. Primary recovery tool after context compaction. Detail: 'position' (default: current node + validTransitions + context) or 'history' (+ stack and transitions taken). Optional `fields` adds graph-structure projections: 'currentNode' (full NodeDefinition), 'neighbors' (one-edge-away NodeDefinitions), 'contextSchema' (declared schema), 'definition' (entire graph — escape hatch). Meta tags always included.",
       inputSchema: {
         traversalId: z.string().optional(),
-        detail: z.enum(["position", "full", "history"]).default("position"),
+        detail: z.enum(["position", "history"]).default("position"),
+        fields: z
+          .array(z.enum(["currentNode", "neighbors", "contextSchema", "definition"]))
+          .optional(),
       },
     },
-    ({ traversalId, detail }) => {
+    ({ traversalId, detail, fields }) => {
       try {
         const id = manager.resolveTraversalId(traversalId);
-        return jsonResponse(manager.inspect(id, detail));
+        return jsonResponse(manager.inspect(id, detail, fields));
       } catch (e) {
         return handleError(e);
       }

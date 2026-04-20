@@ -12,6 +12,7 @@ import { EngineError } from "../errors.js";
 import type {
   AdvanceResult,
   ContextSetResult,
+  InspectField,
   InspectResult,
   ResetResult,
   StartResult,
@@ -215,10 +216,11 @@ export class TraversalStore {
 
   inspect(
     traversalId: string,
-    detail?: "position" | "full" | "history",
+    detail?: "position" | "history",
+    fields?: readonly InspectField[],
   ): { traversalId: string; meta: Record<string, string> } & InspectResult {
     const { engine, record } = this.loadEngine(traversalId);
-    const result = engine.inspect(detail);
+    const result = engine.inspect(detail, fields);
     return { traversalId, meta: record.meta ?? EMPTY_META, ...result };
   }
 
