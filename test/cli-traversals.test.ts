@@ -15,10 +15,9 @@ import { loadSingleGraph } from "../src/loader.js";
 import { openStateStore, TraversalStore } from "../src/state/index.js";
 import type { ValidatedGraph } from "../src/types.js";
 
-// biome-ignore lint/suspicious/noExplicitAny: vitest spy types
-let exitSpy: any;
-let stderrSpy: any;
-let stdoutSpy: any;
+let exitSpy: ReturnType<typeof vi.spyOn>;
+let stderrSpy: ReturnType<typeof vi.spyOn>;
+let stdoutSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(async () => {
   setCli({ quiet: false, verbose: false });
