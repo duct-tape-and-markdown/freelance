@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { allClientChoices, type Client, clientDisplayName, detectClients } from "./clients.js";
-import { cli, displayPath, EXIT, fatal, homeDir, info, outputJson } from "./output.js";
+import { displayPath, EXIT, fatal, homeDir, info, outputJson } from "./output.js";
 import { ensureFreelanceDir } from "./setup.js";
 
 export type { Client } from "./clients.js";
@@ -227,10 +227,14 @@ function wouldAppendClaudeMd(): boolean {
 
 // --- Main init ---
 
-function printManualConfig(): void {
-  const entry = getMcpEntry();
-  info("\nAdd this to your MCP client configuration:\n");
-  process.stdout.write(`${JSON.stringify({ mcpServers: { freelance: entry } }, null, 2)}\n`);
+/**
+ * Return the inline MCP config snippet for the `--client manual` path.
+ * The caller embeds this into its JSON response rather than printing
+ * it to stdout separately (stdout is reserved for the single structured
+ * response per docs/decisions.md § CLI-primary).
+ */
+function getManualConfig(): Record<string, unknown> {
+  return { mcpServers: { freelance: getMcpEntry() } };
 }
 
 export async function init(options: InitOptions): Promise<void> {
@@ -349,34 +353,16 @@ export async function init(options: InitOptions): Promise<void> {
 
   // --- Dry run ---
   if (dryRun) {
-    if (cli.json) {
-      outputJson({ dryRun: true, scope, client, starter, actions });
-      return;
-    }
-    info("\nDry run \u2014 no files will be written.\n");
-    for (const a of actions) {
-      if (a.verb === "skip") {
-        info(`  Would skip:      ${a.target} (${a.detail})`);
-      } else if (a.verb === "create") {
-        info(`  Would create:    ${a.target}`);
-      } else if (a.verb === "append") {
-        info(`  Would append:    ${a.target} (${a.detail})`);
-      } else if (a.verb === "configure") {
-        info(`  Would configure: ${a.target} (${a.detail})`);
-      }
-    }
-    info("\nRun without --dry-run to apply these changes.");
+    outputJson({ dryRun: true, scope, client, starter, actions });
     return;
   }
 
   // --- Execute ---
-  const results: string[] = [];
   const filesCreated: string[] = [];
 
   // 1. Create graphs directory
   if (!fs.existsSync(graphsDir)) {
     fs.mkdirSync(graphsDir, { recursive: true });
-    results.push(`Created ${graphsDisplayPath}/`);
     filesCreated.push(graphsDir);
   }
 
@@ -386,7 +372,6 @@ export async function init(options: InitOptions): Promise<void> {
   const ignorePreexisted = fs.existsSync(ignorePath);
   ensureFreelanceDir(graphsDir);
   if (!ignorePreexisted && fs.existsSync(ignorePath)) {
-    results.push(`Created ${graphsDisplayPath}/.gitignore`);
     filesCreated.push(ignorePath);
   }
 
@@ -396,16 +381,13 @@ export async function init(options: InitOptions): Promise<void> {
     const templateFile = path.join(templatesDir, `${starter}.workflow.yaml`);
 
     if (!fs.existsSync(templateFile)) {
-      fatal(`Template not found: ${starter}.workflow.yaml`, EXIT.GENERAL_ERROR);
+      fatal(`Template not found: ${starter}.workflow.yaml`, EXIT.NOT_FOUND, "TEMPLATE_NOT_FOUND");
     }
 
     const destFile = path.join(graphsDir, `${starter}.workflow.yaml`);
     if (!fs.existsSync(destFile)) {
       fs.copyFileSync(templateFile, destFile);
-      results.push(`Created ${graphsDisplayPath}/${starter}.workflow.yaml`);
       filesCreated.push(destFile);
-    } else {
-      results.push(`Skipped ${starter}.workflow.yaml (already exists)`);
     }
   }
 
@@ -416,32 +398,27 @@ export async function init(options: InitOptions): Promise<void> {
     const configDest = path.join(graphsDir, "config.yml");
     if (!fs.existsSync(configDest) && fs.existsSync(configTemplate)) {
       fs.copyFileSync(configTemplate, configDest);
-      results.push(`Created ${graphsDisplayPath}/config.yml`);
       filesCreated.push(configDest);
-    } else if (fs.existsSync(configDest)) {
-      results.push("Skipped config.yml (already exists)");
     }
   }
 
-  // 3. Write MCP config
+  // 3. Write MCP config. For `--client manual`, the config snippet is
+  // embedded in the response rather than printed separately — stdout
+  // carries exactly one structured payload per agent CLI convention.
+  let manualConfig: Record<string, unknown> | undefined;
   if (client === "manual") {
-    printManualConfig();
+    manualConfig = getManualConfig();
   } else {
     const configPath = writeClientConfig(client, scope);
     if (configPath) {
-      results.push(`Configured MCP server in ${displayPath(configPath)} (${scope} scope)`);
       filesCreated.push(configPath);
     }
   }
 
   // 4. Append CLAUDE.md for project scope with Claude Code
   if (scope === "project" && client === "claude-code") {
-    const appended = appendClaudeMd();
-    if (appended) {
-      results.push("Added workflow instructions to CLAUDE.md");
+    if (appendClaudeMd()) {
       filesCreated.push(path.join(process.cwd(), "CLAUDE.md"));
-    } else {
-      results.push("CLAUDE.md already has Freelance instructions");
     }
   }
 
@@ -449,37 +426,17 @@ export async function init(options: InitOptions): Promise<void> {
   if (client === "claude-code" && options.hooks) {
     const hookResult = writeHooks(true);
     if (hookResult) {
-      results.push(
-        `Configured hooks in ${displayPath(hookResult.path)}: ${hookResult.wrote.join(", ")}`,
-      );
       filesCreated.push(hookResult.path);
-    } else {
-      results.push("Hooks already configured");
     }
   }
 
-  // JSON output
-  if (cli.json) {
-    outputJson({ scope, client, starter, files: filesCreated });
-    return;
-  }
-
-  // Human output
-  info("\nSetting up Freelance...\n");
-  for (const r of results) {
-    info(`  \u2713 ${r}`);
-  }
-
-  info(`
-Next steps:
-  1. Start your AI coding agent in this directory
-  2. The agent will see Freelance's tools automatically
-  3. Call freelance_list to see available workflows
-  4. Call freelance_start to begin a workflow
-
-  Run 'freelance validate ${graphsDisplayPath}/' to check your graph definitions.
-
-Happy building.`);
+  outputJson({
+    scope,
+    client,
+    starter,
+    files: filesCreated,
+    ...(manualConfig ? { manualConfig } : {}),
+  });
 }
 
 // @inquirer/prompts is an optionalDependency; surface a friendly hint
@@ -494,7 +451,8 @@ async function loadPrompts() {
         "Interactive init requires @inquirer/prompts (optional dependency).\n" +
           "  Install: npm install @inquirer/prompts\n" +
           "  Or skip prompts: freelance init --yes",
-        EXIT.GENERAL_ERROR,
+        EXIT.INTERNAL,
+        "MISSING_OPTIONAL_DEP",
       );
     }
     throw e;

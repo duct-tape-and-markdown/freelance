@@ -26,7 +26,7 @@ import {
   memorySearch,
   memoryStatus,
 } from "./memory.js";
-import { EXIT, fatal, info, setCli } from "./output.js";
+import { EXIT, fatal, info, outputJson, setCli } from "./output.js";
 import {
   createMemoryStore,
   createTraversalStore,
@@ -66,17 +66,13 @@ program
     "before",
     `freelance v${VERSION} \u2014 Graph-based workflow enforcement for AI coding agents\n`,
   )
-  .option("--json", "Output results as JSON to stdout")
-  .option("--no-color", "Disable colored output")
-  .option("--verbose", "Show detailed progress and debug information")
-  .option("-q, --quiet", "Suppress non-essential output (errors only)")
+  .option("--verbose", "Show detailed progress and debug information on stderr")
+  .option("-q, --quiet", "Suppress stderr breadcrumbs")
   .hook("preAction", (_thisCommand, actionCommand) => {
     const root = actionCommand.optsWithGlobals();
     setCli({
-      json: root.json ?? false,
       quiet: root.quiet ?? false,
       verbose: root.verbose ?? false,
-      noColor: root.color === false || !!process.env.NO_COLOR,
     });
   });
 
@@ -150,17 +146,15 @@ program
 
 program
   .command("visualize <file>")
-  .description("Export graph as Mermaid or DOT diagram")
+  .description("Export graph as Mermaid or DOT diagram (JSON response)")
   .addOption(
     new Option("--format <format>", "Output format").choices(["mermaid", "dot"]).default("mermaid"),
   )
-  .option("--output <file>", "Write to file instead of stdout")
-  .option("--open", "Render in browser")
+  .option("--output <file>", "Write diagram to file (response still JSON)")
   .action((file, opts) => {
     visualize(file, {
       format: opts.format,
       output: opts.output,
-      open: opts.open,
     });
   });
 
@@ -497,7 +491,7 @@ addWorkflowsOpt(
   const fileConfig = loadConfigFromDirs(dirs);
   const memConfig = resolveMemoryConfig(dirs, {}, fileConfig);
   if (!memConfig) {
-    info("Memory is disabled in config; nothing to reset.");
+    outputJson({ status: "noop", reason: "memory disabled in config" });
     return;
   }
   memoryReset(memConfig.db, { confirm: opts.confirm });
@@ -581,7 +575,11 @@ program
   .action((shell) => {
     const supported = ["bash", "zsh", "fish"];
     if (!supported.includes(shell)) {
-      fatal(`Unknown shell: ${shell}. Supported: ${supported.join(", ")}`, EXIT.INVALID_USAGE);
+      fatal(
+        `Unknown shell: ${shell}. Supported: ${supported.join(", ")}`,
+        EXIT.INVALID_INPUT,
+        "UNKNOWN_SHELL",
+      );
     }
     const completionFile = path.resolve(
       path.dirname(new URL(import.meta.url).pathname),
@@ -592,7 +590,7 @@ program
       `freelance.${shell}`,
     );
     if (!fs.existsSync(completionFile)) {
-      fatal(`Completion file not found: ${completionFile}`, EXIT.GENERAL_ERROR);
+      fatal(`Completion file not found: ${completionFile}`, EXIT.NOT_FOUND, "COMPLETION_NOT_FOUND");
     }
     process.stdout.write(fs.readFileSync(completionFile, "utf-8"));
   });

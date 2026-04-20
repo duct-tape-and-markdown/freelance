@@ -2,7 +2,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { setCli } from "../src/cli/output.js";
 import { validate } from "../src/cli/validate.js";
 import { hashContent } from "../src/sources.js";
 
@@ -18,127 +17,92 @@ function copyFixtures(dir: string, ...files: string[]): void {
   }
 }
 
+// Runtime + authoring CLI handlers are JSON-only per docs/decisions.md.
+// Assertions go against stdout (parsed) and exit codes.
+
 describe("CLI validate", () => {
   let exitSpy: ReturnType<typeof vi.spyOn>;
-  let stderrSpy: ReturnType<typeof vi.spyOn>;
   let stdoutSpy: ReturnType<typeof vi.spyOn>;
+
+  function stdoutJson(): unknown {
+    const out = stdoutSpy.mock.calls.map((c) => c[0]).join("");
+    return JSON.parse(out);
+  }
 
   beforeEach(() => {
     exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
       throw new Error("process.exit");
     }) as never);
-    stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    setCli({ json: false, quiet: false, verbose: false, noColor: false });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("succeeds with valid graph files", () => {
+  it("succeeds with valid graph files (exit 0)", () => {
     const dir = tmpDir();
     copyFixtures(dir, "valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
-    validate(dir);
-    expect(exitSpy).not.toHaveBeenCalled();
-  });
-
-  it("exits with GRAPH_ERROR for nonexistent directory", () => {
-    expect(() => validate("/nonexistent/path")).toThrow("process.exit");
-    expect(exitSpy).toHaveBeenCalledWith(3);
-  });
-
-  it("exits with GRAPH_ERROR for empty directory", () => {
-    const dir = tmpDir();
-    expect(() => validate(dir)).toThrow("process.exit");
-    expect(exitSpy).toHaveBeenCalledWith(3);
-  });
-
-  it("exits with GRAPH_ERROR for invalid graph", () => {
-    const dir = tmpDir();
-    copyFixtures(dir, "invalid-orphan.workflow.yaml");
-    expect(() => validate(dir)).toThrow("process.exit");
-    expect(exitSpy).toHaveBeenCalledWith(3);
-  });
-
-  it("reports per-file errors in human output", () => {
-    const dir = tmpDir();
-    copyFixtures(dir, "valid-simple.workflow.yaml", "invalid-orphan.workflow.yaml");
-    expect(() => validate(dir)).toThrow("process.exit");
-
-    const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
-    expect(stderr).toContain("OK");
-    expect(stderr).toContain("FAIL");
-  });
-
-  it("produces JSON output when --json is set", () => {
-    const dir = tmpDir();
-    copyFixtures(dir, "valid-simple.workflow.yaml");
-    setCli({ json: true });
-
     expect(() => validate(dir)).toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(0);
-
-    const stdout = stdoutSpy.mock.calls.map((c) => c[0]).join("");
-    const result = JSON.parse(stdout);
+    const result = stdoutJson() as { valid: boolean; graphs: Array<{ id: string }> };
     expect(result.valid).toBe(true);
-    expect(result.graphs).toHaveLength(1);
-    expect(result.graphs[0].id).toBe("valid-simple");
+    expect(result.graphs).toHaveLength(2);
   });
 
-  it("JSON output includes errors for invalid graphs", () => {
-    const dir = tmpDir();
-    copyFixtures(dir, "invalid-orphan.workflow.yaml");
-    setCli({ json: true });
-
-    expect(() => validate(dir)).toThrow("process.exit");
-    expect(exitSpy).toHaveBeenCalledWith(3);
-
-    const stdout = stdoutSpy.mock.calls.map((c) => c[0]).join("");
-    const result = JSON.parse(stdout);
-    expect(result.valid).toBe(false);
-    expect(result.errors.length).toBeGreaterThan(0);
-  });
-
-  it("human output includes summary line", () => {
-    const dir = tmpDir();
-    copyFixtures(dir, "valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
-    validate(dir);
-    const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
-    expect(stderr).toContain("Validated 2 graph(s), 0 error(s)");
-  });
-
-  it("JSON output for nonexistent directory", () => {
-    setCli({ json: true });
+  it("exits with VALIDATION (3) for nonexistent directory", () => {
     expect(() => validate("/nonexistent/path")).toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(3);
-    const stdout = stdoutSpy.mock.calls.map((c) => c[0]).join("");
-    const result = JSON.parse(stdout);
+    const result = stdoutJson() as { valid: boolean; errors: Array<{ message: string }> };
     expect(result.valid).toBe(false);
     expect(result.errors[0].message).toContain("does not exist");
   });
 
-  it("JSON output for empty directory", () => {
+  it("exits with VALIDATION (3) for empty directory", () => {
     const dir = tmpDir();
-    setCli({ json: true });
     expect(() => validate(dir)).toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(3);
-    const stdout = stdoutSpy.mock.calls.map((c) => c[0]).join("");
-    const result = JSON.parse(stdout);
-    expect(result.valid).toBe(false);
+    const result = stdoutJson() as { valid: boolean; errors: Array<{ message: string }> };
     expect(result.errors[0].message).toContain("No *.workflow.yaml");
   });
 
-  it("validates cross-graph subgraph references", () => {
+  it("exits with VALIDATION (3) for invalid graph", () => {
+    const dir = tmpDir();
+    copyFixtures(dir, "invalid-orphan.workflow.yaml");
+    expect(() => validate(dir)).toThrow("process.exit");
+    expect(exitSpy).toHaveBeenCalledWith(3);
+    const result = stdoutJson() as { valid: boolean; errors: unknown[] };
+    expect(result.valid).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it("reports per-file errors in the JSON response", () => {
+    const dir = tmpDir();
+    copyFixtures(dir, "valid-simple.workflow.yaml", "invalid-orphan.workflow.yaml");
+    expect(() => validate(dir)).toThrow("process.exit");
+    expect(exitSpy).toHaveBeenCalledWith(3);
+    const result = stdoutJson() as {
+      valid: boolean;
+      graphs: Array<{ id: string }>;
+      errors: Array<{ file: string; message: string }>;
+    };
+    expect(result.valid).toBe(false);
+    // Valid graph still loaded
+    expect(result.graphs.some((g) => g.id === "valid-simple")).toBe(true);
+    // Invalid graph surfaced as an error
+    expect(result.errors.some((e) => e.file.includes("invalid-orphan"))).toBe(true);
+  });
+
+  it("validates cross-graph subgraph references (success path)", () => {
     const dir = tmpDir();
     copyFixtures(dir, "parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
-    validate(dir);
-    expect(exitSpy).not.toHaveBeenCalled();
+    expect(() => validate(dir)).toThrow("process.exit");
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
   it("fails on broken cross-graph subgraph reference", () => {
     const dir = tmpDir();
-    // Load parent without child — subgraph ref to child-review will dangle
     copyFixtures(dir, "parent-with-subgraph.workflow.yaml");
     expect(() => validate(dir)).toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(3);
@@ -147,8 +111,8 @@ describe("CLI validate", () => {
   it("accepts subgraph references to sealed memory:* workflows", () => {
     const dir = tmpDir();
     copyFixtures(dir, "parent-with-sealed-subgraph.workflow.yaml");
-    validate(dir);
-    expect(exitSpy).not.toHaveBeenCalled();
+    expect(() => validate(dir)).toThrow("process.exit");
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
   it("treats directory with non-graph files as empty", () => {
@@ -159,25 +123,14 @@ describe("CLI validate", () => {
     expect(exitSpy).toHaveBeenCalledWith(3);
   });
 
-  it("--quiet suppresses info output", () => {
-    const dir = tmpDir();
-    copyFixtures(dir, "valid-simple.workflow.yaml");
-    setCli({ quiet: true });
-    validate(dir);
-    const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
-    expect(stderr).toBe("");
-  });
-
   it("JSON output includes graph metadata fields", () => {
     const dir = tmpDir();
     copyFixtures(dir, "valid-simple.workflow.yaml");
-    setCli({ json: true });
-
     expect(() => validate(dir)).toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(0);
-
-    const stdout = stdoutSpy.mock.calls.map((c) => c[0]).join("");
-    const result = JSON.parse(stdout);
+    const result = stdoutJson() as {
+      graphs: Array<{ id: string; name: string; version: string; nodeCount: number }>;
+    };
     const graph = result.graphs[0];
     expect(graph.name).toBe("Simple Workflow");
     expect(graph.version).toBe("1.0.0");
@@ -215,8 +168,8 @@ nodes:
       const correctHash = hashContent(docContent);
       writeGraphWithSources(dir, correctHash);
 
-      validate(dir, { checkSources: true, basePath: dir });
-      expect(exitSpy).not.toHaveBeenCalled();
+      expect(() => validate(dir, { checkSources: true, basePath: dir })).toThrow("process.exit");
+      expect(exitSpy).toHaveBeenCalledWith(0);
     });
 
     it("detects drift when source hash is wrong", () => {
@@ -226,8 +179,8 @@ nodes:
 
       expect(() => validate(dir, { checkSources: true, basePath: dir })).toThrow("process.exit");
       expect(exitSpy).toHaveBeenCalledWith(3);
-      const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
-      expect(stderr).toContain("DRIFT");
+      const result = stdoutJson() as { sourceDrift: unknown[] };
+      expect(result.sourceDrift.length).toBeGreaterThan(0);
     });
 
     it("--fix updates drifted hashes in-place", () => {
@@ -237,43 +190,43 @@ nodes:
       const wrongHash = "0000000000000000";
       writeGraphWithSources(dir, wrongHash);
 
-      validate(dir, { checkSources: true, fix: true, basePath: dir });
+      expect(() => validate(dir, { checkSources: true, fix: true, basePath: dir })).toThrow(
+        "process.exit",
+      );
+      expect(exitSpy).toHaveBeenCalledWith(0);
 
-      // File should have been updated
       const updatedContent = fs.readFileSync(path.join(dir, "source-test.workflow.yaml"), "utf-8");
       const correctHash = hashContent(docContent);
       expect(updatedContent).toContain(correctHash);
       expect(updatedContent).not.toContain(wrongHash);
 
-      const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
-      expect(stderr).toContain("FIXED");
+      const result = stdoutJson() as { fixed?: number };
+      expect(result.fixed).toBeGreaterThan(0);
     });
 
     it("--fix skips FILE_NOT_FOUND sources", () => {
       const dir = tmpDir();
-      // No doc.md file exists
       writeGraphWithSources(dir, "0000000000000000");
 
       expect(() => validate(dir, { checkSources: true, fix: true, basePath: dir })).toThrow(
         "process.exit",
       );
-      // Should still report drift since it couldn't fix
-      const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
-      expect(stderr).toContain("DRIFT");
+      expect(exitSpy).toHaveBeenCalledWith(3);
+      const result = stdoutJson() as { sourceDrift: unknown[] };
+      expect(result.sourceDrift.length).toBeGreaterThan(0);
     });
 
-    it("reports drift in JSON mode", () => {
+    it("reports drift in JSON output", () => {
       const dir = tmpDir();
       fs.writeFileSync(path.join(dir, "doc.md"), "# Doc\n");
       writeGraphWithSources(dir, "0000000000000000");
-      setCli({ json: true });
 
       expect(() => validate(dir, { checkSources: true, basePath: dir })).toThrow("process.exit");
-      const stdout = stdoutSpy.mock.calls.map((c) => c[0]).join("");
-      const result = JSON.parse(stdout);
+      const result = stdoutJson() as {
+        valid: boolean;
+        sourceDrift: Array<{ drifted: Array<{ expected: string; actual: string }> }>;
+      };
       expect(result.valid).toBe(false);
-      expect(result.sourceDrift).toBeDefined();
-      expect(result.sourceDrift.length).toBeGreaterThan(0);
       expect(result.sourceDrift[0].drifted[0].expected).toBe("0000000000000000");
       expect(result.sourceDrift[0].drifted[0].actual).toBeTruthy();
     });

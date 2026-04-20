@@ -11,12 +11,7 @@
 import fs from "node:fs";
 import type { MemoryStore } from "../memory/index.js";
 import { prune } from "../memory/prune.js";
-import { EXIT, outputError, outputJson } from "./output.js";
-
-function handleError(e: unknown): never {
-  const code = outputError(e);
-  process.exit(code);
-}
+import { EXIT, handleRuntimeError as handleError, outputJson } from "./output.js";
 
 export function memoryStatus(store: MemoryStore): void {
   try {

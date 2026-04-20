@@ -12,12 +12,7 @@
 
 import type { TraversalStore } from "../state/index.js";
 import type { InspectPositionResult } from "../types.js";
-import { EXIT, outputError, outputJson } from "./output.js";
-
-function handleError(e: unknown): never {
-  const code = outputError(e);
-  process.exit(code);
-}
+import { EXIT, handleRuntimeError as handleError, outputJson } from "./output.js";
 
 /**
  * Shared primitive for CLI flags that accept `key=value` pairs. Splits on

@@ -33,7 +33,7 @@ describe("CLI init", () => {
     }) as never);
     stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    setCli({ json: false, quiet: false, verbose: false, noColor: false });
+    setCli({ quiet: false, verbose: false });
 
     originalCwd = process.cwd();
     workDir = tmpDir();
@@ -136,8 +136,7 @@ describe("CLI init", () => {
     expect(fs.existsSync(path.join(workDir, "CLAUDE.md"))).toBe(false);
   });
 
-  it("dry-run JSON output describes planned actions", async () => {
-    setCli({ json: true });
+  it("dry-run output describes planned actions", async () => {
     await init(defaults({ dryRun: true }));
     const output = stdoutSpy.mock.calls.map((c) => c[0]).join("");
     const result = JSON.parse(output);
@@ -145,8 +144,7 @@ describe("CLI init", () => {
     expect(result.actions.length).toBeGreaterThan(0);
   });
 
-  it("JSON output lists created files", async () => {
-    setCli({ json: true });
+  it("output lists created files", async () => {
     await init(defaults());
     const output = stdoutSpy.mock.calls.map((c) => c[0]).join("");
     const result = JSON.parse(output);
@@ -155,11 +153,11 @@ describe("CLI init", () => {
     expect(result.client).toBe("claude-code");
   });
 
-  it("manual client prints config to stdout instead of writing file", async () => {
+  it("manual client embeds config snippet in JSON response instead of writing a file", async () => {
     await init(defaults({ client: "manual" }));
     const stdout = stdoutSpy.mock.calls.map((c) => c[0]).join("");
     const parsed = JSON.parse(stdout);
-    expect(parsed.mcpServers.freelance).toBeDefined();
+    expect(parsed.manualConfig?.mcpServers?.freelance).toBeDefined();
     // No .mcp.json or other config file created
     expect(fs.existsSync(path.join(workDir, ".mcp.json"))).toBe(false);
   });
@@ -308,30 +306,41 @@ describe("CLI init", () => {
     expect(config.mcpServers.freelance).toBeDefined();
   });
 
-  it("dry-run human output lists planned actions", async () => {
+  it("dry-run JSON response includes planned actions with their verbs", async () => {
     await init(defaults({ dryRun: true }));
-    const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
-    expect(stderr).toContain("Dry run");
-    expect(stderr).toContain("Would create:");
-    expect(stderr).toContain("Would configure:");
-    expect(stderr).toContain("Run without --dry-run");
+    const stdout = stdoutSpy.mock.calls.map((c) => c[0]).join("");
+    const parsed = JSON.parse(stdout) as {
+      dryRun: boolean;
+      actions: Array<{ verb: string; target: string }>;
+    };
+    expect(parsed.dryRun).toBe(true);
+    expect(parsed.actions.some((a) => a.verb === "create")).toBe(true);
+    expect(parsed.actions.some((a) => a.verb === "configure")).toBe(true);
   });
 
-  it("dry-run with existing graph shows 'Would skip'", async () => {
+  it("dry-run with existing graph includes a 'skip' action", async () => {
     const graphsDir = path.join(workDir, ".freelance");
     fs.mkdirSync(graphsDir, { recursive: true });
     fs.writeFileSync(path.join(graphsDir, "blank.workflow.yaml"), "id: cr\n");
     await init(defaults({ dryRun: true }));
-    const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
-    expect(stderr).toContain("Would skip:");
+    const stdout = stdoutSpy.mock.calls.map((c) => c[0]).join("");
+    const parsed = JSON.parse(stdout) as { actions: Array<{ verb: string; target: string }> };
+    expect(parsed.actions.some((a) => a.verb === "skip")).toBe(true);
   });
 
-  it("human output includes checkmarks and next steps", async () => {
+  it("success response shape includes scope / client / starter / files", async () => {
     await init(defaults());
-    const stderr = stderrSpy.mock.calls.map((c) => c[0]).join("");
-    expect(stderr).toContain("\u2713");
-    expect(stderr).toContain("Next steps:");
-    expect(stderr).toContain("freelance_list");
+    const stdout = stdoutSpy.mock.calls.map((c) => c[0]).join("");
+    const parsed = JSON.parse(stdout) as {
+      scope: string;
+      client: string;
+      starter: string;
+      files: string[];
+    };
+    expect(parsed.scope).toBe("project");
+    expect(parsed.client).toBe("claude-code");
+    expect(parsed.starter).toBe("blank");
+    expect(parsed.files.length).toBeGreaterThan(0);
   });
 
   it("writes hooks when --hooks is passed", async () => {
@@ -379,11 +388,14 @@ describe("CLI init", () => {
     expect(fs.existsSync(settingsPath)).toBe(false);
   });
 
-  it("dry-run shows 'Would append' for existing CLAUDE.md", async () => {
+  it("dry-run includes an 'append' action for existing CLAUDE.md", async () => {
     fs.writeFileSync(path.join(workDir, "CLAUDE.md"), "# Existing\n\nSome content.\n");
     await init(defaults({ dryRun: true }));
-    const stderr = stderrSpy.mock.calls.map((c: [string]) => c[0]).join("");
-    expect(stderr).toContain("Would append:");
+    const stdout = stdoutSpy.mock.calls.map((c: [string]) => c[0]).join("");
+    const parsed = JSON.parse(stdout) as {
+      actions: Array<{ verb: string; target: string }>;
+    };
+    expect(parsed.actions.some((a) => a.verb === "append" && a.target === "CLAUDE.md")).toBe(true);
   });
 
   it("missing template file calls fatal", async () => {
@@ -427,7 +439,7 @@ describe("initInteractive", () => {
     }) as never);
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    setCli({ json: false, quiet: false, verbose: false, noColor: false });
+    setCli({ quiet: false, verbose: false });
     mockSelectState.callCount = 0;
     mockSelectState.responses.length = 0;
   });

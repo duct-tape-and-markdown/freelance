@@ -90,30 +90,37 @@ export function outputError(e: unknown): number {
   return EXIT.INTERNAL;
 }
 
-// Global CLI state — set via setCli() from index.ts before any command runs.
-// Exported as readonly; only setCli() can mutate it.
+/**
+ * Shared try/catch tail for runtime CLI handlers — emits the structured
+ * error payload via `outputError` and exits with the mapped code.
+ * Consolidates the identical `catch { outputError(e); process.exit(…) }`
+ * shape that lived in traversals.ts / memory.ts / stateless.ts.
+ */
+export function handleRuntimeError(e: unknown): never {
+  process.exit(outputError(e));
+}
+
+// Global CLI state — set via setCli() from program.ts before any
+// command runs. `json` and `noColor` are gone post docs/decisions.md §
+// CLI-primary: handlers are JSON-only (no dual-mode) and color has no
+// meaning on machine output. `quiet` and `verbose` still gate stderr
+// breadcrumbs via info()/debug().
 interface CliState {
-  json: boolean;
   quiet: boolean;
   verbose: boolean;
-  noColor: boolean;
 }
 
 const _cli: CliState = {
-  json: false,
   quiet: false,
   verbose: false,
-  noColor: false,
 };
 
 export const cli: Readonly<CliState> = _cli;
 
 /** Initialize CLI state from parsed commander options. */
 export function setCli(opts: Partial<CliState>): void {
-  if (opts.json !== undefined) _cli.json = opts.json;
   if (opts.quiet !== undefined) _cli.quiet = opts.quiet;
   if (opts.verbose !== undefined) _cli.verbose = opts.verbose;
-  if (opts.noColor !== undefined) _cli.noColor = opts.noColor;
 }
 
 /** Write JSON to stdout. */
@@ -140,9 +147,20 @@ export function error(msg: string): void {
   process.stderr.write(`${msg}\n`);
 }
 
-/** Write error to stderr and exit. */
-export function fatal(msg: string, exitCode: number = EXIT.GENERAL_ERROR): never {
-  error(`Error: ${msg}`);
+/**
+ * Emit a structured fatal error to stdout and exit with the given code.
+ * Shape matches `outputError`: `{ isError: true, error: { code, message } }`.
+ * Callers pass an exit code that categorizes the failure (see EXIT);
+ * `code` defaults to "FATAL" and can be overridden for specificity.
+ */
+export function fatal(
+  msg: string,
+  exitCode: number = EXIT.INTERNAL,
+  code: string = "FATAL",
+): never {
+  process.stdout.write(
+    `${JSON.stringify({ isError: true, error: { code, message: msg } }, null, 2)}\n`,
+  );
   process.exit(exitCode);
 }
 

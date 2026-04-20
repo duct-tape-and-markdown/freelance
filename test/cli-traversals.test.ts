@@ -21,7 +21,7 @@ let stderrSpy: any;
 let stdoutSpy: any;
 
 beforeEach(async () => {
-  setCli({ json: false, quiet: false, verbose: false, noColor: false });
+  setCli({ quiet: false, verbose: false });
   exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
     throw new Error("process.exit");
   }) as never);
