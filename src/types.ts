@@ -135,7 +135,25 @@ export interface StackEntry {
   readonly currentNode?: string;
 }
 
-export interface InspectPositionResult {
+/**
+ * Optional projections an inspect caller can layer on top of the base
+ * position/history response. Each field is additive — the base shape
+ * stays lean and the caller explicitly asks for the expansion.
+ */
+export type InspectField = "currentNode" | "neighbors" | "contextSchema" | "definition";
+
+export interface InspectFieldProjections {
+  /** Full `NodeDefinition` for the current node (edges, onEnter, validations, subgraph, timeout, etc.). Requested via fields: ["currentNode"]. */
+  readonly currentNodeDefinition?: NodeDefinition;
+  /** Full `NodeDefinition` for each node reachable in one edge. Requested via fields: ["neighbors"]. */
+  readonly neighbors?: Readonly<Record<string, NodeDefinition>>;
+  /** Declared context schema from the graph. Requested via fields: ["contextSchema"]. */
+  readonly contextSchema?: GraphDefinition["context"];
+  /** Full GraphDefinition — the escape hatch for debugging / authoring. Requested via fields: ["definition"]. */
+  readonly definition?: GraphDefinition;
+}
+
+export interface InspectPositionResult extends InspectFieldProjections {
   readonly graphId: string;
   readonly graphName: string;
   readonly currentNode: string;
@@ -167,21 +185,14 @@ export interface ContextHistoryEntry {
   readonly timestamp: string;
 }
 
-export interface InspectHistoryResult {
+export interface InspectHistoryResult extends InspectFieldProjections {
   readonly graphId: string;
   readonly currentNode: string;
   readonly traversalHistory: readonly HistoryEntry[];
   readonly contextHistory: readonly ContextHistoryEntry[];
 }
 
-export interface InspectFullResult {
-  readonly graphId: string;
-  readonly currentNode: string;
-  readonly definition: GraphDefinition;
-  readonly context: Readonly<Record<string, unknown>>;
-}
-
-export type InspectResult = InspectPositionResult | InspectHistoryResult | InspectFullResult;
+export type InspectResult = InspectPositionResult | InspectHistoryResult;
 
 export interface ClearedStackEntry {
   readonly graphId: string;

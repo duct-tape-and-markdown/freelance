@@ -2,7 +2,8 @@ import { EngineError } from "../errors.js";
 import type {
   ContextSetResult,
   GraphDefinition,
-  InspectFullResult,
+  InspectField,
+  InspectFieldProjections,
   InspectHistoryResult,
   InspectPositionResult,
   InspectResult,
@@ -142,12 +143,50 @@ export function buildContextSetResult(
   };
 }
 
+/**
+ * Build the set of optional projections a caller asked for via `fields`.
+ * Each entry in `fields` maps to exactly one property on the result; any
+ * field the caller didn't request is omitted rather than `undefined`.
+ */
+function buildFieldProjections(
+  fields: readonly InspectField[],
+  def: GraphDefinition,
+  currentNode: string,
+): InspectFieldProjections {
+  if (fields.length === 0) return {};
+  const requested = new Set(fields);
+  const currentNodeDef = def.nodes[currentNode];
+  const out: Record<string, unknown> = {};
+
+  if (requested.has("currentNode")) {
+    out.currentNodeDefinition = currentNodeDef;
+  }
+  if (requested.has("neighbors")) {
+    const neighbors: Record<string, NodeDefinition> = {};
+    for (const edge of currentNodeDef.edges ?? []) {
+      const target = def.nodes[edge.target];
+      if (target) neighbors[edge.target] = target;
+    }
+    out.neighbors = neighbors;
+  }
+  if (requested.has("contextSchema") && def.context) {
+    out.contextSchema = def.context;
+  }
+  if (requested.has("definition")) {
+    out.definition = def;
+  }
+  return out as InspectFieldProjections;
+}
+
 export function buildInspectResult(
-  detail: "position" | "full" | "history",
+  detail: "position" | "history",
   session: SessionState,
   def: GraphDefinition,
   stack: SessionState[],
+  fields: readonly InspectField[] = [],
 ): InspectResult {
+  const projections = buildFieldProjections(fields, def, session.currentNode);
+
   switch (detail) {
     case "history":
       return {
@@ -155,15 +194,8 @@ export function buildInspectResult(
         currentNode: session.currentNode,
         traversalHistory: session.history,
         contextHistory: session.contextHistory,
+        ...projections,
       } satisfies InspectHistoryResult;
-
-    case "full":
-      return {
-        graphId: session.graphId,
-        currentNode: session.currentNode,
-        definition: def,
-        context: cloneContext(session.context),
-      } satisfies InspectFullResult;
 
     case "position": {
       const currentNodeDef = def.nodes[session.currentNode];
@@ -182,6 +214,7 @@ export function buildInspectResult(
         stack: buildStackView(stack),
         ...(def.sources && def.sources.length > 0 ? { graphSources: def.sources } : {}),
         ...waitInfo,
+        ...projections,
       } satisfies InspectPositionResult;
     }
   }
