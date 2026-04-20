@@ -98,11 +98,12 @@ Two sealed workflows are auto-injected: `memory:compile` (read sources, emit pro
 
 ### Memory tools
 
-Write tools (gated by an active `memory:compile` or `memory:recall` traversal):
+Write tools (gated by an active workflow traversal):
 
 | Tool | Description |
 |------|-------------|
 | `memory_emit` | Write propositions with required per-file source attribution |
+| `memory_prune` | Scope-bounded delete by content-reachability (see [Pruning memory](#pruning-memory)) |
 
 Read tools (available anytime):
 
@@ -215,6 +216,29 @@ freelance mcp --workflows ./my-workflows/
 Source artifacts and runtime artifacts coexist as peers; the lifecycle distinction is maintained via `.gitignore`, not directory nesting. Freelance auto-generates `.freelance/.gitignore` on first write.
 
 If you're upgrading from a pre-1.3 install that used a `.state/` subdirectory, the layout is migrated automatically on the next run — `memory.db` is moved into `memory/`, `traversals/` moves up one level, the vestigial `state.db` from the earlier architecture is removed, and the empty `.state/` is cleaned up. The migration logs one line to stderr and is best-effort; on failure you'll see an actionable message.
+
+### Pruning memory
+
+Over a long project lifetime, `proposition_sources` accumulates rows from abandoned branches and old file versions. Each row is a `(proposition, file_path, content_hash)` coordinate in corpus-version space — stale entries aren't wrong, they're frames of reference you no longer care about. `freelance memory prune` is the explicit, user-initiated cleanup path; emit-time GC would collapse the multi-frame store (see `docs/memory-intent.md`).
+
+```bash
+freelance memory prune --keep main --keep release --yes
+freelance memory prune --keep main --dry-run
+```
+
+A row is deleted only when its `content_hash` doesn't match the file at **any** location you declared live: the current working tree, *or* the tip of any `--keep` ref. Ref blobs are read via `git cat-file --batch` directly from the object store, so prune never switches branches or touches your working tree.
+
+The approach is robust to history-rewriting workflows (rebase, squash merge, amend) because it asks about tree content, not commit reachability — a squashed branch's bytes end up in the merge commit's tree and are still found. Unresolvable `--keep` refs hard-error before touching the database. Non-git source roots can't use prune at all.
+
+The MCP equivalent — `memory_prune({ keep: [...], dryRun? })` — is gated by an active workflow traversal. Call it from a user-authored cleanup workflow; it isn't wired into `memory:compile` / `memory:recall`.
+
+Config default:
+
+```yaml
+memory:
+  prune:
+    keep: [main]                 # concatenates with --keep flags
+```
 
 ### Resetting memory
 

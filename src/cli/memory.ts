@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { MemoryStore } from "../memory/index.js";
+import { prune } from "../memory/prune.js";
 import { cli, info, outputJson } from "./output.js";
 
 function handleError(e: unknown): never {
@@ -188,6 +189,44 @@ export function memoryEmit(store: MemoryStore, file: string): void {
     } else {
       info(`Emitted ${result.created} propositions (${result.deduplicated} deduplicated)`);
     }
+  } catch (e) {
+    handleError(e);
+  }
+}
+
+export function memoryPrune(
+  store: MemoryStore,
+  opts: { keep?: string[]; dryRun?: boolean; yes?: boolean },
+): void {
+  if (!opts.keep || opts.keep.length === 0) {
+    if (cli.json) {
+      outputJson({ error: "memory prune requires --keep <ref> (repeatable)." });
+    } else {
+      info("memory prune requires --keep <ref> (repeatable). No default preserve set.");
+    }
+    process.exit(2);
+  }
+
+  try {
+    // `--dry-run` is itself a no-op preview; otherwise require explicit
+    // `--yes`. Print the plan on the refusal so the caller sees the
+    // blast radius before committing.
+    const confirmed = opts.dryRun || opts.yes;
+    const result = prune(store, { keep: opts.keep, dryRun: !confirmed });
+    if (cli.json) {
+      outputJson(
+        confirmed ? result : { ...result, error: "Refusing to delete without --yes or --dry-run." },
+      );
+    } else {
+      const preview = result.dry_run ? "Would prune" : "Pruned";
+      const preview2 = result.dry_run ? "Would hard-delete" : "Hard-deleted";
+      info(`${preview} ${result.rows_pruned} source row(s).`);
+      info(
+        `${preview2} ${result.propositions_hard_deleted} proposition(s); ${result.entities_orphaned} entity/entities orphaned.`,
+      );
+      if (!confirmed) info("Re-run with --yes to execute.");
+    }
+    if (!confirmed) process.exit(2);
   } catch (e) {
     handleError(e);
   }

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`freelance memory prune --keep <ref>` and MCP `memory_prune`** —
+  manual, user-initiated cleanup for `proposition_sources`. Deletes a
+  row only when its `content_hash` doesn't match the file at **any**
+  location the caller declared live: the current working tree on disk
+  *or* the tip of any `--keep` ref. Implementation reads blobs via
+  `git cat-file --batch` — no branch switching, no working-tree churn;
+  the user's current checkout stays untouched while prune inspects
+  every preserve ref. Rebase-, squash-, and amend-robust by
+  construction: those workflows rewrite commit SHAs but preserve tree
+  content, and prune asks about content, not SHAs. Unresolvable
+  `--keep` refs hard-error before touching the db; source roots
+  outside a git checkout hard-error (prune is a git-scoped operation).
+  Config default under `memory.prune.keep: [ref, ...]`; CLI
+  `--keep` flags concatenate on top. See issue #78 and
+  `docs/memory-intent.md` § "Knowledge is append-only across corpus
+  frames" for why the store stays additive at emit time.
+
 ### Changed
 
 - **`memory_browse` now hides orphan entities by default** — those whose

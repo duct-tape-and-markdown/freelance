@@ -90,6 +90,17 @@ export class MemoryStore {
     this.sourceRoot = sourceRoot;
   }
 
+  // `prune` lives outside this class (content-reachability needs git
+  // subprocesses; MemoryStore stays SQLite-only). The getters below
+  // are a deliberate narrow window for that caller — not a general
+  // "expose internals" pattern.
+  getDb(): Db {
+    return this.db;
+  }
+  getSourceRoot(): string {
+    return this.sourceRoot;
+  }
+
   close(): void {
     this.db.close();
   }
