@@ -1,6 +1,8 @@
-# Option E: Skills-packaged workflows, minimal MCP
+# Option E: single-skill + pure CLI
 
-**Status:** paper prototype. Not wired up. Explores what Freelance would look like if each workflow were packaged as a Claude [Agent Skill](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview), with the MCP surface reduced to discovery tools only.
+**Status:** paper prototype of the target integration shape. Not wired up.
+
+Explores what Freelance would look like if driven via a single Claude [Agent Skill](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview) plus the `freelance` CLI — with the MCP server reduced to a compatibility fallback for the narrow non-shell audience (Claude Desktop).
 
 ## The shape
 
@@ -19,84 +21,90 @@ Per-turn cost: ~2-3K tokens of definitions, regardless of whether
 any freelance tool is called this turn.
 ```
 
-### Option E (4 MCP tools + skill-on-activation)
+### Option E (single skill, pure CLI, no MCP in the hot path)
 
 ```
-MCP tool definitions resent every turn:
-  freelance_list       — "what workflows exist?"
-  freelance_start      — "begin a workflow; returns traversalId + skill hint"
-  freelance_inspect    — "where am I?" (compaction recovery)
-  freelance_guide      — authoring help (meta; rarely called)
-
-When a traversal starts, Claude activates the matching skill:
-  skills/freelance-memory-compile/SKILL.md   (loaded once per session)
-  skills/freelance-memory-recall/SKILL.md
-  skills/freelance-workflow-runner/SKILL.md  (generic; user-authored workflows)
+MCP tool definitions per turn: 0 (skill path doesn't use MCP)
   
-The skill body tells Claude to drive the traversal via Bash:
+Skill activates from description match:
+  .claude/skills/freelance/SKILL.md   (loaded once per session, ~2K tokens)
+  
+Skill body teaches the invariant protocol. Agent shells out:
+  freelance status --json
+  freelance start <graphId> --json
   freelance advance <edge> --json
   freelance context set key=value --json
+  freelance inspect --detail position --json
   freelance memory emit --file props.json --json
   ...
 
-Per-turn cost after activation: ~400-600 tokens of MCP definitions
-+ skill body loaded once (~1-2K tokens, one-time).
+The workflow's node instructions carry domain knowledge JIT via each
+response. Skill doesn't need per-workflow content.
 ```
 
-Steady-state per-turn reduction: roughly **5-6×** on MCP definition weight. Skill load is a session fixed cost, not per-turn.
+Per-turn MCP definition weight drops from ~2-3K to **zero**. Skill load is a one-time session cost (~2K tokens). Net: the skill pays for itself in the first ~1-2 turns and everything after is free on the definition-weight axis.
+
+## Why a single skill, not one per workflow
+
+Earlier drafts of this prototype had per-workflow skills (compile / recall / generic runner). That conflated two distinct concerns:
+
+- **Workflows enforce and teach domain.** The `.workflow.yaml` already carries node instructions, edge descriptions, validation messages. Every `advance` response returns the new node's full teaching surface. The agent learns each workflow's shape JIT.
+- **The skill carries the invariant protocol.** How to drive ANY workflow — discover, start, loop, recover, exit. That pattern doesn't vary per workflow.
+
+One skill for the protocol, the workflow for the domain. No codegen, no drift, no per-workflow artifact to maintain. User-authored workflows cost nothing extra.
 
 ## Files
 
-### `skills/freelance-memory-compile/SKILL.md`
+### `skills/freelance/SKILL.md`
 
-The sealed `memory:compile` workflow as a skill. Claude activates it when the user asks to compile knowledge from sources. Skill body contains the node-by-node invocation recipe.
-
-### `skills/freelance-memory-recall/SKILL.md`
-
-The sealed `memory:recall` workflow as a skill. Activates when the user asks a question that could be answered from compiled memory.
-
-### `skills/freelance-workflow-runner/SKILL.md`
-
-The generic skill for user-authored workflows. Activates when the user invokes a non-memory workflow. Body contains the general driving recipe (start → loop advance → inspect on confusion → reset or complete), parametrized by graphId.
-
-*Alternative:* each user workflow could codegen its own SKILL.md from the `.workflow.yaml` definition (node descriptions become skill sections, edges become decision points). That's a second prototype.
+The single skill. Frontmatter + body (~100 lines). Teaches the driving protocol; references the CLI exclusively.
 
 ### `minimal-server.ts`
 
-Illustrative sketch of what `src/server.ts` would register in option E. **Not wired up.** Shows the diff from current shape — 21 tools to 4.
+Illustrative sketch of an MCP fallback server for Claude Desktop and other non-shell clients. Registers a small tool set (discovery + runtime verbs) so Freelance remains usable in those environments without the CLI path. **Not the primary surface — just the compatibility shim.** See issue #99 for the full surface decision.
 
 ### `cli-shape.md`
 
-What the CLI needs to become for option E to work: JSON-first output, semantic exit codes, structured errors on stderr. Ties into issue #99's B→D transition plan.
+What the CLI needs to become for the skill path to work well: JSON-first output as default, semantic exit codes, structured errors mirroring MCP's shape. These requirements are non-negotiable under option E (the skill body assumes them); they're enabling work, not optional polish.
 
 ## Token-economics sketch
 
-Rough, per-session:
+Per-session, for a 30-turn workflow:
 
-| Surface | Per-turn MCP definitions | Per-call response cost | Session skill cost |
+| Surface | Per-turn MCP cost | Skill load (once) | Approx. session total |
 |---|---|---|---|
-| Today | ~2-3K tokens | same as before | 0 |
-| Option E | ~400-600 tokens | same as before | ~1-2K tokens once |
+| Today | ~2.5K tokens | 0 | **~75K tokens** on definitions |
+| Option E (skill + CLI) | 0 | ~2K tokens | **~2K tokens** on definitions |
+| Option E (non-shell fallback) | ~2.5K tokens | 0 | ~75K tokens (same as today) |
 
-For a 30-turn compile session:
-- Today: 30 × 2.5K = 75K tokens on definitions
-- Option E: 30 × 0.5K + 1.5K = **16.5K tokens** — ~4.5× reduction on the definition-weight axis alone, before touching response projection (#81).
+The skill path is ~35× more efficient on definition-weight for shell-capable clients. Non-shell clients fall back to today's cost profile.
 
-Stacked with response projection + description diet (#81, #82), the reduction compounds.
+Stacked with response projection (#81) and description diet (#82), reductions compound on both paths.
 
 ## What this prototype does *not* show
 
-- Actually running. The minimal server is illustrative only.
-- Codegen from `.workflow.yaml` → `SKILL.md`. Flagged as follow-up.
-- The `freelance exec` code-execution variant. That's a further step (Shape 2 in issue #99 option E / old option D).
-- Concurrency or migration mechanics. See issue #99 for the full decision plan.
+- Actual runtime. The minimal server is illustrative; the skill SKILL.md is not deployed to `.claude/skills/`.
+- A `freelance daemon` + unix-socket optimization for the CLI cold-start. ~200ms/invocation is tolerable; daemon is a follow-up if measurement says otherwise.
+- Migration mechanics. How today's MCP surface users transition — see #99.
+
+## Audience alignment
+
+Freelance's real audience is coding and automation agents, which are shell-capable almost everywhere:
+
+- Claude Code (web, CLI, desktop, IDE) — native Bash
+- Cursor, Windsurf, Cline — terminal agents
+- Claude Agent SDK (remote + managed) — shell tool usually exposed
+- CI pipelines driving agents — shell is the pipeline
+- **Claude Desktop chat** — the one meaningful non-shell client; MCP compatibility serves this case
+
+The skill path bets on the dominant real-world usage pattern. MCP is maintained for the edge case.
 
 ## Open questions
 
-1. **Skill auto-activation boundary.** Claude activates skills based on the `description` field. For user-authored workflows with generic descriptions ("run my bug-fix workflow"), the `freelance-workflow-runner` generic skill may be the right catch-all. Alternatively, codegen per-workflow skills.
-2. **Skill body vs guide topic.** Today `freelance_guide` serves the authoring documentation. In option E, skill bodies replace much of it for runtime drivers. Keep the guide for authors only?
-3. **`memory_emit` write gate.** Currently enforced server-side ("must be inside an active traversal"). Skill activation already implies an active traversal, so the gate stays; but the agent now sees `memory_emit` only when a memory-compile-class skill is loaded. Tighter surface, same invariant.
-4. **Migration path.** Ship alongside the current MCP surface (feature flag) or as a v2.0 cutover? The #99 decision drives this.
+1. **Skill activation matching.** The single-skill description needs to be broad enough to trigger for compile/recall/user-workflow requests but specific enough not to activate on every work-related prompt. Tunable via the `description` frontmatter field after initial measurement.
+2. **CLI cold-start wall time.** Node startup + config load + graph load is ~200ms per CLI call. Usability test with real workflow driving; daemon path becomes worthwhile if it's annoying.
+3. **Subgraph teaching.** The skill mentions subgraphs; whether the one-paragraph description suffices or authors need richer in-workflow instructions is a measurement question.
+4. **Claude Desktop MCP surface shape.** Whether the fallback surface should match today's 21-tool shape, a trimmed variant per #82, or a `freelance_exec`-style code-execution tool (#99 option D shape) is a separate decision.
 
 ## References
 
@@ -105,4 +113,4 @@ Stacked with response projection + description diet (#81, #82), the reduction co
 - [Anthropics/skills — public skill repo](https://github.com/anthropics/skills)
 - [Cloudflare Code Mode — reference implementation of progressive disclosure](https://www.infoq.com/news/2026/04/cloudflare-code-mode-mcp-server/)
 - Issue #99 — CLI/MCP surface boundary decision
-- Issues #81, #82 — hot-path response + description work that this stacks with
+- Issues #81, #82 — hot-path response + description work for the MCP fallback path

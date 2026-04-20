@@ -1,10 +1,12 @@
-# CLI shape for option E
+# CLI shape under option E
 
-For option E to work, the CLI's runtime verbs need to be **agent-shell-out-first**, not human-UX-first. These are different design disciplines; the current CLI serves the latter.
+The single-skill + pure-CLI integration assumes the CLI is **agent-shell-out-first**, not human-UX-first. Today's CLI serves the latter. This file enumerates what has to change for the skill path to work.
+
+These changes are **enabling work for option E, not optional polish.** The skill body in `skills/freelance/SKILL.md` assumes them.
 
 ## What needs to change
 
-### 1. JSON-first output
+### 1. JSON-first output for runtime verbs
 
 Today:
 ```bash
@@ -18,7 +20,7 @@ freelance advance foo          # JSON on stdout (default)
 freelance advance foo --human  # opt-in pretty-print for interactive use
 ```
 
-The agent's default call pattern is `freelance <verb> [args] --json` today; flipping the default removes a flag from every call and makes accidentally-pretty-printed output (which breaks JSON parse) impossible.
+Flipping the default removes a flag from every agent call and prevents accidentally-pretty-printed output from breaking JSON parsing downstream. Authoring commands (`init`, `validate`, `visualize`) keep human-friendly output as default because humans run them.
 
 ### 2. Semantic exit codes
 
@@ -32,37 +34,20 @@ Option E:
 - `4` — not found (traversal id, graph id, entity id)
 - `5` — invalid input (malformed JSON, unknown edge)
 
-Agents parse exit codes before parsing stdout. Exit code determines the response-category branch; stdout JSON carries the detail.
-
-This mirrors the current MCP `AdvanceErrorResult` vs thrown-`EngineError` distinction (issue #95) — semantic exit codes are the CLI analog.
+Agents check exit codes first; stdout JSON carries the detail. This mirrors the engine's `AdvanceErrorResult`-vs-thrown-`EngineError` split (issue #95) at the CLI boundary.
 
 ### 3. stderr discipline
 
-Today: some commands mix informational output and errors on stderr.
+Today: some commands mix informational and error output on stderr.
 
 Option E:
-- **stdout:** structured JSON response only. Always parseable JSON in all success paths; always parseable JSON-or-empty on error paths (see below).
-- **stderr:** breadcrumbs only ("Freelance: memory enabled at /path"). Never carries structured data the agent needs. Agent ignores unless debugging.
-- **On error:** stdout emits an `{ error: { code, message, ... } }` JSON object that mirrors MCP's `errorResponse` shape. Exit code carries the category.
+- **stdout:** structured JSON response only. Always parseable JSON on both success and error paths.
+- **stderr:** breadcrumbs only (e.g. "Freelance: memory enabled at /path"). Never carries structured data the agent needs.
+- **On error:** stdout emits `{ error: { code, message, ... }, isError: true }` matching MCP's shape (issue #95).
 
 ### 4. Structured errors matching MCP
 
-MCP errors today:
-
-```json
-{
-  "error": "Edge 'foo' not found on node 'bar'",
-  "isError": true
-}
-```
-
-CLI errors today:
-
-```
-Error: Edge 'foo' not found on node 'bar'
-```
-
-Option E, CLI matches MCP:
+CLI error wire shape mirrors MCP:
 
 ```json
 {
@@ -75,32 +60,30 @@ Option E, CLI matches MCP:
 }
 ```
 
-The wire format is identical across surfaces. Agents write one error handler.
+Agents write one error-handling shape across both surfaces.
 
 ### 5. Input streaming for high-fanout verbs
 
-`memory emit` today reads a file path or stdin. Option E keeps this; JSON body is piped in from the agent's Bash invocation:
+`memory emit` keeps its current shape — reads file or stdin, emits JSON response. The skill body teaches which form to use:
 
 ```bash
-echo '[...]' | freelance memory emit --stdin --json
-# or
 freelance memory emit --file /tmp/props.json --json
+# or
+echo '[...]' | freelance memory emit - --json
 ```
 
-The skill body teaches the agent which variant to use.
+## Scope
 
-## What this is NOT
+- **In scope:** runtime verbs (`status`, `start`, `advance`, `context set`, `meta set`, `inspect`, `reset`, `memory *`).
+- **Out of scope:** authoring verbs (`init`, `validate`, `visualize`, `config`, `completion`, `sources hash`) — these are human-first; keep pretty-print default.
 
-- Not a rewrite of every CLI subcommand. Authoring commands (`init`, `validate`, `visualize`, `config`) stay human-UX-first because humans use them. The rewrite scope is runtime verbs only: `status`, `start`, `advance`, `context set`, `meta set`, `inspect`, `reset`, and `memory *` subcommands.
-- Not a deprecation of the current CLI. It's a **mode flip** — same binary, JSON becomes default for runtime verbs, `--human` for interactive.
-- Not blocked by issue #99's option B. In fact, B completes first (deprecate duplication, clean up the surface), THEN E rebuilds runtime CLI as agent-shell-out-first on a clean slate.
+## Measurement plan (feeds #99)
 
-## Measurement plan (for #99)
+Before committing to the single-skill path:
 
-Before committing:
+1. **Per-call token cost** — one `Bash: freelance advance foo --json` vs one MCP `freelance_advance` for the same semantic operation. Measure tool-use envelope + response size on each side.
+2. **Cold-start wall time** — `time freelance advance foo --json` on a warm filesystem. If it's 300ms+, evaluate `freelance daemon` + unix-socket.
+3. **Definition-weight delta** — 0 tokens (pure skill path) vs current ~2.5K tokens. Multiply by session turns to get session-level savings.
+4. **Claude Desktop fallback cost** — if option E ships, the fallback surface in `minimal-server.ts` is the cost Desktop users pay. Measure whether the 4-tool fallback is usable or whether Desktop needs a richer surface.
 
-1. **Per-call cost of `Bash: freelance advance foo --json`** vs MCP `freelance_advance`. Measure token usage of the Bash tool-use block + CLI output vs the MCP tool-use + tool-result pair, for identical semantic operations.
-2. **Cold-start wall time.** `time freelance advance foo --json` on a warm filesystem. If it's 300ms+ per call, consider `freelance daemon` + unix-socket RPC.
-3. **Definition-weight reduction.** Token cost of the 4-tool minimal MCP surface vs the current 21-tool surface.
-
-Numbers feed #99's decision. If shell-out cost ≥ MCP cost per call, option E needs the daemon path to be worthwhile.
+Numbers drive #99's final shape. If shell-out cost ≥ MCP cost per call, the daemon path becomes a prerequisite.
