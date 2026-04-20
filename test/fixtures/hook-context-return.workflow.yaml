@@ -1,0 +1,22 @@
+id: hook-context-return
+version: "1.0.0"
+name: "Hook Context Return"
+description: "onEnter hook that returns context updates — exercises the hook-side cap path."
+startNode: start
+
+context:
+  seeded: false
+
+nodes:
+  start:
+    type: action
+    description: "Start — built-in memory_status hook returns context keys"
+    onEnter:
+      - call: memory_status
+    edges:
+      - target: done
+        label: next
+
+  done:
+    type: terminal
+    description: "Done"

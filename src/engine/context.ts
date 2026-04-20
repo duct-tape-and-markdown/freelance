@@ -28,6 +28,78 @@ export function applyContextUpdates(session: SessionState, updates: Record<strin
   }
 }
 
+/**
+ * Size caps on context writes. See `enforceContextCaps` for the check
+ * path. A bad write (from a misbehaving hook or a runaway
+ * `freelance_context_set`) persists server-side and echoes in every
+ * subsequent response — caps prevent the blowup from ever landing.
+ */
+export interface ContextCaps {
+  /** Serialized-JSON byte cap per value. */
+  readonly maxValueBytes: number;
+  /** Serialized-JSON byte cap for the whole context after the write applies. */
+  readonly maxTotalBytes: number;
+}
+
+export const DEFAULT_CONTEXT_CAPS: ContextCaps = {
+  maxValueBytes: 4 * 1024,
+  maxTotalBytes: 64 * 1024,
+};
+
+/**
+ * Fill in a partial cap config with defaults. Lets callers (CLI / MCP
+ * bootstrap) forward user config that may specify one cap, both, or
+ * neither, and still produce a concrete `ContextCaps` for the runtime.
+ */
+export function resolveContextCaps(partial?: {
+  maxValueBytes?: number;
+  maxTotalBytes?: number;
+}): ContextCaps {
+  return {
+    maxValueBytes: partial?.maxValueBytes ?? DEFAULT_CONTEXT_CAPS.maxValueBytes,
+    maxTotalBytes: partial?.maxTotalBytes ?? DEFAULT_CONTEXT_CAPS.maxTotalBytes,
+  };
+}
+
+/**
+ * Reject an incoming context write if any individual value or the
+ * projected total exceeds its cap. Throws `EngineError` with codes
+ * `CONTEXT_VALUE_TOO_LARGE` / `CONTEXT_TOTAL_TOO_LARGE` so callers can
+ * surface structured errors. Must be called *before*
+ * `applyContextUpdates` so a failing write leaves the session state
+ * untouched.
+ *
+ * `undefined` values serialize to nothing (JSON.stringify returns
+ * undefined) — we treat them as no-ops rather than errors so the shape
+ * matches how JSON serialization already handles missing keys.
+ */
+export function enforceContextCaps(
+  currentContext: Readonly<Record<string, unknown>>,
+  updates: Record<string, unknown>,
+  caps: ContextCaps,
+): void {
+  for (const [key, value] of Object.entries(updates)) {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) continue;
+    const bytes = Buffer.byteLength(serialized, "utf8");
+    if (bytes > caps.maxValueBytes) {
+      throw new EngineError(
+        `Context value "${key}" is ${bytes} bytes, exceeds per-value cap of ${caps.maxValueBytes} bytes (context.maxValueBytes).`,
+        "CONTEXT_VALUE_TOO_LARGE",
+      );
+    }
+  }
+
+  const projected = { ...currentContext, ...updates };
+  const totalBytes = Buffer.byteLength(JSON.stringify(projected), "utf8");
+  if (totalBytes > caps.maxTotalBytes) {
+    throw new EngineError(
+      `Context total would be ${totalBytes} bytes after write, exceeds cap of ${caps.maxTotalBytes} bytes (context.maxTotalBytes).`,
+      "CONTEXT_TOTAL_TOO_LARGE",
+    );
+  }
+}
+
 export function enforceStrictContext(def: GraphDefinition, updates: Record<string, unknown>): void {
   if (!def.strictContext) return;
   const declaredKeys = new Set(Object.keys(def.context ?? {}));

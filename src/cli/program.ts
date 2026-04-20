@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Command, Option } from "commander";
 import { loadConfigFromDirs } from "../config.js";
+import { resolveContextCaps } from "../engine/context.js";
 import { loadGraphsGraceful, resolveGraphsDirs, resolveSourceRoot } from "../graph-resolution.js";
 import { getSealedGraphs } from "../memory/sealed.js";
 import { extractSection } from "../section-resolver.js";
@@ -220,6 +221,7 @@ program
       memory: memoryConfig ?? undefined,
       stateDir,
       hookTimeoutMs: config.hooks.timeoutMs,
+      contextCaps: resolveContextCaps(config.context),
     });
   });
 

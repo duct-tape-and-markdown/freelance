@@ -12,6 +12,7 @@ import type { Runtime } from "../compose.js";
 import { buildMemoryStore, composeRuntime } from "../compose.js";
 import type { FreelanceConfig } from "../config.js";
 import { loadConfigFromDirs } from "../config.js";
+import { resolveContextCaps } from "../engine/context.js";
 import { loadGraphsGraceful, resolveGraphsDirs, resolveSourceRoot } from "../graph-resolution.js";
 import type { MemoryConfig, MemoryStore } from "../memory/index.js";
 import { extractSection } from "../section-resolver.js";
@@ -195,6 +196,7 @@ export function createTraversalStore(opts: CliSetupOptions): {
     memory: memConfig,
     maxDepth: opts.maxDepth ?? fileConfig.maxDepth ?? 5,
     hookTimeoutMs: fileConfig.hooks.timeoutMs,
+    contextCaps: resolveContextCaps(fileConfig.context),
   });
 
   return { store: runtime.store, setup, runtime };

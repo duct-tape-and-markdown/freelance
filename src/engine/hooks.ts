@@ -22,7 +22,13 @@ import type {
 } from "../memory/types.js";
 import type { GraphDefinition, SessionState } from "../types.js";
 import { BUILTIN_HOOKS } from "./builtin-hooks.js";
-import { applyContextUpdates, enforceStrictContext } from "./context.js";
+import {
+  applyContextUpdates,
+  type ContextCaps,
+  DEFAULT_CONTEXT_CAPS,
+  enforceContextCaps,
+  enforceStrictContext,
+} from "./context.js";
 
 /**
  * Narrow read interface the hook runner exposes to hooks. Built-ins
@@ -98,17 +104,24 @@ export interface HookRunnerOptions {
   readonly hookTimeoutMs?: number;
   /** Test override. Falls back to the package's BUILTIN_HOOKS map. */
   readonly builtinHooks?: ReadonlyMap<string, HookFn>;
+  /**
+   * Byte caps enforced on hook return values before they merge into
+   * session context. Defaults to `DEFAULT_CONTEXT_CAPS`.
+   */
+  readonly contextCaps?: ContextCaps;
 }
 
 export class HookRunner {
   private readonly memory?: HookMemoryAccess;
   private readonly hookTimeoutMs: number;
   private readonly builtinHooks: ReadonlyMap<string, HookFn>;
+  private readonly contextCaps: ContextCaps;
 
   constructor(options: HookRunnerOptions = {}) {
     this.memory = options.memory;
     this.hookTimeoutMs = options.hookTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS;
     this.builtinHooks = options.builtinHooks ?? BUILTIN_HOOKS;
+    this.contextCaps = options.contextCaps ?? DEFAULT_CONTEXT_CAPS;
   }
 
   /**
@@ -179,6 +192,7 @@ export class HookRunner {
       }
 
       enforceStrictContext(graphDef, result);
+      enforceContextCaps(session.context, result, this.contextCaps);
       applyContextUpdates(session, result);
     }
   }

@@ -5,6 +5,7 @@
  */
 
 import crypto from "node:crypto";
+import type { ContextCaps } from "../engine/context.js";
 import type { HookRunner } from "../engine/hooks.js";
 import { GraphEngine } from "../engine/index.js";
 import { EngineError } from "../errors.js";
@@ -45,16 +46,18 @@ export class TraversalStore {
   private graphs: Map<string, ValidatedGraph>;
   private maxDepth: number;
   private hookRunner: HookRunner;
+  private contextCaps?: ContextCaps;
 
   constructor(
     state: StateStore,
     graphs: Map<string, ValidatedGraph>,
-    options: { maxDepth?: number; hookRunner: HookRunner },
+    options: { maxDepth?: number; hookRunner: HookRunner; contextCaps?: ContextCaps },
   ) {
     this.state = state;
     this.graphs = graphs;
     this.maxDepth = options.maxDepth ?? 5;
     this.hookRunner = options.hookRunner;
+    this.contextCaps = options.contextCaps;
   }
 
   close(): void {
@@ -257,6 +260,7 @@ export class TraversalStore {
     return new GraphEngine(this.graphs, {
       maxDepth: this.maxDepth,
       hookRunner: this.hookRunner,
+      ...(this.contextCaps ? { contextCaps: this.contextCaps } : {}),
     });
   }
 

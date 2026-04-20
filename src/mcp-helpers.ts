@@ -22,10 +22,15 @@ export function errorResponse(message: string, detail?: unknown) {
  * Catch-all error handler for tool handlers. EngineError messages are
  * domain errors meant for the agent; anything else is prefixed
  * "Internal error:" so users can tell a bug from a usage issue.
+ *
+ * When the thrown error is an EngineError, the response payload
+ * includes its `code` alongside `error` so callers can branch on the
+ * machine-readable code (e.g. CONTEXT_VALUE_TOO_LARGE) rather than
+ * string-matching the message.
  */
 export function handleError(e: unknown) {
   if (e instanceof EngineError) {
-    return errorResponse(e.message);
+    return errorResponse(e.message, { error: e.message, code: e.code });
   }
   const message = e instanceof Error ? e.message : String(e);
   return errorResponse(`Internal error: ${message}`);

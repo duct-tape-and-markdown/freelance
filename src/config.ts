@@ -55,10 +55,18 @@ const hooksSchema = z
   })
   .optional();
 
+const contextSchema = z
+  .object({
+    maxValueBytes: z.number().int().positive().optional(),
+    maxTotalBytes: z.number().int().positive().optional(),
+  })
+  .optional();
+
 const configSchema = z.object({
   workflows: z.array(z.string()).optional(),
   memory: memorySchema,
   hooks: hooksSchema,
+  context: contextSchema,
   maxDepth: z.number().int().positive().optional(),
 });
 
@@ -76,6 +84,10 @@ export interface FreelanceConfig {
   };
   hooks: {
     timeoutMs?: number;
+  };
+  context: {
+    maxValueBytes?: number;
+    maxTotalBytes?: number;
   };
   /** Max subgraph stack depth. CLI `--max-depth` overrides this. */
   maxDepth?: number;
@@ -147,6 +159,10 @@ function mergeConfigs(
     merged.hooks = { ...(base.hooks ?? {}), ...overlay.hooks };
   }
 
+  if (overlay.context) {
+    merged.context = { ...(base.context ?? {}), ...overlay.context };
+  }
+
   if (overlay.maxDepth !== undefined) {
     merged.maxDepth = overlay.maxDepth;
   }
@@ -166,6 +182,10 @@ function toFreelanceConfig(merged: FreelanceConfigFile, sources: string[]): Free
     },
     hooks: {
       timeoutMs: merged.hooks?.timeoutMs,
+    },
+    context: {
+      maxValueBytes: merged.context?.maxValueBytes,
+      maxTotalBytes: merged.context?.maxTotalBytes,
     },
     maxDepth: merged.maxDepth,
     sources,
@@ -205,7 +225,7 @@ export function loadConfig(freelanceDir: string): FreelanceConfig {
  */
 export function loadConfigFromDirs(dirs: string[]): FreelanceConfig {
   if (dirs.length === 0) {
-    return { workflows: [], memory: {}, hooks: {}, sources: [] };
+    return { workflows: [], memory: {}, hooks: {}, context: {}, sources: [] };
   }
 
   let mergedFile: FreelanceConfigFile = {};
