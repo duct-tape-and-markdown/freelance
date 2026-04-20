@@ -8,7 +8,7 @@ export function registerGuideTool(server: McpServer): void {
     "freelance_guide",
     {
       description:
-        "Authoring guidance for writing .workflow.yaml graph definitions — schema, conditions, subgraphs, source bindings, edge semantics, and common mistakes. Use this when you're creating or refining a workflow graph (for example, after freelance_distill hands you an authoring prompt). NOT the right tool when you're asked to run an existing workflow — for that, call freelance_list and freelance_start. Call with no topic to see the table of contents.",
+        "Reference guide for workflow authoring (schema, edges, subgraphs, hooks, meta, anti-patterns) and for orientation on the sealed memory workflows (memory:compile, memory:recall). Not the right tool to run an existing workflow — for that, call freelance_list and freelance_start. Call with no topic for the table of contents.",
       inputSchema: {
         topic: z.string().optional(),
       },

@@ -11,7 +11,7 @@ export function registerStartTool(server: McpServer, deps: FreelanceToolDeps): v
     "freelance_start",
     {
       description:
-        "Begin a new traversal of a workflow graph — this creates a server-side state machine rooted at the graph's start node. Returns a traversalId which is passed to advance/inspect/context_set (or omitted when there's only one active traversal). Call freelance_list first to see available graphs. initialContext is an optional map of key/value pairs the workflow's conditions and instructions can reference from the first node onward. meta is an optional map of opaque string tags (e.g. `{ externalKey: 'DEV-1234' }`) that Freelance indexes but never interprets — they surface on list/inspect/advance responses so external callers can find this traversal by their own business key. If the graph declares `requiredMeta`, start will reject calls that don't supply those keys (unless the start node's onEnter hooks set them). See `freelance_guide meta`.",
+        "Start a new traversal of a workflow graph. Returns the start node's instructions and a traversalId (omit on subsequent calls when only one traversal is active). Pass initialContext for seed state, meta for external lookup tags (ticket id, PR url). If the graph declares requiredMeta, start rejects calls missing those keys. See `freelance_guide meta`.",
       inputSchema: {
         graphId: z.string().min(1),
         initialContext: z.record(z.string(), z.unknown()).optional(),
