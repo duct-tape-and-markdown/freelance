@@ -216,26 +216,11 @@ export class TraversalStore {
 
   inspect(
     traversalId: string,
-    detail?: "position" | "history" | "full",
+    detail?: "position" | "history",
     fields?: readonly InspectField[],
   ): { traversalId: string; meta: Record<string, string> } & InspectResult {
     const { engine, record } = this.loadEngine(traversalId);
-    // Deprecation alias: `detail: "full"` is legacy — it was the
-    // monolithic "ship everything including the entire GraphDefinition"
-    // knob. Now the caller composes `detail` (state-level) with
-    // explicit `fields` (projection-level). Coerce here so both the
-    // MCP tool and CLI get consistent behavior for in-flight callers.
-    let resolvedDetail: "position" | "history";
-    let resolvedFields: readonly InspectField[] | undefined = fields;
-    if (detail === "full") {
-      resolvedDetail = "position";
-      const merged = new Set<InspectField>(fields ?? []);
-      merged.add("definition");
-      resolvedFields = Array.from(merged);
-    } else {
-      resolvedDetail = detail ?? "position";
-    }
-    const result = engine.inspect(resolvedDetail, resolvedFields);
+    const result = engine.inspect(detail, fields);
     return { traversalId, meta: record.meta ?? EMPTY_META, ...result };
   }
 

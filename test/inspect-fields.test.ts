@@ -1,8 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { HookRunner } from "../src/engine/hooks.js";
-import { GraphEngine } from "../src/engine/index.js";
-import { loadFixtureGraphs, makeEngine as sharedMakeEngine } from "./helpers.js";
+import type { GraphEngine } from "../src/engine/index.js";
+import { makeEngine as sharedMakeEngine } from "./helpers.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
@@ -124,25 +123,5 @@ describe("inspect fields are composable", () => {
     const result = engine.inspect("history", ["currentNode"]);
     expect("traversalHistory" in result).toBe(true);
     expect(result.currentNodeDefinition).toBeDefined();
-  });
-});
-
-describe("TraversalStore inspect: detail=full deprecation alias", () => {
-  // Exercises the store's back-compat coercion. New callers should use
-  // detail: "position", fields: ["definition"] directly.
-  it("detail: 'full' coerces to position + fields:['definition']", async () => {
-    // Use a direct engine test instead of spinning up the full store —
-    // the coercion logic lives in TraversalStore but is conceptually
-    // the same as calling engine.inspect("position", ["definition"]).
-    const engine = new GraphEngine(
-      loadFixtureGraphs(FIXTURES_DIR, "inspect-fields-alias-test-", "valid-simple.workflow.yaml"),
-      { hookRunner: new HookRunner() },
-    );
-    await engine.start("valid-simple");
-    const result = engine.inspect("position", ["definition"]);
-    expect(result.definition).toBeDefined();
-    expect(result.definition?.id).toBe("valid-simple");
-    expect(result.currentNode).toBe("start");
-    expect("node" in result).toBe(true); // position-shaped
   });
 });

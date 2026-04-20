@@ -232,31 +232,13 @@ describe("TraversalStore — stateless JSON", () => {
       store.contextSet(r.traversalId, { taskStarted: true });
       await store.advance(r.traversalId, "work-done");
 
-      for (const detail of ["position", "full", "history"] as const) {
+      for (const detail of ["position", "history"] as const) {
         const result = store.inspect(r.traversalId, detail);
         expect(result.meta).toEqual({
           externalKey: "DEV-1234",
           prUrl: "https://example/pr/7",
         });
       }
-    });
-
-    it("inspect detail: 'full' (legacy alias) coerces to position + fields:['definition']", async () => {
-      const r = await store.createTraversal("valid-simple");
-      const result = store.inspect(r.traversalId, "full");
-      // Shape is position-based (has `node` + `validTransitions`)
-      expect("node" in result).toBe(true);
-      expect("validTransitions" in result).toBe(true);
-      // And the definition projection is included
-      expect(result.definition).toBeDefined();
-      expect(result.definition?.id).toBe("valid-simple");
-    });
-
-    it("inspect 'full' + explicit fields merges both (dedup preserved)", async () => {
-      const r = await store.createTraversal("valid-simple");
-      const result = store.inspect(r.traversalId, "full", ["currentNode"]);
-      expect(result.definition).toBeDefined();
-      expect(result.currentNodeDefinition).toBeDefined();
     });
 
     it("inspect returns empty meta when none was set (always-present convention)", async () => {

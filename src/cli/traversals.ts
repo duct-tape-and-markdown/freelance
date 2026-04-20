@@ -254,11 +254,7 @@ export function traversalInspect(
 ): void {
   try {
     const id = store.resolveTraversalId(traversalId);
-    // Accept "full" as a legacy alias — the store coerces it into
-    // position + fields:["definition"]. Everything else falls back to
-    // "position" so a typo doesn't silently become history.
-    const validDetail =
-      detail === "full" || detail === "history" || detail === "position" ? detail : "position";
+    const validDetail = detail === "history" ? "history" : "position";
     const raw = store.inspect(id, validDetail);
     if (cli.json) {
       outputJson(raw);
@@ -274,7 +270,6 @@ export function traversalInspect(
           info(`    ${h.node} (${h.edge ?? "start"})`);
         }
       } else {
-        // position (and legacy full, which coerces to position + definition)
         const pos = raw as { traversalId: string } & InspectPositionResult;
         if (pos.node.description) {
           info(`  Description: ${pos.node.description}`);
@@ -286,9 +281,6 @@ export function traversalInspect(
               `    ${t.label}${t.target ? ` → ${t.target}` : ""}${t.conditionMet === false ? " (condition not met)" : ""}`,
             );
           }
-        }
-        if (validDetail === "full") {
-          info(`  Context: ${JSON.stringify(pos.context)}`);
         }
       }
     }

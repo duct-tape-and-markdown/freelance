@@ -9,17 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`freelance_inspect` separates state from projection.** `detail` no
-  longer carries the "ship everything" semantics — it's now just
-  `"position"` (default) or `"history"`. A new optional `fields`
-  parameter projects graph-structure pieces on top: `currentNode`
-  (full NodeDefinition of the active node), `neighbors` (one-edge-away
-  NodeDefinitions), `contextSchema` (declared schema), `definition`
-  (entire GraphDefinition — the escape hatch). The old `detail: "full"`
-  was the single largest response any tool emitted, and the caller
-  almost never actually wanted every node in the graph. `full` is kept
-  as a deprecation alias that coerces to `position + fields:
-  ["definition"]` so in-flight callers don't break. See issue #85.
+- **`freelance_inspect` separates state from projection (BREAKING).**
+  `detail` is now just `"position"` (default) or `"history"` — `"full"`
+  is removed. A new optional `fields` parameter projects graph-
+  structure pieces on top: `currentNode` (full NodeDefinition of the
+  active node), `neighbors` (one-edge-away NodeDefinitions),
+  `contextSchema` (declared schema), `definition` (entire
+  GraphDefinition — the escape hatch). The old `detail: "full"` was
+  the single largest response any tool emitted, and the caller almost
+  never actually wanted every node in the graph. Callers should
+  replace `detail: "full"` with `fields: ["definition"]` (and
+  typically with a narrower projection like `fields: ["currentNode"]`
+  or `["neighbors"]`). See issue #85.
 
 ### Added
 
