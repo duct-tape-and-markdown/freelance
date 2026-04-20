@@ -10,7 +10,7 @@ export function registerMetaSetTool(server: McpServer, deps: FreelanceToolDeps):
     "freelance_meta_set",
     {
       description:
-        "Merge opaque tags into a traversal's `meta`. Use this when a lookup key (e.g. a PR url, a branch name) only becomes known mid-traversal. New keys are added, existing keys are overwritten. Freelance never interprets the keys or values — they exist purely so external systems can find the traversal by their own business key. Returns the full merged meta.",
+        "Merge string tags into a traversal's meta map. Use when a lookup key (PR url, branch) becomes known mid-traversal. See `freelance_guide meta`.",
       inputSchema: {
         traversalId: z.string().optional(),
         meta: z.record(z.string(), z.string()).refine((m) => Object.keys(m).length > 0, {

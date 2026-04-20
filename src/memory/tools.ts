@@ -35,36 +35,25 @@ export function registerMemoryTools(
     "memory_emit",
     {
       description:
-        "Write propositions to the knowledge graph. Each proposition is one atomic factual claim. Apply the independence test: if either half of a candidate claim could be true while the other is false, it's two propositions, not one. Exception: relationship claims like 'A depends on B' — the edge IS the knowledge; atomizing them destroys graph connectivity. The entities array names every entity the claim is about (1-4): one for subject-verb claims, multiple for relationships. Sources are required, hashed at emit time, and attached per-proposition for drift detection. Dedup is by normalized content hash — same claim with varying case or trailing punctuation is a no-op. Entities resolve by exact then case-insensitive name. Gated: requires an active workflow traversal — start one first.",
+        "Write propositions to the knowledge graph. Each proposition is one atomic claim with 1-4 entities and at least one source file. Deduped by normalized content hash. Requires an active workflow traversal. See `freelance_guide memory-tools` for authoring rules.",
       inputSchema: {
         propositions: z
           .array(
             z.object({
-              content: z
-                .string()
-                .min(1)
-                .describe(
-                  "One atomic factual claim. If either half could be true while the other is false, emit two propositions instead. Exception: relationship claims ('A depends on B') — keep the edge intact.",
-                ),
+              content: z.string().min(1).describe("One atomic factual claim."),
               entities: z
                 .array(z.string().min(1))
                 .min(1)
                 .max(4)
-                .describe(
-                  "Every entity the claim is about (1-4). One for subject-verb claims; two or more for relationships. Multi-entity props drive graph density via shared edges — reuse existing entity names verbatim where they apply.",
-                ),
+                .describe("Entities this claim is about (1-4). Reuse existing names verbatim."),
               sources: z
                 .array(z.string().min(1))
                 .min(1)
-                .describe(
-                  "Source file paths this proposition was derived from (relative to source root). Each file is hashed at emit time for per-proposition provenance.",
-                ),
+                .describe("Source file paths (relative to source root). Hashed at emit time."),
               entityKinds: z
                 .record(z.string(), z.string())
                 .optional()
-                .describe(
-                  "Map of entity name to kind (e.g. function, class, type, interface, enum). Sets kind on entity creation.",
-                ),
+                .describe("Map of entity name to kind (e.g. function, class, module)."),
             }),
           )
           .min(1),
@@ -87,7 +76,7 @@ export function registerMemoryTools(
     "memory_browse",
     {
       description:
-        "Find entities by name (partial, case-insensitive), kind, or both. Returns each entity with its total proposition count and its valid (non-stale) count. Orphan entities (valid_proposition_count is 0) are hidden by default — see includeOrphans. Stale propositions happen when source files drift on disk — to refresh, re-run the memory:compile workflow against the changed sources. Use this for 'what entities exist matching X?'; use memory_search instead for 'what propositions mention X?'.",
+        "Find entities by name (partial, case-insensitive) or kind. Returns proposition counts per entity. Orphans hidden by default. For proposition-level text search, use memory_search.",
       inputSchema: {
         name: z.string().optional().describe("Partial name match (case-insensitive)"),
         kind: z.string().optional().describe("Filter by entity kind"),
@@ -96,9 +85,7 @@ export function registerMemoryTools(
         includeOrphans: z
           .boolean()
           .optional()
-          .describe(
-            "Include entities whose valid_proposition_count is 0 (every linked proposition is stale or the entity has no propositions). Default false — orphans are hidden so the returned vocabulary reflects what the current sources support.",
-          ),
+          .describe("Include entities with no valid propositions. Default false."),
       },
     },
     ({ name, kind, limit, offset, includeOrphans }) => {
@@ -114,7 +101,7 @@ export function registerMemoryTools(
     "memory_inspect",
     {
       description:
-        "Full details for a single entity: valid propositions about it (ordered by creation time), co-occurring neighbor entities via shared propositions, and the deduped list of source files that produced any of its propositions. Entity can be specified by id, exact name, or case-insensitive name (resolved in that priority). Use source_files to navigate to provenance, or neighbors to explore the knowledge graph sideways. Stale propositions are refreshed by re-running memory:compile against the changed sources.",
+        "Full details for one entity: valid propositions, neighbor entities, and source files. Resolve by id, exact name, or case-insensitive name.",
       inputSchema: {
         entity: z.string().min(1).describe("Entity ID or name"),
       },
@@ -132,7 +119,7 @@ export function registerMemoryTools(
     "memory_by_source",
     {
       description:
-        "Return every proposition whose sources list includes the given file path. Use this to audit what claims a file produced — e.g. after editing a file, see which propositions are now stale and may need re-compilation; or before deleting a file, see what knowledge depends on it. Both valid and stale propositions are included (each has a valid flag). Path may be relative to the source root or absolute.",
+        "Return propositions sourced from a given file path. Shows both valid and stale entries. Use to audit what knowledge a file produced.",
       inputSchema: {
         filePath: z.string().min(1).describe("File path (relative to source root or absolute)"),
       },
@@ -150,7 +137,7 @@ export function registerMemoryTools(
     "memory_search",
     {
       description:
-        "Full-text search across proposition content via SQLite FTS5, ranked by relevance. Returns matching propositions with their entities and validity status. Query syntax: plain words separated by spaces are OR'd; \"double-quoted phrases\" match exact sequences; prefix* matches word prefixes. Use this for 'what propositions mention X?'; use memory_browse instead for 'what entities exist matching X?'. If a search misses but you later discover the answer through other means, that's a signal memory has a gap — consider running memory:compile against the relevant sources to fill it.",
+        "Full-text search across propositions via FTS5, ranked by relevance. For entity-level lookup, use memory_browse. See `freelance_guide memory-tools` for query syntax.",
       inputSchema: {
         query: z
           .string()
@@ -172,7 +159,7 @@ export function registerMemoryTools(
     "memory_related",
     {
       description:
-        "Show entities related to a given one via shared propositions — two entities are 'related' if at least one proposition names both. Returns neighbors ranked by count of valid shared propositions, each with a sample proposition showing the relationship in context. Use this to navigate the knowledge graph sideways during recall: start from a known entity, follow co-occurrences, jump to adjacent concepts without inspecting each entity individually.",
+        "Show entities related to a given one via shared propositions. Returns neighbors ranked by shared proposition count with a sample proposition each.",
       inputSchema: {
         entity: z.string().min(1).describe("Entity ID or name"),
       },
@@ -190,7 +177,7 @@ export function registerMemoryTools(
     "memory_status",
     {
       description:
-        "Health check for the knowledge graph: total propositions, valid (non-stale) count, stale count, and total entities. A high stale count means source files have drifted — consider running memory:compile to refresh. A low stale count means memory is current. Useful at session start (how much knowledge is here?), after file edits (what did my changes invalidate?), or before a recall workflow (is this worth querying?).",
+        "Knowledge graph health check: total/valid/stale proposition counts and entity count.",
       inputSchema: {},
     },
     () => {
@@ -206,13 +193,13 @@ export function registerMemoryTools(
     "memory_prune",
     {
       description:
-        "Scope-bounded delete of proposition_sources rows whose content_hash doesn't match the file at any --keep ref tip (or current disk). Uses git cat-file to read ref blobs without touching the working tree; no branch switching. Rebase/squash/amend robust because it checks tree content, not commit reachability. Unresolvable --keep refs hard-error before touching the db. Intended for manual, user-initiated cleanup — not wired into memory:compile or memory:recall. Gated: requires an active workflow traversal.",
+        "Delete stale proposition_sources whose content_hash doesn't match any --keep ref tip or working tree. Uses git cat-file — no branch switching. Requires an active workflow traversal.",
       inputSchema: {
         keep: z
           .array(z.string().min(1))
           .min(1)
           .describe(
-            "Preserve refs — anything git rev-parse accepts (branches, tags, remote refs, raw SHAs). A row is preserved when its content_hash matches the file at the tip of any of these refs or the current working tree.",
+            "Git refs to preserve (branches, tags, SHAs). Rows matching any ref tip are kept.",
           ),
         dryRun: z
           .boolean()
@@ -235,11 +222,9 @@ export function registerMemoryTools(
     "memory_reset",
     {
       description:
-        "Clear all propositions and entities from the knowledge graph. Operates on the live database handle — safe to call while the MCP is running (no split-brain from deleting files on disk). Requires confirm: true as a guard against accidental resets. Not gated by an active traversal — this is an admin/maintenance operation.",
+        "Clear all propositions and entities from the knowledge graph. Requires confirm: true. Irreversible.",
       inputSchema: {
-        confirm: z
-          .boolean()
-          .describe("Must be true to proceed — deliberate guard against accidents"),
+        confirm: z.boolean().describe("Must be true to proceed."),
       },
     },
     ({ confirm }) => {

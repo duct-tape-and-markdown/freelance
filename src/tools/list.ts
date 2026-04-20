@@ -9,7 +9,7 @@ export function registerListTool(server: McpServer, deps: FreelanceToolDeps): vo
     "freelance_list",
     {
       description:
-        "Discover what Freelance workflows are available. Returns the set of loaded graph definitions (each with id, name, version, nodeCount) plus any active traversals already running. Call this first in any session that might use Freelance — it's the cheapest way to answer 'what can I run?' and 'am I already mid-workflow?' If any .workflow.yaml files failed to load, the result includes a loadErrors array; call freelance_validate for the specific parse or topology errors.",
+        "List loaded workflow graphs and any active traversals. Call first to discover available graphs or resume an in-progress traversal. Includes loadErrors when .workflow.yaml files failed to parse.",
       inputSchema: {},
     },
     () => {

@@ -8,6 +8,8 @@ export const GUIDE_TOPICS = [
   "onenter-hooks",
   "multi-agent",
   "meta",
+  "memory-tools",
+  "sources",
   "anti-patterns",
 ] as const;
 
@@ -497,6 +499,83 @@ Start with \`externalKey\` only. After the PR is opened, call \`freelance_meta_s
 - **Set the primary key at start.** It signals intent and avoids "tagged later or never?" ambiguity in your data.
 - **Treat meta as immutable in spirit.** \`meta_set\` allows overwrites for legitimate updates (renamed branch, replaced PR), but routine workflow logic shouldn't churn meta.
 - **Don't duplicate context in meta.** Pick one home per value. Meta is for external lookup; context is for workflow execution.`,
+
+  "memory-tools": `# Memory Tools
+
+The memory tools (\`memory_emit\`, \`memory_browse\`, \`memory_inspect\`, \`memory_search\`, \`memory_related\`, \`memory_by_source\`, \`memory_status\`, \`memory_prune\`, \`memory_reset\`) operate on a persistent knowledge graph backed by SQLite.
+
+## Proposition authoring rules
+
+Each proposition passed to \`memory_emit\` is one **atomic factual claim**. Apply the independence test: if either half of a candidate claim could be true while the other is false, it's two propositions, not one.
+
+**Exception:** relationship claims like "A depends on B" — the edge IS the knowledge; atomizing them destroys graph connectivity.
+
+### Entities
+
+The \`entities\` array names every entity the claim is about (1-4):
+- **One** for subject-verb claims ("Module X handles authentication")
+- **Two or more** for relationships ("Module X imports Module Y")
+
+Multi-entity propositions drive graph density via shared edges. Reuse existing entity names verbatim where they apply — spelling variations create duplicate nodes.
+
+### Sources
+
+Every proposition requires at least one source file path (relative to the source root). Files are hashed at emit time for per-proposition provenance and drift detection.
+
+### Dedup
+
+Dedup is by normalized content hash — the same claim with varying case or trailing punctuation is silently skipped. Entity resolution: exact name match first, then case-insensitive.
+
+## FTS5 query syntax (memory_search)
+
+\`memory_search\` uses SQLite FTS5 for full-text search across proposition content, ranked by relevance.
+
+- Plain words separated by spaces are **OR'd**
+- \`"double-quoted phrases"\` match exact sequences
+- \`prefix*\` matches word prefixes
+- Results include entities, validity status, and source files
+
+Use \`memory_search\` for "what propositions mention X?" and \`memory_browse\` for "what entities exist matching X?"
+
+## Write gating
+
+\`memory_emit\` and \`memory_prune\` require an active workflow traversal (typically \`memory:compile\` or a user-authored graph). Read tools (\`memory_browse\`, \`memory_inspect\`, etc.) are always available.
+
+## Staleness
+
+A proposition becomes stale when its source file's content hash no longer matches the hash recorded at emit time. Use \`memory_status\` to check the stale count, and re-run \`memory:compile\` against changed sources to refresh.`,
+
+  sources: `# Source Provenance
+
+Source bindings connect workflow nodes to the files they reference. Each binding includes a content hash for drift detection.
+
+## Workflow
+
+1. **Stamp hashes** — \`freelance_sources_hash\` generates content hashes for {path, section?} pairs
+2. **Check specific hashes** — \`freelance_sources_check\` verifies a list of {path, section?, hash} triples against disk
+3. **Validate all graphs** — \`freelance_sources_validate\` walks every source binding in loaded graphs and reports drift
+
+## When to use each tool
+
+| Tool | Use case |
+|------|----------|
+| \`freelance_sources_hash\` | Authoring: stamp a new binding while writing a node |
+| \`freelance_sources_check\` | CI or audit: check a specific set of hashes |
+| \`freelance_sources_validate\` | Health check: validate all graphs after a pull or before a release |
+
+## Path resolution
+
+Source paths are relative to the **source root** (parent of the first graphsDir). See \`freelance_guide conventions\` for details.
+
+## Section hashing
+
+If a section name is provided and a section resolver is configured (e.g. Markdown heading extraction), only that section's content is hashed. Otherwise the full file is hashed.
+
+## Provenance is a build concern
+
+Source validation at runtime is opt-in. The primary validation points are:
+- **CLI**: \`freelance validate <dir> --sources\` (add \`--fix\` to restamp in-place)
+- **MCP**: \`freelance_sources_validate\` for on-demand checks`,
 
   "anti-patterns": `# Anti-Patterns
 

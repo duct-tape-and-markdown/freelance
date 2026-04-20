@@ -13,7 +13,7 @@ export function registerSourcesValidateTool(server: McpServer, deps: FreelanceTo
     "freelance_sources_validate",
     {
       description:
-        "Walk every source binding in every loaded graph (or a single graph if graphId is passed) and report drift against the current filesystem. Broader than freelance_sources_check — you don't pass hashes explicitly; this tool reads them from the graph definitions directly. Use when you want an at-a-glance health check of all provenance: run it after a pull, before a release, or when diagnosing why a workflow is behaving unexpectedly against current sources. Returns per-node drift reports with expected vs actual hashes.",
+        "Validate all source bindings across loaded graphs (or one graph by graphId) against the filesystem. Reports per-node drift with expected vs actual hashes. See `freelance_guide sources`.",
       inputSchema: {
         graphId: z.string().optional(),
       },
