@@ -15,6 +15,9 @@ import {
   applyContextUpdates,
   buildContextSetResult,
   buildInspectResult,
+  type ContextCaps,
+  DEFAULT_CONTEXT_CAPS,
+  enforceContextCaps,
   enforceStrictContext,
 } from "./context.js";
 import {
@@ -38,12 +41,20 @@ export interface GraphEngineOptions {
    * library use).
    */
   hookRunner: HookRunner;
+  /**
+   * Byte caps on context writes. Applied to `start`'s initialContext,
+   * `advance`'s contextUpdates, and `contextSet`. Hook return values
+   * are capped inside the HookRunner so the runner owns that path
+   * end-to-end. Defaults to `DEFAULT_CONTEXT_CAPS` when omitted.
+   */
+  contextCaps?: ContextCaps;
 }
 
 export class GraphEngine {
   private stack: SessionState[] = [];
   private maxDepth: number;
   private hookRunner: HookRunner;
+  private contextCaps: ContextCaps;
 
   constructor(
     private graphs: Map<string, ValidatedGraph>,
@@ -51,6 +62,7 @@ export class GraphEngine {
   ) {
     this.maxDepth = options.maxDepth ?? 5;
     this.hookRunner = options.hookRunner;
+    this.contextCaps = options.contextCaps ?? DEFAULT_CONTEXT_CAPS;
   }
 
   list(): GraphListResult {
@@ -81,8 +93,12 @@ export class GraphEngine {
     }
 
     const def = graph.definition;
+    const defaults = resolveContextDefaults(def.context ?? {});
+    if (initialContext) {
+      enforceContextCaps(defaults, initialContext, this.contextCaps);
+    }
     const context: Record<string, unknown> = {
-      ...resolveContextDefaults(def.context ?? {}),
+      ...defaults,
       ...(initialContext ?? {}),
     };
 
@@ -125,6 +141,7 @@ export class GraphEngine {
     const currentNodeDef = def.nodes[session.currentNode];
 
     if (contextUpdates) {
+      enforceContextCaps(session.context, contextUpdates, this.contextCaps);
       applyContextUpdates(session, contextUpdates);
       session.turnCount++;
     }
@@ -263,6 +280,7 @@ export class GraphEngine {
     const def = this.currentGraphDef();
 
     enforceStrictContext(def, updates);
+    enforceContextCaps(session.context, updates, this.contextCaps);
     applyContextUpdates(session, updates);
     session.turnCount++;
 

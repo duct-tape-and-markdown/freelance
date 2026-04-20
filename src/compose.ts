@@ -14,6 +14,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import type { ContextCaps } from "./engine/context.js";
 import { HookRunner } from "./engine/hooks.js";
 import { openDatabase } from "./memory/db.js";
 import type { MemoryConfig } from "./memory/index.js";
@@ -57,6 +58,12 @@ export interface ComposeConfig {
   readonly memory?: MemoryConfig | null;
   readonly maxDepth?: number;
   readonly hookTimeoutMs?: number;
+  /**
+   * Byte caps on context writes. Propagates to both the `HookRunner`
+   * (hook return values) and the `GraphEngine` (initialContext,
+   * contextUpdates, contextSet). Omit to use `DEFAULT_CONTEXT_CAPS`.
+   */
+  readonly contextCaps?: ContextCaps;
 }
 
 export interface Runtime {
@@ -172,11 +179,13 @@ export function composeRuntime(config: ComposeConfig): Runtime {
   const hookRunner = new HookRunner({
     memory: memoryStore,
     hookTimeoutMs: config.hookTimeoutMs,
+    ...(config.contextCaps ? { contextCaps: config.contextCaps } : {}),
   });
 
   const store = new TraversalStore(backend, config.graphs, {
     maxDepth: config.maxDepth,
     hookRunner,
+    ...(config.contextCaps ? { contextCaps: config.contextCaps } : {}),
   });
 
   const sourceOpts: SourceOptions = {

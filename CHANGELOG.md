@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Byte caps on context writes.** Every write to session context —
+  `freelance_context_set`, `contextUpdates` on `freelance_advance`,
+  `initialContext` on `freelance_start`, and onEnter hook return
+  values — is now checked against a per-value cap (default 4 KB) and a
+  post-merge total cap (default 64 KB). Over-cap writes throw
+  `EngineError` with codes `CONTEXT_VALUE_TOO_LARGE` or
+  `CONTEXT_TOTAL_TOO_LARGE` *before* the bad value persists, so a
+  misbehaving hook or runaway write can't silently inflate every
+  subsequent advance/inspect response. Configure via
+  `context.maxValueBytes` / `context.maxTotalBytes` in `config.yml`.
+  See issue #83.
 - **`freelance memory prune --keep <ref>` and MCP `memory_prune`** —
   manual, user-initiated cleanup for `proposition_sources`. Deletes a
   row only when its `content_hash` doesn't match the file at **any**

@@ -153,6 +153,8 @@ General precedence: **CLI flags > env vars > config.local.yml > config.yml > def
 | `memory.collections` | — | — | ✓ (concatenates) | Must be declared before emit |
 | `maxDepth` | `--max-depth` | — | ✓ | Default: `5` |
 | `hooks.timeoutMs` | — | — | ✓ | Config-only. Default: `5000` |
+| `context.maxValueBytes` | — | — | ✓ | Per-value cap on context writes. Default: `4096` (4 KB) |
+| `context.maxTotalBytes` | — | — | ✓ | Total context cap per traversal. Default: `65536` (64 KB) |
 | `sourceRoot` | `--source-root` | — | — | Computed from graphsDir if omitted |
 
 ```yaml
@@ -175,7 +177,13 @@ maxDepth: 5                         # Max subgraph nesting depth. CLI --max-dept
 
 hooks:
   timeoutMs: 5000                   # Per-hook timeout for onEnter hooks. Default 5000.
+
+context:
+  maxValueBytes: 4096               # Per-value byte cap on context writes. Default 4 KB.
+  maxTotalBytes: 65536              # Total serialized-context cap per traversal. Default 64 KB.
 ```
+
+Over-cap writes are rejected with `CONTEXT_VALUE_TOO_LARGE` or `CONTEXT_TOTAL_TOO_LARGE` errors at the `freelance_context_set`, `freelance_advance` (contextUpdates), and onEnter-hook return boundaries, so a runaway hook or context write never persists.
 
 Merge rules: arrays (`workflows`, `collections`) concatenate across files. Scalars use highest-precedence value.
 

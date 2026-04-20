@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Runtime } from "./compose.js";
 import { composeRuntime } from "./compose.js";
+import type { ContextCaps } from "./engine/context.js";
 import type { MemoryConfig } from "./memory/index.js";
 import { registerMemoryTools } from "./memory/index.js";
 import { getSealedGraphs, mergeSealedGraphs } from "./memory/sealed.js";
@@ -27,6 +28,8 @@ export interface ServerOptions {
   stateDir?: string;
   /** Max runtime per onEnter hook. Default 5000ms. */
   hookTimeoutMs?: number;
+  /** Byte caps on context writes. Omit for DEFAULT_CONTEXT_CAPS. */
+  contextCaps?: ContextCaps;
 }
 
 /**
@@ -91,6 +94,7 @@ export function createServer(
     memory: options?.memory,
     maxDepth: options?.maxDepth,
     hookTimeoutMs: options?.hookTimeoutMs,
+    ...(options?.contextCaps ? { contextCaps: options.contextCaps } : {}),
   });
   const { store: manager, memoryStore, sourceOpts } = runtime;
 
