@@ -198,12 +198,17 @@ export function memoryPrune(
   store: MemoryStore,
   opts: { keep?: string[]; dryRun?: boolean; yes?: boolean },
 ): void {
+  // `process.exit` bypasses the caller's `finally { store.close() }`,
+  // which would leak the WAL + SHM sidecar files on disk. Close here
+  // before every exit. MemoryStore.close is idempotent, so the
+  // caller's finally is a harmless no-op after this.
   if (!opts.keep || opts.keep.length === 0) {
     if (cli.json) {
       outputJson({ error: "memory prune requires --keep <ref> (repeatable)." });
     } else {
       info("memory prune requires --keep <ref> (repeatable). No default preserve set.");
     }
+    store.close();
     process.exit(2);
   }
 
@@ -226,7 +231,10 @@ export function memoryPrune(
       );
       if (!confirmed) info("Re-run with --yes to execute.");
     }
-    if (!confirmed) process.exit(2);
+    if (!confirmed) {
+      store.close();
+      process.exit(2);
+    }
   } catch (e) {
     handleError(e);
   }

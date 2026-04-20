@@ -83,11 +83,23 @@ export function readBlobsAtRefs(cwd: string, specs: string[]): Map<string, Buffe
     // byte-exact. Headers are still ASCII within the buffer.
     maxBuffer: 256 * 1024 * 1024,
   });
+  if (res.error) {
+    // Node surfaces maxBuffer overflow via the returned `error`. Throw
+    // rather than silently returning all-null — a null response here
+    // gets interpreted downstream as "not present at ref", which would
+    // classify every row as a prune candidate. Loud failure is the
+    // only safe behavior.
+    const err = res.error as NodeJS.ErrnoException;
+    if (err.code === "ENOBUFS" || err.message?.includes("maxBuffer")) {
+      throw new Error(
+        `git cat-file --batch exceeded 256MB buffer — too much blob content to hash in one batch. ` +
+          `Narrow the --keep set or split the source tree.`,
+      );
+    }
+    throw err;
+  }
   if (res.status !== 0 || !res.stdout) {
-    // Treat a failed batch as "nothing resolvable" — callers will still
-    // see their disk hashes and will just have nothing from this repo.
-    for (const s of specs) out.set(s, null);
-    return out;
+    throw new Error(`git cat-file --batch failed (status ${res.status ?? "null"})`);
   }
 
   const buf = res.stdout as Buffer;

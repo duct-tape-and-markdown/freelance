@@ -65,6 +65,11 @@ function hashFileOnDisk(absPath: string): string | null {
   }
 }
 
+/** `"?, ?, ?"` for `n=3`. Used when binding variadic `IN (...)` clauses. */
+function sqlPlaceholders(n: number): string {
+  return Array(n).fill("?").join(",");
+}
+
 export function prune(store: MemoryStore, options: PruneOptions): PruneResult {
   const { keep, dryRun = false } = options;
   if (!keep || keep.length === 0) {
@@ -139,7 +144,8 @@ export function prune(store: MemoryStore, options: PruneOptions): PruneResult {
       // A source outside the git repo can't be read via cat-file;
       // skip and let disk hashing stand alone for that file.
       if (repoPath.startsWith("..") || path.isAbsolute(repoPath)) continue;
-      const spec = `${sha}:${repoPath}`;
+      // cat-file speaks forward-slash paths; normalize Windows separators.
+      const spec = `${sha}:${repoPath.replace(/\\/g, "/")}`;
       specs.push(spec);
       specToPath.set(spec, fp);
     }
@@ -167,11 +173,10 @@ export function prune(store: MemoryStore, options: PruneOptions): PruneResult {
   let hardDeletedPropIds: string[] = [];
   if (affectedPropIds.size > 0) {
     const affectedList = [...affectedPropIds];
-    const placeholders = affectedList.map(() => "?").join(",");
     const remaining = db
       .prepare(
         `SELECT proposition_id, COUNT(*) as remaining FROM proposition_sources
-         WHERE proposition_id IN (${placeholders})
+         WHERE proposition_id IN (${sqlPlaceholders(affectedList.length)})
          GROUP BY proposition_id`,
       )
       .all(...affectedList) as Array<{ proposition_id: string; remaining: number }>;
@@ -187,7 +192,7 @@ export function prune(store: MemoryStore, options: PruneOptions): PruneResult {
 
   let entitiesOrphaned = 0;
   if (hardDeletedPropIds.length > 0) {
-    const placeholders = hardDeletedPropIds.map(() => "?").join(",");
+    const placeholders = sqlPlaceholders(hardDeletedPropIds.length);
     entitiesOrphaned = (
       db
         .prepare(
@@ -215,19 +220,26 @@ export function prune(store: MemoryStore, options: PruneOptions): PruneResult {
 
   if (dryRun || victims.length === 0) return result;
 
-  // --- 6. Execute. ---
+  // --- 6. Execute. Atomically — partial prune is worse than no prune. ---
   // Sources first, then orphaned propositions. `about` cascades via FK
   // on proposition delete; FTS via the `propositions_ad` trigger.
-  const delSource = db.prepare(
-    "DELETE FROM proposition_sources WHERE proposition_id = ? AND file_path = ?",
-  );
-  for (const v of victims) {
-    delSource.run(v.proposition_id, v.file_path);
-  }
-
-  if (hardDeletedPropIds.length > 0) {
-    const placeholders = hardDeletedPropIds.map(() => "?").join(",");
-    db.prepare(`DELETE FROM propositions WHERE id IN (${placeholders})`).run(...hardDeletedPropIds);
+  db.exec("BEGIN");
+  try {
+    const delSource = db.prepare(
+      "DELETE FROM proposition_sources WHERE proposition_id = ? AND file_path = ?",
+    );
+    for (const v of victims) {
+      delSource.run(v.proposition_id, v.file_path);
+    }
+    if (hardDeletedPropIds.length > 0) {
+      db.prepare(
+        `DELETE FROM propositions WHERE id IN (${sqlPlaceholders(hardDeletedPropIds.length)})`,
+      ).run(...hardDeletedPropIds);
+    }
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
   }
 
   return result;

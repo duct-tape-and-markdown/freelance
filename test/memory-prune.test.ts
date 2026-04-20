@@ -220,6 +220,47 @@ describe("memory prune (content-reachability)", () => {
     });
   });
 
+  describe("nested paths", () => {
+    it("resolves ref:path specs for files in subdirectories", () => {
+      fs.mkdirSync(path.join(dir, "src", "lib"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "src", "lib", "auth.ts"), "v1");
+      commitAll(dir, "nested");
+      store.emit([{ content: "nested claim", entities: ["Auth"], sources: ["src/lib/auth.ts"] }]);
+
+      // Disk matches, so preserved regardless of ref. Exercises path
+      // separator handling that would otherwise break on Windows.
+      const result = prune(store, { keep: ["main"] });
+      expect(result.rows_pruned).toBe(0);
+    });
+  });
+
+  describe("atomicity", () => {
+    it("commits all victim deletes in a single transaction", () => {
+      // Build a state where two rows should be pruned. If prune ran
+      // without a transaction and was interrupted, partial state would
+      // be observable. We can't interrupt cleanly in a sync call, so
+      // just confirm the happy-path writes land together.
+      fs.writeFileSync(path.join(dir, "a.ts"), "v1");
+      fs.writeFileSync(path.join(dir, "b.ts"), "v1");
+      commitAll(dir, "v1");
+      store.emit([
+        { content: "a claim", entities: ["A"], sources: ["a.ts"] },
+        { content: "b claim", entities: ["B"], sources: ["b.ts"] },
+      ]);
+
+      fs.writeFileSync(path.join(dir, "a.ts"), "replaced");
+      fs.writeFileSync(path.join(dir, "b.ts"), "replaced");
+      git(dir, "add", ".");
+      git(dir, "-c", "commit.gpgsign=false", "commit", "-q", "--amend", "--no-edit");
+
+      const result = prune(store, { keep: ["main"] });
+      expect(result.rows_pruned).toBe(2);
+
+      const rows = store.getDb().prepare("SELECT * FROM proposition_sources").all();
+      expect(rows).toHaveLength(0);
+    });
+  });
+
   describe("dry-run", () => {
     it("returns the plan without mutating the db", () => {
       fs.writeFileSync(path.join(dir, "a.ts"), "v1");
