@@ -125,7 +125,7 @@ Read tools (available anytime):
 | `freelance_advance` | Move to the next node via a labeled edge |
 | `freelance_context_set` | Update session context without advancing |
 | `freelance_meta_set` | Merge opaque `meta` tags onto a traversal (add or overwrite) |
-| `freelance_inspect` | Read-only introspection (position, history, or full graph); includes `meta` tags |
+| `freelance_inspect` | Read-only introspection (position or history; optional `fields` for graph projections); includes `meta` tags |
 | `freelance_reset` | Clear traversal and start over |
 | `freelance_guide` | Authoring guidance for writing graphs |
 | `freelance_distill` | Distill a task into a new workflow |
