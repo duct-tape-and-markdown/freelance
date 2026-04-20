@@ -8,6 +8,7 @@ export const GUIDE_TOPICS = [
   "onenter-hooks",
   "multi-agent",
   "meta",
+  "memory-workflows",
   "anti-patterns",
 ] as const;
 
@@ -497,6 +498,36 @@ Start with \`externalKey\` only. After the PR is opened, call \`freelance_meta_s
 - **Set the primary key at start.** It signals intent and avoids "tagged later or never?" ambiguity in your data.
 - **Treat meta as immutable in spirit.** \`meta_set\` allows overwrites for legitimate updates (renamed branch, replaced PR), but routine workflow logic shouldn't churn meta.
 - **Don't duplicate context in meta.** Pick one home per value. Meta is for external lookup; context is for workflow execution.`,
+
+  "memory-workflows": `# Memory Workflows
+
+Freelance ships two sealed workflows that own writes to the knowledge graph. Direct calls to \`memory_emit\` and \`memory_prune\` are gated — they only succeed while a workflow traversal is active. Read tools (\`memory_browse\`, \`memory_inspect\`, \`memory_search\`, \`memory_related\`, \`memory_by_source\`, \`memory_status\`) are always available.
+
+## memory:compile
+
+Read source files, extract atomic claims, and write them to the graph.
+
+**When to use:** building or expanding persistent knowledge about a codebase, design, or reference document. Give it a query that frames what you're compiling (e.g. "how authentication works", "run-sync.js pipeline") and let it read + emit.
+
+**Shape:** three-node loop — \`exploring\` (read source files, delta-check against prior knowledge), \`compiling\` (extract atomic claims, plan entities, emit), \`evaluating\` (check coverage, loop or terminate). onEnter hooks pre-populate entity vocabulary and per-file prior knowledge, so the agent never burns a turn on setup.
+
+**Warm start:** pass \`initialContext: { query, filesReadPaths: [...] }\` to \`freelance_start\` so prior knowledge is available on first arrival.
+
+## memory:recall
+
+Query-driven knowledge recall. Searches existing memory, reads provenance sources, fills gaps between what's known and what the sources say.
+
+**When to use:** you have a question that memory *might* answer but coverage is uncertain. Recall inspects existing entities, reads their source files, compares, and emits only gap propositions.
+
+**Shape:** \`recalling\` → \`sourcing\` → \`comparing\` → \`filling\` → \`evaluating\`. Warm-exit edges short-circuit when existing knowledge already covers the query.
+
+## Authoring guidance lives in the workflow nodes
+
+The proposition rubric (atomicity, independence test, relationship exception) and entity guidance (search hubs, reuse existing names) are carried in the \`compiling\` / \`filling\` nodes' instruction prose — not in this guide and not in the tool descriptions. When you land on one of those nodes via \`freelance_advance\`, the response's \`node.instructions\` field has the full rubric. Read that at emit time.
+
+## User-authored graphs can also use memory tools
+
+The \`memory_emit\` / \`memory_prune\` gate only checks that *some* traversal is active — not specifically one of the sealed workflows. If you author your own graph that writes to memory, carry your own authoring guidance in your node instructions (or reuse the sealed workflow's via a subgraph push).`,
 
   "anti-patterns": `# Anti-Patterns
 

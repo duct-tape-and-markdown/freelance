@@ -14,7 +14,7 @@ export function registerValidateTool(server: McpServer, deps: FreelanceToolDeps)
     "freelance_validate",
     {
       description:
-        "Validate workflow graph definitions for structural errors. Walks configured graphsDirs, parses every .workflow.yaml, and reports schema errors (missing fields, wrong types), expression errors (invalid edge conditions or validation rules), topology errors (unreachable nodes, cycles without a breaking node, invalid subgraph references), and return schema errors. This is authoring-time validation — runtime conditions are checked by the engine at advance time. Use it to diagnose why a graph isn't appearing in freelance_list, or to validate a new graph before it ships.",
+        "Validate .workflow.yaml files for schema, expression (edge conditions, validation rules), topology (unreachable nodes, unbroken cycles, invalid subgraph refs), and return-schema errors. Authoring-time validation — use to diagnose why a graph isn't loading or to verify a new graph before it ships.",
       inputSchema: {
         graphId: z.string().optional(),
       },

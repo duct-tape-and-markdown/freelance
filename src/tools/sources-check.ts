@@ -11,7 +11,7 @@ export function registerSourcesCheckTool(server: McpServer, deps: FreelanceToolD
     "freelance_sources_check",
     {
       description:
-        "Verify that previously stamped source hashes still match the files on disk. Takes an array of {path, section?, hash} triples (the hash from an earlier freelance_sources_hash call) and returns which have drifted. Use this when you have a specific set of hashes to check — from a CI step, a hand-curated audit list, or a pinned reference you're about to use. For walking every source binding across every loaded graph instead, use freelance_sources_validate.",
+        "Verify previously stamped source hashes against files on disk. Takes {path, section?, hash} triples and returns drifted entries. For bulk validation across every loaded graph (no explicit hashes), use freelance_sources_validate.",
       inputSchema: {
         sources: z
           .array(
