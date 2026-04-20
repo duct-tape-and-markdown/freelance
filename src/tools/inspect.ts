@@ -10,7 +10,7 @@ export function registerInspectTool(server: McpServer, deps: FreelanceToolDeps):
     "freelance_inspect",
     {
       description:
-        "Read-only view of traversal state. Primary recovery tool after context compaction. Detail: 'position' (default: current node + validTransitions + context) or 'history' (+ paginated transitions and context writes; totalSteps/totalContextWrites report the pre-pagination size). Optional `fields` adds graph-structure projections: 'currentNode' (full NodeDefinition), 'neighbors' (one-edge-away NodeDefinitions), 'contextSchema' (declared schema), 'definition' (entire graph — escape hatch). For history: `limit`/`offset` paginate (default 50, max 200), and per-step contextSnapshots are stripped unless `includeSnapshots: true`. Meta tags always included.",
+        "Read-only view of traversal state. Primary recovery tool after context compaction. Detail: 'position' (default: current node + validTransitions + context) or 'history' (+ transitions taken + context writes + totalSteps/totalContextWrites). Optional `fields` adds graph-structure projections: 'currentNode' (full NodeDefinition), 'neighbors' (one-edge-away NodeDefinitions), 'contextSchema' (declared schema), 'definition' (entire graph — escape hatch). For history: `limit`/`offset` paginate traversalHistory (default 50, max 200); contextHistory always ships in full. Per-step contextSnapshots stripped unless `includeSnapshots: true`. Meta tags always included.",
       inputSchema: {
         traversalId: z.string().optional(),
         detail: z.enum(["position", "history"]).default("position"),

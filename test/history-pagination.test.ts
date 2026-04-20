@@ -70,12 +70,13 @@ describe("history pagination", () => {
     expect(result.traversalHistory.length).toBe(result.totalSteps);
   });
 
-  it("respects limit", async () => {
+  it("respects limit on traversalHistory (contextHistory ships in full)", async () => {
     const engine = await walkBranching();
     const result = engine.inspect("history", [], { limit: 2 }) as InspectHistoryResult;
     expect(result.traversalHistory.length).toBe(2);
-    expect(result.contextHistory.length).toBeLessThanOrEqual(2);
-    // totals still report the full count
+    // contextHistory is not paginated
+    expect(result.contextHistory.length).toBe(result.totalContextWrites);
+    // totals still report the full count of edges
     expect(result.totalSteps).toBeGreaterThan(2);
   });
 
@@ -91,11 +92,13 @@ describe("history pagination", () => {
     expect(page.traversalHistory[0].node).toBe(full.traversalHistory[2].node);
   });
 
-  it("empty page when offset >= total", async () => {
+  it("empty traversalHistory when offset >= totalSteps; contextHistory still full", async () => {
     const engine = await walkBranching();
     const result = engine.inspect("history", [], { offset: 9999 }) as InspectHistoryResult;
     expect(result.traversalHistory).toEqual([]);
-    expect(result.contextHistory).toEqual([]);
+    // contextHistory is not affected by offset
+    expect(result.contextHistory.length).toBe(result.totalContextWrites);
+    expect(result.totalContextWrites).toBeGreaterThan(0);
     expect(result.totalSteps).toBeGreaterThan(0);
   });
 

@@ -180,10 +180,13 @@ function buildFieldProjections(
 }
 
 /**
- * Options for `detail: "history"` responses. `limit`/`offset` slice both
- * `traversalHistory` and `contextHistory`; `includeSnapshots` toggles
- * inclusion of the per-step `contextSnapshot` blob (which otherwise
- * grows the response quadratically on long traversals).
+ * Options for `detail: "history"` responses. `limit`/`offset` slice
+ * `traversalHistory` — that's the array that blows up quadratically
+ * because each entry carries a `contextSnapshot`. `contextHistory`
+ * entries are small (key + value + two timestamps) so they ship in
+ * full; the response still reports `totalContextWrites` so callers
+ * can sense the size. `includeSnapshots` toggles inclusion of the
+ * per-step `contextSnapshot` blob on `traversalHistory` entries.
  */
 export interface InspectHistoryOptions {
   readonly limit?: number;
@@ -235,7 +238,10 @@ export function buildInspectResult(
           limit,
           historyOpts.includeSnapshots === true,
         ),
-        contextHistory: session.contextHistory.slice(offset, offset + limit),
+        // contextHistory ships in full — entries are small and per-array
+        // pagination on both surfaces muddles the caller's mental model
+        // (edge indices and write indices aren't correlated).
+        contextHistory: session.contextHistory,
         totalSteps: session.history.length,
         totalContextWrites: session.contextHistory.length,
         ...projections,

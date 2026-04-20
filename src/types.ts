@@ -203,11 +203,11 @@ export interface InspectHistoryResult extends InspectFieldProjections {
   readonly currentNode: string;
   /** Paginated entries — starts at `offset`, capped at `limit`. `contextSnapshot` present only when `includeSnapshots: true`. */
   readonly traversalHistory: readonly HistoryEntryProjection[];
-  /** Paginated entries — starts at `offset`, capped at `limit`. */
+  /** Full contextHistory — not paginated (entries are small; pagination muddles indexing). */
   readonly contextHistory: readonly ContextHistoryEntry[];
   /** Total edges taken across the whole traversal (before pagination). */
   readonly totalSteps: number;
-  /** Total context writes across the whole traversal (before pagination). */
+  /** Total context writes across the whole traversal. Reported for size awareness; `contextHistory` is not paginated. */
   readonly totalContextWrites: number;
 }
 
