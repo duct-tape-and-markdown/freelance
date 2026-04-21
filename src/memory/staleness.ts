@@ -15,9 +15,8 @@
  * lets it garbage-collect when the call returns.
  */
 
-import fs from "node:fs";
 import path from "node:path";
-import { hashContent } from "../sources.js";
+import { hashSourceFile } from "../sources.js";
 import type { Db } from "./db.js";
 
 export interface StalenessCache {
@@ -28,14 +27,6 @@ export function createStalenessCache(): StalenessCache {
   return { hashes: new Map() };
 }
 
-function hashFile(filePath: string): string | null {
-  try {
-    return hashContent(fs.readFileSync(filePath, "utf-8"));
-  } catch {
-    return null;
-  }
-}
-
 function getCurrentFileHash(
   sourceRoot: string,
   cache: StalenessCache,
@@ -44,7 +35,7 @@ function getCurrentFileHash(
   const cached = cache.hashes.get(filePath);
   if (cache.hashes.has(filePath)) return cached ?? null;
   const resolvedPath = path.resolve(sourceRoot, filePath);
-  const hash = hashFile(resolvedPath);
+  const hash = hashSourceFile(resolvedPath);
   cache.hashes.set(filePath, hash);
   return hash;
 }

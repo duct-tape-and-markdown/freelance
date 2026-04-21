@@ -14,7 +14,7 @@ Flat list. No categories, no status column, no prioritization. Delete entries wh
 
 ## Entries
 
-- `src/memory/staleness.ts:~32` / `src/memory/prune.ts:~60,~153` — `readFileSync(path, "utf-8")` and `bytes.toString("utf-8")` coerce non-UTF-8 bytes to U+FFFD before hashing, making hashes meaningless for binary source files. Inherited across the whole memory system (emit, staleness, prune); fixing only one site would create inconsistency. Needs a coordinated switch to raw-byte hashing end-to-end.
+- `src/sources.ts` (`hashSourceFile`) / `src/memory/prune.ts:~150` (`bytes.toString("utf-8")`) — the UTF-8 coercion corrupts non-UTF-8 bytes to U+FFFD before hashing, so hashes on binary source files are meaningless. The on-disk hashing is now one helper; the binary-safe fix is switching it + the `cat-file` bytes-to-hash bridge in prune.ts to raw-byte hashing end-to-end.
 - `src/memory/git.ts:~80-120` — hand-rolled parser for `git cat-file --batch` output. Format is stable and we only ever request blobs, so safe today; if we ever ask for trees/commits or git adds header fields, silent mis-threading. Swap to per-spec `git show` (simpler, slower) or a library if this becomes a liability.
 - `src/config.ts:~120` — `memory.prune.keep` concatenates across config files without dedup, so `[main]` in project + `[main]` in local yields `[main, main]`. Harmless (duplicates resolve to the same SHA) but ugly in `freelance config show`. Dedup with a `Set`.
 - `src/cli/memory.ts:~50-108` — `opts?.limit ? parseInt(opts.limit, 10) : undefined` repeated 5× across memory handlers. Same pattern in `src/cli/traversals.ts` for `--limit`/`--offset`. Pull a shared `parseIntArg(opts.foo)` helper; low-value until the third call site, so skipping on this PR.

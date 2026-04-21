@@ -12,9 +12,8 @@
  */
 
 import crypto from "node:crypto";
-import fs from "node:fs";
 import path from "node:path";
-import { hashContent } from "../sources.js";
+import { hashSourceFile } from "../sources.js";
 import type { Db } from "./db.js";
 import { computeStatus, countNeighbors, countValidForEntity, getNeighbors } from "./enrichment.js";
 import {
@@ -69,14 +68,6 @@ function generateId(): string {
 
 function now(): string {
   return new Date().toISOString();
-}
-
-function hashFile(filePath: string): string | null {
-  try {
-    return hashContent(fs.readFileSync(filePath, "utf-8"));
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -255,7 +246,7 @@ export class MemoryStore {
       // at emit time; if the file can't be read, the emit fails for this prop.
       for (const sourcePath of prop.sources) {
         const { storedPath, resolvedPath } = this.prepareSourcePath(sourcePath);
-        const hash = hashFile(resolvedPath);
+        const hash = hashSourceFile(resolvedPath);
         if (hash === null) {
           throw new Error(`Cannot read source file "${sourcePath}" during emit.`);
         }
@@ -306,16 +297,7 @@ export class MemoryStore {
       | EntityRow
       | undefined;
     if (exact) {
-      if (kind && exact.kind && exact.kind !== kind) {
-        warnings.push({
-          type: "entity_kind_conflict",
-          entity: exact.name,
-          existingKind: exact.kind,
-          providedKind: kind,
-        });
-      } else if (kind && !exact.kind) {
-        this.db.prepare("UPDATE entities SET kind = ? WHERE id = ?").run(kind, exact.id);
-      }
+      this.reconcileKind(exact, kind, warnings);
       return { id: exact.id, name: exact.name, resolution: "exact" };
     }
 
@@ -324,16 +306,7 @@ export class MemoryStore {
       .prepare("SELECT id, name, kind FROM entities WHERE LOWER(TRIM(name)) = ?")
       .get(normalized) as EntityRow | undefined;
     if (normMatch) {
-      if (kind && normMatch.kind && normMatch.kind !== kind) {
-        warnings.push({
-          type: "entity_kind_conflict",
-          entity: normMatch.name,
-          existingKind: normMatch.kind,
-          providedKind: kind,
-        });
-      } else if (kind && !normMatch.kind) {
-        this.db.prepare("UPDATE entities SET kind = ? WHERE id = ?").run(kind, normMatch.id);
-      }
+      this.reconcileKind(normMatch, kind, warnings);
       return { id: normMatch.id, name: normMatch.name, resolution: "normalized" };
     }
 
@@ -343,6 +316,33 @@ export class MemoryStore {
       .run(id, name, kind ?? null, now());
 
     return { id, name, resolution: "created" };
+  }
+
+  /**
+   * First-wins kind policy: if the existing entity has a kind that
+   * disagrees with the provided one, surface a warning but keep the
+   * stored kind. If the existing entity has no kind and one is
+   * provided, backfill. Either branch is a no-op when the caller
+   * didn't specify `kind`.
+   */
+  private reconcileKind(
+    existing: EntityRow,
+    kind: string | undefined,
+    warnings: EmitWarning[],
+  ): void {
+    if (!kind) return;
+    if (existing.kind && existing.kind !== kind) {
+      warnings.push({
+        type: "entity_kind_conflict",
+        entity: existing.name,
+        existingKind: existing.kind,
+        providedKind: kind,
+      });
+      return;
+    }
+    if (!existing.kind) {
+      this.db.prepare("UPDATE entities SET kind = ? WHERE id = ?").run(kind, existing.id);
+    }
   }
 
   // --- Entity lookup ---
