@@ -562,3 +562,150 @@ describe("traversalReset", () => {
     }
   });
 });
+
+describe("traversalInspect options (#122)", () => {
+  it("forwards --fields to the store and surfaces projections in the response", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      await store.createTraversal(graphId);
+      traversalInspect(store, undefined, "position", { fields: ["currentNode", "neighbors"] });
+      const parsed = stdoutJson() as {
+        currentNodeDefinition?: unknown;
+        neighbors?: unknown;
+      };
+      expect(parsed.currentNodeDefinition).toBeDefined();
+      expect(parsed.neighbors).toBeDefined();
+    } finally {
+      store.close();
+    }
+  });
+
+  it("forwards --limit/--offset to history detail", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      await store.createTraversal(graphId);
+      traversalInspect(store, undefined, "history", { limit: "3", offset: "0" });
+      const parsed = stdoutJson() as {
+        traversalHistory: unknown[];
+        totalSteps: number;
+      };
+      // Pagination applies — the slice is bounded even on an empty
+      // history. The total-field contract (pre-pagination count) is
+      // covered by the engine tests; here we only assert the CLI
+      // threads the options through without error.
+      expect(Array.isArray(parsed.traversalHistory)).toBe(true);
+      expect(parsed.traversalHistory.length).toBeLessThanOrEqual(3);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("forwards --include-snapshots so history entries retain contextSnapshot", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const { traversalId } = await store.createTraversal(graphId);
+      // Advance once so there's something in history to project. The
+      // fixture is valid-branching; the first edge label from `start`
+      // varies — just grab it from the validTransitions.
+      const inspectRaw = store.inspect(traversalId, "position") as {
+        validTransitions: Array<{ label: string }>;
+      };
+      const firstEdge = inspectRaw.validTransitions[0]?.label;
+      if (!firstEdge) return;
+      await store.advance(traversalId, firstEdge, undefined);
+      stdoutSpy.mockClear();
+      traversalInspect(store, traversalId, "history", { includeSnapshots: true });
+      const parsed = stdoutJson() as {
+        traversalHistory: Array<{ contextSnapshot?: unknown }>;
+      };
+      expect(parsed.traversalHistory.length).toBeGreaterThan(0);
+      expect(parsed.traversalHistory[0]).toHaveProperty("contextSnapshot");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("emits INVALID_FLAG_VALUE on non-integer --limit", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      await store.createTraversal(graphId);
+      expect(() => traversalInspect(store, undefined, "history", { limit: "abc" })).toThrow(
+        "process.exit",
+      );
+      const parsed = stdoutJson() as {
+        isError: true;
+        error: { code: string; kind: string };
+      };
+      expect(parsed.isError).toBe(true);
+      expect(parsed.error.code).toBe("INVALID_FLAG_VALUE");
+      expect(parsed.error.kind).toBe("structural");
+      expect(exitSpy).toHaveBeenCalledWith(5); // EXIT.INVALID_INPUT
+    } finally {
+      store.close();
+    }
+  });
+
+  it("emits INVALID_FLAG_VALUE on non-integer --offset", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      await store.createTraversal(graphId);
+      expect(() => traversalInspect(store, undefined, "history", { offset: "1.5" })).toThrow(
+        "process.exit",
+      );
+      const parsed = stdoutJson() as {
+        isError: true;
+        error: { code: string };
+      };
+      expect(parsed.error.code).toBe("INVALID_FLAG_VALUE");
+      expect(exitSpy).toHaveBeenCalledWith(5);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("traversalStatus loadErrors surface (#122)", () => {
+  it("includes loadErrors when the store was constructed with non-empty errors", () => {
+    const fixture = path.resolve("test/fixtures/valid-branching.workflow.yaml");
+    const loaded = loadSingleGraph(fixture);
+    const graphs = new Map<string, ValidatedGraph>([[loaded.id, loaded]]);
+    const db = openStateStore(":memory:");
+    const store = new TraversalStore(db, graphs, {
+      maxDepth: 5,
+      hookRunner: new HookRunner(),
+      loadErrors: [{ file: "broken.workflow.yaml", message: "unexpected end of stream" }],
+    });
+    try {
+      traversalStatus(store);
+      const parsed = stdoutJson() as {
+        loadErrors?: Array<{ file: string; message: string }>;
+      };
+      expect(parsed.loadErrors).toBeDefined();
+      expect(parsed.loadErrors).toHaveLength(1);
+      expect(parsed.loadErrors?.[0].file).toBe("broken.workflow.yaml");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("elides loadErrors when empty — preserves the pre-#122 status shape", () => {
+    const store = createTestStore();
+    try {
+      traversalStatus(store);
+      const parsed = stdoutJson() as Record<string, unknown>;
+      expect("loadErrors" in parsed).toBe(false);
+    } finally {
+      store.close();
+    }
+  });
+});
