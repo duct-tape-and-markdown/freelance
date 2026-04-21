@@ -221,6 +221,36 @@ describe("advance() — conditional edges", () => {
   });
 });
 
+describe("advance() — unified error envelope", () => {
+  it("emits error.code + kind on gate-block (validation failure)", async () => {
+    const engine = makeEngine("valid-simple.workflow.yaml");
+    await engine.start("valid-simple");
+    await engine.advance("work-done");
+
+    const result = await engine.advance("approved");
+    expect(result.isError).toBe(true);
+    if (result.isError) {
+      expect(result.error.code).toBe("VALIDATION_FAILED");
+      expect(result.error.kind).toBe("blocked");
+      expect(result.error.message).toBe(result.reason);
+    }
+  });
+
+  it("emits EDGE_CONDITION_NOT_MET on edge-condition block", async () => {
+    const engine = makeEngine("valid-branching.workflow.yaml");
+    await engine.start("valid-branching");
+    await engine.advance("initialized");
+    engine.contextSet({ path: "left" });
+
+    const result = await engine.advance("go-right");
+    expect(result.isError).toBe(true);
+    if (result.isError) {
+      expect(result.error.code).toBe("EDGE_CONDITION_NOT_MET");
+      expect(result.error.kind).toBe("blocked");
+    }
+  });
+});
+
 describe("advance() — default edges", () => {
   it("default edge conditionMet is true when no conditional edge matches", async () => {
     const engine = makeEngine("valid-default-edge.workflow.yaml");

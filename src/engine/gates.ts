@@ -1,3 +1,4 @@
+import type { GateBlockCode } from "../error-codes.js";
 import { evaluate } from "../evaluator.js";
 import type { AdvanceErrorResult, NodeDefinition, SessionState, SourceBinding } from "../types.js";
 import { cloneContext } from "./helpers.js";
@@ -5,9 +6,17 @@ import { validateReturnSchema } from "./returns.js";
 import { evaluateTransitions } from "./transitions.js";
 import { checkWaitTimeout, evaluateWaitConditions } from "./wait.js";
 
+/**
+ * Build the unified in-band gate-block envelope. Shape matches the
+ * thrown-error envelope (`isError: true` + `error: { code, message,
+ * kind }`) so the CLI writes one wire format for every advance
+ * failure — see issue #95. `reason` duplicates `error.message` for
+ * pre-#95 readers; new code should read `error.message`.
+ */
 function makeAdvanceError(
   currentNode: string,
-  reason: string,
+  code: GateBlockCode,
+  message: string,
   nodeDef: NodeDefinition,
   context: Record<string, unknown>,
   graphSources?: readonly SourceBinding[],
@@ -15,8 +24,9 @@ function makeAdvanceError(
   return {
     status: "error",
     isError: true,
+    error: { code, message, kind: "blocked" },
     currentNode,
-    reason,
+    reason: message,
     validTransitions: evaluateTransitions(nodeDef, context),
     context: cloneContext(context),
     ...(graphSources?.length ? { graphSources } : {}),
@@ -41,6 +51,7 @@ export function checkWaitBlocking(
   const unsatisfied = waitConditions.filter((w) => !w.satisfied);
   return makeAdvanceError(
     session.currentNode,
+    "WAIT_BLOCKING",
     `Waiting for external signals: ${unsatisfied.map((w) => `${w.key} (${w.type})`).join(", ")}`,
     nodeDef,
     session.context,
@@ -61,6 +72,7 @@ export function checkReturnSchema(
 
   return makeAdvanceError(
     session.currentNode,
+    "RETURN_SCHEMA_VIOLATION",
     `Return schema violation: ${violation}`,
     nodeDef,
     session.context,
@@ -86,6 +98,7 @@ export function checkValidations(
     if (!result) {
       return makeAdvanceError(
         session.currentNode,
+        "VALIDATION_FAILED",
         `Validation failed: ${v.message}`,
         nodeDef,
         session.context,
@@ -114,6 +127,7 @@ export function checkEdgeCondition(
 
   return makeAdvanceError(
     session.currentNode,
+    "EDGE_CONDITION_NOT_MET",
     `Edge "${edgeLabel}" condition not met: ${edgeCondition}`,
     nodeDef,
     session.context,

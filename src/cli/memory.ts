@@ -13,7 +13,7 @@ import { EC, EngineError } from "../errors.js";
 import type { MemoryStore } from "../memory/index.js";
 import { prune } from "../memory/prune.js";
 import type { PropositionShape } from "../memory/types.js";
-import { EXIT, handleRuntimeError as handleError, outputJson } from "./output.js";
+import { EXIT, errorEnvelope, handleRuntimeError as handleError, outputJson } from "./output.js";
 
 export function memoryStatus(store: MemoryStore): void {
   try {
@@ -153,13 +153,7 @@ export function memoryPrune(
   // before every exit. MemoryStore.close is idempotent, so the
   // caller's finally is a harmless no-op after this.
   if (!opts.keep || opts.keep.length === 0) {
-    outputJson({
-      isError: true,
-      error: {
-        code: "MISSING_KEEP",
-        message: "memory prune requires --keep <ref> (repeatable).",
-      },
-    });
+    outputJson(errorEnvelope("MISSING_KEEP", "memory prune requires --keep <ref> (repeatable)."));
     store.close();
     process.exit(EXIT.INVALID_INPUT);
   }
@@ -175,11 +169,7 @@ export function memoryPrune(
     } else {
       outputJson({
         ...result,
-        isError: true,
-        error: {
-          code: "CONFIRM_REQUIRED",
-          message: "Refusing to delete without --yes or --dry-run.",
-        },
+        ...errorEnvelope("CONFIRM_REQUIRED", "Refusing to delete without --yes or --dry-run."),
       });
       store.close();
       process.exit(EXIT.INVALID_INPUT);
@@ -200,13 +190,12 @@ export function memoryPrune(
  */
 export function memoryReset(dbPath: string, opts: { confirm?: boolean }): void {
   if (!opts.confirm) {
-    outputJson({
-      isError: true,
-      error: {
-        code: "CONFIRM_REQUIRED",
-        message: "memory reset requires --confirm (destructive: deletes memory.db + sidecars).",
-      },
-    });
+    outputJson(
+      errorEnvelope(
+        "CONFIRM_REQUIRED",
+        "memory reset requires --confirm (destructive: deletes memory.db + sidecars).",
+      ),
+    );
     process.exit(EXIT.INVALID_INPUT);
   }
   const targets = [dbPath, `${dbPath}-shm`, `${dbPath}-wal`];
