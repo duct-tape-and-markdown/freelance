@@ -125,7 +125,7 @@ function resolvePaths(config: FreelanceConfigFile, baseDir: string): FreelanceCo
 }
 
 /**
- * Merge two config objects. Arrays (workflows, collections) concatenate so
+ * Merge two config objects. Arrays (e.g. workflows) concatenate so
  * plugin hooks can extend project-level values without clobbering them.
  * Scalars use the overlay value.
  */

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase } from "../src/memory/db.js";
 import { MemoryStore } from "../src/memory/store.js";
@@ -920,5 +921,84 @@ describe("MemoryStore", () => {
       const pageTail = store.related("Hub", { limit: 2, offset: 4 });
       expect(pageTail.neighbors).toHaveLength(1);
     });
+  });
+});
+
+describe("MemoryStore schema migration", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = createTempDir();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  // Transparent migration for the dead `collection` column. Simulates a
+  // pre-migration DB by hand-installing the old schema + a seeded row,
+  // then opens it with the real `openDatabase` (which runs the migration)
+  // and confirms the column / old indexes are gone while the row survived.
+  it("drops collection column and compound index from a pre-migration db", () => {
+    const dbPath = path.join(tmpDir, "memory.db");
+    const raw = new DatabaseSync(dbPath);
+    raw.exec("PRAGMA journal_mode = WAL");
+    raw.exec(`
+      CREATE TABLE propositions (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        collection TEXT NOT NULL DEFAULT 'default',
+        created_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX idx_prop_hash_coll ON propositions(content_hash, collection);
+      CREATE INDEX idx_prop_collection ON propositions(collection);
+    `);
+    raw.exec(
+      "INSERT INTO propositions (id, content, content_hash, collection, created_at) VALUES ('p1', 'foo', 'h1', 'default', '2024-01-01')",
+    );
+    raw.close();
+
+    // openDatabase runs SCHEMA_SQL + migrateDropCollectionColumn.
+    const db = openDatabase(dbPath);
+    try {
+      const cols = db.prepare("PRAGMA table_info(propositions)").all() as Array<{
+        name: string;
+      }>;
+      expect(cols.map((c) => c.name)).not.toContain("collection");
+
+      const indexes = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='propositions'")
+        .all() as Array<{ name: string }>;
+      const names = indexes.map((i) => i.name);
+      expect(names).not.toContain("idx_prop_hash_coll");
+      expect(names).not.toContain("idx_prop_collection");
+      expect(names).toContain("idx_prop_hash");
+
+      const row = db.prepare("SELECT id, content, content_hash FROM propositions").get() as {
+        id: string;
+        content: string;
+        content_hash: string;
+      };
+      expect(row).toEqual({ id: "p1", content: "foo", content_hash: "h1" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("no-op on a fresh db (idempotent)", () => {
+    const dbPath = path.join(tmpDir, "memory.db");
+    // Opening twice exercises the "column already gone" branch.
+    const first = openDatabase(dbPath);
+    first.close();
+    const second = openDatabase(dbPath);
+    try {
+      const cols = second.prepare("PRAGMA table_info(propositions)").all() as Array<{
+        name: string;
+      }>;
+      expect(cols.map((c) => c.name)).not.toContain("collection");
+    } finally {
+      second.close();
+    }
   });
 });

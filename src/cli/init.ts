@@ -249,8 +249,8 @@ export async function init(options: InitOptions): Promise<void> {
     }
   }
 
-  // 2b. Starter config.yml — surfaces the memory.collections schema so
-  // users don't have to discover it by hitting "Unknown collection" errors.
+  // 2b. Starter config.yml — gives users a committed-default surface
+  // for memory + hooks + workflows settings instead of a blank slate.
   const configDest = path.join(graphsDir, "config.yml");
   if (!fs.existsSync(configDest)) {
     actions.push({ verb: "create", target: `${graphsDisplayPath}/config.yml` });

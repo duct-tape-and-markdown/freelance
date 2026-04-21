@@ -61,11 +61,9 @@ CREATE TABLE IF NOT EXISTS propositions (
   id TEXT PRIMARY KEY,
   content TEXT NOT NULL,
   content_hash TEXT NOT NULL,
-  collection TEXT NOT NULL DEFAULT 'default',
   created_at TEXT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_prop_hash_coll ON propositions(content_hash, collection);
-CREATE INDEX IF NOT EXISTS idx_prop_collection ON propositions(collection);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_prop_hash ON propositions(content_hash);
 
 CREATE TABLE IF NOT EXISTS about (
   proposition_id TEXT NOT NULL REFERENCES propositions(id) ON DELETE CASCADE,
@@ -94,10 +92,10 @@ CREATE VIRTUAL TABLE IF NOT EXISTS propositions_fts USING fts5(
 
 -- Keep FTS in sync with propositions table. Only INSERT and DELETE
 -- triggers fire in practice: memory_emit uses ON CONFLICT DO NOTHING on
--- the (content_hash, collection) unique index, so an UPDATE path on the
--- propositions row never executes. The AFTER UPDATE trigger was present
--- in earlier schemas and never fired; removing it keeps the schema
--- honest about the real write path.
+-- the content_hash unique index, so an UPDATE path on the propositions
+-- row never executes. The AFTER UPDATE trigger was present in earlier
+-- schemas and never fired; removing it keeps the schema honest about
+-- the real write path.
 CREATE TRIGGER IF NOT EXISTS propositions_ai AFTER INSERT ON propositions BEGIN
   INSERT INTO propositions_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
@@ -125,6 +123,31 @@ function checkSchemaCompatibility(db: Db): void {
   }
 }
 
+/**
+ * Transparent migration for the dead `collection` column on `propositions`.
+ *
+ * Memory's single-flat-namespace invariant (see `docs/memory-intent.md`)
+ * rules out collections as a feature, but the schema carried a
+ * `collection TEXT NOT NULL DEFAULT 'default'` column plus a compound
+ * UNIQUE(content_hash, collection) index from an earlier iteration.
+ * No write path ever set anything other than `'default'` and no read
+ * path filtered on it, so the column + compound index can be dropped
+ * in place: existing rows' `content_hash` is already unique on its
+ * own because every row's `collection` was `'default'`.
+ *
+ * Runs after `SCHEMA_SQL` so the new `idx_prop_hash` exists before the
+ * old compound index is removed — readers never see a window without a
+ * content_hash index.
+ */
+function migrateDropCollectionColumn(db: Db): void {
+  const cols = db.prepare("PRAGMA table_info(propositions)").all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "collection")) return;
+
+  db.exec("DROP INDEX IF EXISTS idx_prop_hash_coll");
+  db.exec("DROP INDEX IF EXISTS idx_prop_collection");
+  db.exec("ALTER TABLE propositions DROP COLUMN collection");
+}
+
 export function openDatabase(dbPath: string): Db {
   const inner = new DatabaseSync(dbPath);
   inner.exec("PRAGMA journal_mode = WAL");
@@ -138,6 +161,7 @@ export function openDatabase(dbPath: string): Db {
   const db = wrap(inner);
   checkSchemaCompatibility(db);
   inner.exec(SCHEMA_SQL);
+  migrateDropCollectionColumn(db);
 
   // Converge older databases that were created with the propositions_au
   // AFTER UPDATE trigger. memory_emit's ON CONFLICT DO NOTHING means

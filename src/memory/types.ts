@@ -15,7 +15,6 @@ export interface PropositionRow {
   id: string;
   content: string;
   content_hash: string;
-  collection: string;
   created_at: string;
 }
 
@@ -74,7 +73,6 @@ export interface PropositionInfo {
   content: string;
   created_at: string;
   valid: boolean;
-  collection: string;
   source_files: Array<{ path: string; hash: string; current_match: boolean }>;
 }
 
