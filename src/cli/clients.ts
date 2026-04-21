@@ -2,6 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { homeDir } from "./output.js";
 
+// Only `claude-code` gets Claude-specific scaffolding (CLAUDE.md
+// append, enforcement hooks, skill install). The other values select
+// the interactive-init flow's labels but otherwise behave identically
+// — they all skip the Claude-specific steps. Post-MCP-removal there
+// is no client-specific config to write, so this enum is mostly a
+// UI affordance for the `init` prompt.
 export type Client = "claude-code" | "cursor" | "windsurf" | "cline" | "manual";
 
 export function detectClients(): Client[] {

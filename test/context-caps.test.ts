@@ -9,7 +9,6 @@ import {
 import { HookRunner } from "../src/engine/hooks.js";
 import { GraphEngine } from "../src/engine/index.js";
 import { EngineError } from "../src/errors.js";
-import { handleError } from "../src/mcp-helpers.js";
 import { loadFixtureGraphs } from "./helpers.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
@@ -183,36 +182,6 @@ describe("GraphEngine cap enforcement", () => {
     } catch (e) {
       expect((e as EngineError).code).toBe("CONTEXT_TOTAL_TOO_LARGE");
     }
-  });
-});
-
-describe("MCP error response uses canonical { error: { code, message } } shape", () => {
-  // Canonical error shape is shared with the CLI surface — see
-  // src/cli/output.ts:outputError. Tests here lock the MCP side of that
-  // contract so the two surfaces can't drift.
-  it("wraps EngineError in { error: { code, message } }", () => {
-    const err = new EngineError('Context value "x" is too big.', "CONTEXT_VALUE_TOO_LARGE");
-    const resp = handleError(err);
-    expect(resp.isError).toBe(true);
-    const payload = JSON.parse(resp.content[0].text);
-    expect(payload).toEqual({
-      error: { code: "CONTEXT_VALUE_TOO_LARGE", message: 'Context value "x" is too big.' },
-    });
-  });
-
-  it("uses the same shape for CONTEXT_TOTAL_TOO_LARGE", () => {
-    const err = new EngineError("Total too large.", "CONTEXT_TOTAL_TOO_LARGE");
-    const resp = handleError(err);
-    const payload = JSON.parse(resp.content[0].text);
-    expect(payload.error.code).toBe("CONTEXT_TOTAL_TOO_LARGE");
-    expect(payload.error.message).toBe("Total too large.");
-  });
-
-  it("non-EngineError throws become { error: { code: 'INTERNAL', message } }", () => {
-    const resp = handleError(new Error("something unrelated"));
-    const payload = JSON.parse(resp.content[0].text);
-    expect(payload.error.code).toBe("INTERNAL");
-    expect(payload.error.message).toContain("Internal error");
   });
 });
 
