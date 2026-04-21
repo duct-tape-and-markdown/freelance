@@ -13,13 +13,15 @@ import type { NeighborEntity, StatusResult } from "./types.js";
 /**
  * Co-occurring entities for a given entity. Ranks by count of shared
  * propositions that are currently valid. Optionally attaches a sample
- * proposition string.
+ * proposition string. `limit`/`offset` paginate the result set; omit
+ * both to return every neighbor (used by `inspect` where neighbors are
+ * an always-full sidecar of the entity summary).
  */
 export function getNeighbors(
   db: Db,
   entityId: string,
   stalePropIds: Set<string>,
-  options?: { withSample?: boolean },
+  options?: { withSample?: boolean; limit?: number; offset?: number },
 ): Array<NeighborEntity & { sample?: string | null }> {
   const withSample = options?.withSample ?? false;
 
@@ -38,6 +40,10 @@ export function getNeighbors(
     : "";
   const sampleParams: unknown[] = withSample ? [entityId] : [];
 
+  const paginated = options?.limit !== undefined;
+  const pageClause = paginated ? "LIMIT ? OFFSET ?" : "";
+  const pageParams: unknown[] = paginated ? [options.limit, options?.offset ?? 0] : [];
+
   return db
     .prepare(
       `SELECT e2.id, e2.name, e2.kind,
@@ -48,11 +54,32 @@ export function getNeighbors(
      JOIN entities e2 ON a2.entity_id = e2.id
      WHERE a1.entity_id = ? AND a2.entity_id != a1.entity_id
      GROUP BY e2.id
-     ORDER BY valid_shared_propositions DESC`,
+     ORDER BY valid_shared_propositions DESC
+     ${pageClause}`,
     )
-    .all(...staleParams, ...sampleParams, entityId) as Array<
+    .all(...staleParams, ...sampleParams, entityId, ...pageParams) as Array<
     NeighborEntity & { sample?: string | null }
   >;
+}
+
+/**
+ * Count co-occurring entities for a given entity — the "total" sibling
+ * of a paginated `getNeighbors` call. Uses `about` self-join without
+ * staleness filtering since the pagination total is frame-independent:
+ * we want to know how many neighbors exist so the caller knows whether
+ * to page, not how many are currently valid.
+ */
+export function countNeighbors(db: Db, entityId: string): number {
+  return (
+    db
+      .prepare(
+        `SELECT COUNT(DISTINCT a2.entity_id) as c
+         FROM about a1
+         JOIN about a2 ON a1.proposition_id = a2.proposition_id
+         WHERE a1.entity_id = ? AND a2.entity_id != a1.entity_id`,
+      )
+      .get(entityId) as { c: number }
+  ).c;
 }
 
 /** Count propositions about an entity that are currently valid. */

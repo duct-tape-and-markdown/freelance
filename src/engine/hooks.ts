@@ -16,6 +16,7 @@ import type {
   BrowseResult,
   BySourceResult,
   InspectResult,
+  PropositionShape,
   RelatedResult,
   SearchResult,
   StatusResult,
@@ -49,9 +50,15 @@ export interface HookMemoryAccess {
     includeOrphans?: boolean;
   }): BrowseResult;
   search(query: string, options?: { limit?: number }): SearchResult;
-  related(entityIdOrName: string): RelatedResult;
-  bySource(filePath: string): BySourceResult;
-  inspect(entityIdOrName: string): InspectResult;
+  related(entityIdOrName: string, options?: { limit?: number; offset?: number }): RelatedResult;
+  bySource(
+    filePath: string,
+    options?: { limit?: number; offset?: number; shape?: PropositionShape },
+  ): BySourceResult;
+  inspect(
+    entityIdOrName: string,
+    options?: { limit?: number; offset?: number; shape?: PropositionShape },
+  ): InspectResult;
 }
 
 /**

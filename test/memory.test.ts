@@ -281,6 +281,55 @@ describe("MemoryStore", () => {
       expect(result.propositions).toHaveLength(2);
       expect(result.source_files).toEqual(["auth.ts", "spec.md"]);
     });
+
+    it("paginates propositions and reports total", () => {
+      writeFile(tmpDir, "auth.ts", "class Auth {}");
+      for (let i = 0; i < 5; i++) {
+        store.emit([{ content: `Auth claim ${i}.`, entities: ["Auth"], sources: ["auth.ts"] }]);
+      }
+
+      const page1 = store.inspect("Auth", { limit: 2, offset: 0 });
+      expect(page1.total).toBe(5);
+      expect(page1.propositions).toHaveLength(2);
+
+      const page2 = store.inspect("Auth", { limit: 2, offset: 2 });
+      expect(page2.total).toBe(5);
+      expect(page2.propositions).toHaveLength(2);
+
+      const pageTail = store.inspect("Auth", { limit: 2, offset: 4 });
+      expect(pageTail.propositions).toHaveLength(1);
+    });
+
+    it("returns minimal shape when requested", () => {
+      writeFile(tmpDir, "auth.ts", "class Auth {}");
+      store.emit([{ content: "Auth validates.", entities: ["Auth"], sources: ["auth.ts"] }]);
+
+      const full = store.inspect("Auth");
+      const firstFull = full.propositions[0] as Record<string, unknown>;
+      expect(firstFull).toHaveProperty("source_files");
+      expect(firstFull).toHaveProperty("valid");
+      expect(full.source_files).toBeDefined();
+
+      const minimal = store.inspect("Auth", { shape: "minimal" });
+      const firstMin = minimal.propositions[0] as Record<string, unknown>;
+      expect(firstMin).toEqual({ id: firstFull.id, content: firstFull.content });
+      // `source_files` is skipped under minimal to keep the projection cheap.
+      expect(minimal.source_files).toBeUndefined();
+    });
+
+    it("clamps limit to [1, 200]", () => {
+      writeFile(tmpDir, "auth.ts", "class Auth {}");
+      store.emit([{ content: "Auth claim.", entities: ["Auth"], sources: ["auth.ts"] }]);
+
+      // Over the cap — silently clamped (don't throw on load-test-scale requests).
+      const tooBig = store.inspect("Auth", { limit: 10000 });
+      expect(tooBig.total).toBe(1);
+
+      // Under 1 — coerced up to 1 rather than 0 (which SQLite treats
+      // as "no rows"); empty pages hide real data from the caller.
+      const tooSmall = store.inspect("Auth", { limit: 0 });
+      expect(tooSmall.propositions.length).toBeGreaterThan(0);
+    });
   });
 
   describe("bySource", () => {
@@ -291,7 +340,34 @@ describe("MemoryStore", () => {
       const result = store.bySource("auth.ts");
       expect(result.file_path).toBe("auth.ts");
       expect(result.propositions).toHaveLength(1);
+      expect(result.total).toBe(1);
       expect(result.propositions[0].content).toBe("Auth validates.");
+    });
+
+    it("paginates propositions and reports total", () => {
+      writeFile(tmpDir, "heavy.md", "heavy contents");
+      for (let i = 0; i < 4; i++) {
+        store.emit([
+          { content: `Heavy claim ${i}.`, entities: [`Heavy${i}`], sources: ["heavy.md"] },
+        ]);
+      }
+
+      const page1 = store.bySource("heavy.md", { limit: 2, offset: 0 });
+      expect(page1.total).toBe(4);
+      expect(page1.propositions).toHaveLength(2);
+
+      const page2 = store.bySource("heavy.md", { limit: 2, offset: 2 });
+      expect(page2.total).toBe(4);
+      expect(page2.propositions).toHaveLength(2);
+    });
+
+    it("returns minimal shape when requested", () => {
+      writeFile(tmpDir, "auth.ts", "x");
+      store.emit([{ content: "Auth exists.", entities: ["Auth"], sources: ["auth.ts"] }]);
+
+      const minimal = store.bySource("auth.ts", { shape: "minimal" });
+      const first = minimal.propositions[0] as Record<string, unknown>;
+      expect(Object.keys(first).sort()).toEqual(["content", "id"]);
     });
   });
 
@@ -769,6 +845,31 @@ describe("MemoryStore", () => {
 
     it("throws for unknown entity", () => {
       expect(() => store.related("nonexistent")).toThrow("Entity not found");
+    });
+
+    it("paginates neighbors and reports total", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      // Five neighbors sharing propositions with Hub.
+      for (let i = 0; i < 5; i++) {
+        store.emit([
+          {
+            content: `Hub connects to Node${i}.`,
+            entities: ["Hub", `Node${i}`],
+            sources: ["a.ts"],
+          },
+        ]);
+      }
+
+      const page1 = store.related("Hub", { limit: 2, offset: 0 });
+      expect(page1.total).toBe(5);
+      expect(page1.neighbors).toHaveLength(2);
+
+      const page2 = store.related("Hub", { limit: 2, offset: 2 });
+      expect(page2.total).toBe(5);
+      expect(page2.neighbors).toHaveLength(2);
+
+      const pageTail = store.related("Hub", { limit: 2, offset: 4 });
+      expect(pageTail.neighbors).toHaveLength(1);
     });
   });
 });
