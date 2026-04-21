@@ -204,7 +204,11 @@ addWorkflowsOpt(
     .command("advance [edge]")
     .description("Move to the next node by taking a labeled edge")
     .option("--context <json>", "Context updates as JSON")
-    .option("--traversal <id>", "Traversal ID (auto-resolved if only one active)"),
+    .option("--traversal <id>", "Traversal ID (auto-resolved if only one active)")
+    .option(
+      "--minimal",
+      "Lean response: drop full context + node instructions, keep currentNode/validTransitions/contextDelta",
+    ),
 ).action(async (edge, opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
@@ -220,7 +224,11 @@ addWorkflowsOpt(
   contextCmd
     .command("set <updates...>")
     .description("Set context key=value pairs (e.g. foo=1 bar=true)")
-    .option("--traversal <id>", "Traversal ID (auto-resolved if only one active)"),
+    .option("--traversal <id>", "Traversal ID (auto-resolved if only one active)")
+    .option(
+      "--minimal",
+      "Lean response: drop full context echo, keep contextDelta/validTransitions/turnCount",
+    ),
 ).action((updates, opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
@@ -252,18 +260,19 @@ addWorkflowsOpt(
     .description("Read-only introspection of current graph state")
     .addOption(
       new Option("--detail <level>", "Detail level")
-        .choices(["position", "full", "history"])
+        .choices(["position", "history"])
         .default("position"),
     )
     .option("--active", "List every active traversal (ignores [traversalId])")
-    .option("--waits", "With --active, include only traversals at a wait node"),
+    .option("--waits", "With --active, include only traversals at a wait node")
+    .option("--minimal", "Lean response: drop NodeInfo + full context echo (position detail only)"),
 ).action((traversalId, opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
     if (opts.active) {
       traversalInspectActive(store, { waitsOnly: opts.waits });
     } else {
-      traversalInspect(store, traversalId, opts.detail);
+      traversalInspect(store, traversalId, opts.detail, { minimal: opts.minimal });
     }
   } finally {
     runtime.close();

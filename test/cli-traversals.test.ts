@@ -409,6 +409,127 @@ describe("traversalMetaSet", () => {
   });
 });
 
+describe("--minimal response projection (issue #81)", () => {
+  it("traversalAdvance --minimal drops context + node, keeps contextDelta", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const { traversalId } = await store.createTraversal(graphId);
+      await traversalAdvance(store, "initialized", {
+        traversal: traversalId,
+        minimal: true,
+      });
+      const parsed = stdoutJson() as Record<string, unknown>;
+      expect(parsed).toHaveProperty("contextDelta");
+      expect(parsed).not.toHaveProperty("context");
+      expect(parsed).not.toHaveProperty("node");
+      expect(parsed).toHaveProperty("validTransitions");
+      expect(parsed).toHaveProperty("currentNode");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("traversalAdvance without --minimal keeps full shape", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const { traversalId } = await store.createTraversal(graphId);
+      await traversalAdvance(store, "initialized", { traversal: traversalId });
+      const parsed = stdoutJson() as Record<string, unknown>;
+      expect(parsed).toHaveProperty("context");
+      expect(parsed).toHaveProperty("node");
+      expect(parsed).not.toHaveProperty("contextDelta");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("traversalContextSet --minimal drops context, keeps contextDelta", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const { traversalId } = await store.createTraversal(graphId);
+      traversalContextSet(store, ["path=left"], {
+        traversal: traversalId,
+        minimal: true,
+      });
+      const parsed = stdoutJson() as Record<string, unknown>;
+      expect(parsed).toHaveProperty("contextDelta");
+      expect(parsed.contextDelta).toEqual(["path"]);
+      expect(parsed).not.toHaveProperty("context");
+      expect(parsed).toHaveProperty("validTransitions");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("traversalInspect --minimal (position) drops node + context + stack", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const { traversalId } = await store.createTraversal(graphId);
+      traversalInspect(store, traversalId, "position", { minimal: true });
+      const parsed = stdoutJson() as Record<string, unknown>;
+      expect(parsed).not.toHaveProperty("node");
+      expect(parsed).not.toHaveProperty("context");
+      expect(parsed).not.toHaveProperty("stack");
+      expect(parsed).not.toHaveProperty("graphName");
+      expect(parsed).toHaveProperty("currentNode");
+      expect(parsed).toHaveProperty("validTransitions");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("traversalInspect without --minimal keeps full shape", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const { traversalId } = await store.createTraversal(graphId);
+      traversalInspect(store, traversalId, "position");
+      const parsed = stdoutJson() as Record<string, unknown>;
+      expect(parsed).toHaveProperty("node");
+      expect(parsed).toHaveProperty("context");
+      expect(parsed).toHaveProperty("stack");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("--minimal on a blocked advance keeps reason + validTransitions, drops context", async () => {
+    // valid-branching's choose-path decision has conditional-only edges;
+    // without context.path set, every edge's condition evaluates false
+    // and `advance go-left` fires checkEdgeCondition as a gate block.
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const { traversalId } = await store.createTraversal(graphId);
+      // Walk to choose-path up-front so the stdout mock only captures
+      // the blocked-advance response we want to assert against.
+      await store.advance(traversalId, "initialized");
+      stdoutSpy.mockClear();
+      await expect(
+        traversalAdvance(store, "go-left", { traversal: traversalId, minimal: true }),
+      ).rejects.toThrow("process.exit");
+      const parsed = stdoutJson() as Record<string, unknown>;
+      expect(parsed.isError).toBe(true);
+      expect(parsed).toHaveProperty("reason");
+      expect(parsed).toHaveProperty("validTransitions");
+      expect(parsed).toHaveProperty("contextDelta");
+      expect(parsed).not.toHaveProperty("context");
+    } finally {
+      store.close();
+    }
+  });
+});
+
 describe("traversalReset", () => {
   it("errors without --confirm (CONFIRM_REQUIRED / EXIT 5)", () => {
     const store = createTestStore();

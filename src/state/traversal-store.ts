@@ -5,14 +5,17 @@
  */
 
 import crypto from "node:crypto";
-import type { ContextCaps, InspectHistoryOptions } from "../engine/context.js";
+import type { ContextCaps, InspectHistoryOptions, ResponseMode } from "../engine/context.js";
 import type { HookRunner } from "../engine/hooks.js";
 import { GraphEngine } from "../engine/index.js";
 import { EC, EngineError } from "../errors.js";
 import type {
+  AdvanceMinimalResult,
   AdvanceResult,
+  ContextSetMinimalResult,
   ContextSetResult,
   InspectField,
+  InspectMinimalResult,
   InspectResult,
   ResetResult,
   StartResult,
@@ -195,7 +198,10 @@ export class TraversalStore {
     traversalId: string,
     edge: string,
     contextUpdates?: Record<string, unknown>,
-  ): Promise<{ traversalId: string; meta: Record<string, string> } & AdvanceResult> {
+    options?: { responseMode?: ResponseMode },
+  ): Promise<
+    { traversalId: string; meta: Record<string, string> } & (AdvanceResult | AdvanceMinimalResult)
+  > {
     // advance() is the only traversal-mutating path that awaits (hooks
     // run mid-call), so two concurrent invocations on the same id can
     // interleave their load → mutate → save sequences within one
@@ -207,6 +213,7 @@ export class TraversalStore {
       const hookMeta: Record<string, string> = {};
       const result = await engine.advance(edge, contextUpdates, {
         metaCollector: (updates) => Object.assign(hookMeta, updates),
+        ...(options?.responseMode ? { responseMode: options.responseMode } : {}),
       });
       // Merge collected hook updates into the in-memory record before save —
       // saveEngine carries record.meta forward verbatim, so this is the
@@ -223,9 +230,13 @@ export class TraversalStore {
   contextSet(
     traversalId: string,
     updates: Record<string, unknown>,
-  ): { traversalId: string } & ContextSetResult {
+    options?: { responseMode?: ResponseMode },
+  ): { traversalId: string } & (ContextSetResult | ContextSetMinimalResult) {
     const { engine, record } = this.loadEngine(traversalId);
-    const result = engine.contextSet(updates);
+    const result = engine.contextSet(
+      updates,
+      options?.responseMode ? { responseMode: options.responseMode } : undefined,
+    );
     this.saveEngine(record, engine);
     return { traversalId, ...result };
   }
@@ -260,9 +271,18 @@ export class TraversalStore {
     detail?: "position" | "history",
     fields?: readonly InspectField[],
     historyOpts?: InspectHistoryOptions,
-  ): { traversalId: string; meta: Record<string, string> } & InspectResult {
+    options?: { responseMode?: ResponseMode },
+  ): { traversalId: string; meta: Record<string, string> } & (
+    | InspectResult
+    | InspectMinimalResult
+  ) {
     const { engine, record } = this.loadEngine(traversalId);
-    const result = engine.inspect(detail, fields, historyOpts);
+    const result = engine.inspect(
+      detail,
+      fields,
+      historyOpts,
+      options?.responseMode ? { responseMode: options.responseMode } : undefined,
+    );
     return { traversalId, meta: record.meta ?? EMPTY_META, ...result };
   }
 

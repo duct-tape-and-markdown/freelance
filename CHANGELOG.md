@@ -7,8 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Lean response projection on the hot path (`--minimal`).** `freelance
+  advance`, `freelance context set`, and `freelance inspect` now accept
+  `--minimal`, which drops the full-context echo and the `node`
+  NodeInfo blob from success / gate-blocked / updated / position-
+  detail responses. Minimal success and blocked shapes carry
+  `contextDelta`: the list of keys written this turn (caller updates
+  union hook writes), so hook activity stays visible without echoing
+  unchanged state. Default remains the full echo for backwards
+  compatibility; clients opt in per call. Compaction recovery:
+  `freelance inspect` (no flag) resyncs to the full shape. Library
+  callers access the same behavior via the new `responseMode: "full" |
+  "minimal"` option on `GraphEngine.advance / contextSet / inspect`
+  and `TraversalStore.advance / contextSet / inspect`. See issue #81.
+
 ### Removed
 
+- **`freelance inspect --detail full` is gone.** The `"full"` level had
+  already been silently coerced to `"position"` after #111 split
+  detail from field projections, so the flag was a trap — accepted at
+  parse time but ignored at runtime. Callers replacing `--detail full`
+  should pick the explicit shape they actually want: `--detail
+  position` (default) for the active node + validTransitions, or
+  `--fields definition` (on the library API) for the full
+  GraphDefinition escape hatch. See issue #81.
 - **MCP server and all MCP tools (BREAKING for library consumers).** The
   MCP surface is gone: the `freelance mcp` subcommand, the
   `createServer` / `startServer` library exports, every `freelance_*`

@@ -1,11 +1,15 @@
 import { EC, EngineError } from "../errors.js";
 import { resolveContextDefaults } from "../loader.js";
 import type {
+  AdvanceMinimalResult,
   AdvanceResult,
+  AdvanceSuccessMinimalResult,
   AdvanceSuccessResult,
+  ContextSetMinimalResult,
   ContextSetResult,
   GraphListResult,
   InspectField,
+  InspectMinimalResult,
   InspectResult,
   ResetResult,
   SessionState,
@@ -14,25 +18,31 @@ import type {
 } from "../types.js";
 import {
   applyContextUpdates,
+  buildContextSetMinimalResult,
   buildContextSetResult,
+  buildInspectMinimalResult,
   buildInspectResult,
   type ContextCaps,
   DEFAULT_CONTEXT_CAPS,
   enforceContextCaps,
   enforceStrictContext,
   type InspectHistoryOptions,
+  type ResponseMode,
 } from "./context.js";
 import {
   checkEdgeCondition,
   checkReturnSchema,
   checkValidations,
   checkWaitBlocking,
+  type GateOptions,
 } from "./gates.js";
-import { cloneContext, toNodeInfo } from "./helpers.js";
+import { cloneContext, keysSince, toNodeInfo } from "./helpers.js";
 import type { HookRunner, MetaCollector } from "./hooks.js";
 import { maybePushSubgraph, popSubgraph } from "./subgraph.js";
 import { evaluateTransitions } from "./transitions.js";
 import { computeTimeoutAt, evaluateWaitConditions } from "./wait.js";
+
+export type { ResponseMode } from "./context.js";
 
 export interface GraphEngineOptions {
   maxDepth?: number;
@@ -135,12 +145,18 @@ export class GraphEngine {
   async advance(
     edge: string,
     contextUpdates?: Record<string, unknown>,
-    options?: { metaCollector?: MetaCollector },
-  ): Promise<AdvanceResult> {
+    options?: { metaCollector?: MetaCollector; responseMode?: ResponseMode },
+  ): Promise<AdvanceResult | AdvanceMinimalResult> {
     const session = this.requireSession();
     const graph = this.currentGraph();
     const def = graph.definition;
     const currentNodeDef = def.nodes[session.currentNode];
+    const minimal = options?.responseMode === "minimal";
+
+    // Anchor for the minimal `contextDelta`: caller writes + hook
+    // writes both append to contextHistory, so slicing from here
+    // captures both paths without parallel bookkeeping.
+    const writesBefore = session.contextHistory.length;
 
     if (contextUpdates) {
       enforceContextCaps(session.context, contextUpdates, this.contextCaps);
@@ -148,15 +164,21 @@ export class GraphEngine {
       session.turnCount++;
     }
 
-    // Pre-advance gate checks
-    const sources = def.sources;
-    const waitBlock = checkWaitBlocking(session, currentNodeDef, sources);
+    // Compute once for the pre-hook window (gate checks + subgraph
+    // push/pop branches). The full shape never reads this.
+    const preHookDelta = minimal ? keysSince(session.contextHistory, writesBefore) : [];
+    const gateOpts: GateOptions = {
+      minimal,
+      contextDelta: preHookDelta,
+      graphSources: def.sources,
+    };
+    const waitBlock = checkWaitBlocking(session, currentNodeDef, gateOpts);
     if (waitBlock) return waitBlock;
 
-    const returnBlock = checkReturnSchema(session, currentNodeDef, sources);
+    const returnBlock = checkReturnSchema(session, currentNodeDef, gateOpts);
     if (returnBlock) return returnBlock;
 
-    const validationBlock = checkValidations(session, currentNodeDef, sources);
+    const validationBlock = checkValidations(session, currentNodeDef, gateOpts);
     if (validationBlock) return validationBlock;
 
     // Find and validate edge
@@ -181,7 +203,7 @@ export class GraphEngine {
         currentNodeDef,
         edgeDef.condition,
         edge,
-        sources,
+        gateOpts,
       );
       if (condBlock) return condBlock;
     }
@@ -205,7 +227,14 @@ export class GraphEngine {
     // pop does not re-fire hooks on the resumed parent (already fired on
     // initial arrival).
     if (isTerminal && this.stack.length > 1) {
-      return popSubgraph(this.stack, this.graphs, previousNode, edge);
+      return popSubgraph({
+        stack: this.stack,
+        graphs: this.graphs,
+        previousNode,
+        edge,
+        minimal,
+        contextDelta: preHookDelta,
+      });
     }
     if (!isTerminal && !isWait && newNodeDef.subgraph) {
       return maybePushSubgraph({
@@ -217,6 +246,8 @@ export class GraphEngine {
         maxDepth: this.maxDepth,
         hookRunner: this.hookRunner,
         metaCollector: options?.metaCollector,
+        minimal,
+        contextDelta: preHookDelta,
       });
     }
 
@@ -224,12 +255,29 @@ export class GraphEngine {
     // the response so hook writes land in validTransitions and context.
     await this.runHooksOnArrival(session, graph, options?.metaCollector);
 
+    const contextDelta = minimal ? keysSince(session.contextHistory, writesBefore) : [];
+    const validTransitions = evaluateTransitions(newNodeDef, session.context);
+
     // Wait node arrival
     if (isWait && newNodeDef.waitOn) {
       session.waitArrivedAt = new Date().toISOString();
       const waitConditions = evaluateWaitConditions(newNodeDef.waitOn, session.context);
       const timeoutAt = computeTimeoutAt(session.waitArrivedAt, newNodeDef.timeout);
 
+      if (minimal) {
+        return {
+          status: "waiting",
+          isError: false,
+          previousNode,
+          edgeTaken: edge,
+          currentNode: session.currentNode,
+          validTransitions,
+          contextDelta,
+          waitingOn: waitConditions,
+          ...(newNodeDef.timeout ? { timeout: newNodeDef.timeout } : {}),
+          ...(timeoutAt ? { timeoutAt } : {}),
+        } satisfies AdvanceSuccessMinimalResult;
+      }
       return {
         status: "waiting",
         isError: false,
@@ -237,7 +285,7 @@ export class GraphEngine {
         edgeTaken: edge,
         currentNode: session.currentNode,
         node: toNodeInfo(newNodeDef),
-        validTransitions: evaluateTransitions(newNodeDef, session.context),
+        validTransitions,
         context: cloneContext(session.context),
         waitingOn: waitConditions,
         ...(newNodeDef.timeout ? { timeout: newNodeDef.timeout } : {}),
@@ -247,22 +295,33 @@ export class GraphEngine {
     }
 
     // Standard advance or terminal
-    const result: AdvanceSuccessResult = {
-      status: isTerminal ? "complete" : "advanced",
-      isError: false,
-      previousNode,
-      edgeTaken: edge,
-      currentNode: session.currentNode,
-      node: toNodeInfo(newNodeDef),
-      validTransitions: evaluateTransitions(newNodeDef, session.context),
-      context: cloneContext(session.context),
-      ...(isTerminal
-        ? {
-            traversalHistory: [...session.history.map((h) => h.node), session.currentNode],
-          }
-        : {}),
-      ...(def.sources?.length ? { graphSources: def.sources } : {}),
-    };
+    const terminalHistory: readonly string[] | undefined = isTerminal
+      ? [...session.history.map((h) => h.node), session.currentNode]
+      : undefined;
+
+    const result: AdvanceSuccessResult | AdvanceSuccessMinimalResult = minimal
+      ? ({
+          status: isTerminal ? "complete" : "advanced",
+          isError: false,
+          previousNode,
+          edgeTaken: edge,
+          currentNode: session.currentNode,
+          validTransitions,
+          contextDelta,
+          ...(terminalHistory ? { traversalHistory: terminalHistory } : {}),
+        } satisfies AdvanceSuccessMinimalResult)
+      : ({
+          status: isTerminal ? "complete" : "advanced",
+          isError: false,
+          previousNode,
+          edgeTaken: edge,
+          currentNode: session.currentNode,
+          node: toNodeInfo(newNodeDef),
+          validTransitions,
+          context: cloneContext(session.context),
+          ...(terminalHistory ? { traversalHistory: terminalHistory } : {}),
+          ...(def.sources?.length ? { graphSources: def.sources } : {}),
+        } satisfies AdvanceSuccessResult);
 
     // Root terminal GC: clear the stack so TraversalStore.saveEngine
     // deletes the persisted record. The response is already snapshotted
@@ -277,7 +336,10 @@ export class GraphEngine {
     return result;
   }
 
-  contextSet(updates: Record<string, unknown>): ContextSetResult {
+  contextSet(
+    updates: Record<string, unknown>,
+    options?: { responseMode?: ResponseMode },
+  ): ContextSetResult | ContextSetMinimalResult {
     const session = this.requireSession();
     const def = this.currentGraphDef();
 
@@ -286,16 +348,24 @@ export class GraphEngine {
     applyContextUpdates(session, updates);
     session.turnCount++;
 
-    return buildContextSetResult(session, def.nodes[session.currentNode]);
+    const nodeDef = def.nodes[session.currentNode];
+    if (options?.responseMode === "minimal") {
+      return buildContextSetMinimalResult(session, nodeDef, Object.keys(updates));
+    }
+    return buildContextSetResult(session, nodeDef);
   }
 
   inspect(
     detail: "position" | "history" = "position",
     fields: readonly InspectField[] = [],
     historyOpts: InspectHistoryOptions = {},
-  ): InspectResult {
+    options?: { responseMode?: ResponseMode },
+  ): InspectResult | InspectMinimalResult {
     const session = this.requireSession();
     const def = this.currentGraphDef();
+    if (options?.responseMode === "minimal") {
+      return buildInspectMinimalResult(detail, session, def, this.stack, historyOpts);
+    }
     return buildInspectResult(detail, session, def, this.stack, fields, historyOpts);
   }
 

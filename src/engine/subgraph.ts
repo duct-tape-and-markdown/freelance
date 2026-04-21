@@ -2,14 +2,17 @@ import { EC, EngineError } from "../errors.js";
 import { evaluate } from "../evaluator.js";
 import { resolveContextDefaults } from "../loader.js";
 import type {
+  AdvanceSuccessMinimalResult,
   AdvanceSuccessResult,
   NodeDefinition,
   SessionState,
   ValidatedGraph,
 } from "../types.js";
-import { cloneContext, toNodeInfo } from "./helpers.js";
+import { cloneContext, keysSince, mergeDelta, toNodeInfo } from "./helpers.js";
 import type { HookRunner, MetaCollector } from "./hooks.js";
 import { evaluateTransitions } from "./transitions.js";
+
+type SubgraphResult = AdvanceSuccessResult | AdvanceSuccessMinimalResult;
 
 interface PushSubgraphArgs {
   stack: SessionState[];
@@ -20,11 +23,25 @@ interface PushSubgraphArgs {
   maxDepth: number;
   hookRunner: HookRunner;
   metaCollector?: MetaCollector;
+  /** When true, caller wants the lean response shape. */
+  minimal: boolean;
+  /** Keys written this advance (caller updates ∪ hook writes in parent, before push). Only used on minimal shape. */
+  contextDelta: readonly string[];
 }
 
-export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<AdvanceSuccessResult> {
-  const { stack, graphs, previousNode, edge, newNodeDef, maxDepth, hookRunner, metaCollector } =
-    args;
+export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<SubgraphResult> {
+  const {
+    stack,
+    graphs,
+    previousNode,
+    edge,
+    newNodeDef,
+    maxDepth,
+    hookRunner,
+    metaCollector,
+    minimal,
+    contextDelta,
+  } = args;
   const parentSession = stack[stack.length - 1];
   const subgraph = newNodeDef.subgraph!;
 
@@ -41,6 +58,18 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Advance
         throw new EngineError(`Graph "${parentSession.graphId}" not found`, EC.GRAPH_NOT_FOUND);
       }
       const parentDef = parentGraph.definition;
+      const validTransitions = evaluateTransitions(newNodeDef, parentSession.context);
+      if (minimal) {
+        return {
+          status: "advanced",
+          isError: false,
+          previousNode,
+          edgeTaken: edge,
+          currentNode: parentSession.currentNode,
+          validTransitions,
+          contextDelta,
+        } satisfies AdvanceSuccessMinimalResult;
+      }
       return {
         status: "advanced",
         isError: false,
@@ -48,7 +77,7 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Advance
         edgeTaken: edge,
         currentNode: parentSession.currentNode,
         node: toNodeInfo(newNodeDef),
-        validTransitions: evaluateTransitions(newNodeDef, parentSession.context),
+        validTransitions,
         context: cloneContext(parentSession.context),
         ...(parentDef.sources?.length ? { graphSources: parentDef.sources } : {}),
       };
@@ -98,6 +127,9 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Advance
 
   // Fire onEnter for the pushed child's start node before snapshotting
   // context into the response — mirrors how engine.start() runs hooks.
+  // Snapshot childHistory length first so minimal-shape responses can
+  // surface any hook-written keys as part of `contextDelta`.
+  const childWritesBefore = minimal ? activeSession.contextHistory.length : 0;
   await hookRunner.runHooksFor(
     activeSession,
     childDef,
@@ -107,6 +139,28 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Advance
   );
 
   const childStartNode = childDef.nodes[childDef.startNode];
+  const validTransitions = evaluateTransitions(childStartNode, activeSession.context);
+  const subgraphPushed = {
+    graphId: subgraph.graphId,
+    startNode: childDef.startNode,
+    stackDepth: stack.length,
+  };
+
+  if (minimal) {
+    return {
+      status: "advanced",
+      isError: false,
+      previousNode,
+      edgeTaken: edge,
+      currentNode: childDef.startNode,
+      subgraphPushed,
+      validTransitions,
+      contextDelta: mergeDelta(
+        contextDelta,
+        keysSince(activeSession.contextHistory, childWritesBefore),
+      ),
+    } satisfies AdvanceSuccessMinimalResult;
+  }
 
   return {
     status: "advanced",
@@ -114,24 +168,25 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Advance
     previousNode,
     edgeTaken: edge,
     currentNode: childDef.startNode,
-    subgraphPushed: {
-      graphId: subgraph.graphId,
-      startNode: childDef.startNode,
-      stackDepth: stack.length,
-    },
+    subgraphPushed,
     node: toNodeInfo(childStartNode),
-    validTransitions: evaluateTransitions(childStartNode, activeSession.context),
+    validTransitions,
     context: cloneContext(activeSession.context),
     ...(childDef.sources?.length ? { graphSources: childDef.sources } : {}),
   };
 }
 
-export function popSubgraph(
-  stack: SessionState[],
-  graphs: Map<string, ValidatedGraph>,
-  previousNode: string,
-  edge: string,
-): AdvanceSuccessResult {
+interface PopSubgraphArgs {
+  stack: SessionState[];
+  graphs: Map<string, ValidatedGraph>;
+  previousNode: string;
+  edge: string;
+  minimal: boolean;
+  contextDelta: readonly string[];
+}
+
+export function popSubgraph(args: PopSubgraphArgs): SubgraphResult {
+  const { stack, graphs, previousNode, edge, minimal, contextDelta } = args;
   const childSession = stack[stack.length - 1];
   const completedGraphId = childSession.graphId;
 
@@ -163,6 +218,24 @@ export function popSubgraph(
     }
   }
 
+  const validTransitions = evaluateTransitions(parentNodeDef, parentSession.context);
+
+  if (minimal) {
+    return {
+      status: "subgraph_complete",
+      isError: false,
+      previousNode,
+      edgeTaken: edge,
+      currentNode: parentSession.currentNode,
+      completedGraph: completedGraphId,
+      returnedContext,
+      stackDepth: stack.length,
+      resumedNode: parentSession.currentNode,
+      validTransitions,
+      contextDelta: mergeDelta(contextDelta, Object.keys(returnedContext)),
+    } satisfies AdvanceSuccessMinimalResult;
+  }
+
   return {
     status: "subgraph_complete",
     isError: false,
@@ -174,7 +247,7 @@ export function popSubgraph(
     stackDepth: stack.length,
     resumedNode: parentSession.currentNode,
     node: toNodeInfo(parentNodeDef),
-    validTransitions: evaluateTransitions(parentNodeDef, parentSession.context),
+    validTransitions,
     context: cloneContext(parentSession.context),
     ...(parentDef.sources?.length ? { graphSources: parentDef.sources } : {}),
   };

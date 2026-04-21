@@ -102,7 +102,7 @@ export async function traversalStart(
 export async function traversalAdvance(
   store: TraversalStore,
   edge?: string,
-  opts?: { traversal?: string; context?: string },
+  opts?: { traversal?: string; context?: string; minimal?: boolean },
 ): Promise<void> {
   try {
     const id = store.resolveTraversalId(opts?.traversal);
@@ -115,7 +115,9 @@ export async function traversalAdvance(
       outputJson({ traversalId: id, validTransitions: inspectResult.validTransitions });
       return;
     }
-    const result = await store.advance(id, edge, contextUpdates);
+    const result = await store.advance(id, edge, contextUpdates, {
+      ...(opts?.minimal ? { responseMode: "minimal" as const } : {}),
+    });
     if (result.isError) {
       // In-band advance error — the traversal is fine, the caller's
       // requested edge didn't pass. Exit BLOCKED so the skill can
@@ -133,7 +135,7 @@ export async function traversalAdvance(
 export function traversalContextSet(
   store: TraversalStore,
   updates: string[],
-  opts?: { traversal?: string },
+  opts?: { traversal?: string; minimal?: boolean },
 ): void {
   try {
     const id = store.resolveTraversalId(opts?.traversal);
@@ -151,7 +153,9 @@ export function traversalContextSet(
       }
     }
 
-    const result = store.contextSet(id, parsed);
+    const result = store.contextSet(id, parsed, {
+      ...(opts?.minimal ? { responseMode: "minimal" as const } : {}),
+    });
     outputJson(result);
   } catch (e) {
     handleError(e);
@@ -179,12 +183,14 @@ export function traversalMetaSet(
 export function traversalInspect(
   store: TraversalStore,
   traversalId?: string,
-  detail?: string,
+  detail?: "position" | "history",
+  opts?: { minimal?: boolean },
 ): void {
   try {
     const id = store.resolveTraversalId(traversalId);
-    const validDetail = detail === "history" ? "history" : "position";
-    const raw = store.inspect(id, validDetail);
+    const raw = store.inspect(id, detail ?? "position", undefined, undefined, {
+      ...(opts?.minimal ? { responseMode: "minimal" as const } : {}),
+    });
     outputJson(raw);
   } catch (e) {
     handleError(e);
