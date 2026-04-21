@@ -104,6 +104,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the flag is opt-in to stricter handling for shared-graph-registry
   and untrusted-contributor scenarios, not default-deny. See
   `docs/decisions.md` § "Hook trust model".
+- **Minimal-mode advance errors carry the unified `error.kind`
+  envelope (#130 follow-up).** `AdvanceErrorMinimalResult` now exposes
+  `error: { code, message, kind: "blocked" }` matching the full-mode
+  contract from #134, so skills can branch on `error.kind` without
+  knowing which response mode they're in. See #137.
+- **`EC.INVALID_FLAG_VALUE` error code for malformed CLI numeric
+  flag inputs (#139).** Exit 5 (`INVALID_INPUT`). Surfaces when
+  `--limit`, `--offset`, or another integer flag receives a
+  non-integer value — a specific subclass of invalid input that
+  skills can branch on without regex-parsing the message.
 
 ### Changed
 
@@ -183,6 +193,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   connection-scoped `_stale_prop_ids` TEMP TABLE; reads `NOT EXISTS`
   against it. One fixed SQL string, zero stale-id parameters bound,
   regardless of cardinality. Inserts batch at 500 ids per call.
+- **`parseIntArg` + `collectRepeatable` CLI helpers (#139).** The
+  `opts?.foo ? parseInt(opts.foo, 10) : undefined` idiom at nine sites
+  across `src/cli/` collapsed into a single `parseIntArg(opts?.foo)`
+  helper in `src/cli/output.ts`; the ad-hoc repeatable-option parsers
+  (`--meta`, `--keep`, `--workflows`, `--filter`) collapsed to one
+  `collectRepeatable` in `src/cli/program.ts`. Pure refactor — no
+  wire change.
 
 ### Removed
 
