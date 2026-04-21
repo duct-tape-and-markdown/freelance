@@ -4,8 +4,25 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase } from "../src/memory/db.js";
-import { prune } from "../src/memory/prune.js";
 import { MemoryStore } from "../src/memory/store.js";
+
+/**
+ * Test-side read helper. The prior tests reached into `store.getDb()`
+ * to run verification SQL against `proposition_sources`; that escape
+ * hatch is gone, so we open a second short-lived db handle to the same
+ * file. WAL mode lets multiple readers coexist.
+ */
+function readPropSources(dbPath: string): Array<{ proposition_id: string; file_path: string }> {
+  const db = openDatabase(dbPath);
+  try {
+    return db.prepare("SELECT proposition_id, file_path FROM proposition_sources").all() as Array<{
+      proposition_id: string;
+      file_path: string;
+    }>;
+  } finally {
+    db.close();
+  }
+}
 
 function git(cwd: string, ...args: string[]): string {
   const res = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf-8" });
@@ -32,11 +49,13 @@ function commitAll(dir: string, msg: string): string {
 
 describe("memory prune (content-reachability)", () => {
   let dir: string;
+  let dbPath: string;
   let store: MemoryStore;
 
   beforeEach(() => {
     dir = createGitDir();
-    store = new MemoryStore(openDatabase(path.join(dir, "memory.db")), dir);
+    dbPath = path.join(dir, "memory.db");
+    store = new MemoryStore(openDatabase(dbPath), dir);
   });
 
   afterEach(() => {
@@ -46,27 +65,18 @@ describe("memory prune (content-reachability)", () => {
 
   describe("validation", () => {
     it("throws when keep list is empty", () => {
-      expect(() => prune(store, { keep: [] })).toThrow(/requires at least one --keep/i);
+      expect(() => store.prune({ keep: [] })).toThrow(/requires at least one --keep/i);
     });
 
     it("hard-errors on unresolvable keep ref without touching the db", () => {
       fs.writeFileSync(path.join(dir, "a.ts"), "x");
       commitAll(dir, "add a");
       store.emit([{ content: "a", entities: ["A"], sources: ["a.ts"] }]);
-      const before = (
-        store.getDb().prepare("SELECT COUNT(*) as c FROM proposition_sources").get() as {
-          c: number;
-        }
-      ).c;
+      const before = readPropSources(dbPath).length;
 
-      expect(() => prune(store, { keep: ["does-not-exist"] })).toThrow(/does-not-exist/);
+      expect(() => store.prune({ keep: ["does-not-exist"] })).toThrow(/does-not-exist/);
 
-      const after = (
-        store.getDb().prepare("SELECT COUNT(*) as c FROM proposition_sources").get() as {
-          c: number;
-        }
-      ).c;
-      expect(after).toBe(before);
+      expect(readPropSources(dbPath).length).toBe(before);
     });
 
     it("hard-errors when source root is outside a git checkout", () => {
@@ -74,7 +84,7 @@ describe("memory prune (content-reachability)", () => {
       fs.writeFileSync(path.join(nonGit, "a.ts"), "x");
       const s = new MemoryStore(openDatabase(path.join(nonGit, "memory.db")), nonGit);
       s.emit([{ content: "a", entities: ["A"], sources: ["a.ts"] }]);
-      expect(() => prune(s, { keep: ["main"] })).toThrow(/git checkout/i);
+      expect(() => s.prune({ keep: ["main"] })).toThrow(/git checkout/i);
       s.close();
       fs.rmSync(nonGit, { recursive: true, force: true });
     });
@@ -86,7 +96,7 @@ describe("memory prune (content-reachability)", () => {
       commitAll(dir, "v1");
       store.emit([{ content: "a is v1", entities: ["A"], sources: ["a.ts"] }]);
       // File still v1 on disk.
-      const result = prune(store, { keep: ["main"] });
+      const result = store.prune({ keep: ["main"] });
       expect(result.rows_pruned).toBe(0);
     });
 
@@ -99,7 +109,7 @@ describe("memory prune (content-reachability)", () => {
       fs.writeFileSync(path.join(dir, "a.ts"), "v2");
       commitAll(dir, "v2");
       // Disk is now v2, but preserve-me still points at v1.
-      const result = prune(store, { keep: ["preserve-me"] });
+      const result = store.prune({ keep: ["preserve-me"] });
       expect(result.rows_pruned).toBe(0);
     });
 
@@ -114,13 +124,12 @@ describe("memory prune (content-reachability)", () => {
       git(dir, "add", "a.ts");
       git(dir, "-c", "commit.gpgsign=false", "commit", "-q", "--amend", "--no-edit");
 
-      const result = prune(store, { keep: ["main"] });
+      const result = store.prune({ keep: ["main"] });
       expect(result.rows_pruned).toBe(1);
       expect(result.propositions_hard_deleted).toBe(1);
       expect(result.entities_orphaned).toBe(1);
 
-      const remaining = store.getDb().prepare("SELECT * FROM proposition_sources").all();
-      expect(remaining).toHaveLength(0);
+      expect(readPropSources(dbPath)).toHaveLength(0);
     });
 
     it("preserves rows across squash merge (rebase/squash-robust)", () => {
@@ -142,7 +151,7 @@ describe("memory prune (content-reachability)", () => {
       // Now on main with the feature content, but original feature
       // commit SHA is orphaned. Row's content_hash matches
       // main:a.ts content → preserved.
-      const result = prune(store, { keep: ["main"] });
+      const result = store.prune({ keep: ["main"] });
       expect(result.rows_pruned).toBe(0);
     });
 
@@ -158,7 +167,7 @@ describe("memory prune (content-reachability)", () => {
       git(dir, "checkout", "-q", "main");
       git(dir, "branch", "-q", "-D", "experiment");
       // Content "abandoned-experiment" lives nowhere reachable from main.
-      const result = prune(store, { keep: ["main"] });
+      const result = store.prune({ keep: ["main"] });
       expect(result.rows_pruned).toBe(1);
     });
 
@@ -172,7 +181,7 @@ describe("memory prune (content-reachability)", () => {
       git(dir, "rm", "-q", "scratch.ts");
       commitAll(dir, "remove scratch");
 
-      const result = prune(store, { keep: ["main"] });
+      const result = store.prune({ keep: ["main"] });
       expect(result.rows_pruned).toBe(1);
     });
 
@@ -188,7 +197,7 @@ describe("memory prune (content-reachability)", () => {
       // triggers for paths stored relative to sourceRoot but outside
       // gitRoot when sourceRoot ≠ gitRoot. Covered implicitly by the
       // "disk matches → preserved" path above; no additional assert.
-      const result = prune(store, { keep: ["main"] });
+      const result = store.prune({ keep: ["main"] });
       expect(result.rows_pruned).toBe(0);
     });
   });
@@ -208,15 +217,11 @@ describe("memory prune (content-reachability)", () => {
       git(dir, "branch", "-q", "-D", "side");
       // a.ts on main = "a-main"; row's hash for a.ts is "a-side-draft" → prune that row.
       // b.ts on main = "b-stable"; row's hash for b.ts is "b-stable" → preserve that row.
-      const result = prune(store, { keep: ["main"] });
+      const result = store.prune({ keep: ["main"] });
       expect(result.rows_pruned).toBe(1);
       expect(result.propositions_hard_deleted).toBe(0);
 
-      const remaining = store
-        .getDb()
-        .prepare("SELECT file_path FROM proposition_sources")
-        .all() as Array<{ file_path: string }>;
-      expect(remaining.map((r) => r.file_path)).toEqual(["b.ts"]);
+      expect(readPropSources(dbPath).map((r) => r.file_path)).toEqual(["b.ts"]);
     });
   });
 
@@ -229,7 +234,7 @@ describe("memory prune (content-reachability)", () => {
 
       // Disk matches, so preserved regardless of ref. Exercises path
       // separator handling that would otherwise break on Windows.
-      const result = prune(store, { keep: ["main"] });
+      const result = store.prune({ keep: ["main"] });
       expect(result.rows_pruned).toBe(0);
     });
   });
@@ -253,11 +258,10 @@ describe("memory prune (content-reachability)", () => {
       git(dir, "add", ".");
       git(dir, "-c", "commit.gpgsign=false", "commit", "-q", "--amend", "--no-edit");
 
-      const result = prune(store, { keep: ["main"] });
+      const result = store.prune({ keep: ["main"] });
       expect(result.rows_pruned).toBe(2);
 
-      const rows = store.getDb().prepare("SELECT * FROM proposition_sources").all();
-      expect(rows).toHaveLength(0);
+      expect(readPropSources(dbPath)).toHaveLength(0);
     });
   });
 
@@ -270,12 +274,11 @@ describe("memory prune (content-reachability)", () => {
       git(dir, "add", "a.ts");
       git(dir, "-c", "commit.gpgsign=false", "commit", "-q", "--amend", "--no-edit");
 
-      const plan = prune(store, { keep: ["main"], dryRun: true });
+      const plan = store.prune({ keep: ["main"], dryRun: true });
       expect(plan.dry_run).toBe(true);
       expect(plan.rows_pruned).toBe(1);
 
-      const rows = store.getDb().prepare("SELECT * FROM proposition_sources").all();
-      expect(rows).toHaveLength(1);
+      expect(readPropSources(dbPath)).toHaveLength(1);
     });
   });
 });
