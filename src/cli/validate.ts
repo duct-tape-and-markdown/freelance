@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { GraphLintWarning } from "../graph-validation.js";
+import { lintRequiredMeta } from "../graph-validation.js";
 import { validateHookImports } from "../hook-resolution.js";
 import { findGraphFiles, loadSingleGraph, validateCrossGraphRefs } from "../loader.js";
 import { SEALED_GRAPH_IDS } from "../memory/sealed.js";
@@ -26,6 +28,8 @@ interface ValidateResult {
   valid: boolean;
   graphs: GraphResult[];
   errors: { file: string; message: string }[];
+  /** Non-fatal lint findings (e.g. unreachable requiredMeta keys). Omitted when empty so the success shape stays minimal. Does not affect `valid`. */
+  warnings?: GraphLintWarning[];
   sourceDrift?: SourceDriftResult[];
   fixed?: number;
 }
@@ -115,6 +119,19 @@ export async function validate(graphsDir: string, options?: ValidateOptions): Pr
         result.valid = false;
       }
     }
+  }
+
+  // Phase 2.75: non-fatal lint warnings. Graph parsed + passed structural
+  // checks but might still trip up callers at runtime (e.g. unreachable
+  // requiredMeta keys). Only run on graphs that parsed — malformed files
+  // have no definition to lint.
+  const warnings: GraphLintWarning[] = [];
+  for (const [graphId, { definition }] of parsed) {
+    const relFile = path.relative(resolvedDir, graphFilePaths.get(graphId)!);
+    warnings.push(...lintRequiredMeta(definition, relFile));
+  }
+  if (warnings.length > 0) {
+    result.warnings = warnings;
   }
 
   // Phase 3: if --sources, check source bindings for drift

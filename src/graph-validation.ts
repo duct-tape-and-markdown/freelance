@@ -8,12 +8,28 @@
  * field descriptors. Each check throws a descriptive error tagged with
  * the file path so authors can jump straight to the offending node.
  *
+ * Warning-level checks (non-fatal) return a `GraphLintWarning[]` instead
+ * of throwing — the caller decides whether to surface them. See
+ * `lintRequiredMeta` for the contract.
+ *
  * Pure: no I/O, no graphlib, no side effects.
  */
 
 import { extractPropertyComparisons, validateExpression } from "./evaluator.js";
 import type { GraphDefinition } from "./schema/graph-schema.js";
 import { isContextFieldDescriptor } from "./schema/graph-schema.js";
+
+/**
+ * Non-fatal lint finding. Unlike the throwing validators above, lint
+ * checks accumulate warnings and return them so a caller can render
+ * them without blocking validation. `rule` identifies the lint so
+ * callers can filter / suppress by category in future.
+ */
+export interface GraphLintWarning {
+  readonly file: string;
+  readonly rule: string;
+  readonly message: string;
+}
 
 /**
  * Validate return schema structure on nodes.
@@ -152,4 +168,71 @@ export function validateExpressions(def: GraphDefinition, filePath: string): voi
       }
     }
   }
+}
+
+/**
+ * Lint `requiredMeta` keys for reachability (issue #59).
+ *
+ * A graph can declare `requiredMeta: [foo]` to enforce that every
+ * `freelance start` provides `meta.foo` (see
+ * `state/traversal-store.ts` → `REQUIRED_META_MISSING`). But nothing
+ * guarantees the agent actually learns the key exists: the start node
+ * can lack a `meta_set` onEnter that sets it, and the graph description
+ * can omit the key's name. Callers then hit a runtime error on every
+ * start.
+ *
+ * Warn when a `requiredMeta` key has NONE of:
+ *  1. A mention in the graph-level `description` (so a reader notices
+ *     callers must pass it).
+ *  2. A corresponding arg on a `meta_set` onEnter hook on the start node
+ *     (so the key is satisfied from context without the caller).
+ *
+ * Explicit caller-supplied tagging with a documented description is a
+ * valid pattern, so emit as a warning, not a hard error.
+ */
+export function lintRequiredMeta(def: GraphDefinition, filePath: string): GraphLintWarning[] {
+  const required = def.requiredMeta;
+  if (!required || required.length === 0) return [];
+
+  const startNode = def.nodes[def.startNode];
+  const metaSetKeys = new Set<string>();
+  if (startNode?.onEnter) {
+    for (const hook of startNode.onEnter) {
+      if (hook.call !== "meta_set") continue;
+      for (const argKey of Object.keys(hook.args ?? {})) {
+        metaSetKeys.add(argKey);
+      }
+    }
+  }
+
+  const description = def.description;
+  const warnings: GraphLintWarning[] = [];
+  for (const key of required) {
+    if (metaSetKeys.has(key)) continue;
+    if (mentionsKey(description, key)) continue;
+    warnings.push({
+      file: filePath,
+      rule: "required-meta-reachability",
+      message:
+        `Graph "${def.id}": requiredMeta key "${key}" is not mentioned in the graph description ` +
+        `and is not set by a meta_set onEnter hook on start node "${def.startNode}". ` +
+        `Callers have no way to learn they must pass meta.${key} at start. ` +
+        `Either mention "${key}" in the description, or add an onEnter meta_set hook to the start node.`,
+    });
+  }
+  return warnings;
+}
+
+/**
+ * Whole-word match for a requiredMeta key inside the description.
+ * Uses a word-boundary regex so `externalKey` doesn't spuriously match
+ * inside `externalKeyring`, and so documented-by-exact-name is the
+ * contract. Escapes regex metacharacters defensively — meta keys are
+ * schema-constrained to non-empty strings but not to `[A-Za-z_][\w]*`.
+ */
+function mentionsKey(description: string, key: string): boolean {
+  if (!description) return false;
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`\\b${escaped}\\b`);
+  return pattern.test(description);
 }

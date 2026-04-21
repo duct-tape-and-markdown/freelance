@@ -238,6 +238,47 @@ nodes:
     });
   });
 
+  describe("requiredMeta lint (issue #59)", () => {
+    it("emits a warning when a requiredMeta key is neither documented nor set by onEnter", async () => {
+      const dir = tmpDir();
+      copyFixtures(dir, "required-meta-unreachable.workflow.yaml");
+      await expect(validate(dir)).rejects.toThrow("process.exit");
+      // Warnings do not fail validation — exit 0.
+      expect(exitSpy).toHaveBeenCalledWith(0);
+      const result = stdoutJson() as {
+        valid: boolean;
+        warnings: Array<{ file: string; rule: string; message: string }>;
+      };
+      expect(result.valid).toBe(true);
+      expect(result.warnings).toBeDefined();
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0].rule).toBe("required-meta-reachability");
+      expect(result.warnings[0].message).toContain("externalKey");
+      expect(result.warnings[0].file).toContain("required-meta-unreachable");
+    });
+
+    it("emits no warning when the description mentions the key", async () => {
+      const dir = tmpDir();
+      copyFixtures(dir, "required-meta-caller.workflow.yaml");
+      await expect(validate(dir)).rejects.toThrow("process.exit");
+      expect(exitSpy).toHaveBeenCalledWith(0);
+      const result = stdoutJson() as { valid: boolean; warnings?: unknown[] };
+      expect(result.valid).toBe(true);
+      // `warnings` omitted entirely when empty — keeps success shape minimal.
+      expect(result.warnings).toBeUndefined();
+    });
+
+    it("emits no warning when the start-node onEnter meta_set sets the key", async () => {
+      const dir = tmpDir();
+      copyFixtures(dir, "required-meta-hook.workflow.yaml");
+      await expect(validate(dir)).rejects.toThrow("process.exit");
+      expect(exitSpy).toHaveBeenCalledWith(0);
+      const result = stdoutJson() as { valid: boolean; warnings?: unknown[] };
+      expect(result.valid).toBe(true);
+      expect(result.warnings).toBeUndefined();
+    });
+  });
+
   describe("hook-script import check", () => {
     // File-existence of `./scripts/foo.js` is checked synchronously in
     // `resolveGraphHooks` (loader path). The cases here exercise errors

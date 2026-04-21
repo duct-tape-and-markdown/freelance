@@ -470,6 +470,8 @@ With that, \`freelance start\` rejects calls that don't pass \`meta.externalKey\
 
 Use \`requiredMeta\` for workflows that are meaningless without a specific external binding: ticket-driven delivery workflows, PR-review workflows, document-author workflows. Don't use it for optional tagging — it turns the absence of a tag into a hard error.
 
+\`freelance validate\` lints each \`requiredMeta\` key for reachability: if the key isn't named in the graph \`description\` and isn't set by a \`meta_set\` onEnter hook on the start node, a \`required-meta-reachability\` warning fires. Warnings do not fail validation — explicit caller-supplied tagging with a documented description is a supported pattern — but silence one of the two signals so callers can learn the contract.
+
 ## Reading meta back
 
 Every traversal-state response includes meta when set:

@@ -1,0 +1,17 @@
+id: required-meta-unreachable
+version: "1.0.0"
+name: "Required Meta — Unreachable"
+description: "Graph with a required tag key that is not documented anywhere and not satisfied by an onEnter hook."
+startNode: start
+requiredMeta: [externalKey]
+
+nodes:
+  start:
+    type: action
+    description: "Start — no meta_set onEnter for externalKey, and description does not name it"
+    edges:
+      - target: done
+        label: next
+  done:
+    type: terminal
+    description: "Done"
