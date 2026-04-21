@@ -5,6 +5,7 @@
 
 import "./suppress-warnings.js";
 import { DatabaseSync, type SQLInputValue, type StatementSync } from "node:sqlite";
+import { EC, EngineError } from "../errors.js";
 
 // Loose-typed adapter over `node:sqlite`. Centralises the `unknown ↔
 // SQLInputValue / SQLOutputValue` casts in one place so store.ts can
@@ -148,11 +149,76 @@ function migrateDropCollectionColumn(db: Db): void {
   db.exec("ALTER TABLE propositions DROP COLUMN collection");
 }
 
+/**
+ * SQLITE_BUSY detection across node:sqlite's error shape. Matches both
+ * "database is locked" (short timeout / immediate) and "database is
+ * busy" (long-held writer) variants.
+ */
+function isSqliteBusy(e: unknown): boolean {
+  if (!(e instanceof Error)) return false;
+  const code = (e as { code?: unknown }).code;
+  return code === "ERR_SQLITE_ERROR" && /database is (locked|busy)/i.test(e.message);
+}
+
+/**
+ * Pause the event loop without pinning a core. Atomics.wait is the only
+ * sync-sleep available to node that's neither a busy loop nor a shell
+ * subprocess. The SharedArrayBuffer is allocated per call — allocation
+ * cost is negligible next to the ms-scale sleep we're timing.
+ */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// Retry profile for open-time contention. busy_timeout covers in-query
+// waits (5s of internal retry), but a handful of code paths bypass it:
+// last-connection WAL checkpoint, crash recovery, and deadlock-avoid.
+// https://www.sqlite.org/wal.html §5, https://sqlite.org/forum/forumpost/4350638e78869137.
+// Three 50 ms retries = 150 ms worst-case added latency; low enough to
+// absorb into a CLI invocation, high enough to clear typical sibling-
+// process contention.
+const BUSY_RETRY_DELAYS_MS = [50, 50, 50];
+
+/**
+ * Run `fn`, retrying on SQLITE_BUSY up to BUSY_RETRY_DELAYS_MS.length
+ * extra times. Non-busy errors propagate immediately (no retry). When
+ * every attempt is busy, throws `EngineError(DATABASE_BUSY)` so the
+ * CLI error envelope replaces the raw `ERR_SQLITE_ERROR` stack trace.
+ */
+export function retryOnSqliteBusy<T>(fn: () => T, context: string): T {
+  let lastBusyError: Error | undefined;
+  for (let attempt = 0; attempt <= BUSY_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      return fn();
+    } catch (e) {
+      if (!isSqliteBusy(e)) throw e;
+      lastBusyError = e as Error;
+      if (attempt < BUSY_RETRY_DELAYS_MS.length) {
+        sleepSync(BUSY_RETRY_DELAYS_MS[attempt]);
+      }
+    }
+  }
+  throw new EngineError(
+    `Memory database is busy — another Freelance process has a conflicting lock on ` +
+      `${context}. Re-run the command; contention usually clears in <1s. ` +
+      `(Underlying: ${lastBusyError?.message ?? "SQLITE_BUSY"})`,
+    EC.DATABASE_BUSY,
+  );
+}
+
 export function openDatabase(dbPath: string): Db {
+  return retryOnSqliteBusy(() => openDatabaseOnce(dbPath), dbPath);
+}
+
+function openDatabaseOnce(dbPath: string): Db {
   const inner = new DatabaseSync(dbPath);
+  // busy_timeout must be set before journal_mode: switching to WAL takes
+  // a write lock, and without busy_timeout the SQLite C layer returns
+  // SQLITE_BUSY immediately on contention instead of retrying for 5s.
+  // Default busy handling is 0 ms — per-connection, reset on every open.
+  inner.exec("PRAGMA busy_timeout = 5000");
   inner.exec("PRAGMA journal_mode = WAL");
   inner.exec("PRAGMA foreign_keys = ON");
-  inner.exec("PRAGMA busy_timeout = 5000");
   // Default auto-checkpoint is 1000 pages (≈4 MB at 4 KB pages). We saw a
   // 385 KB database with a 4.25 MB WAL in the wild, which is exactly that
   // threshold. Tighten to 200 pages (≈800 KB) so the WAL is recycled more

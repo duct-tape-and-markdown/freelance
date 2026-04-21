@@ -75,3 +75,13 @@ What ships today is the assertion surface, not the sandbox:
 **What would break if reversed:** Making user scripts sandboxed-by-default would require picking a sandbox technology now — each option has real tradeoffs (vm2 is unmaintained, isolated-vm is a native dep, subprocess adds IPC overhead to every hook) and picking wrong is worse than the honest "no sandbox, don't load untrusted graphs" stance.
 
 See issue [#89](https://github.com/duct-tape-and-markdown/freelance/issues/89).
+
+### Memory database opens lazily on first access
+
+`MemoryStore`'s constructor accepts a `() => Db` thunk alongside the eager `Db` form. `composeRuntime` passes the thunk so the SQLite handle is only opened when a memory method is actually invoked. Non-memory CLI verbs (`freelance status`, `visualize`, `validate`) then never touch `memory.db` — which shrinks the cross-process collision surface on WAL-mode open-time locks. That surface is real: `PRAGMA journal_mode = WAL` takes a write lock, last-connection WAL checkpoint takes an exclusive lock, and crash recovery bypasses the busy handler entirely (see `sqlite.org/wal.html` §5). Two concurrent `freelance status` calls used to race each other on a db neither one read.
+
+Two adjacent mitigations travel with the lazy open: (a) `PRAGMA busy_timeout = 5000` is now set *before* `PRAGMA journal_mode = WAL` in `openDatabase` — previously, a losing writer's WAL switch returned `SQLITE_BUSY` immediately because the busy handler hadn't been installed yet; (b) `openDatabase` retries the entire open on SQLITE_BUSY (3 × 50 ms) and, if every attempt is busy, throws `EngineError(EC.DATABASE_BUSY)` so the CLI error envelope replaces the raw `ERR_SQLITE_ERROR` stack trace.
+
+**What would break if reversed:** eager opens re-expose every CLI verb to the open-time races, re-surface the uncaught `ERR_SQLITE_ERROR` stack traces, and drag every invocation's startup cost up by the WAL setup and schema-compatibility checks even when they never read memory.
+
+See issue [#138](https://github.com/duct-tape-and-markdown/freelance/issues/138).

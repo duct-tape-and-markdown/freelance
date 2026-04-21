@@ -54,7 +54,7 @@ export const ENGINE_ERROR_CODES = {
     "INVALID_SHAPE",
     "INVALID_FLAG_VALUE",
   ],
-  BLOCKED: ["NO_EDGES", "STACK_DEPTH_EXCEEDED", ...GATE_BLOCK_CODES],
+  BLOCKED: ["NO_EDGES", "STACK_DEPTH_EXCEEDED", "DATABASE_BUSY", ...GATE_BLOCK_CODES],
   // Hook wiring failures (missing export, bad shape, import error,
   // timeout). Retrying with new context won't repair a broken hook
   // script — surface as INTERNAL so the skill reports instead of loops.
@@ -128,6 +128,7 @@ export const EC = {
   INVALID_FLAG_VALUE: "INVALID_FLAG_VALUE",
   NO_EDGES: "NO_EDGES",
   STACK_DEPTH_EXCEEDED: "STACK_DEPTH_EXCEEDED",
+  DATABASE_BUSY: "DATABASE_BUSY",
   WAIT_BLOCKING: "WAIT_BLOCKING",
   RETURN_SCHEMA_VIOLATION: "RETURN_SCHEMA_VIOLATION",
   VALIDATION_FAILED: "VALIDATION_FAILED",
