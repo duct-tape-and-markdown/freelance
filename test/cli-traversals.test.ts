@@ -16,7 +16,6 @@ import { openStateStore, TraversalStore } from "../src/state/index.js";
 import type { ValidatedGraph } from "../src/types.js";
 
 let exitSpy: ReturnType<typeof vi.spyOn>;
-let stderrSpy: ReturnType<typeof vi.spyOn>;
 let stdoutSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(async () => {
@@ -24,7 +23,7 @@ beforeEach(async () => {
   exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
     throw new Error("process.exit");
   }) as never);
-  stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  vi.spyOn(process.stderr, "write").mockImplementation(() => true);
   stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 });
 
@@ -132,7 +131,7 @@ describe("traversalContextSet", () => {
     }
   });
 
-  it("errors on invalid pair with INTERNAL exit code (thrown Error)", async () => {
+  it("errors on invalid pair with INVALID_KEY_VALUE_PAIR / EXIT 5", async () => {
     const store = createTestStore();
     try {
       const graphId = store.listGraphs().graphs[0]?.id;
@@ -141,8 +140,8 @@ describe("traversalContextSet", () => {
       expect(() => traversalContextSet(store, ["noequalssign"])).toThrow("process.exit");
       const parsed = stdoutJson() as { isError: true; error: { code: string } };
       expect(parsed.isError).toBe(true);
-      expect(parsed.error.code).toBe("INTERNAL");
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(parsed.error.code).toBe("INVALID_KEY_VALUE_PAIR");
+      expect(exitSpy).toHaveBeenCalledWith(5); // EXIT.INVALID_INPUT
     } finally {
       store.close();
     }

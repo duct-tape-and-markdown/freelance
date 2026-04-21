@@ -9,6 +9,7 @@
  */
 
 import fs from "node:fs";
+import { EngineError } from "../errors.js";
 import type { MemoryStore } from "../memory/index.js";
 import { prune } from "../memory/prune.js";
 import { EXIT, handleRuntimeError as handleError, outputJson } from "./output.js";
@@ -96,7 +97,7 @@ export function memoryEmit(store: MemoryStore, file: string): void {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       const source = file === "-" ? "stdin" : file;
-      throw new Error(`${source} must contain valid JSON: ${msg}`);
+      throw new EngineError(`${source} must contain valid JSON: ${msg}`, "INVALID_EMIT_JSON");
     }
 
     outputJson(store.emit(propositions));
@@ -146,6 +147,7 @@ export function memoryPrune(
       process.exit(EXIT.INVALID_INPUT);
     }
   } catch (e) {
+    store.close();
     handleError(e);
   }
 }

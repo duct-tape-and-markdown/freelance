@@ -10,6 +10,7 @@
  * relevant, never on the success path.
  */
 
+import { EngineError } from "../errors.js";
 import type { TraversalStore } from "../state/index.js";
 import type { InspectPositionResult } from "../types.js";
 import { EXIT, handleRuntimeError as handleError, outputJson } from "./output.js";
@@ -24,11 +25,26 @@ import { EXIT, handleRuntimeError as handleError, outputJson } from "./output.js
 function splitKeyValue(pair: string, flag: string): [string, string] {
   const eqIdx = pair.indexOf("=");
   if (eqIdx === -1) {
-    throw new Error(`${flag} requires key=value pairs; got "${pair}"`);
+    throw new EngineError(
+      `${flag} requires key=value pairs; got "${pair}"`,
+      "INVALID_KEY_VALUE_PAIR",
+    );
   }
   const key = pair.slice(0, eqIdx);
-  if (!key) throw new Error(`${flag} key is empty in "${pair}"`);
+  if (!key) {
+    throw new EngineError(`${flag} key is empty in "${pair}"`, "INVALID_KEY_VALUE_PAIR");
+  }
   return [key, pair.slice(eqIdx + 1)];
+}
+
+// Shared by `start` and `advance` for their `--context` JSON payload.
+function parseContextJson(raw: string): Record<string, unknown> {
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new EngineError(`--context must be valid JSON: ${msg}`, "INVALID_CONTEXT_JSON");
+  }
 }
 
 // Values stay strings — meta is deliberately opaque, so (unlike
@@ -70,15 +86,7 @@ export async function traversalStart(
   opts?: { meta?: string[] },
 ): Promise<void> {
   try {
-    let initialContext: Record<string, unknown> | undefined;
-    if (context) {
-      try {
-        initialContext = JSON.parse(context) as Record<string, unknown>;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        throw new Error(`--context must be valid JSON: ${msg}`);
-      }
-    }
+    const initialContext = context ? parseContextJson(context) : undefined;
     const meta = parseMetaPairs(opts?.meta, "--meta");
     const result = await store.createTraversal(
       graphId,
@@ -98,15 +106,7 @@ export async function traversalAdvance(
 ): Promise<void> {
   try {
     const id = store.resolveTraversalId(opts?.traversal);
-    let contextUpdates: Record<string, unknown> | undefined;
-    if (opts?.context) {
-      try {
-        contextUpdates = JSON.parse(opts.context) as Record<string, unknown>;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        throw new Error(`--context must be valid JSON: ${msg}`);
-      }
-    }
+    const contextUpdates = opts?.context ? parseContextJson(opts.context) : undefined;
     if (!edge) {
       // No edge argument: report the available edges instead. Useful for
       // the skill to probe validTransitions without side effects.
@@ -167,7 +167,7 @@ export function traversalMetaSet(
     const id = store.resolveTraversalId(opts?.traversal);
     const parsed = parseMetaPairs(updates, "meta set");
     if (Object.keys(parsed).length === 0) {
-      throw new Error("meta set requires at least one key=value pair");
+      throw new EngineError("meta set requires at least one key=value pair", "INVALID_META");
     }
     const result = store.setMeta(id, parsed);
     outputJson(result);

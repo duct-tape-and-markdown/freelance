@@ -24,12 +24,6 @@ export const EXIT = {
   VALIDATION: 3,
   NOT_FOUND: 4,
   INVALID_INPUT: 5,
-  // Legacy aliases — kept so authoring commands (validate, init, visualize,
-  // config) stay on their existing exit-code conventions without churn.
-  // Runtime handlers use the semantic names above.
-  GENERAL_ERROR: 1,
-  INVALID_USAGE: 2,
-  GRAPH_ERROR: 3,
 } as const;
 
 /**
@@ -53,28 +47,39 @@ export function mapEngineErrorToExit(code: string | undefined): number {
     case "REQUIRED_META_MISSING":
     case "AMBIGUOUS_TRAVERSAL":
     case "TRAVERSAL_ACTIVE":
+    case "INVALID_KEY_VALUE_PAIR":
+    case "INVALID_CONTEXT_JSON":
+    case "INVALID_EMIT_JSON":
+    case "INVALID_META":
       return EXIT.INVALID_INPUT;
-    // Runtime blocked (state / constraint)
+    // Runtime blocked (state / constraint) — advance couldn't proceed but
+    // the traversal itself is intact; caller may recover with new context.
     case "NO_EDGES":
     case "STACK_DEPTH_EXCEEDED":
+      return EXIT.BLOCKED;
+    // Hook wiring failures are author-time bugs (missing export, bad
+    // shape, import error). Retrying with new context won't repair a
+    // broken hook script, so surface as INTERNAL — the skill should
+    // report to the operator, not loop.
     case "HOOK_FAILED":
     case "HOOK_IMPORT_FAILED":
     case "HOOK_BAD_SHAPE":
     case "HOOK_RESOLUTION_MISMATCH":
     case "HOOK_BUILTIN_MISSING":
     case "HOOK_BAD_RETURN":
-      return EXIT.BLOCKED;
+      return EXIT.INTERNAL;
     default:
       return EXIT.INTERNAL;
   }
 }
 
 /**
- * Write a structured error to stdout and return the exit code the caller
- * should use. Shape mirrors the MCP tool-error payload:
+ * Write a structured error to stdout and return the exit code. Payload is
  *   { isError: true, error: { code, message } }
- * so a skill consuming either surface sees the same shape. For unknown
- * throws (non-EngineError), `code` is `INTERNAL`.
+ * — `isError` at the top level so a shell consumer can one-pass-parse
+ * without checking exit codes, and `error.code` is what
+ * `mapEngineErrorToExit` branches on. For unknown throws (non-EngineError),
+ * `code` is `INTERNAL`.
  */
 export function outputError(e: unknown): number {
   if (e instanceof EngineError) {
@@ -95,8 +100,15 @@ export function outputError(e: unknown): number {
  * error payload via `outputError` and exits with the mapped code.
  * Consolidates the identical `catch { outputError(e); process.exit(…) }`
  * shape that lived in traversals.ts / memory.ts / stateless.ts.
+ *
+ * Re-throws if `e` is the "process.exit" sentinel that tests install in
+ * place of `process.exit`. Otherwise a `fatal()` call nested inside a
+ * try/catch would double-emit (fatal writes the structured payload and
+ * calls process.exit; the mocked throw reaches this catch, which would
+ * emit a second INTERNAL payload and mask the original).
  */
 export function handleRuntimeError(e: unknown): never {
+  if (e instanceof Error && e.message === "process.exit") throw e;
   process.exit(outputError(e));
 }
 

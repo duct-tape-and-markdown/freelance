@@ -99,8 +99,11 @@ export function sourcesValidate(
       if (graphId) {
         fatal(`graph not found: ${graphId}`, EXIT.NOT_FOUND, "GRAPH_NOT_FOUND");
       }
-      outputJson({ valid: true, graphsChecked: 0, drift: [] });
-      return;
+      fatal(
+        "no loadable *.workflow.yaml files in the configured graphs directories",
+        EXIT.NOT_FOUND,
+        "NO_GRAPHS_LOADED",
+      );
     }
 
     const drift: Array<{
