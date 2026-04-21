@@ -1,4 +1,4 @@
-import { EngineError } from "../errors.js";
+import { EC, EngineError } from "../errors.js";
 import { resolveContextDefaults } from "../loader.js";
 import type {
   AdvanceResult,
@@ -85,13 +85,13 @@ export class GraphEngine {
     if (this.stack.length > 0) {
       throw new EngineError(
         "A traversal is already active. Call reset() first.",
-        "TRAVERSAL_ACTIVE",
+        EC.TRAVERSAL_ACTIVE,
       );
     }
 
     const graph = this.graphs.get(graphId);
     if (!graph) {
-      throw new EngineError(`Graph "${graphId}" not found`, "GRAPH_NOT_FOUND");
+      throw new EngineError(`Graph "${graphId}" not found`, EC.GRAPH_NOT_FOUND);
     }
 
     const def = graph.definition;
@@ -163,7 +163,7 @@ export class GraphEngine {
     if (!currentNodeDef.edges) {
       throw new EngineError(
         `Node "${session.currentNode}" is a terminal node with no outgoing edges`,
-        "NO_EDGES",
+        EC.NO_EDGES,
       );
     }
     const edgeDef = currentNodeDef.edges.find((e) => e.label === edge);
@@ -171,7 +171,7 @@ export class GraphEngine {
       throw new EngineError(
         `Edge "${edge}" not found on node "${session.currentNode}". ` +
           `Available edges: ${currentNodeDef.edges.map((e: { label: string }) => e.label).join(", ")}`,
-        "EDGE_NOT_FOUND",
+        EC.EDGE_NOT_FOUND,
       );
     }
 
@@ -361,7 +361,7 @@ export class GraphEngine {
 
   private requireSession(): SessionState {
     if (this.stack.length === 0) {
-      throw new EngineError("No traversal active. Call start() first.", "NO_TRAVERSAL");
+      throw new EngineError("No traversal active. Call start() first.", EC.NO_TRAVERSAL);
     }
     return this.activeSession();
   }
@@ -369,7 +369,10 @@ export class GraphEngine {
   private currentGraph(): ValidatedGraph {
     const graph = this.graphs.get(this.activeSession().graphId);
     if (!graph) {
-      throw new EngineError(`Graph "${this.activeSession().graphId}" not found`, "GRAPH_NOT_FOUND");
+      throw new EngineError(
+        `Graph "${this.activeSession().graphId}" not found`,
+        EC.GRAPH_NOT_FOUND,
+      );
     }
     return graph;
   }

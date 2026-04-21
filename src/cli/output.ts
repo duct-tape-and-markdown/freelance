@@ -1,5 +1,10 @@
 // Shared CLI output helpers and global state.
 import path from "node:path";
+import {
+  ENGINE_ERROR_CODES,
+  type EngineErrorCategory,
+  type EngineErrorCode,
+} from "../error-codes.js";
 import { EngineError } from "../errors.js";
 
 /**
@@ -13,9 +18,6 @@ import { EngineError } from "../errors.js";
  *   3 — validation failed (graph structural validation; authoring-time use)
  *   4 — not found (referenced traversal / graph / edge doesn't exist)
  *   5 — invalid input (caller-supplied arg is malformed or conflicts with state)
- *
- * The skill branches on these to decide whether to retry, surface the
- * error to the user, or stop the loop.
  */
 export const EXIT = {
   SUCCESS: 0,
@@ -26,51 +28,31 @@ export const EXIT = {
   INVALID_INPUT: 5,
 } as const;
 
+// Exit code each `EngineError` category maps to. Typed on
+// `EngineErrorCategory` so adding a new category to `ENGINE_ERROR_CODES`
+// becomes a compile error here until it's classified — the mapping
+// can't drift from the catalog.
+const CATEGORY_EXIT: { readonly [K in EngineErrorCategory]: number } = {
+  NOT_FOUND: EXIT.NOT_FOUND,
+  INVALID_INPUT: EXIT.INVALID_INPUT,
+  BLOCKED: EXIT.BLOCKED,
+  INTERNAL_HOOK: EXIT.INTERNAL,
+};
+
+const CODE_TO_EXIT: ReadonlyMap<EngineErrorCode, number> = new Map(
+  (Object.keys(ENGINE_ERROR_CODES) as EngineErrorCategory[]).flatMap((cat) =>
+    ENGINE_ERROR_CODES[cat].map((code) => [code, CATEGORY_EXIT[cat]] as const),
+  ),
+);
+
 /**
- * Map an `EngineError.code` to its exit-code category. Runtime handlers
- * call this inside `catch` blocks. Unknown codes fall back to INTERNAL
- * so a novel error never masquerades as a caller-fixable one.
+ * Map an `EngineError.code` to its exit-code category. Unknown codes
+ * fall back to INTERNAL so a novel error never masquerades as a
+ * caller-fixable one — only relevant if a consumer constructs an
+ * `EngineError` with a cast, since the type system rules it out.
  */
-export function mapEngineErrorToExit(code: string | undefined): number {
-  if (!code) return EXIT.INTERNAL;
-  switch (code) {
-    // Not found
-    case "TRAVERSAL_NOT_FOUND":
-    case "GRAPH_NOT_FOUND":
-    case "EDGE_NOT_FOUND":
-    case "NO_TRAVERSAL":
-      return EXIT.NOT_FOUND;
-    // Invalid input (caller-provided)
-    case "STRICT_CONTEXT_VIOLATION":
-    case "CONTEXT_VALUE_TOO_LARGE":
-    case "CONTEXT_TOTAL_TOO_LARGE":
-    case "REQUIRED_META_MISSING":
-    case "AMBIGUOUS_TRAVERSAL":
-    case "TRAVERSAL_ACTIVE":
-    case "INVALID_KEY_VALUE_PAIR":
-    case "INVALID_CONTEXT_JSON":
-    case "INVALID_EMIT_JSON":
-    case "INVALID_META":
-      return EXIT.INVALID_INPUT;
-    // Runtime blocked (state / constraint) — advance couldn't proceed but
-    // the traversal itself is intact; caller may recover with new context.
-    case "NO_EDGES":
-    case "STACK_DEPTH_EXCEEDED":
-      return EXIT.BLOCKED;
-    // Hook wiring failures are author-time bugs (missing export, bad
-    // shape, import error). Retrying with new context won't repair a
-    // broken hook script, so surface as INTERNAL — the skill should
-    // report to the operator, not loop.
-    case "HOOK_FAILED":
-    case "HOOK_IMPORT_FAILED":
-    case "HOOK_BAD_SHAPE":
-    case "HOOK_RESOLUTION_MISMATCH":
-    case "HOOK_BUILTIN_MISSING":
-    case "HOOK_BAD_RETURN":
-      return EXIT.INTERNAL;
-    default:
-      return EXIT.INTERNAL;
-  }
+export function mapEngineErrorToExit(code: EngineErrorCode): number {
+  return CODE_TO_EXIT.get(code) ?? EXIT.INTERNAL;
 }
 
 /**

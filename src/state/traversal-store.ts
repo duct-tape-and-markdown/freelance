@@ -8,7 +8,7 @@ import crypto from "node:crypto";
 import type { ContextCaps, InspectHistoryOptions } from "../engine/context.js";
 import type { HookRunner } from "../engine/hooks.js";
 import { GraphEngine } from "../engine/index.js";
-import { EngineError } from "../errors.js";
+import { EC, EngineError } from "../errors.js";
 import type {
   AdvanceResult,
   ContextSetResult,
@@ -141,7 +141,7 @@ export class TraversalStore {
           `Graph "${graphId}" requires meta keys [${missing.join(", ")}] at start. ` +
             `Pass them via freelance_start's \`meta\` argument, or set them via an ` +
             `onEnter meta_set hook on the start node.`,
-          "REQUIRED_META_MISSING",
+          EC.REQUIRED_META_MISSING,
         );
       }
     }
@@ -203,11 +203,11 @@ export class TraversalStore {
     updates: Record<string, string>,
   ): { traversalId: string; meta: Record<string, string> } {
     if (Object.keys(updates).length === 0) {
-      throw new EngineError("setMeta requires at least one key=value pair", "INVALID_META");
+      throw new EngineError("setMeta requires at least one key=value pair", EC.INVALID_META);
     }
     const record = this.state.get(traversalId);
     if (!record) {
-      throw new EngineError(`Traversal "${traversalId}" not found`, "TRAVERSAL_NOT_FOUND");
+      throw new EngineError(`Traversal "${traversalId}" not found`, EC.TRAVERSAL_NOT_FOUND);
     }
     const meta = { ...record.meta, ...updates };
     this.state.put({ ...record, meta, updatedAt: new Date().toISOString() });
@@ -239,7 +239,7 @@ export class TraversalStore {
 
     const ids = this.state.listIds();
     if (ids.length === 0) {
-      throw new EngineError("No active traversals. Call freelance_start first.", "NO_TRAVERSAL");
+      throw new EngineError("No active traversals. Call freelance_start first.", EC.NO_TRAVERSAL);
     }
     if (ids.length === 1) return ids[0];
 
@@ -253,7 +253,7 @@ export class TraversalStore {
       .join(", ");
     throw new EngineError(
       `Multiple active traversals. Specify traversalId. Active: ${summary}`,
-      "AMBIGUOUS_TRAVERSAL",
+      EC.AMBIGUOUS_TRAVERSAL,
     );
   }
 
@@ -270,7 +270,7 @@ export class TraversalStore {
   private loadEngine(traversalId: string): { engine: GraphEngine; record: TraversalRecord } {
     const record = this.state.get(traversalId);
     if (!record) {
-      throw new EngineError(`Traversal "${traversalId}" not found`, "TRAVERSAL_NOT_FOUND");
+      throw new EngineError(`Traversal "${traversalId}" not found`, EC.TRAVERSAL_NOT_FOUND);
     }
 
     const engine = this.newEngine();

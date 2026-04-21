@@ -9,7 +9,7 @@
  */
 
 import { pathToFileURL } from "node:url";
-import { EngineError } from "../errors.js";
+import { EC, EngineError } from "../errors.js";
 import { CONTEXT_PATH_PATTERN, resolveContextPath } from "../evaluator.js";
 import type { HookResolutionMap, ResolvedHook } from "../hook-resolution.js";
 import type {
@@ -152,7 +152,7 @@ export class HookRunner {
       throw new EngineError(
         `Hook resolution count mismatch on node "${nodeId}" (specs=${specs.length}, ` +
           `resolutions=${resolutions.length}). This is an internal bug — please report.`,
-        "HOOK_RESOLUTION_MISMATCH",
+        EC.HOOK_RESOLUTION_MISMATCH,
       );
     }
 
@@ -179,7 +179,7 @@ export class HookRunner {
         const message = e instanceof Error ? e.message : String(e);
         throw new EngineError(
           `onEnter hook "${resolved.call}" on node "${nodeId}" failed: ${message}`,
-          "HOOK_FAILED",
+          EC.HOOK_FAILED,
         );
       }
 
@@ -187,7 +187,7 @@ export class HookRunner {
         throw new EngineError(
           `onEnter hook "${resolved.call}" on node "${nodeId}" must return a plain object; ` +
             `got ${Array.isArray(result) ? "array" : typeof result}`,
-          "HOOK_BAD_RETURN",
+          EC.HOOK_BAD_RETURN,
         );
       }
 
@@ -215,7 +215,7 @@ export class HookRunner {
         throw new EngineError(
           `Built-in hook "${resolved.name}" referenced by node "${nodeId}" is not registered. ` +
             `Available built-ins: [${[...this.builtinHooks.keys()].join(", ")}]`,
-          "HOOK_BUILTIN_MISSING",
+          EC.HOOK_BUILTIN_MISSING,
         );
       }
       return fn;
@@ -228,7 +228,7 @@ export class HookRunner {
       const message = e instanceof Error ? e.message : String(e);
       throw new EngineError(
         `Failed to import hook script "${resolved.absolutePath}" for node "${nodeId}": ${message}`,
-        "HOOK_IMPORT_FAILED",
+        EC.HOOK_IMPORT_FAILED,
       );
     }
 
@@ -236,7 +236,7 @@ export class HookRunner {
     if (typeof fn !== "function") {
       throw new EngineError(
         `Hook script "${resolved.absolutePath}" must export a default function (got ${typeof fn})`,
-        "HOOK_BAD_SHAPE",
+        EC.HOOK_BAD_SHAPE,
       );
     }
 

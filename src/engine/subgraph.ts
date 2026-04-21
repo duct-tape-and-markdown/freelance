@@ -1,4 +1,4 @@
-import { EngineError } from "../errors.js";
+import { EC, EngineError } from "../errors.js";
 import { evaluate } from "../evaluator.js";
 import { resolveContextDefaults } from "../loader.js";
 import type {
@@ -38,7 +38,7 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Advance
     if (!condMet) {
       const parentGraph = graphs.get(parentSession.graphId);
       if (!parentGraph) {
-        throw new EngineError(`Graph "${parentSession.graphId}" not found`, "GRAPH_NOT_FOUND");
+        throw new EngineError(`Graph "${parentSession.graphId}" not found`, EC.GRAPH_NOT_FOUND);
       }
       const parentDef = parentGraph.definition;
       return {
@@ -58,7 +58,7 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Advance
   if (stack.length >= maxDepth) {
     throw new EngineError(
       `Maximum stack depth (${maxDepth}) exceeded. Cannot push subgraph '${subgraph.graphId}'. Simplify the workflow or increase maxDepth.`,
-      "STACK_DEPTH_EXCEEDED",
+      EC.STACK_DEPTH_EXCEEDED,
     );
   }
 
@@ -66,7 +66,7 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Advance
   if (!childGraph) {
     throw new EngineError(
       `Subgraph '${subgraph.graphId}' not found in loaded graphs.`,
-      "GRAPH_NOT_FOUND",
+      EC.GRAPH_NOT_FOUND,
     );
   }
 
@@ -140,7 +140,7 @@ export function popSubgraph(
   const parentSession = stack[stack.length - 1];
   const parentGraph = graphs.get(parentSession.graphId);
   if (!parentGraph) {
-    throw new EngineError(`Graph "${parentSession.graphId}" not found`, "GRAPH_NOT_FOUND");
+    throw new EngineError(`Graph "${parentSession.graphId}" not found`, EC.GRAPH_NOT_FOUND);
   }
   const parentDef = parentGraph.definition;
   const parentNodeDef = parentDef.nodes[parentSession.currentNode];
