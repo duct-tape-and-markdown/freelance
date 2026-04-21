@@ -383,4 +383,12 @@ export interface TraversalListResult {
   readonly activeTraversals: readonly TraversalInfo[];
   /** Only included when non-empty — keeps the success shape unchanged. */
   readonly loadErrors?: readonly LoadError[];
+  /**
+   * Traversals whose top-of-stack `graphId` doesn't resolve against the
+   * graphs currently loaded (yaml deleted / renamed / failed to parse).
+   * Split out so callers can see them distinctly from `activeTraversals`
+   * without having to cross-reference `graphs`. Only included when
+   * non-empty; mirrors the `loadErrors` elision pattern.
+   */
+  readonly orphanedTraversals?: readonly TraversalInfo[];
 }

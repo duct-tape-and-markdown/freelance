@@ -126,6 +126,8 @@ freelance inspect [<traversalId>] --fields currentNode --fields neighbors
 
 `freelance status` includes a `loadErrors: [{file, message}]` array if any workflow yaml in the graphs dir failed to parse or validate. The field is elided when empty — its presence means at least one file was silently dropped from the `graphs` listing.
 
+`freelance status` also includes an `orphanedTraversals: [{traversalId, graphId, currentNode, lastUpdated, ...}]` array when any traversal record points at a graph that isn't loaded (yaml deleted, renamed, or in `loadErrors`). Also elided when empty. Orphans are _not_ in `activeTraversals` — reporting them distinctly tells the user the traversal can't advance without operator action: either restore the graph yaml, or run `freelance reset <traversalId> --confirm` to clear. Calling `freelance advance` / `freelance inspect` on an orphan fails with `GRAPH_NOT_FOUND` (structural, exit 4) and the message repeats the same two recovery options.
+
 ## Lean responses (`--minimal`)
 
 `freelance advance`, `freelance context set`, and `freelance inspect` accept `--minimal`. The response drops the full `context` echo and the `node` NodeInfo blob (instructions, suggestedTools, sources) and returns `{ currentNode, validTransitions, contextDelta, status, ... }`. `contextDelta` names the keys written this turn — your own updates plus anything an `onEnter` hook wrote — so hook activity stays visible without re-shipping unchanged state.

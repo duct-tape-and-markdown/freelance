@@ -709,3 +709,41 @@ describe("traversalStatus loadErrors surface (#122)", () => {
     }
   });
 });
+
+describe("traversalStatus orphanedTraversals surface (#136)", () => {
+  it("moves a traversal into orphanedTraversals when its graph isn't loaded", async () => {
+    const fixture = path.resolve("test/fixtures/valid-branching.workflow.yaml");
+    const loaded = loadSingleGraph(fixture);
+    const graphs = new Map<string, ValidatedGraph>([[loaded.id, loaded]]);
+    const db = openStateStore(":memory:");
+    const store = new TraversalStore(db, graphs, { maxDepth: 5, hookRunner: new HookRunner() });
+    try {
+      await store.createTraversal(loaded.id);
+      // Drop the graph from the map to simulate the yaml being
+      // removed/renamed between CLI invocations.
+      store.updateGraphs(new Map());
+
+      traversalStatus(store);
+      const parsed = stdoutJson() as {
+        activeTraversals: unknown[];
+        orphanedTraversals?: Array<{ traversalId: string; graphId: string }>;
+      };
+      expect(parsed.activeTraversals).toHaveLength(0);
+      expect(parsed.orphanedTraversals).toHaveLength(1);
+      expect(parsed.orphanedTraversals?.[0].graphId).toBe(loaded.id);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("elides orphanedTraversals when empty — preserves the pre-#136 status shape", () => {
+    const store = createTestStore();
+    try {
+      traversalStatus(store);
+      const parsed = stdoutJson() as Record<string, unknown>;
+      expect("orphanedTraversals" in parsed).toBe(false);
+    } finally {
+      store.close();
+    }
+  });
+});

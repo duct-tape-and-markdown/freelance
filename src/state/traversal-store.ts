@@ -126,13 +126,24 @@ export class TraversalStore {
       });
     }
     graphList.sort((a, b) => a.id.localeCompare(b.id));
-    const base: TraversalListResult = {
+
+    // Split active vs. orphaned. An orphan is a traversal whose top-of-
+    // stack graphId isn't among the currently-loaded graphs — the yaml
+    // was deleted/renamed/failed to parse between `start` and this read.
+    // `advance`/`inspect` on an orphan fails with GRAPH_NOT_FOUND; the
+    // split surfaces them on `status` so the skill can suggest reset.
+    const active: TraversalInfo[] = [];
+    const orphaned: TraversalInfo[] = [];
+    for (const t of this.listTraversals()) {
+      (this.graphs.has(t.graphId) ? active : orphaned).push(t);
+    }
+
+    return {
       graphs: graphList,
-      activeTraversals: this.listTraversals(),
+      activeTraversals: active,
+      ...(this.loadErrors.length > 0 && { loadErrors: this.loadErrors }),
+      ...(orphaned.length > 0 && { orphanedTraversals: orphaned }),
     };
-    // Elide loadErrors entirely when empty — the field is optional so a
-    // clean run still serializes to the pre-#122 shape.
-    return this.loadErrors.length > 0 ? { ...base, loadErrors: this.loadErrors } : base;
   }
 
   listTraversals(): TraversalInfo[] {
@@ -298,7 +309,37 @@ export class TraversalStore {
   }
 
   resetTraversal(traversalId: string): { traversalId: string } & ResetResult {
-    const { engine } = this.loadEngine(traversalId);
+    // Reset is the documented recovery path for orphaned traversals
+    // (loadEngine's error message points here), so it must succeed even
+    // when the graph isn't loaded. We open-code the record fetch rather
+    // than going through loadEngine, which would throw GRAPH_NOT_FOUND
+    // and make orphan recovery unreachable. Engine hydration isn't
+    // needed — reset() only reads the stored stack to build its
+    // ResetResult.
+    const record = this.state.get(traversalId);
+    if (!record) {
+      throw new EngineError(`Traversal "${traversalId}" not found`, EC.TRAVERSAL_NOT_FOUND);
+    }
+
+    if (!this.graphs.has(record.graphId)) {
+      this.state.delete(traversalId);
+      const root = record.stack[0];
+      const clearedStack = record.stack.map((s) => ({
+        graphId: s.graphId,
+        node: s.currentNode,
+      }));
+      return {
+        traversalId,
+        status: "reset",
+        previousGraph: root?.graphId ?? null,
+        previousNode: root?.currentNode ?? null,
+        message: `Cleared orphaned traversal (graph "${record.graphId}" was not loaded).`,
+        ...(clearedStack.length > 1 && { clearedStack }),
+      };
+    }
+
+    const engine = this.newEngine();
+    engine.restoreStack(record.stack);
     const result = engine.reset();
     this.state.delete(traversalId);
     return { traversalId, ...result };
@@ -343,6 +384,19 @@ export class TraversalStore {
     const record = this.state.get(traversalId);
     if (!record) {
       throw new EngineError(`Traversal "${traversalId}" not found`, EC.TRAVERSAL_NOT_FOUND);
+    }
+
+    // Orphan check — the traversal record exists but its graph doesn't
+    // resolve. Throw GRAPH_NOT_FOUND here with a recovery hint rather
+    // than letting the engine throw the bare form from its own lookup;
+    // the hint tells the operator how to get unstuck (reset or restore).
+    if (!this.graphs.has(record.graphId)) {
+      throw new EngineError(
+        `Graph "${record.graphId}" not found. Traversal "${traversalId}" is orphaned — ` +
+          `its workflow yaml is missing, renamed, or failed to parse. Run ` +
+          `\`freelance reset ${traversalId} --confirm\` to clear it, or restore the graph yaml.`,
+        EC.GRAPH_NOT_FOUND,
+      );
     }
 
     const engine = this.newEngine();
