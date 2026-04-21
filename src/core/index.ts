@@ -1,9 +1,9 @@
 /**
  * freelance/core — Pure graph definition, validation, and traversal.
  *
- * No SQLite. No MCP. No native dependencies.
- * Import from "freelance/core" to use GraphBuilder, GraphEngine,
- * and schema types without pulling in better-sqlite3.
+ * No SQLite, no native dependencies. Import from "freelance/core" to
+ * use GraphBuilder, GraphEngine, and schema types without pulling in
+ * `node:sqlite`.
  */
 
 export type { NodeInput } from "../builder.js";

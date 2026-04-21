@@ -1,12 +1,9 @@
 import path from "node:path";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { HookRunner } from "../src/engine/hooks.js";
 import { GraphEngine } from "../src/engine/index.js";
 import { EngineError } from "../src/errors.js";
 import { graphDefinitionSchema } from "../src/schema/graph-schema.js";
-import { createServer } from "../src/server.js";
 import { loadFixtureGraphs, makeEngine as sharedMakeEngine } from "./helpers.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
@@ -310,151 +307,6 @@ describe("subgraph — loader validation", () => {
   it("accepts valid subgraph references", async () => {
     const graphs = loadFixtures("parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
     expect(graphs.size).toBe(2);
-  });
-});
-
-// =============================================================================
-// MCP SERVER INTEGRATION TESTS
-// =============================================================================
-
-function parse(result: Awaited<ReturnType<Client["callTool"]>>): any {
-  const text = (result.content as Array<{ type: string; text: string }>)[0]?.text;
-  return JSON.parse(text);
-}
-
-async function setupMcp(...files: string[]) {
-  const graphs = loadFixtures(...files);
-  const { server } = createServer(graphs);
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: "test-client", version: "1.0.0" });
-  await server.connect(serverTransport);
-  await client.connect(clientTransport);
-  return {
-    client,
-    cleanup: async () => {
-      await client.close();
-      await server.close();
-    },
-  };
-}
-
-async function callTool(client: Client, name: string, args: Record<string, unknown> = {}) {
-  const result = await client.callTool({ name, arguments: args });
-  return { raw: result, data: parse(result), isError: !!result.isError };
-}
-
-describe("subgraph — MCP integration: full parent→child→parent traversal", () => {
-  let client: Client;
-  let cleanup: () => Promise<void>;
-
-  beforeEach(async () => {
-    const s = await setupMcp("parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
-    client = s.client;
-    cleanup = s.cleanup;
-  });
-  afterEach(async () => cleanup());
-
-  it("traverses parent → push child → complete child → pop to parent → complete", async () => {
-    // Start parent
-    const s = await callTool(client, "freelance_start", { graphId: "parent-workflow" });
-    expect(s.isError).toBe(false);
-    expect(s.data.currentNode).toBe("start");
-
-    // Set context and advance to subgraph node
-    await callTool(client, "freelance_context_set", { updates: { taskDone: true } });
-    const a1 = await callTool(client, "freelance_advance", { edge: "work-done" });
-    expect(a1.isError).toBe(false);
-    expect(a1.data.subgraphPushed).toBeDefined();
-    expect(a1.data.subgraphPushed.graphId).toBe("child-review");
-    expect(a1.data.currentNode).toBe("check-security");
-
-    // Inspect during child — should show stack
-    const pos1 = await callTool(client, "freelance_inspect", { detail: "position" });
-    expect(pos1.data.stackDepth).toBe(2);
-    expect(pos1.data.stack).toHaveLength(2);
-
-    // Traverse child
-    await callTool(client, "freelance_context_set", { updates: { securityPass: true } });
-    const a2 = await callTool(client, "freelance_advance", { edge: "done" });
-    expect(a2.data.currentNode).toBe("check-tests");
-
-    await callTool(client, "freelance_context_set", {
-      updates: { testsPass: true, approved: true },
-    });
-    const a3 = await callTool(client, "freelance_advance", { edge: "done" });
-    expect(a3.data.currentNode).toBe("review-gate");
-
-    // Complete child → pop
-    const a4 = await callTool(client, "freelance_advance", { edge: "approved" });
-    expect(a4.data.status).toBe("subgraph_complete");
-    expect(a4.data.completedGraph).toBe("child-review");
-    expect(a4.data.resumedNode).toBe("quality-gate");
-    expect(a4.data.context.reviewPassed).toBe(true);
-    expect(a4.data.stackDepth).toBe(1);
-
-    // Complete parent
-    const a5 = await callTool(client, "freelance_advance", { edge: "pass" });
-    expect(a5.data.status).toBe("complete");
-    expect(a5.data.currentNode).toBe("finalize");
-  });
-});
-
-describe("subgraph — MCP integration: reset during subgraph", () => {
-  let client: Client;
-  let cleanup: () => Promise<void>;
-
-  beforeEach(async () => {
-    const s = await setupMcp("parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
-    client = s.client;
-    cleanup = s.cleanup;
-  });
-  afterEach(async () => cleanup());
-
-  it("resets entire stack and allows restart", async () => {
-    await callTool(client, "freelance_start", { graphId: "parent-workflow" });
-    await callTool(client, "freelance_context_set", { updates: { taskDone: true } });
-    await callTool(client, "freelance_advance", { edge: "work-done" }); // push child
-
-    const r = await callTool(client, "freelance_reset", { confirm: true });
-    expect(r.data.status).toBe("reset");
-    expect(r.data.clearedStack).toHaveLength(2);
-
-    // Can restart
-    const s = await callTool(client, "freelance_start", { graphId: "parent-workflow" });
-    expect(s.isError).toBe(false);
-    expect(s.data.currentNode).toBe("start");
-  });
-});
-
-describe("subgraph — MCP integration: conditional skip", () => {
-  let client: Client;
-  let cleanup: () => Promise<void>;
-
-  beforeEach(async () => {
-    const s = await setupMcp(
-      "parent-conditional-subgraph.workflow.yaml",
-      "child-review.workflow.yaml",
-    );
-    client = s.client;
-    cleanup = s.cleanup;
-  });
-  afterEach(async () => cleanup());
-
-  it("skips subgraph when condition is false and completes normally", async () => {
-    await callTool(client, "freelance_start", {
-      graphId: "parent-conditional",
-      initialContext: { skipReview: true },
-    });
-
-    const a1 = await callTool(client, "freelance_advance", { edge: "done" });
-    expect(a1.isError).toBe(false);
-    // No subgraph pushed
-    expect(a1.data.subgraphPushed).toBeUndefined();
-    expect(a1.data.currentNode).toBe("maybe-review");
-
-    // skipReview == true satisfies the validation
-    const a2 = await callTool(client, "freelance_advance", { edge: "continue" });
-    expect(a2.data.status).toBe("complete");
   });
 });
 

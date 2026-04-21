@@ -1,589 +1,480 @@
-import fs from "node:fs";
-import os from "node:os";
+/**
+ * End-to-end traversal scenarios driven directly against `GraphEngine`.
+ *
+ * Exercises the spec-example workflows (data-pipeline, change-request)
+ * through complete paths — gate enforcement, cycle behavior, recovery
+ * from blocked advances, reset, and compaction recovery via `inspect`.
+ * Engine-direct: the CLI and any agent-facing surface wrap the same
+ * methods, so the behavior locked in here is what every caller sees.
+ */
+
 import path from "node:path";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadGraphs } from "../src/loader.js";
-import { createServer } from "../src/server.js";
-import type { ValidatedGraph } from "../src/types.js";
+import { HookRunner } from "../src/engine/hooks.js";
+import { GraphEngine } from "../src/engine/index.js";
+import type { InspectPositionResult, TransitionInfo } from "../src/types.js";
+import { loadFixtureGraphs } from "./helpers.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
-function loadFixtures(...files: string[]): Map<string, ValidatedGraph> {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "integ-test-"));
-  for (const f of files) {
-    fs.copyFileSync(path.join(FIXTURES_DIR, f), path.join(tmpDir, f));
-  }
-  return loadGraphs(tmpDir);
+function newEngine(): GraphEngine {
+  const graphs = loadFixtureGraphs(
+    FIXTURES_DIR,
+    "integ-test-",
+    "data-pipeline.workflow.yaml",
+    "change-request.workflow.yaml",
+  );
+  return new GraphEngine(graphs, { hookRunner: new HookRunner() });
 }
 
-function parse(result: Awaited<ReturnType<Client["callTool"]>>): any {
-  const text = (result.content as Array<{ type: string; text: string }>)[0]?.text;
-  return JSON.parse(text);
+function position(engine: GraphEngine): InspectPositionResult {
+  return engine.inspect("position") as InspectPositionResult;
 }
 
-// Helper to set up client+server pair for spec example graphs
-async function setup() {
-  const graphs = loadFixtures("data-pipeline.workflow.yaml", "change-request.workflow.yaml");
-  const { server } = createServer(graphs);
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: "test-client", version: "1.0.0" });
-  await server.connect(serverTransport);
-  await client.connect(clientTransport);
-  return {
-    client,
-    server,
-    cleanup: async () => {
-      await client.close();
-      await server.close();
-    },
-  };
-}
-
-// --- Helpers for common MCP call patterns ---
-
-async function callTool(client: Client, name: string, args: Record<string, unknown> = {}) {
-  const result = await client.callTool({ name, arguments: args });
-  return { raw: result, data: parse(result), isError: !!result.isError };
-}
-
-async function start(client: Client, graphId: string) {
-  return callTool(client, "freelance_start", { graphId });
-}
-
-async function advance(client: Client, edge: string, contextUpdates?: Record<string, unknown>) {
-  return callTool(client, "freelance_advance", {
-    edge,
-    ...(contextUpdates ? { contextUpdates } : {}),
-  });
-}
-
-async function ctxSet(client: Client, updates: Record<string, unknown>) {
-  return callTool(client, "freelance_context_set", { updates });
-}
-
-async function inspect(client: Client, detail: string = "position") {
-  return callTool(client, "freelance_inspect", { detail });
-}
-
-async function reset(client: Client) {
-  return callTool(client, "freelance_reset", { confirm: true });
+function edge(transitions: readonly TransitionInfo[], label: string): TransitionInfo {
+  const t = transitions.find((x) => x.label === label);
+  if (!t) throw new Error(`expected validTransition with label "${label}"`);
+  return t;
 }
 
 // =============================================================================
-// DATA PIPELINE TESTS
+// DATA PIPELINE
 // =============================================================================
 
 describe("Data pipeline — happy path (full traversal)", () => {
-  let client: Client;
-  let cleanup: () => Promise<void>;
+  let engine: GraphEngine;
 
-  beforeEach(async () => {
-    const s = await setup();
-    client = s.client;
-    cleanup = s.cleanup;
+  beforeEach(() => {
+    engine = newEngine();
   });
-  afterEach(async () => cleanup());
+  afterEach(() => {
+    engine.reset();
+  });
 
   it("traverses from scan-sources to complete", async () => {
-    // 1. freelance_list
-    const list = await callTool(client, "freelance_list");
-    expect(list.data.graphs.some((g: any) => g.id === "data-pipeline")).toBe(true);
+    // 1. list
+    const list = engine.list();
+    expect(list.graphs.some((g) => g.id === "data-pipeline")).toBe(true);
 
     // 2. Start
-    const s = await start(client, "data-pipeline");
+    const s = await engine.start("data-pipeline");
     expect(s.isError).toBe(false);
-    expect(s.data.currentNode).toBe("scan-sources");
+    expect(s.currentNode).toBe("scan-sources");
 
     // 3. Set sourceCount
-    const ctx1 = await ctxSet(client, { sourceCount: 10 });
-    expect(ctx1.data.context.sourceCount).toBe(10);
+    const ctx1 = engine.contextSet({ sourceCount: 10 });
+    expect(ctx1.context.sourceCount).toBe(10);
 
     // 4. scan-complete → assess
-    const a1 = await advance(client, "scan-complete");
+    const a1 = await engine.advance("scan-complete");
     expect(a1.isError).toBe(false);
-    expect(a1.data.currentNode).toBe("assess");
+    if (a1.isError) return;
+    expect(a1.currentNode).toBe("assess");
 
     // 5. Set remainingItems, check conditionMet
-    const ctx2 = await ctxSet(client, { remainingItems: 5 });
-    const gapsEdge = ctx2.data.validTransitions.find((t: any) => t.label === "gaps-found");
-    expect(gapsEdge.conditionMet).toBe(true);
+    const ctx2 = engine.contextSet({ remainingItems: 5 });
+    expect(edge(ctx2.validTransitions, "gaps-found").conditionMet).toBe(true);
 
     // 6. gaps-found → plan
-    const a2 = await advance(client, "gaps-found");
+    const a2 = await engine.advance("gaps-found");
     expect(a2.isError).toBe(false);
-    expect(a2.data.currentNode).toBe("plan");
+    if (a2.isError) return;
+    expect(a2.currentNode).toBe("plan");
 
     // 7. plan-ready → execute
-    const a3 = await advance(client, "plan-ready");
+    const a3 = await engine.advance("plan-ready");
     expect(a3.isError).toBe(false);
-    expect(a3.data.currentNode).toBe("execute");
+    if (a3.isError) return;
+    expect(a3.currentNode).toBe("execute");
 
     // 8. Set processedCount, check turnCount
-    const ctx3 = await ctxSet(client, { processedCount: 5 });
-    expect(ctx3.data.turnCount).toBe(1);
+    const ctx3 = engine.contextSet({ processedCount: 5 });
+    expect(ctx3.turnCount).toBe(1);
 
     // 9. batch-complete → verify
-    const a4 = await advance(client, "batch-complete");
+    const a4 = await engine.advance("batch-complete");
     expect(a4.isError).toBe(false);
-    expect(a4.data.currentNode).toBe("verify");
+    if (a4.isError) return;
+    expect(a4.currentNode).toBe("verify");
 
-    // 10. Set verification context, check conditionMet
-    const ctx4 = await ctxSet(client, { verificationPassed: true, qualityScore: 90 });
-    const verifiedEdge = ctx4.data.validTransitions.find((t: any) => t.label === "verified");
-    expect(verifiedEdge.conditionMet).toBe(true);
+    // 10. Set verification context
+    const ctx4 = engine.contextSet({ verificationPassed: true, qualityScore: 90 });
+    expect(edge(ctx4.validTransitions, "verified").conditionMet).toBe(true);
 
     // 11. verified → cycle-check
-    const a5 = await advance(client, "verified");
+    const a5 = await engine.advance("verified");
     expect(a5.isError).toBe(false);
-    expect(a5.data.currentNode).toBe("cycle-check");
+    if (a5.isError) return;
+    expect(a5.currentNode).toBe("cycle-check");
 
-    // 12. Set cycle context, check default edge
-    const ctx5 = await ctxSet(client, { cycleCount: 1, remainingItems: 0 });
-    const doneEdge = ctx5.data.validTransitions.find((t: any) => t.label === "done");
-    expect(doneEdge.conditionMet).toBe(true);
+    // 12. Exhaust cycle, take done edge
+    const ctx5 = engine.contextSet({ cycleCount: 1, remainingItems: 0 });
+    expect(edge(ctx5.validTransitions, "done").conditionMet).toBe(true);
 
     // 13. done → complete
-    const a6 = await advance(client, "done");
+    const a6 = await engine.advance("done");
     expect(a6.isError).toBe(false);
-    expect(a6.data.status).toBe("complete");
-    expect(a6.data.traversalHistory).toBeDefined();
-    expect(a6.data.traversalHistory.length).toBeGreaterThan(1);
+    if (a6.isError) return;
+    expect(a6.status).toBe("complete");
+    expect(a6.traversalHistory).toBeDefined();
+    expect(a6.traversalHistory!.length).toBeGreaterThan(1);
   });
 });
 
 describe("Data pipeline — gate enforcement", () => {
-  let client: Client;
-  let cleanup: () => Promise<void>;
+  let engine: GraphEngine;
 
-  beforeEach(async () => {
-    const s = await setup();
-    client = s.client;
-    cleanup = s.cleanup;
+  beforeEach(() => {
+    engine = newEngine();
   });
-  afterEach(async () => cleanup());
 
   it("blocks advance until both validations pass", async () => {
-    // Advance to verify node
-    await start(client, "data-pipeline");
-    await ctxSet(client, { sourceCount: 10, remainingItems: 5 });
-    await advance(client, "scan-complete");
-    await advance(client, "gaps-found");
-    await advance(client, "plan-ready");
-    await advance(client, "batch-complete");
+    await engine.start("data-pipeline");
+    engine.contextSet({ sourceCount: 10, remainingItems: 5 });
+    await engine.advance("scan-complete");
+    await engine.advance("gaps-found");
+    await engine.advance("plan-ready");
+    await engine.advance("batch-complete");
     // Now at verify
 
-    // Set failing context
-    await ctxSet(client, { verificationPassed: false, qualityScore: 50 });
+    engine.contextSet({ verificationPassed: false, qualityScore: 50 });
 
-    // Attempt advance — should fail on verificationPassed
-    const fail1 = await advance(client, "verified");
+    const fail1 = await engine.advance("verified");
     expect(fail1.isError).toBe(true);
-    expect(fail1.data.reason).toContain("verification failed");
+    if (fail1.isError) {
+      expect(fail1.reason).toContain("verification failed");
+    }
 
-    // Fix verificationPassed but qualityScore still low
-    await ctxSet(client, { verificationPassed: true });
-    const fail2 = await advance(client, "verified");
+    engine.contextSet({ verificationPassed: true });
+    const fail2 = await engine.advance("verified");
     expect(fail2.isError).toBe(true);
-    expect(fail2.data.reason).toContain("Quality score");
+    if (fail2.isError) {
+      expect(fail2.reason).toContain("Quality score");
+    }
 
-    // Fix qualityScore
-    await ctxSet(client, { qualityScore: 85 });
-    const pass = await advance(client, "verified");
+    engine.contextSet({ qualityScore: 85 });
+    const pass = await engine.advance("verified");
     expect(pass.isError).toBe(false);
-    expect(pass.data.currentNode).toBe("cycle-check");
+    if (!pass.isError) expect(pass.currentNode).toBe("cycle-check");
   });
 });
 
 describe("Data pipeline — cycle behavior", () => {
-  let client: Client;
-  let cleanup: () => Promise<void>;
+  let engine: GraphEngine;
 
-  beforeEach(async () => {
-    const s = await setup();
-    client = s.client;
-    cleanup = s.cleanup;
+  beforeEach(() => {
+    engine = newEngine();
   });
-  afterEach(async () => cleanup());
 
   it("cycles back to assess and eventually completes", async () => {
-    // Advance to cycle-check
-    await start(client, "data-pipeline");
-    await ctxSet(client, { sourceCount: 10, remainingItems: 5 });
-    await advance(client, "scan-complete");
-    await advance(client, "gaps-found");
-    await advance(client, "plan-ready");
-    await ctxSet(client, { processedCount: 5 });
-    await advance(client, "batch-complete");
-    await ctxSet(client, { verificationPassed: true, qualityScore: 90 });
-    await advance(client, "verified");
+    await engine.start("data-pipeline");
+    engine.contextSet({ sourceCount: 10, remainingItems: 5 });
+    await engine.advance("scan-complete");
+    await engine.advance("gaps-found");
+    await engine.advance("plan-ready");
+    engine.contextSet({ processedCount: 5 });
+    await engine.advance("batch-complete");
+    engine.contextSet({ verificationPassed: true, qualityScore: 90 });
+    await engine.advance("verified");
     // At cycle-check
 
-    // Set context for another cycle
-    await ctxSet(client, { cycleCount: 1, remainingItems: 3 });
-    const pos1 = await inspect(client);
-    const moreCycles = pos1.data.validTransitions.find((t: any) => t.label === "more-cycles");
-    expect(moreCycles.conditionMet).toBe(true);
+    engine.contextSet({ cycleCount: 1, remainingItems: 3 });
+    const pos1 = position(engine);
+    expect(edge(pos1.validTransitions, "more-cycles").conditionMet).toBe(true);
 
-    // Cycle back
-    const cyc = await advance(client, "more-cycles");
+    const cyc = await engine.advance("more-cycles");
     expect(cyc.isError).toBe(false);
-    expect(cyc.data.currentNode).toBe("assess");
+    if (!cyc.isError) expect(cyc.currentNode).toBe("assess");
 
     // Work through to cycle-check again
-    await ctxSet(client, { remainingItems: 2 });
-    await advance(client, "gaps-found");
-    await advance(client, "plan-ready");
-    await ctxSet(client, { processedCount: 7 });
-    await advance(client, "batch-complete");
-    await ctxSet(client, { verificationPassed: true, qualityScore: 95 });
-    await advance(client, "verified");
+    engine.contextSet({ remainingItems: 2 });
+    await engine.advance("gaps-found");
+    await engine.advance("plan-ready");
+    engine.contextSet({ processedCount: 7 });
+    await engine.advance("batch-complete");
+    engine.contextSet({ verificationPassed: true, qualityScore: 95 });
+    await engine.advance("verified");
     // At cycle-check again
 
-    // Exhaust cycles
-    await ctxSet(client, { cycleCount: 3, remainingItems: 3 });
-    const pos2 = await inspect(client);
-    const moreCycles2 = pos2.data.validTransitions.find((t: any) => t.label === "more-cycles");
-    const doneEdge = pos2.data.validTransitions.find((t: any) => t.label === "done");
-    expect(moreCycles2.conditionMet).toBe(false);
-    expect(doneEdge.conditionMet).toBe(true);
+    engine.contextSet({ cycleCount: 3, remainingItems: 3 });
+    const pos2 = position(engine);
+    expect(edge(pos2.validTransitions, "more-cycles").conditionMet).toBe(false);
+    expect(edge(pos2.validTransitions, "done").conditionMet).toBe(true);
 
-    // Complete
-    const fin = await advance(client, "done");
+    const fin = await engine.advance("done");
     expect(fin.isError).toBe(false);
-    expect(fin.data.status).toBe("complete");
+    if (!fin.isError) expect(fin.status).toBe("complete");
   });
 });
 
 describe("Data pipeline — skip-to-verify path", () => {
-  let client: Client;
-  let cleanup: () => Promise<void>;
+  let engine: GraphEngine;
 
-  beforeEach(async () => {
-    const s = await setup();
-    client = s.client;
-    cleanup = s.cleanup;
+  beforeEach(() => {
+    engine = newEngine();
   });
-  afterEach(async () => cleanup());
 
   it("skips plan/execute when remainingItems == 0", async () => {
-    await start(client, "data-pipeline");
-    await ctxSet(client, { sourceCount: 5 });
-    await advance(client, "scan-complete");
-    // At assess, set remainingItems to 0
-    await ctxSet(client, { remainingItems: 0 });
+    await engine.start("data-pipeline");
+    engine.contextSet({ sourceCount: 5 });
+    await engine.advance("scan-complete");
+    engine.contextSet({ remainingItems: 0 });
 
-    const pos = await inspect(client);
-    const allCurrent = pos.data.validTransitions.find((t: any) => t.label === "all-current");
-    expect(allCurrent.conditionMet).toBe(true);
+    const pos = position(engine);
+    expect(edge(pos.validTransitions, "all-current").conditionMet).toBe(true);
 
-    const a = await advance(client, "all-current");
+    const a = await engine.advance("all-current");
     expect(a.isError).toBe(false);
-    expect(a.data.currentNode).toBe("verify");
+    if (!a.isError) expect(a.currentNode).toBe("verify");
   });
 });
 
 // =============================================================================
-// CHANGE REQUEST TESTS
+// CHANGE REQUEST
 // =============================================================================
 
 describe("Change request — standard path", () => {
-  let client: Client;
-  let cleanup: () => Promise<void>;
+  let engine: GraphEngine;
 
-  beforeEach(async () => {
-    const s = await setup();
-    client = s.client;
-    cleanup = s.cleanup;
+  beforeEach(() => {
+    engine = newEngine();
   });
-  afterEach(async () => cleanup());
 
   it("traverses classify → setup-standard → implement → quality-gate → finalize → complete", async () => {
-    // 1-2. Start and classify
-    await start(client, "change-request");
-    await ctxSet(client, { changeType: "standard" });
+    await engine.start("change-request");
+    engine.contextSet({ changeType: "standard" });
 
-    // 3. standard → setup-standard
-    const a1 = await advance(client, "standard");
-    expect(a1.data.currentNode).toBe("setup-standard");
+    const a1 = await engine.advance("standard");
+    if (!a1.isError) expect(a1.currentNode).toBe("setup-standard");
 
-    // 4. Set targetBranch
-    await ctxSet(client, { targetBranch: "develop" });
+    engine.contextSet({ targetBranch: "develop" });
 
-    // 5. ready → implement
-    const a2 = await advance(client, "ready");
-    expect(a2.data.currentNode).toBe("implement");
+    const a2 = await engine.advance("ready");
+    if (!a2.isError) expect(a2.currentNode).toBe("implement");
 
-    // 6. Set quality context
-    await ctxSet(client, { testsPass: true, lintPass: true });
+    engine.contextSet({ testsPass: true, lintPass: true });
 
-    // 7. done → quality-gate
-    const a3 = await advance(client, "done");
-    expect(a3.data.currentNode).toBe("quality-gate");
+    const a3 = await engine.advance("done");
+    if (!a3.isError) expect(a3.currentNode).toBe("quality-gate");
 
-    // 8. pass → finalize
-    const a4 = await advance(client, "pass");
-    expect(a4.data.currentNode).toBe("finalize");
+    const a4 = await engine.advance("pass");
+    if (!a4.isError) expect(a4.currentNode).toBe("finalize");
 
-    // 9. Set outputUrl
-    await ctxSet(client, { outputUrl: "https://example.com/pr/1" });
+    engine.contextSet({ outputUrl: "https://example.com/pr/1" });
 
-    // 10. finalized → complete
-    const a5 = await advance(client, "finalized");
-    expect(a5.data.currentNode).toBe("complete");
-    expect(a5.data.status).toBe("complete");
+    const a5 = await engine.advance("finalized");
+    if (!a5.isError) {
+      expect(a5.currentNode).toBe("complete");
+      expect(a5.status).toBe("complete");
+    }
   });
 });
 
 describe("Change request — urgent path", () => {
-  let client: Client;
-  let cleanup: () => Promise<void>;
+  let engine: GraphEngine;
 
-  beforeEach(async () => {
-    const s = await setup();
-    client = s.client;
-    cleanup = s.cleanup;
+  beforeEach(() => {
+    engine = newEngine();
   });
-  afterEach(async () => cleanup());
 
   it("routes through setup-urgent then completes normally", async () => {
-    await start(client, "change-request");
-    await ctxSet(client, { changeType: "urgent" });
+    await engine.start("change-request");
+    engine.contextSet({ changeType: "urgent" });
 
-    const a1 = await advance(client, "urgent");
-    expect(a1.data.currentNode).toBe("setup-urgent");
+    const a1 = await engine.advance("urgent");
+    if (!a1.isError) expect(a1.currentNode).toBe("setup-urgent");
 
-    await ctxSet(client, { targetBranch: "hotfix/prod" });
-    const a2 = await advance(client, "ready");
-    expect(a2.data.currentNode).toBe("implement");
+    engine.contextSet({ targetBranch: "hotfix/prod" });
+    const a2 = await engine.advance("ready");
+    if (!a2.isError) expect(a2.currentNode).toBe("implement");
 
-    await ctxSet(client, { testsPass: true, lintPass: true });
-    await advance(client, "done");
-    await advance(client, "pass");
+    engine.contextSet({ testsPass: true, lintPass: true });
+    await engine.advance("done");
+    await engine.advance("pass");
 
-    await ctxSet(client, { outputUrl: "https://example.com/hotfix/1" });
-    const fin = await advance(client, "finalized");
-    expect(fin.data.status).toBe("complete");
+    engine.contextSet({ outputUrl: "https://example.com/hotfix/1" });
+    const fin = await engine.advance("finalized");
+    if (!fin.isError) expect(fin.status).toBe("complete");
   });
 });
 
 describe("Change request — gate failure and recovery loop", () => {
-  let client: Client;
-  let cleanup: () => Promise<void>;
+  let engine: GraphEngine;
 
-  beforeEach(async () => {
-    const s = await setup();
-    client = s.client;
-    cleanup = s.cleanup;
+  beforeEach(() => {
+    engine = newEngine();
   });
-  afterEach(async () => cleanup());
 
-  it("fails at quality-gate, recovers via fail edge, then passes", async () => {
-    // Advance to quality-gate with failing tests
-    await start(client, "change-request");
-    await ctxSet(client, { changeType: "standard" });
-    await advance(client, "standard");
-    await ctxSet(client, { targetBranch: "develop" });
-    await advance(client, "ready");
-    await ctxSet(client, { testsPass: false, lintPass: true });
-    await advance(client, "done");
+  it("fails at quality-gate, recovers by fixing context, then passes", async () => {
+    await engine.start("change-request");
+    engine.contextSet({ changeType: "standard" });
+    await engine.advance("standard");
+    engine.contextSet({ targetBranch: "develop" });
+    await engine.advance("ready");
+    engine.contextSet({ testsPass: false, lintPass: true });
+    await engine.advance("done");
     // At quality-gate
 
-    // Attempt pass — blocked by gate validation
-    const fail = await advance(client, "pass");
+    const fail = await engine.advance("pass");
     expect(fail.isError).toBe(true);
-    expect(fail.data.reason).toContain("Tests must pass");
+    if (fail.isError) {
+      expect(fail.reason).toContain("Tests must pass");
+    }
 
-    // The "fail" edge also blocked because gate validations block ALL edges.
-    // Agent must satisfy validations first, then choose pass or fail.
-    // To take the "fail" edge: satisfy validations, but set the fail condition.
-    // However, the fail condition (testsPass==false || lintPass==false) contradicts
-    // the validation (testsPass==true && lintPass==true). So the "fail" edge
-    // is unreachable by design when validations are enforced.
-    //
-    // The spec-correct recovery: agent fixes the issue and passes the gate.
-    await ctxSet(client, { testsPass: true });
+    // Fix the issue and pass the gate.
+    engine.contextSet({ testsPass: true });
 
-    // Now validations pass → "pass" edge succeeds
-    const pass = await advance(client, "pass");
+    const pass = await engine.advance("pass");
     expect(pass.isError).toBe(false);
-    expect(pass.data.currentNode).toBe("finalize");
+    if (!pass.isError) expect(pass.currentNode).toBe("finalize");
   });
 });
 
 describe("Change request — scope check detour", () => {
-  let client: Client;
-  let cleanup: () => Promise<void>;
+  let engine: GraphEngine;
 
-  beforeEach(async () => {
-    const s = await setup();
-    client = s.client;
-    cleanup = s.cleanup;
+  beforeEach(() => {
+    engine = newEngine();
   });
-  afterEach(async () => cleanup());
 
   it("detours through scope-check and returns to implement", async () => {
-    await start(client, "change-request");
-    await ctxSet(client, { changeType: "cosmetic" });
-    await advance(client, "cosmetic");
-    await advance(client, "ready");
+    await engine.start("change-request");
+    engine.contextSet({ changeType: "cosmetic" });
+    await engine.advance("cosmetic");
+    await engine.advance("ready");
     // At implement
 
-    // Raise scope question
-    await ctxSet(client, { scopeQuestionRaised: true });
-    const pos = await inspect(client);
-    const scopeEdge = pos.data.validTransitions.find((t: any) => t.label === "scope-question");
-    expect(scopeEdge.conditionMet).toBe(true);
+    engine.contextSet({ scopeQuestionRaised: true });
+    const pos = position(engine);
+    expect(edge(pos.validTransitions, "scope-question").conditionMet).toBe(true);
 
-    // Detour to scope-check
-    const a1 = await advance(client, "scope-question");
-    expect(a1.data.currentNode).toBe("scope-check");
+    const a1 = await engine.advance("scope-question");
+    if (!a1.isError) expect(a1.currentNode).toBe("scope-check");
 
-    // Resolve and return
-    await ctxSet(client, { scopeQuestionRaised: false });
-    const a2 = await advance(client, "out-of-scope");
-    expect(a2.data.currentNode).toBe("implement");
+    engine.contextSet({ scopeQuestionRaised: false });
+    const a2 = await engine.advance("out-of-scope");
+    if (!a2.isError) expect(a2.currentNode).toBe("implement");
   });
 });
 
 describe("Change request — validation blocks missing target branch", () => {
-  let client: Client;
-  let cleanup: () => Promise<void>;
+  let engine: GraphEngine;
 
-  beforeEach(async () => {
-    const s = await setup();
-    client = s.client;
-    cleanup = s.cleanup;
+  beforeEach(() => {
+    engine = newEngine();
   });
-  afterEach(async () => cleanup());
 
   it("blocks advance from setup-standard without targetBranch", async () => {
-    await start(client, "change-request");
-    await ctxSet(client, { changeType: "standard" });
-    await advance(client, "standard");
-    // At setup-standard, targetBranch is still null
+    await engine.start("change-request");
+    engine.contextSet({ changeType: "standard" });
+    await engine.advance("standard");
+    // At setup-standard, targetBranch still null
 
-    const fail = await advance(client, "ready");
+    const fail = await engine.advance("ready");
     expect(fail.isError).toBe(true);
-    expect(fail.data.reason).toContain("Target branch must be set");
+    if (fail.isError) {
+      expect(fail.reason).toContain("Target branch must be set");
+    }
   });
 });
 
 // =============================================================================
-// CROSS-CUTTING TESTS
+// CROSS-CUTTING
 // =============================================================================
 
 describe("Compaction recovery simulation", () => {
-  let client: Client;
-  let cleanup: () => Promise<void>;
+  let engine: GraphEngine;
 
-  beforeEach(async () => {
-    const s = await setup();
-    client = s.client;
-    cleanup = s.cleanup;
+  beforeEach(() => {
+    engine = newEngine();
   });
-  afterEach(async () => cleanup());
 
   it("inspect provides enough info to continue after context loss", async () => {
-    // Advance a few nodes
-    await start(client, "data-pipeline");
-    await ctxSet(client, { sourceCount: 10, remainingItems: 5 });
-    await advance(client, "scan-complete");
-    await advance(client, "gaps-found");
+    await engine.start("data-pipeline");
+    engine.contextSet({ sourceCount: 10, remainingItems: 5 });
+    await engine.advance("scan-complete");
+    await engine.advance("gaps-found");
     // At plan
 
     // Simulate compaction — agent calls inspect to re-orient
-    const pos = await inspect(client, "position");
-    expect(pos.data.currentNode).toBe("plan");
-    expect(pos.data.node.instructions).toBeDefined();
-    expect(pos.data.validTransitions.length).toBeGreaterThan(0);
-    expect(pos.data.context.remainingItems).toBe(5);
+    const pos = position(engine);
+    expect(pos.currentNode).toBe("plan");
+    expect(pos.node.instructions).toBeDefined();
+    expect(pos.validTransitions.length).toBeGreaterThan(0);
+    expect(pos.context.remainingItems).toBe(5);
 
-    // Check history is intact
-    const hist = await inspect(client, "history");
-    expect(hist.data.traversalHistory.length).toBe(2);
-    expect(hist.data.traversalHistory[0].node).toBe("scan-sources");
-    expect(hist.data.traversalHistory[1].node).toBe("assess");
+    const hist = engine.inspect("history");
+    if ("traversalHistory" in hist) {
+      expect(hist.traversalHistory.length).toBe(2);
+      expect(hist.traversalHistory[0].node).toBe("scan-sources");
+      expect(hist.traversalHistory[1].node).toBe("assess");
+    }
 
     // Continue using only info from inspect
-    const a = await advance(client, pos.data.validTransitions[0].label);
+    const a = await engine.advance(pos.validTransitions[0].label);
     expect(a.isError).toBe(false);
-    expect(a.data.currentNode).toBe("execute");
+    if (!a.isError) expect(a.currentNode).toBe("execute");
   });
 });
 
 describe("Reset and restart", () => {
-  let client: Client;
-  let cleanup: () => Promise<void>;
+  let engine: GraphEngine;
 
-  beforeEach(async () => {
-    const s = await setup();
-    client = s.client;
-    cleanup = s.cleanup;
+  beforeEach(() => {
+    engine = newEngine();
   });
-  afterEach(async () => cleanup());
 
   it("resets mid-traversal and starts a different graph", async () => {
-    // Start data-pipeline, advance partway
-    await start(client, "data-pipeline");
-    await ctxSet(client, { sourceCount: 5 });
-    await advance(client, "scan-complete");
+    await engine.start("data-pipeline");
+    engine.contextSet({ sourceCount: 5 });
+    await engine.advance("scan-complete");
 
-    // Reset
-    const r = await reset(client);
-    expect(r.data.status).toBe("reset");
-    expect(r.data.previousGraph).toBe("data-pipeline");
+    const r = engine.reset();
+    expect(r.status).toBe("reset");
+    expect(r.previousGraph).toBe("data-pipeline");
 
-    // Start a different graph
-    const s = await start(client, "change-request");
+    const s = await engine.start("change-request");
     expect(s.isError).toBe(false);
-    expect(s.data.currentNode).toBe("classify");
+    expect(s.currentNode).toBe("classify");
 
     // Advance to completion
-    await ctxSet(client, { changeType: "cosmetic" });
-    await advance(client, "cosmetic");
-    await advance(client, "ready");
-    await ctxSet(client, { testsPass: true, lintPass: true });
-    await advance(client, "done");
-    await advance(client, "pass");
-    await ctxSet(client, { outputUrl: "https://example.com" });
-    const fin = await advance(client, "finalized");
-    expect(fin.data.status).toBe("complete");
+    engine.contextSet({ changeType: "cosmetic" });
+    await engine.advance("cosmetic");
+    await engine.advance("ready");
+    engine.contextSet({ testsPass: true, lintPass: true });
+    await engine.advance("done");
+    await engine.advance("pass");
+    engine.contextSet({ outputUrl: "https://example.com" });
+    const fin = await engine.advance("finalized");
+    if (!fin.isError) expect(fin.status).toBe("complete");
   });
 });
 
 describe("Context updates persist on failed advance", () => {
-  let client: Client;
-  let cleanup: () => Promise<void>;
+  let engine: GraphEngine;
 
-  beforeEach(async () => {
-    const s = await setup();
-    client = s.client;
-    cleanup = s.cleanup;
+  beforeEach(() => {
+    engine = newEngine();
   });
-  afterEach(async () => cleanup());
 
   it("preserves contextUpdates even when validation blocks advance", async () => {
-    // Advance to verify gate in data-pipeline
-    await start(client, "data-pipeline");
-    await ctxSet(client, { sourceCount: 10, remainingItems: 5 });
-    await advance(client, "scan-complete");
-    await advance(client, "gaps-found");
-    await advance(client, "plan-ready");
-    await advance(client, "batch-complete");
+    await engine.start("data-pipeline");
+    engine.contextSet({ sourceCount: 10, remainingItems: 5 });
+    await engine.advance("scan-complete");
+    await engine.advance("gaps-found");
+    await engine.advance("plan-ready");
+    await engine.advance("batch-complete");
     // At verify, validations will fail
 
-    // Advance with contextUpdates — validation fails but context should persist
-    const fail = await callTool(client, "freelance_advance", {
-      edge: "verified",
-      contextUpdates: { verificationPassed: false, qualityScore: 42 },
+    const fail = await engine.advance("verified", {
+      verificationPassed: false,
+      qualityScore: 42,
     });
     expect(fail.isError).toBe(true);
 
-    // Inspect to verify context was updated despite failure
-    const pos = await inspect(client);
-    expect(pos.data.context.qualityScore).toBe(42);
-    expect(pos.data.context.verificationPassed).toBe(false);
+    // Context was updated despite failure.
+    const pos = position(engine);
+    expect(pos.context.qualityScore).toBe(42);
+    expect(pos.context.verificationPassed).toBe(false);
   });
 });

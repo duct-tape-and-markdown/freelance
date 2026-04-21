@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mock heavy dependencies to prevent real server starts
-vi.mock("../src/server.js", () => ({ startServer: vi.fn(async () => {}) }));
+// Mock heavy dependencies
 vi.mock("../src/cli/validate.js", () => ({ validate: vi.fn() }));
 vi.mock("../src/cli/visualize.js", () => ({ visualize: vi.fn() }));
 vi.mock("../src/cli/init.js", () => ({
@@ -71,21 +70,16 @@ vi.mock("../src/memory/sealed.js", () => ({
   RECOLLECTION_ID: "memory:recall",
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let exitSpy: any;
-let stderrSpy: any;
-let stdoutSpy: any;
-
 import { program } from "../src/cli/program.js";
 
 // Graph resolution tests live in test/graph-resolution.test.ts (canonical location)
 
 beforeEach(() => {
-  exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
+  vi.spyOn(process, "exit").mockImplementation((() => {
     throw new Error("process.exit");
   }) as never);
-  stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-  stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+  vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 });
 
 afterEach(() => {
@@ -157,62 +151,6 @@ describe("program commands", () => {
     const { validate } = await import("../src/cli/validate.js");
     await program.parseAsync(["node", "freelance", "--quiet", "validate", "/tmp"]);
     expect(validate).toHaveBeenCalled();
-  });
-
-  it("mcp standalone loads graphs and starts server", async () => {
-    const { startServer } = await import("../src/server.js");
-    await program.parseAsync(["node", "freelance", "mcp", "--workflows", "/tmp/fake"]);
-    expect(startServer).toHaveBeenCalled();
-  });
-
-  it("mcp enables memory by default", async () => {
-    const { startServer } = await import("../src/server.js");
-    await program.parseAsync(["node", "freelance", "mcp", "--workflows", "/tmp/fake"]);
-    const call = (startServer as ReturnType<typeof vi.fn>).mock.calls.at(-1);
-    const opts = call?.[1];
-    expect(opts?.memory).toBeDefined();
-    expect(opts?.memory?.enabled).toBe(true);
-    expect(opts?.memory?.db).toMatch(/memory\.db$/);
-  });
-
-  it("mcp --no-memory disables memory", async () => {
-    const { startServer } = await import("../src/server.js");
-    await program.parseAsync([
-      "node",
-      "freelance",
-      "mcp",
-      "--workflows",
-      "/tmp/fake",
-      "--no-memory",
-    ]);
-    const call = (startServer as ReturnType<typeof vi.fn>).mock.calls.at(-1);
-    const opts = call?.[1];
-    expect(opts?.memory).toBeUndefined();
-  });
-
-  it("mcp --memory-dir overrides DB path", async () => {
-    const { startServer } = await import("../src/server.js");
-    const tmpDir = `/tmp/freelance-test-memdir-${Date.now()}`;
-    await program.parseAsync([
-      "node",
-      "freelance",
-      "mcp",
-      "--workflows",
-      "/tmp/fake",
-      "--memory-dir",
-      tmpDir,
-    ]);
-    const call = (startServer as ReturnType<typeof vi.fn>).mock.calls.at(-1);
-    const opts = call?.[1];
-    expect(opts?.memory?.enabled).toBe(true);
-    expect(opts?.memory?.db).toBe(`${tmpDir}/memory.db`);
-    // Clean up
-    const fs = await import("node:fs");
-    try {
-      fs.rmSync(tmpDir, { recursive: true });
-    } catch {
-      /* ignore */
-    }
   });
 
   it("status command calls traversalStatus", async () => {

@@ -46,14 +46,13 @@ function getTemplatesDir(): string {
 
 // Client detection, display names, and choice lists live in ./clients.ts
 
-// --- Config writing ---
+// --- JSON helpers (shared by hook settings reads/writes) ---
 
-interface McpConfig {
-  mcpServers?: Record<string, unknown>;
+interface JsonFile {
   [key: string]: unknown;
 }
 
-function readJsonFile(filePath: string): McpConfig {
+function readJsonFile(filePath: string): JsonFile {
   if (!fs.existsSync(filePath)) return {};
   const raw = fs.readFileSync(filePath, "utf-8");
   try {
@@ -65,45 +64,9 @@ function readJsonFile(filePath: string): McpConfig {
   }
 }
 
-function writeJsonFile(filePath: string, data: McpConfig): void {
+function writeJsonFile(filePath: string, data: JsonFile): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`);
-}
-
-function getMcpEntry(): Record<string, unknown> {
-  return {
-    command: "npx",
-    args: ["-y", "freelance-mcp@latest", "mcp"],
-  };
-}
-
-function getConfigPath(client: Client, scope: Scope): string {
-  const home = homeDir();
-
-  switch (client) {
-    case "claude-code":
-      if (scope === "user") {
-        return path.join(home, ".claude.json");
-      }
-      return path.join(process.cwd(), ".mcp.json");
-
-    case "cursor":
-      return path.join(process.cwd(), ".cursor", "mcp.json");
-
-    case "windsurf":
-      return path.join(home, ".codeium", "windsurf", "mcp_config.json");
-
-    case "cline":
-      return path.join(process.cwd(), ".vscode", "mcp.json");
-
-    case "manual":
-      return "";
-
-    default: {
-      const _exhaustive: never = client;
-      return _exhaustive;
-    }
-  }
 }
 
 /**
@@ -118,32 +81,19 @@ function resolveSkillInstallPath(client: Client, scope: Scope): string | null {
   return path.join(base, ".claude", "skills", "freelance", "SKILL.md");
 }
 
-function writeClientConfig(client: Client, scope: Scope): string | null {
-  if (client === "manual") return null;
-
-  const configPath = getConfigPath(client, scope);
-  if (!configPath) return null;
-
-  const config = readJsonFile(configPath);
-  if (!config.mcpServers) config.mcpServers = {};
-
-  const servers = config.mcpServers as Record<string, unknown>;
-  servers.freelance = getMcpEntry();
-  writeJsonFile(configPath, config);
-  return configPath;
-}
-
 // --- CLAUDE.md append ---
 
 const CLAUDE_MD_SECTION = `## Freelance
 
-This project uses Freelance for workflow enforcement. Call \`freelance_list\` to see available workflows and \`freelance_guide\` for authoring help.`;
+This project uses Freelance for workflow enforcement. Run \`freelance status\` to see available workflows, \`freelance guide\` for authoring help, and \`freelance start <graphId>\` to begin one. The installed Freelance skill drives workflows automatically on matching prompts.`;
 
 // --- Enforcement hooks ---
 
 const SESSION_START_COMMAND = "npx -y freelance-mcp@latest status";
 const PROMPT_SUBMIT_COMMAND =
-  "echo '**IMPORTANT** - Workflows may apply. Call freelance_list, match the user'\"'\"'s task to an available graph, and start it before doing other work.'";
+  "echo '**IMPORTANT** - Workflows may apply. Run `freelance status` to see loaded graphs, match the user'\"'\"'s task to one, and `freelance start <graphId>` before doing other work.'";
+// PROMPT_SUBMIT_MARKER above must be a substring of this command for
+// dedup on re-init to work. If you rephrase the prompt, update both.
 
 interface HookEntry {
   matcher: string;
@@ -164,15 +114,21 @@ function hasFreelanceHook(entries: HookEntry[] | undefined, marker: string): boo
   return JSON.stringify(entries).includes(marker);
 }
 
-function writeHooks(includeEnforcement: boolean): { path: string; wrote: string[] } | null {
+// Distinctive enough to survive neighboring hook entries that
+// merely mention "freelance" — we want to dedupe our own hook, not
+// any hook that touches a freelance subcommand.
+const SESSION_START_MARKER = "freelance-mcp@latest status";
+const PROMPT_SUBMIT_MARKER = "freelance start <graphId>";
+
+function writeHooks(): { path: string; wrote: string[] } | null {
   const settingsPath = path.join(process.cwd(), ".claude", "settings.json");
   const settings: ClaudeSettings = readJsonFile(settingsPath) as ClaudeSettings;
   if (!settings.hooks) settings.hooks = {};
 
   const wrote: string[] = [];
 
-  // SessionStart hook — always written (lightweight, shows active traversals)
-  if (!hasFreelanceHook(settings.hooks.SessionStart, "freelance-mcp@latest status")) {
+  // SessionStart — lightweight, shows active traversals.
+  if (!hasFreelanceHook(settings.hooks.SessionStart, SESSION_START_MARKER)) {
     if (!settings.hooks.SessionStart) settings.hooks.SessionStart = [];
     settings.hooks.SessionStart.push({
       matcher: "",
@@ -181,8 +137,7 @@ function writeHooks(includeEnforcement: boolean): { path: string; wrote: string[
     wrote.push("SessionStart");
   }
 
-  // UserPromptSubmit hook — only with enforcement opt-in
-  if (includeEnforcement && !hasFreelanceHook(settings.hooks.UserPromptSubmit, "freelance_list")) {
+  if (!hasFreelanceHook(settings.hooks.UserPromptSubmit, PROMPT_SUBMIT_MARKER)) {
     if (!settings.hooks.UserPromptSubmit) settings.hooks.UserPromptSubmit = [];
     settings.hooks.UserPromptSubmit.push({
       matcher: "",
@@ -193,21 +148,21 @@ function writeHooks(includeEnforcement: boolean): { path: string; wrote: string[
 
   if (wrote.length === 0) return null;
 
-  writeJsonFile(settingsPath, settings as McpConfig);
+  writeJsonFile(settingsPath, settings as JsonFile);
   return { path: settingsPath, wrote };
 }
 
-function wouldWriteHooks(includeEnforcement: boolean): string[] {
+function wouldWriteHooks(): string[] {
   const settingsPath = path.join(process.cwd(), ".claude", "settings.json");
   const settings: ClaudeSettings = fs.existsSync(settingsPath)
     ? (readJsonFile(settingsPath) as ClaudeSettings)
     : {};
 
   const would: string[] = [];
-  if (!hasFreelanceHook(settings.hooks?.SessionStart, "freelance-mcp@latest status")) {
+  if (!hasFreelanceHook(settings.hooks?.SessionStart, SESSION_START_MARKER)) {
     would.push("SessionStart");
   }
-  if (includeEnforcement && !hasFreelanceHook(settings.hooks?.UserPromptSubmit, "freelance_list")) {
+  if (!hasFreelanceHook(settings.hooks?.UserPromptSubmit, PROMPT_SUBMIT_MARKER)) {
     would.push("UserPromptSubmit");
   }
   return would;
@@ -218,7 +173,7 @@ function appendClaudeMd(): boolean {
 
   if (fs.existsSync(claudeMdPath)) {
     const content = fs.readFileSync(claudeMdPath, "utf-8");
-    if (content.includes("freelance_list") || content.includes("Freelance")) {
+    if (content.includes("Freelance")) {
       return false;
     }
     fs.writeFileSync(claudeMdPath, `${content.trimEnd()}\n\n${CLAUDE_MD_SECTION}\n`);
@@ -232,22 +187,12 @@ function wouldAppendClaudeMd(): boolean {
   const claudeMdPath = path.join(process.cwd(), "CLAUDE.md");
   if (fs.existsSync(claudeMdPath)) {
     const content = fs.readFileSync(claudeMdPath, "utf-8");
-    return !content.includes("freelance_list") && !content.includes("Freelance");
+    return !content.includes("Freelance");
   }
   return true;
 }
 
 // --- Main init ---
-
-/**
- * Return the inline MCP config snippet for the `--client manual` path.
- * The caller embeds this into its JSON response rather than printing
- * it to stdout separately (stdout is reserved for the single structured
- * response per docs/decisions.md § CLI-primary).
- */
-function getManualConfig(): Record<string, unknown> {
-  return { mcpServers: { freelance: getMcpEntry() } };
-}
 
 export async function init(options: InitOptions): Promise<void> {
   const scope = options.scope;
@@ -287,7 +232,7 @@ export async function init(options: InitOptions): Promise<void> {
   }
 
   // 1b. Auto-generated .gitignore covering runtime artifacts. Mirrors
-  // the lazy drop done by ensureFreelanceDir on MCP startup — we do it
+  // the lazy drop done by ensureFreelanceDir at CLI-load — we do it
   // eagerly here so users inspecting `.freelance/` right after `init`
   // see the file they'd expect.
   if (!fs.existsSync(path.join(graphsDir, ".gitignore"))) {
@@ -313,21 +258,7 @@ export async function init(options: InitOptions): Promise<void> {
     actions.push({ verb: "skip", target: "config.yml", detail: "already exists" });
   }
 
-  // 3. MCP config
-  if (client === "manual") {
-    actions.push({ verb: "configure", target: "stdout", detail: "print config snippet" });
-  } else {
-    const configPath = getConfigPath(client, scope);
-    if (configPath) {
-      actions.push({
-        verb: "configure",
-        target: displayPath(configPath),
-        detail: `${scope} scope`,
-      });
-    }
-  }
-
-  // 4. CLAUDE.md
+  // 3. CLAUDE.md (claude-code only, project scope)
   if (scope === "project" && client === "claude-code") {
     if (wouldAppendClaudeMd()) {
       const claudeExists = fs.existsSync(path.join(process.cwd(), "CLAUDE.md"));
@@ -347,7 +278,7 @@ export async function init(options: InitOptions): Promise<void> {
 
   // 5. Enforcement hooks for claude-code (opt-in)
   if (client === "claude-code" && options.hooks) {
-    const wouldWrite = wouldWriteHooks(true);
+    const wouldWrite = wouldWriteHooks();
     if (wouldWrite.length > 0) {
       actions.push({
         verb: "configure",
@@ -364,8 +295,8 @@ export async function init(options: InitOptions): Promise<void> {
   }
 
   // 6. Driving skill — Claude Code only. Installs `SKILL.md` so the
-  // agent can drive workflows via the CLI without per-turn MCP weight.
-  // Cursor / Windsurf / Cline don't consume Claude Skills; skip for them.
+  // agent can drive workflows via the CLI. Cursor / Windsurf / Cline
+  // don't consume Claude Skills; skip for them.
   const skillPath = resolveSkillInstallPath(client, scope);
   if (skillPath) {
     if (fs.existsSync(skillPath)) {
@@ -426,29 +357,16 @@ export async function init(options: InitOptions): Promise<void> {
     }
   }
 
-  // 3. Write MCP config. For `--client manual`, the config snippet is
-  // embedded in the response rather than printed separately — stdout
-  // carries exactly one structured payload per agent CLI convention.
-  let manualConfig: Record<string, unknown> | undefined;
-  if (client === "manual") {
-    manualConfig = getManualConfig();
-  } else {
-    const configPath = writeClientConfig(client, scope);
-    if (configPath) {
-      filesCreated.push(configPath);
-    }
-  }
-
-  // 4. Append CLAUDE.md for project scope with Claude Code
+  // 3. Append CLAUDE.md for project scope with Claude Code
   if (scope === "project" && client === "claude-code") {
     if (appendClaudeMd()) {
       filesCreated.push(path.join(process.cwd(), "CLAUDE.md"));
     }
   }
 
-  // 5. Write enforcement hooks for Claude Code (opt-in)
+  // 4. Write enforcement hooks for Claude Code (opt-in)
   if (client === "claude-code" && options.hooks) {
-    const hookResult = writeHooks(true);
+    const hookResult = writeHooks();
     if (hookResult) {
       filesCreated.push(hookResult.path);
     }
@@ -471,7 +389,6 @@ export async function init(options: InitOptions): Promise<void> {
     client,
     starter,
     files: filesCreated,
-    ...(manualConfig ? { manualConfig } : {}),
   });
 }
 

@@ -123,18 +123,18 @@ const memoryInspect: HookFn = async (ctx) => {
   return { ...memory.inspect(entity) };
 };
 
-// memory_by_source diverges from the single-path MCP tool: it accepts
-// `paths: string[]` and loops internally so a single onEnter declaration
-// can fan out over context.filesReadPaths. Caller-provided lists are
-// capped at MAX_BY_SOURCE_PATHS to bound the hook's runtime against the
-// 5-second default timeout — anything longer should be a script hook.
+// memory_by_source accepts `paths: string[]` and loops internally, so
+// a single onEnter declaration can fan out over context.filesReadPaths.
+// Caller-provided lists are capped at MAX_BY_SOURCE_PATHS to bound
+// runtime against the 5-second default timeout — anything longer
+// should be a script hook.
 //
-// The returned shape is trimmed to { id, content } per proposition. The
-// full PropositionInfo (per-file hashes, mtimes, validity flags, source
-// file arrays, collection, created_at) is what the read-side MCP tool
-// returns, but for the warm-path delta check the agent only needs the
-// claim text to judge overlap — everything else was pure payload bloat
-// that blew freelance_advance responses past 50 KB on multi-file hooks.
+// The returned shape is trimmed to { id, content } per proposition.
+// `MemoryStore.bySource` returns a richer PropositionInfo (per-file
+// hashes, mtimes, validity flags, source file arrays, collection,
+// created_at) — for the warm-path delta check the agent only needs
+// the claim text to judge overlap, and the richer payload blew
+// `freelance advance` responses past 50 KB on multi-file hooks.
 const MAX_BY_SOURCE_PATHS = 50;
 
 interface PriorKnowledgeEntry {

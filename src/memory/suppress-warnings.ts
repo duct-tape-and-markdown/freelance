@@ -2,8 +2,8 @@
  * Suppress the `node:sqlite` ExperimentalWarning.
  *
  * `node:sqlite` is stable in recent Node releases but still flagged as
- * experimental in the 22.x LTS line we support. Without this filter, every
- * CLI/MCP invocation prints a warning to stderr that the user can't act on.
+ * experimental in the 22.x LTS line we support. Without this filter,
+ * every CLI invocation prints a warning to stderr the user can't act on.
  *
  * Importing this module installs a one-time `process.on('warning')` filter.
  * It only swallows the SQLite experimental warning — every other warning

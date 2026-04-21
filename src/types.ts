@@ -31,7 +31,7 @@ export interface ValidatedGraph {
   readonly hookResolutions?: HookResolutionMap;
 }
 
-// --- Result types (designed for direct MCP serialization) ---
+// --- Result types (shape of CLI JSON responses) ---
 // All result properties are readonly — results are snapshots, not live references.
 
 export interface TransitionInfo {

@@ -28,3 +28,13 @@ The rationale is a token budget asymmetry. Any mechanism that ships a fixed per-
 **What would break if reversed:** Reintroducing any parallel runtime surface — MCP as a first-class alternative, a second binary, a socket RPC layer — would re-invite the per-turn registration-weight cost for every user regardless of client. The recent PRs that trimmed tool descriptions (#109), added field projections (#111), and paginated history (#112) were hedges against that cost. The decision here is to stop hedging and commit.
 
 See issue [#99](https://github.com/duct-tape-and-markdown/freelance/issues/99) for the decision record.
+
+### MCP server and tool surface deleted
+
+The MCP server (`src/server.ts`), all `freelance_*` / `memory_*` MCP tools, `plugins/freelance/.mcp.json`, and the `freelance mcp` subcommand are gone. The skill + CLI path above is now the only execution surface.
+
+Motivation: MCP was duplicate plumbing. Every tool handler wrapped an engine method the CLI already exposed, and the CLI runtime verbs had adopted the same JSON wire shape + semantic exit codes that MCP tools emitted (#114). Keeping both surfaces meant twice the test surface, twice the opportunity for drift between handlers, and ongoing investment in a code path the architectural commitment above calls vestigial. The library-consumer break is real but small — nothing outside this repo imported `createServer`/`startServer`.
+
+A minimal Desktop fallback surface was considered in #99 Phase 3 and declined. Claude Desktop is the only non-shell client in the realistic audience, and the maintenance burden of even a 4-tool subset didn't earn its keep against measurable Desktop usage. If usage data later argues otherwise, the right move is a fresh minimal-surface fallback, not a restoration of the full 21-tool surface.
+
+See issue [#116](https://github.com/duct-tape-and-markdown/freelance/issues/116).

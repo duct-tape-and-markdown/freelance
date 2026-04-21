@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **MCP server and all MCP tools (BREAKING for library consumers).** The
+  MCP surface is gone: the `freelance mcp` subcommand, the
+  `createServer` / `startServer` library exports, every `freelance_*`
+  and `memory_*` MCP tool, and the `plugins/freelance/.mcp.json`
+  launcher. The Claude Agent Skill from #115 + the `freelance` CLI is
+  now the sole execution surface, per `docs/decisions.md` §
+  "CLI is the execution surface for agents" (#99, #116).
+
+  **Migration.** Agents that invoked `freelance_*` or `memory_*` MCP
+  tools should switch to the shell-out CLI verbs the skill
+  documents — `freelance status`, `freelance start <graphId>`,
+  `freelance advance <edge>`, `freelance context set k=v`,
+  `freelance inspect`, `freelance memory status|browse|emit|…`, etc.
+  Every runtime verb emits structured JSON on stdout with semantic
+  exit codes (0/1/2/3/4/5). Clients previously wired through
+  `.mcp.json` can remove that block and run `freelance init --client
+  claude-code` to install the driving skill. Plugin users upgrade
+  transparently via `/plugin update` — the plugin version pins the
+  exact CLI version.
+
+  Claude Desktop doesn't offer a shell tool, so this removes Freelance
+  support on that client. A minimal-surface fallback was considered in
+  #99 Phase 3 and declined in favor of one execution surface.
+  Reopen #116 if Desktop usage data shows the fallback is load-bearing.
+
 ### Changed
 
 - **All CLI verbs are JSON-only (BREAKING).** Every handler —
