@@ -157,7 +157,6 @@ export class MemoryStore {
   // --- Proposition emission ---
 
   emit(propositions: EmitProposition[]): EmitResult {
-    const collection = "default";
     const result: EmitResult = {
       created: 0,
       deduplicated: 0,
@@ -168,18 +167,18 @@ export class MemoryStore {
     const warnings: EmitWarning[] = [];
 
     // DO NOTHING (not DO UPDATE) — if an existing row matches on
-    // (content_hash, collection) the insert becomes a no-op and returns
-    // no row. We then SELECT the existing id separately. This keeps emit
-    // idempotent under retry and keeps the FTS index untouched on dedup
-    // hits (there's no AFTER UPDATE trigger to churn regardless).
+    // content_hash the insert becomes a no-op and returns no row. We
+    // then SELECT the existing id separately. This keeps emit idempotent
+    // under retry and keeps the FTS index untouched on dedup hits
+    // (there's no AFTER UPDATE trigger to churn regardless).
     const upsertProp = this.db.prepare(
-      `INSERT INTO propositions (id, content, content_hash, collection, created_at)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT (content_hash, collection) DO NOTHING
+      `INSERT INTO propositions (id, content, content_hash, created_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT (content_hash) DO NOTHING
        RETURNING id`,
     );
     const selectExistingProp = this.db.prepare(
-      "SELECT id FROM propositions WHERE content_hash = ? AND collection = ?",
+      "SELECT id FROM propositions WHERE content_hash = ?",
     );
     const insertAbout = this.db.prepare(
       "INSERT OR IGNORE INTO about (proposition_id, entity_id) VALUES (?, ?)",
@@ -191,7 +190,7 @@ export class MemoryStore {
     for (const prop of propositions) {
       const contentHash = hashPropContent(prop.content);
       const newId = generateId();
-      const inserted = upsertProp.get(newId, prop.content, contentHash, collection, now()) as
+      const inserted = upsertProp.get(newId, prop.content, contentHash, now()) as
         | { id: string }
         | undefined;
 
@@ -208,7 +207,7 @@ export class MemoryStore {
         propResult.status = "created";
         result.created++;
       } else {
-        const existing = selectExistingProp.get(contentHash, collection) as { id: string };
+        const existing = selectExistingProp.get(contentHash) as { id: string };
         propId = existing.id;
         propResult.status = "deduplicated";
         result.deduplicated++;
@@ -538,7 +537,6 @@ export class MemoryStore {
       content: row.content,
       created_at: row.created_at,
       valid,
-      collection: row.collection,
       source_files: sourceFiles,
     };
   }
