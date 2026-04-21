@@ -13,3 +13,18 @@ Each entry:
 Append chronologically. When a later decision supersedes an earlier one, add a new entry that references and replaces the old — don't rewrite history. An entry that's been superseded is a breadcrumb for future readers wondering why the code looks the way it does.
 
 ## Entries
+
+### CLI is the execution surface for agents
+
+Freelance drives its workflow loop through a **single Claude Agent Skill + the pure CLI** (`freelance advance`, `freelance inspect`, etc., emitting structured JSON). The skill body composes CLI invocations into the loop; this is the execution surface, not one of several.
+
+The rationale is a token budget asymmetry. Any mechanism that ships a fixed per-turn registration payload — tool definitions, schemas, per-session metadata — compounds linearly in session size. For a 30-turn workflow with ~2-3K tokens of tool definitions, that's ~75K per session just for registration metadata, before the agent does anything. The skill + CLI path is 0 per-turn registration tokens; the skill itself is a ~2K one-session fixed cost. The audience is overwhelmingly shell-capable (Claude Code CLI/IDE, Cursor, Windsurf, Cline, Agent SDK in remote or managed contexts, CI-driven agents) — pure-CLI is reachable from every realistic client.
+
+**What this reshapes:**
+
+- **CLI runtime verbs are primary.** `freelance advance/context set/inspect/...` are the surfaces the skill drives. Their output shape, exit codes, and error contract are first-class and committed.
+- **Workflow prose is JIT teaching, not per-turn tool metadata.** The sealed workflows' node instructions (`src/memory/messages.ts`) arrive fresh in each `advance` response, so per-node teaching doesn't need to live in tool descriptions or the skill body. The "one skill for invariants + workflows for domain" framing preserves this separation.
+
+**What would break if reversed:** Reintroducing any parallel runtime surface — MCP as a first-class alternative, a second binary, a socket RPC layer — would re-invite the per-turn registration-weight cost for every user regardless of client. The recent PRs that trimmed tool descriptions (#109), added field projections (#111), and paginated history (#112) were hedges against that cost. The decision here is to stop hedging and commit.
+
+See issue [#99](https://github.com/duct-tape-and-markdown/freelance/issues/99) for the decision record.
