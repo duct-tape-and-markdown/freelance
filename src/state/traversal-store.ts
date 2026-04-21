@@ -17,6 +17,7 @@ import type {
   InspectField,
   InspectMinimalResult,
   InspectResult,
+  LoadError,
   ResetResult,
   StartResult,
   TraversalInfo,
@@ -51,19 +52,26 @@ export class TraversalStore {
   private maxDepth: number;
   private hookRunner: HookRunner;
   private contextCaps?: ContextCaps;
+  private readonly loadErrors: readonly LoadError[];
   // Per-id async mutex tails, keyed by traversal id. See `withLock`.
   private locks = new Map<string, Promise<unknown>>();
 
   constructor(
     state: StateStore,
     graphs: Map<string, ValidatedGraph>,
-    options: { maxDepth?: number; hookRunner: HookRunner; contextCaps?: ContextCaps },
+    options: {
+      maxDepth?: number;
+      hookRunner: HookRunner;
+      contextCaps?: ContextCaps;
+      loadErrors?: readonly LoadError[];
+    },
   ) {
     this.state = state;
     this.graphs = graphs;
     this.maxDepth = options.maxDepth ?? 5;
     this.hookRunner = options.hookRunner;
     this.contextCaps = options.contextCaps;
+    this.loadErrors = options.loadErrors ?? [];
   }
 
   /**
@@ -118,10 +126,13 @@ export class TraversalStore {
       });
     }
     graphList.sort((a, b) => a.id.localeCompare(b.id));
-    return {
+    const base: TraversalListResult = {
       graphs: graphList,
       activeTraversals: this.listTraversals(),
     };
+    // Elide loadErrors entirely when empty — the field is optional so a
+    // clean run still serializes to the pre-#122 shape.
+    return this.loadErrors.length > 0 ? { ...base, loadErrors: this.loadErrors } : base;
   }
 
   listTraversals(): TraversalInfo[] {

@@ -131,12 +131,12 @@ Read (available anytime):
 
 | Command | Description |
 |---------|-------------|
-| `freelance status` | Discover available workflow graphs and active traversals (each with any `meta` tags) |
+| `freelance status` | Discover available workflow graphs and active traversals (each with any `meta` tags). Surfaces `loadErrors` when any workflow yaml failed to parse or validate |
 | `freelance start <graphId>` | Begin traversing a graph (optional opaque `--meta key=value` tags for later lookup) |
 | `freelance advance <edge>` | Move to the next node via a labeled edge. `--minimal` drops the full-context echo + `node` blob and returns `contextDelta` (keys written this turn) for lean hot-path responses |
 | `freelance context set <key=value>...` | Update session context without advancing. `--minimal` returns `contextDelta` only |
 | `freelance meta set <key=value>...` | Merge opaque `meta` tags onto a traversal (add or overwrite) |
-| `freelance inspect [id]` | Read-only introspection (`--detail position` or `--detail history`); includes `meta` tags. `--minimal` strips the `node` blob on position detail |
+| `freelance inspect [id]` | Read-only introspection. `--detail position\|history`, `--minimal` (strips `node` blob on position detail), `--fields <name>` (repeatable: `currentNode\|neighbors\|contextSchema\|definition`), and on history: `--limit <n>` / `--offset <n>` / `--include-snapshots`. Includes `meta` tags |
 | `freelance reset --confirm` | Clear traversal and start over |
 | `freelance guide [topic]` | Authoring guidance for writing graphs |
 | `freelance distill --mode distill\|refine` | Distill a task into a new workflow, or refine an existing one |

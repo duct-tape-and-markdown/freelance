@@ -8,7 +8,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { Command, Option } from "commander";
 import { loadConfigFromDirs } from "../config.js";
+import { EC, EngineError } from "../errors.js";
 import { resolveGraphsDirs } from "../graph-resolution.js";
+import { INSPECT_FIELDS } from "../types.js";
 import { VERSION } from "../version.js";
 import { configSetLocal, configShow } from "./config.js";
 import {
@@ -271,14 +273,43 @@ addWorkflowsOpt(
     )
     .option("--active", "List every active traversal (ignores [traversalId])")
     .option("--waits", "With --active, include only traversals at a wait node")
-    .option("--minimal", "Lean response: drop NodeInfo + full context echo (position detail only)"),
+    .option("--minimal", "Lean response: drop NodeInfo + full context echo (position detail only)")
+    .option(
+      "--fields <name>",
+      `Additive projections (repeatable; choices: ${INSPECT_FIELDS.join(", ")}). Works with --detail position or history.`,
+      (value: string, previous?: string[]) => {
+        // Validate here — commander's .choices() is bypassed by a custom
+        // argParser, so enum validation has to live alongside the
+        // accumulator. INVALID_FLAG_VALUE keeps this on the same exit
+        // path as --limit/--offset typos.
+        if (!(INSPECT_FIELDS as readonly string[]).includes(value)) {
+          throw new EngineError(
+            `--fields must be one of ${INSPECT_FIELDS.join(", ")}; got "${value}".`,
+            EC.INVALID_FLAG_VALUE,
+          );
+        }
+        return previous ? [...previous, value] : [value];
+      },
+    )
+    .option("--limit <n>", "Max history entries (default 50, max 200). --detail history only.")
+    .option("--offset <n>", "Skip first N history entries. --detail history only.")
+    .option(
+      "--include-snapshots",
+      "Include per-step contextSnapshot in history entries (opt-in: quadratic size). --detail history only.",
+    ),
 ).action((traversalId, opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
   try {
     if (opts.active) {
       traversalInspectActive(store, { waitsOnly: opts.waits });
     } else {
-      traversalInspect(store, traversalId, opts.detail, { minimal: opts.minimal });
+      traversalInspect(store, traversalId, opts.detail, {
+        minimal: opts.minimal,
+        fields: opts.fields,
+        limit: opts.limit,
+        offset: opts.offset,
+        includeSnapshots: opts.includeSnapshots,
+      });
     }
   } finally {
     runtime.close();

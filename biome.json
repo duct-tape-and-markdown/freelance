@@ -14,7 +14,8 @@
       "!plugins/**/skills",
       "!plugins/**/commands",
       "!plugins/**/agents",
-      "!experiments"
+      "!experiments",
+      "!.claude"
     ]
   },
   "formatter": {

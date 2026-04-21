@@ -10,10 +10,17 @@
  * relevant, never on the success path.
  */
 
+import type { InspectHistoryOptions } from "../engine/context.js";
 import { EC, EngineError } from "../errors.js";
 import type { TraversalStore } from "../state/index.js";
-import type { InspectPositionResult } from "../types.js";
-import { EXIT, errorEnvelope, handleRuntimeError as handleError, outputJson } from "./output.js";
+import type { InspectField, InspectPositionResult } from "../types.js";
+import {
+  EXIT,
+  errorEnvelope,
+  handleRuntimeError as handleError,
+  outputJson,
+  parseIntArg,
+} from "./output.js";
 
 /**
  * Shared primitive for CLI flags that accept `key=value` pairs. Splits on
@@ -184,11 +191,24 @@ export function traversalInspect(
   store: TraversalStore,
   traversalId?: string,
   detail?: "position" | "history",
-  opts?: { minimal?: boolean },
+  opts?: {
+    minimal?: boolean;
+    fields?: readonly InspectField[];
+    limit?: string;
+    offset?: string;
+    includeSnapshots?: boolean;
+  },
 ): void {
   try {
+    const limit = parseIntArg(opts?.limit, "--limit");
+    const offset = parseIntArg(opts?.offset, "--offset");
     const id = store.resolveTraversalId(traversalId);
-    const raw = store.inspect(id, detail ?? "position", undefined, undefined, {
+    const historyOpts: InspectHistoryOptions = {
+      ...(limit !== undefined && { limit }),
+      ...(offset !== undefined && { offset }),
+      ...(opts?.includeSnapshots && { includeSnapshots: true }),
+    };
+    const raw = store.inspect(id, detail ?? "position", opts?.fields, historyOpts, {
       ...(opts?.minimal ? { responseMode: "minimal" as const } : {}),
     });
     outputJson(raw);

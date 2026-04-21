@@ -51,6 +51,7 @@ export type {
   InspectPositionMinimalResult,
   InspectPositionResult,
   InspectResult,
+  LoadError,
   NodeDefinition,
   NodeInfo,
   ResetResult,

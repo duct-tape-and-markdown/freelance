@@ -222,7 +222,8 @@ export interface StackEntry {
  * position/history response. Each field is additive — the base shape
  * stays lean and the caller explicitly asks for the expansion.
  */
-export type InspectField = "currentNode" | "neighbors" | "contextSchema" | "definition";
+export const INSPECT_FIELDS = ["currentNode", "neighbors", "contextSchema", "definition"] as const;
+export type InspectField = (typeof INSPECT_FIELDS)[number];
 
 export interface InspectFieldProjections {
   /** Full `NodeDefinition` for the current node (edges, onEnter, validations, subgraph, timeout, etc.). Requested via fields: ["currentNode"]. */
@@ -366,7 +367,20 @@ export interface TraversalInfo {
   readonly meta: Readonly<Record<string, string>>;
 }
 
+/**
+ * One entry per graph file that failed to load (parse error, schema
+ * violation, or hook-resolution failure). Surfaced in `TraversalListResult`
+ * so CLI/skill callers can see which files were silently dropped from
+ * `graphs` — otherwise a broken yaml just disappears from `freelance status`.
+ */
+export interface LoadError {
+  readonly file: string;
+  readonly message: string;
+}
+
 export interface TraversalListResult {
   readonly graphs: GraphListResult["graphs"];
   readonly activeTraversals: readonly TraversalInfo[];
+  /** Only included when non-empty — keeps the success shape unchanged. */
+  readonly loadErrors?: readonly LoadError[];
 }
