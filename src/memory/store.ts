@@ -16,7 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { hashContent } from "../sources.js";
 import type { Db } from "./db.js";
-import { computeStatus, countValidForEntity, getNeighbors } from "./enrichment.js";
+import { computeStatus, countNeighbors, countValidForEntity, getNeighbors } from "./enrichment.js";
 import {
   createStalenessCache,
   getStalePropositionIds,
@@ -32,12 +32,36 @@ import type {
   EntityInfo,
   EntityRow,
   InspectResult,
+  MinimalProposition,
   PropositionInfo,
   PropositionRow,
+  PropositionShape,
   RelatedResult,
   SearchResult,
   StatusResult,
 } from "./types.js";
+
+/**
+ * Default page size + upper bound for paginated reads. Aligned with
+ * `memory_browse` (and the broader token-economics guidance in issue
+ * #86) so every paginated verb shares the same ceiling. Kept as module
+ * constants so CLI and hook callers can reason about the cap without
+ * re-deriving it.
+ */
+export const DEFAULT_PAGE_LIMIT = 50;
+export const MAX_PAGE_LIMIT = 200;
+
+function clampLimit(requested: number | undefined): number {
+  if (requested === undefined) return DEFAULT_PAGE_LIMIT;
+  if (requested < 1) return 1;
+  if (requested > MAX_PAGE_LIMIT) return MAX_PAGE_LIMIT;
+  return Math.trunc(requested);
+}
+
+function clampOffset(requested: number | undefined): number {
+  if (requested === undefined || requested < 0) return 0;
+  return Math.trunc(requested);
+}
 
 function generateId(): string {
   return crypto.randomUUID();
@@ -338,8 +362,8 @@ export class MemoryStore {
     includeOrphans?: boolean;
   }): BrowseResult {
     const cache = createStalenessCache();
-    const limit = options?.limit ?? 50;
-    const offset = options?.offset ?? 0;
+    const limit = clampLimit(options?.limit);
+    const offset = clampOffset(options?.offset);
     const includeOrphans = options?.includeOrphans ?? false;
 
     let where = "1=1";
@@ -395,63 +419,131 @@ export class MemoryStore {
     return { entities, total };
   }
 
-  inspect(entityIdOrName: string): InspectResult {
+  inspect(
+    entityIdOrName: string,
+    options?: { limit?: number; offset?: number; shape?: PropositionShape },
+  ): InspectResult {
     const cache = createStalenessCache();
     const entity = this.findEntity(entityIdOrName);
+    const limit = clampLimit(options?.limit);
+    const offset = clampOffset(options?.offset);
+    const shape: PropositionShape = options?.shape ?? "full";
+
+    // Total is computed over the full matching set — independent of
+    // limit/offset — so the caller can decide whether to page further.
+    const total = (
+      this.db
+        .prepare(
+          "SELECT COUNT(*) as c FROM propositions p JOIN about a ON p.id = a.proposition_id WHERE a.entity_id = ?",
+        )
+        .get(entity.id) as { c: number }
+    ).c;
 
     const propRows = this.db
       .prepare(
-        `SELECT p.* FROM propositions p JOIN about a ON p.id = a.proposition_id WHERE a.entity_id = ? ORDER BY p.created_at DESC`,
+        `SELECT p.* FROM propositions p
+         JOIN about a ON p.id = a.proposition_id
+         WHERE a.entity_id = ?
+         ORDER BY p.created_at DESC
+         LIMIT ? OFFSET ?`,
       )
-      .all(entity.id) as PropositionRow[];
+      .all(entity.id, limit, offset) as PropositionRow[];
+
+    // `valid_proposition_count` on the entity header reports the
+    // entity-wide valid total (across the full, unpaginated set); the
+    // paginated `propositions` list is just the current page.
+    const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
+    const validCount = countValidForEntity(this.db, entity.id, stalePropIds);
+    const neighbors = getNeighbors(this.db, entity.id, stalePropIds);
+
+    if (shape === "minimal") {
+      return {
+        entity: {
+          id: entity.id,
+          name: entity.name,
+          kind: entity.kind,
+          proposition_count: total,
+          valid_proposition_count: validCount,
+        },
+        propositions: propRows.map((p) => ({ id: p.id, content: p.content }) as MinimalProposition),
+        total,
+        neighbors,
+      };
+    }
 
     const propositions = propRows.map((p) => this.enrichProposition(p, cache));
 
-    // Deduped list of source files across all propositions for this entity
-    const sourceFiles = new Set<string>();
-    for (const p of propositions) {
-      for (const sf of p.source_files) {
-        sourceFiles.add(sf.path);
-      }
-    }
-
-    const validCount = propositions.filter((p) => p.valid).length;
-    const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
-    const neighbors = getNeighbors(this.db, entity.id, stalePropIds);
+    // Deduped source files across the entity's *full* proposition set
+    // (not just the current page). Callers use this to size-check the
+    // corpus footprint of the entity; restricting to the page would
+    // make it a moving target per offset.
+    const sourceRows = this.db
+      .prepare(
+        `SELECT DISTINCT ps.file_path
+         FROM proposition_sources ps
+         JOIN about a ON ps.proposition_id = a.proposition_id
+         WHERE a.entity_id = ?
+         ORDER BY ps.file_path`,
+      )
+      .all(entity.id) as Array<{ file_path: string }>;
 
     return {
       entity: {
         id: entity.id,
         name: entity.name,
         kind: entity.kind,
-        proposition_count: propositions.length,
+        proposition_count: total,
         valid_proposition_count: validCount,
       },
       propositions,
+      total,
       neighbors,
-      source_files: [...sourceFiles].sort(),
+      source_files: sourceRows.map((r) => r.file_path),
     };
   }
 
-  bySource(filePath: string): BySourceResult {
+  bySource(
+    filePath: string,
+    options?: { limit?: number; offset?: number; shape?: PropositionShape },
+  ): BySourceResult {
     const cache = createStalenessCache();
+    const limit = clampLimit(options?.limit);
+    const offset = clampOffset(options?.offset);
+    const shape: PropositionShape = options?.shape ?? "full";
 
     const storedPath = path.isAbsolute(filePath)
       ? path.relative(this.sourceRoot, filePath)
       : filePath;
 
+    const total = (
+      this.db
+        .prepare(
+          `SELECT COUNT(DISTINCT p.id) as c FROM propositions p
+           JOIN proposition_sources ps ON p.id = ps.proposition_id
+           WHERE ps.file_path = ?`,
+        )
+        .get(storedPath) as { c: number }
+    ).c;
+
     const propRows = this.db
       .prepare(
         `SELECT DISTINCT p.* FROM propositions p
-       JOIN proposition_sources ps ON p.id = ps.proposition_id
-       WHERE ps.file_path = ?
-       ORDER BY p.created_at DESC`,
+         JOIN proposition_sources ps ON p.id = ps.proposition_id
+         WHERE ps.file_path = ?
+         ORDER BY p.created_at DESC
+         LIMIT ? OFFSET ?`,
       )
-      .all(storedPath) as PropositionRow[];
+      .all(storedPath, limit, offset) as PropositionRow[];
+
+    const propositions =
+      shape === "minimal"
+        ? (propRows.map((p) => ({ id: p.id, content: p.content })) as MinimalProposition[])
+        : propRows.map((p) => this.enrichProposition(p, cache));
 
     return {
       file_path: storedPath,
-      propositions: propRows.map((p) => this.enrichProposition(p, cache)),
+      propositions,
+      total,
     };
   }
 
@@ -491,9 +583,11 @@ export class MemoryStore {
     return computeStatus(this.db, stalePropIds);
   }
 
-  related(entityIdOrName: string): RelatedResult {
+  related(entityIdOrName: string, options?: { limit?: number; offset?: number }): RelatedResult {
     const cache = createStalenessCache();
     const entity = this.findEntity(entityIdOrName);
+    const limit = clampLimit(options?.limit);
+    const offset = clampOffset(options?.offset);
 
     const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
     const validCount = countValidForEntity(this.db, entity.id, stalePropIds);
@@ -503,7 +597,12 @@ export class MemoryStore {
       }
     ).c;
 
-    const rows = getNeighbors(this.db, entity.id, stalePropIds, { withSample: true });
+    const total = countNeighbors(this.db, entity.id);
+    const rows = getNeighbors(this.db, entity.id, stalePropIds, {
+      withSample: true,
+      limit,
+      offset,
+    });
     const neighbors = rows.map((r) => ({ ...r, sample: r.sample ?? "" }));
 
     return {
@@ -515,6 +614,7 @@ export class MemoryStore {
         valid_proposition_count: validCount,
       },
       neighbors,
+      total,
     };
   }
 

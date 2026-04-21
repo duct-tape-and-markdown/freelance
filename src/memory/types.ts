@@ -78,6 +78,28 @@ export interface PropositionInfo {
   source_files: Array<{ path: string; hash: string; current_match: boolean }>;
 }
 
+/**
+ * Trimmed proposition projection. Used on warm-path reads
+ * (`memory_by_source` onEnter hook, opt-in from the CLI) where the caller
+ * only needs the claim text — the richer `PropositionInfo` payload
+ * (per-file hashes, mtimes, validity flags, source arrays, `created_at`)
+ * is ~5× per-row cost for data typically unused in that context. See
+ * issue #87 for the asymmetry this resolves.
+ */
+export interface MinimalProposition {
+  id: string;
+  content: string;
+}
+
+/**
+ * Projection shape for reads returning propositions. "full" returns the
+ * full `PropositionInfo` (default on CLI); "minimal" returns only
+ * `{ id, content }` (default on onEnter hooks). The store picks the
+ * cheaper SQL path when minimal is requested (no per-proposition source
+ * join + staleness check).
+ */
+export type PropositionShape = "minimal" | "full";
+
 export interface NeighborEntity {
   id: string;
   name: string;
@@ -88,15 +110,23 @@ export interface NeighborEntity {
 
 export interface InspectResult {
   entity: EntityInfo;
-  propositions: PropositionInfo[];
+  propositions: PropositionInfo[] | MinimalProposition[];
+  /** Total matching propositions for this entity, independent of limit/offset. */
+  total: number;
   neighbors: NeighborEntity[];
-  /** Deduped list of source file paths referenced by any of this entity's propositions. */
-  source_files: string[];
+  /**
+   * Deduped list of source file paths referenced by any of this entity's
+   * propositions. Only present under `shape: "full"` — `shape: "minimal"`
+   * skips the source join that would populate it.
+   */
+  source_files?: string[];
 }
 
 export interface RelatedResult {
   entity: EntityInfo;
   neighbors: Array<NeighborEntity & { sample: string }>;
+  /** Total matching neighbors for this entity, independent of limit/offset. */
+  total: number;
 }
 
 export interface BrowseResult {
@@ -106,7 +136,9 @@ export interface BrowseResult {
 
 export interface BySourceResult {
   file_path: string;
-  propositions: PropositionInfo[];
+  propositions: PropositionInfo[] | MinimalProposition[];
+  /** Total propositions derived from this file, independent of limit/offset. */
+  total: number;
 }
 
 export interface SearchResult {

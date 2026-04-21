@@ -12,6 +12,7 @@ import fs from "node:fs";
 import { EC, EngineError } from "../errors.js";
 import type { MemoryStore } from "../memory/index.js";
 import { prune } from "../memory/prune.js";
+import type { PropositionShape } from "../memory/types.js";
 import { EXIT, handleRuntimeError as handleError, outputJson } from "./output.js";
 
 export function memoryStatus(store: MemoryStore): void {
@@ -46,9 +47,19 @@ export function memoryBrowse(
   }
 }
 
-export function memoryInspect(store: MemoryStore, entity: string): void {
+export function memoryInspect(
+  store: MemoryStore,
+  entity: string,
+  opts?: { limit?: string; offset?: string; shape?: string },
+): void {
   try {
-    outputJson(store.inspect(entity));
+    outputJson(
+      store.inspect(entity, {
+        limit: opts?.limit ? parseInt(opts.limit, 10) : undefined,
+        offset: opts?.offset ? parseInt(opts.offset, 10) : undefined,
+        shape: parseShape(opts?.shape),
+      }),
+    );
   } catch (e) {
     handleError(e);
   }
@@ -66,20 +77,47 @@ export function memorySearch(store: MemoryStore, query: string, opts?: { limit?:
   }
 }
 
-export function memoryRelated(store: MemoryStore, entity: string): void {
+export function memoryRelated(
+  store: MemoryStore,
+  entity: string,
+  opts?: { limit?: string; offset?: string },
+): void {
   try {
-    outputJson(store.related(entity));
+    outputJson(
+      store.related(entity, {
+        limit: opts?.limit ? parseInt(opts.limit, 10) : undefined,
+        offset: opts?.offset ? parseInt(opts.offset, 10) : undefined,
+      }),
+    );
   } catch (e) {
     handleError(e);
   }
 }
 
-export function memoryBySource(store: MemoryStore, filePath: string): void {
+export function memoryBySource(
+  store: MemoryStore,
+  filePath: string,
+  opts?: { limit?: string; offset?: string; shape?: string },
+): void {
   try {
-    outputJson(store.bySource(filePath));
+    outputJson(
+      store.bySource(filePath, {
+        limit: opts?.limit ? parseInt(opts.limit, 10) : undefined,
+        offset: opts?.offset ? parseInt(opts.offset, 10) : undefined,
+        shape: parseShape(opts?.shape),
+      }),
+    );
   } catch (e) {
     handleError(e);
   }
+}
+
+// Unknown --shape values throw a caller-fixable error rather than
+// silently falling back to default — catches typos at the CLI boundary.
+function parseShape(raw: string | undefined): PropositionShape | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === "minimal" || raw === "full") return raw;
+  throw new EngineError(`--shape must be "minimal" or "full"; got "${raw}".`, EC.INVALID_SHAPE);
 }
 
 export function memoryEmit(store: MemoryStore, file: string): void {

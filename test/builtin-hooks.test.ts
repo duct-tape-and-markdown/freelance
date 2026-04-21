@@ -261,6 +261,14 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
       expect(Array.isArray(result.neighbors)).toBe(true);
     });
 
+    it("threads limit/offset args and exposes total", async () => {
+      const memoryRelated = BUILTIN_HOOKS.get("memory_related")!;
+      const result = await memoryRelated(
+        makeCtx({ args: { entity: "Biome", limit: 10, offset: 0 }, memory: store }),
+      );
+      expect(result).toHaveProperty("total");
+    });
+
     it("throws when ctx.memory is undefined", async () => {
       const memoryRelated = BUILTIN_HOOKS.get("memory_related")!;
       await expect(memoryRelated(makeCtx({ args: { entity: "Biome" } }))).rejects.toThrow(
@@ -277,15 +285,54 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
   });
 
   describe("memory_inspect", () => {
-    it("returns inspect shape from a live MemoryStore", async () => {
+    it("returns inspect shape from a live MemoryStore (minimal by default)", async () => {
+      // Hooks default to `shape: "minimal"` — issue #87. The hook-side
+      // default trims propositions to `{id, content}` (no source_files)
+      // to keep advance responses under the 50 KB ceiling. Callers that
+      // need provenance pass `shape: "full"` explicitly.
       const memoryInspect = BUILTIN_HOOKS.get("memory_inspect")!;
       const result = await memoryInspect(makeCtx({ args: { entity: "Biome" }, memory: store }));
 
       expect(result).toHaveProperty("entity");
       expect(result).toHaveProperty("propositions");
       expect(result).toHaveProperty("neighbors");
+      expect(result).toHaveProperty("total");
+      // Minimal shape — no source_files payload.
+      expect(result).not.toHaveProperty("source_files");
+      const propositions = result.propositions as Array<Record<string, unknown>>;
+      expect(propositions.length).toBeGreaterThan(0);
+      expect(propositions[0]).toHaveProperty("id");
+      expect(propositions[0]).toHaveProperty("content");
+      expect(propositions[0]).not.toHaveProperty("source_files");
+    });
+
+    it("returns full shape with source_files when shape: full is passed", async () => {
+      const memoryInspect = BUILTIN_HOOKS.get("memory_inspect")!;
+      const result = await memoryInspect(
+        makeCtx({ args: { entity: "Biome", shape: "full" }, memory: store }),
+      );
+
       expect(result).toHaveProperty("source_files");
-      expect((result.propositions as unknown[]).length).toBeGreaterThan(0);
+      const propositions = result.propositions as Array<Record<string, unknown>>;
+      expect(propositions[0]).toHaveProperty("source_files");
+      expect(propositions[0]).toHaveProperty("valid");
+    });
+
+    it("threads limit/offset args through", async () => {
+      const memoryInspect = BUILTIN_HOOKS.get("memory_inspect")!;
+      const result = await memoryInspect(
+        makeCtx({ args: { entity: "Biome", limit: 5, offset: 0 }, memory: store }),
+      );
+
+      expect(result).toHaveProperty("total");
+      expect((result.propositions as unknown[]).length).toBeLessThanOrEqual(5);
+    });
+
+    it("rejects invalid shape arg", async () => {
+      const memoryInspect = BUILTIN_HOOKS.get("memory_inspect")!;
+      await expect(
+        memoryInspect(makeCtx({ args: { entity: "Biome", shape: "bogus" }, memory: store })),
+      ).rejects.toThrow(/shape.*minimal.*full/);
     });
 
     it("throws when ctx.memory is undefined", async () => {
@@ -318,6 +365,18 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
       );
       const byPath = result.priorKnowledgeByPath as Record<string, unknown[]>;
       expect(byPath["does-not-exist.md"]).toEqual([]);
+    });
+
+    it("always returns minimal { id, content } on the wire", async () => {
+      // The wire contract is fixed at { id, content } — no provenance
+      // on this path, no shape arg to override. Keeps the 50 KB ceiling.
+      const memoryBySource = BUILTIN_HOOKS.get("memory_by_source")!;
+      const result = await memoryBySource(
+        makeCtx({ args: { paths: [sourcePath] }, memory: store }),
+      );
+      const byPath = result.priorKnowledgeByPath as Record<string, unknown[]>;
+      const entry = byPath[sourcePath][0] as Record<string, unknown>;
+      expect(Object.keys(entry).sort()).toEqual(["content", "id"]);
     });
 
     it("caps paths at 50 and reports truncation", async () => {

@@ -325,11 +325,14 @@ addWorkflowsOpt(
 addWorkflowsOpt(
   memoryCmd
     .command("inspect <entity>")
-    .description("Full entity details — propositions, neighbors, sources"),
+    .description("Full entity details — propositions, neighbors, sources")
+    .option("--limit <n>", "Maximum propositions (default 50, max 200)")
+    .option("--offset <n>", "Skip first N propositions")
+    .option("--shape <shape>", 'Proposition shape: "full" (default) or "minimal"'),
 ).action((entity, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
   try {
-    memoryInspect(store, entity);
+    memoryInspect(store, entity, opts);
   } finally {
     store.close();
   }
@@ -352,22 +355,29 @@ addWorkflowsOpt(
 addWorkflowsOpt(
   memoryCmd
     .command("related <entity>")
-    .description("Show entities related via shared propositions"),
+    .description("Show entities related via shared propositions")
+    .option("--limit <n>", "Maximum neighbors (default 50, max 200)")
+    .option("--offset <n>", "Skip first N neighbors"),
 ).action((entity, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
   try {
-    memoryRelated(store, entity);
+    memoryRelated(store, entity, opts);
   } finally {
     store.close();
   }
 });
 
 addWorkflowsOpt(
-  memoryCmd.command("by-source <file>").description("All propositions derived from a source file"),
+  memoryCmd
+    .command("by-source <file>")
+    .description("All propositions derived from a source file")
+    .option("--limit <n>", "Maximum propositions (default 50, max 200)")
+    .option("--offset <n>", "Skip first N propositions")
+    .option("--shape <shape>", 'Proposition shape: "full" (default) or "minimal"'),
 ).action((file, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
   try {
-    memoryBySource(store, file);
+    memoryBySource(store, file, opts);
   } finally {
     store.close();
   }

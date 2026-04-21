@@ -6,6 +6,7 @@
  * missing name fails the graph load, same as a missing script file.
  */
 
+import type { PropositionShape } from "../memory/types.js";
 import type { HookContext, HookFn, HookMemoryAccess } from "./hooks.js";
 
 /**
@@ -66,6 +67,25 @@ function requireString(args: Record<string, unknown>, key: string): string {
   return v;
 }
 
+/**
+ * Parse `shape` hook arg to the store's `PropositionShape` union.
+ *
+ * Hooks default to `"minimal"` — the warm-path delta-check use case only
+ * needs claim text, and the full PropositionInfo payload (per-file
+ * hashes, mtimes, validity flags, source arrays, `created_at`) was
+ * blowing `freelance advance` responses past 50 KB on multi-file
+ * on-enter hooks (see issue #87). Callers that genuinely need
+ * provenance can pass `shape: "full"` explicitly.
+ */
+function optionalShape(args: Record<string, unknown>, key: string): PropositionShape | undefined {
+  const v = args[key];
+  if (v === undefined || v === null) return undefined;
+  if (v === "minimal" || v === "full") return v;
+  throw new TypeError(
+    `Hook arg "${key}" must be "minimal" or "full"; got ${typeof v} (${JSON.stringify(v)})`,
+  );
+}
+
 function requireStringArray(args: Record<string, unknown>, key: string): string[] {
   const v = args[key];
   if (!Array.isArray(v)) {
@@ -114,13 +134,25 @@ const memorySearch: HookFn = async (ctx) => {
 const memoryRelated: HookFn = async (ctx) => {
   const memory = requireMemory(ctx, "memory_related");
   const entity = requireString(ctx.args, "entity");
-  return { ...memory.related(entity) };
+  return {
+    ...memory.related(entity, {
+      limit: optionalInt(ctx.args, "limit"),
+      offset: optionalInt(ctx.args, "offset"),
+    }),
+  };
 };
 
 const memoryInspect: HookFn = async (ctx) => {
   const memory = requireMemory(ctx, "memory_inspect");
   const entity = requireString(ctx.args, "entity");
-  return { ...memory.inspect(entity) };
+  // `shape` defaults to `"minimal"` in hooks — see optionalShape for why.
+  return {
+    ...memory.inspect(entity, {
+      limit: optionalInt(ctx.args, "limit"),
+      offset: optionalInt(ctx.args, "offset"),
+      shape: optionalShape(ctx.args, "shape") ?? "minimal",
+    }),
+  };
 };
 
 // memory_by_source accepts `paths: string[]` and loops internally, so
@@ -129,12 +161,12 @@ const memoryInspect: HookFn = async (ctx) => {
 // runtime against the 5-second default timeout — anything longer
 // should be a script hook.
 //
-// The returned shape is trimmed to { id, content } per proposition.
-// `MemoryStore.bySource` returns a richer PropositionInfo (per-file
-// hashes, mtimes, validity flags, source file arrays, collection,
-// created_at) — for the warm-path delta check the agent only needs
-// the claim text to judge overlap, and the richer payload blew
-// `freelance advance` responses past 50 KB on multi-file hooks.
+// Per-path reads default to `shape: "minimal"` (just { id, content })
+// because the warm-path delta check only needs claim text; the richer
+// `PropositionInfo` payload (per-file hashes, validity flags, source
+// arrays, `created_at`) blew `freelance advance` responses past 50 KB
+// on multi-file hooks. Since issue #87 this defaulting is the store's
+// responsibility — the hook just threads the arg through.
 const MAX_BY_SOURCE_PATHS = 50;
 
 interface PriorKnowledgeEntry {
@@ -146,11 +178,18 @@ const memoryBySource: HookFn = async (ctx) => {
   const memory = requireMemory(ctx, "memory_by_source");
   const paths = requireStringArray(ctx.args, "paths");
   const capped = paths.slice(0, MAX_BY_SOURCE_PATHS);
+  const perPathLimit = optionalInt(ctx.args, "limit");
   const priorKnowledgeByPath: Record<string, PriorKnowledgeEntry[]> = {};
   for (const p of capped) {
-    priorKnowledgeByPath[p] = memory
-      .bySource(p)
-      .propositions.map((prop) => ({ id: prop.id, content: prop.content }));
+    // Always ask the store for the minimal shape — the wire contract
+    // here is fixed at { id, content } and enriching with provenance
+    // would just waste the per-proposition source join + staleness
+    // check on data that gets stripped below.
+    const result = memory.bySource(p, { limit: perPathLimit, shape: "minimal" });
+    priorKnowledgeByPath[p] = result.propositions.map((prop) => ({
+      id: prop.id,
+      content: prop.content,
+    }));
   }
   return {
     priorKnowledgeByPath,
