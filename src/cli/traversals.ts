@@ -62,9 +62,9 @@ function parseMetaPairs(pairs: string[] | undefined, flag: string): Record<strin
 export function traversalStatus(store: TraversalStore, opts?: { filter?: string[] }): void {
   try {
     const result = store.listGraphs();
-    // Operator-side filter — kept off the MCP surface deliberately. The
-    // skill already sees meta on every list entry and can pick; this is
-    // for shell invocations that want a pre-filter.
+    // Operator-side pre-filter. The skill sees `meta` on every list
+    // entry and can pick directly; this shortcut is for shell scripts
+    // and humans who want to scope the response before parsing.
     const filter = parseMetaPairs(opts?.filter, "--filter");
     const filterEntries = Object.entries(filter);
     const traversals =

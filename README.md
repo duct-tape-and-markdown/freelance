@@ -13,7 +13,7 @@ Define structured workflows in YAML. Agents drive them through the `freelance` C
 /plugin install freelance@freelance-plugins
 ```
 
-This installs the CLI-driving skill, setup skill, and hooks automatically. Run `/freelance:freelance-init` to scaffold your first workflow.
+This installs the CLI-driving skill and the session/compact hooks. Then scaffold the project with `freelance init` in a terminal.
 
 ### Other clients (Cursor, Windsurf, Cline)
 

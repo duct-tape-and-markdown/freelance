@@ -1,15 +1,15 @@
 /**
  * Composition root for the freelance runtime.
  *
- * Both entry points — the MCP server (`src/server.ts`) and the CLI
- * (`src/cli/setup.ts`) — call `composeRuntime` to wire the same stack:
- * state backend → memory store (optional) → hook runner → traversal
- * store. Anything entry-point-specific (MCP tool registration, CLI
- * argv parsing, file watcher, signal handlers, output rendering) lives
- * in the caller, not here.
+ * The CLI entry (`src/cli/setup.ts`) calls `composeRuntime` to wire
+ * the same stack: state backend → memory store (optional) → hook
+ * runner → traversal store. Anything entry-point-specific (CLI argv
+ * parsing, signal handlers, output rendering) lives in the caller,
+ * not here.
  *
- * The Runtime object returned is the sole public surface; callers use
- * it directly rather than reaching back into the individual pieces.
+ * The Runtime object returned is the sole public surface; callers
+ * use it directly rather than reaching back into the individual
+ * pieces.
  */
 
 import fs from "node:fs";

@@ -295,8 +295,8 @@ export async function init(options: InitOptions): Promise<void> {
   }
 
   // 6. Driving skill — Claude Code only. Installs `SKILL.md` so the
-  // agent can drive workflows via the CLI without per-turn MCP weight.
-  // Cursor / Windsurf / Cline don't consume Claude Skills; skip for them.
+  // agent can drive workflows via the CLI. Cursor / Windsurf / Cline
+  // don't consume Claude Skills; skip for them.
   const skillPath = resolveSkillInstallPath(client, scope);
   if (skillPath) {
     if (fs.existsSync(skillPath)) {
