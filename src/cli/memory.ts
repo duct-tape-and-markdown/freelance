@@ -12,7 +12,13 @@ import fs from "node:fs";
 import { EC, EngineError } from "../errors.js";
 import type { MemoryStore } from "../memory/index.js";
 import type { PropositionShape } from "../memory/types.js";
-import { EXIT, errorEnvelope, handleRuntimeError as handleError, outputJson } from "./output.js";
+import {
+  EXIT,
+  errorEnvelope,
+  handleRuntimeError as handleError,
+  outputJson,
+  parseIntArg,
+} from "./output.js";
 
 export function memoryStatus(store: MemoryStore): void {
   try {
@@ -36,8 +42,8 @@ export function memoryBrowse(
     const result = store.browse({
       name: opts?.name,
       kind: opts?.kind,
-      limit: opts?.limit ? parseInt(opts.limit, 10) : undefined,
-      offset: opts?.offset ? parseInt(opts.offset, 10) : undefined,
+      limit: parseIntArg(opts?.limit, "--limit"),
+      offset: parseIntArg(opts?.offset, "--offset"),
       includeOrphans: opts?.includeOrphans,
     });
     outputJson(result);
@@ -54,8 +60,8 @@ export function memoryInspect(
   try {
     outputJson(
       store.inspect(entity, {
-        limit: opts?.limit ? parseInt(opts.limit, 10) : undefined,
-        offset: opts?.offset ? parseInt(opts.offset, 10) : undefined,
+        limit: parseIntArg(opts?.limit, "--limit"),
+        offset: parseIntArg(opts?.offset, "--offset"),
         shape: parseShape(opts?.shape),
       }),
     );
@@ -68,7 +74,7 @@ export function memorySearch(store: MemoryStore, query: string, opts?: { limit?:
   try {
     outputJson(
       store.search(query, {
-        limit: opts?.limit ? parseInt(opts.limit, 10) : undefined,
+        limit: parseIntArg(opts?.limit, "--limit"),
       }),
     );
   } catch (e) {
@@ -84,8 +90,8 @@ export function memoryRelated(
   try {
     outputJson(
       store.related(entity, {
-        limit: opts?.limit ? parseInt(opts.limit, 10) : undefined,
-        offset: opts?.offset ? parseInt(opts.offset, 10) : undefined,
+        limit: parseIntArg(opts?.limit, "--limit"),
+        offset: parseIntArg(opts?.offset, "--offset"),
       }),
     );
   } catch (e) {
@@ -101,8 +107,8 @@ export function memoryBySource(
   try {
     outputJson(
       store.bySource(filePath, {
-        limit: opts?.limit ? parseInt(opts.limit, 10) : undefined,
-        offset: opts?.offset ? parseInt(opts.offset, 10) : undefined,
+        limit: parseIntArg(opts?.limit, "--limit"),
+        offset: parseIntArg(opts?.offset, "--offset"),
         shape: parseShape(opts?.shape),
       }),
     );

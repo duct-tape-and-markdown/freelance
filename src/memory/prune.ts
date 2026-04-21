@@ -157,7 +157,7 @@ export function prune(db: Db, sourceRoot: string, options: PruneOptions): PruneR
   const victims: RowMeta[] = [];
   for (const row of rows) {
     const set = liveHashes.get(row.file_path);
-    if (!set || !set.has(row.content_hash)) victims.push(row);
+    if (!set?.has(row.content_hash)) victims.push(row);
   }
 
   // --- 5. Derived counts (propositions + entities that fall out). ---
