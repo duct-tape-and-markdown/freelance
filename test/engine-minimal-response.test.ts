@@ -123,6 +123,27 @@ describe("advance({ responseMode: 'minimal' }) — gate-blocked shape", () => {
     expect(r).not.toHaveProperty("graphSources");
   });
 
+  // Locks in the #134 unified envelope (`error.kind`) under minimal mode.
+  // Without this assertion, the minimal-mode error type could drop the
+  // envelope silently and skills relying on `error.kind` would break.
+  it("carries the unified error envelope with kind: 'blocked'", async () => {
+    const engine = makeEngine("valid-simple.workflow.yaml");
+    await engine.start("valid-simple");
+    await engine.advance("work-done");
+
+    const r = await engine.advance("approved", undefined, { responseMode: "minimal" });
+    expect(r.isError).toBe(true);
+    if (!r.isError) return;
+
+    expect(r.error).toEqual({
+      code: "VALIDATION_FAILED",
+      message: expect.stringContaining("Task must be started"),
+      kind: "blocked",
+    });
+    // reason is retained as a back-compat mirror of error.message.
+    expect(r.reason).toBe(r.error.message);
+  });
+
   it("blocked minimal with no caller writes has empty contextDelta", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
     await engine.start("valid-simple");
