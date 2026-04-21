@@ -450,4 +450,121 @@ describe("TraversalStore — stateless JSON", () => {
       expect(store.hasActiveTraversalForGraph()).toBe(false);
     });
   });
+
+  describe("concurrent writers (#88)", () => {
+    it("serializes two in-process advances on the same id (no lost update)", async () => {
+      const t = await store.createTraversal("valid-simple");
+      store.contextSet(t.traversalId, { taskStarted: true });
+
+      // Without the in-process lock, both advances would load at the
+      // same version; the later putIfVersion would throw
+      // TRAVERSAL_CONFLICT. With the lock, they serialize: the first
+      // moves start → review, the second runs against the post-first
+      // state and fails cleanly (no matching edge at `review`).
+      // Either way, no silent lost update.
+      const results = await Promise.allSettled([
+        store.advance(t.traversalId, "work-done"),
+        store.advance(t.traversalId, "work-done"),
+      ]);
+
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      const rejected = results.filter((r) => r.status === "rejected");
+
+      // The first advance succeeds (moves start → review). The second
+      // runs against the post-first state and fails cleanly — but
+      // crucially, not with TRAVERSAL_CONFLICT: the mutex already
+      // serialized them, so the second call sees a coherent world.
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      for (const r of rejected) {
+        const err = (r as PromiseRejectedResult).reason;
+        expect(err).toBeInstanceOf(EngineError);
+        expect((err as EngineError).code).not.toBe("TRAVERSAL_CONFLICT");
+      }
+
+      // Persisted state reflects the first advance, not a half-applied
+      // or overwritten result.
+      const list = store.listTraversals();
+      expect(list).toHaveLength(1);
+      expect(list[0].currentNode).toBe("review");
+    });
+
+    it("version monotonically increases on each successful write", async () => {
+      const dir = path.join(tmpDir, "traversals");
+      const t = await store.createTraversal("valid-simple");
+
+      // Reach into the raw store to observe the on-disk version.
+      // The record's version is an implementation detail of the
+      // optimistic-concurrency scheme; we're verifying it behaves as
+      // described rather than exposing it on the public API.
+      const raw = () => {
+        const file = fs.readFileSync(path.join(dir, `${t.traversalId}.json`), "utf-8");
+        return JSON.parse(file) as { version?: number };
+      };
+
+      // createTraversal's first put goes through `put`, so version = 1.
+      expect(raw().version).toBe(1);
+
+      store.contextSet(t.traversalId, { taskStarted: true });
+      expect(raw().version).toBe(2);
+
+      store.setMeta(t.traversalId, { owner: "alice" });
+      expect(raw().version).toBe(3);
+
+      await store.advance(t.traversalId, "work-done");
+      expect(raw().version).toBe(4);
+    });
+
+    it("detects cross-process writer races via TRAVERSAL_CONFLICT", async () => {
+      // Simulates the two-process CLI-vs-hook scenario from #88:
+      // writer A captures a record at version N, writer B lands a
+      // write at N+1, writer A's save must throw instead of silently
+      // clobbering. TraversalStore's own methods re-read on every
+      // call, so we drop to the raw backend to capture a stale view.
+      const dir = path.join(tmpDir, "traversals");
+      const store2 = new TraversalStore(openStateStore(dir), graphs, {
+        hookRunner: new HookRunner(),
+      });
+
+      try {
+        const t = await store.createTraversal("valid-simple");
+        const backend = openStateStore(dir);
+        const staleView = backend.get(t.traversalId);
+        if (!staleView) throw new Error("unreachable");
+
+        // Another writer bumps the on-disk version past staleView's.
+        store2.contextSet(t.traversalId, { taskStarted: true });
+
+        expect(() =>
+          backend.putIfVersion(
+            { ...staleView, updatedAt: new Date().toISOString() },
+            staleView.version ?? 0,
+          ),
+        ).toThrow(EngineError);
+        try {
+          backend.putIfVersion(
+            { ...staleView, updatedAt: new Date().toISOString() },
+            staleView.version ?? 0,
+          );
+        } catch (e) {
+          expect((e as EngineError).code).toBe("TRAVERSAL_CONFLICT");
+        }
+        backend.close();
+      } finally {
+        store2.close();
+      }
+    });
+
+    it("rejection in one advance doesn't poison subsequent calls on the same id", async () => {
+      const t = await store.createTraversal("valid-simple");
+      // First advance fails (no matching edge, no contextSet first).
+      await expect(store.advance(t.traversalId, "nonexistent-edge")).rejects.toThrow(EngineError);
+
+      // Second advance on the same id must still proceed — the lock
+      // tail-marker swallows the prior rejection.
+      store.contextSet(t.traversalId, { taskStarted: true });
+      const adv = await store.advance(t.traversalId, "work-done");
+      expect(adv.isError).toBe(false);
+    });
+  });
 });
