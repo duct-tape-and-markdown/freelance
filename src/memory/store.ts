@@ -20,6 +20,7 @@ import {
   createStalenessCache,
   getStalePropositionIds,
   isFileChanged,
+  STALE_PROP_IDS_TABLE,
   type StalenessCache,
 } from "./staleness.js";
 import type {
@@ -389,12 +390,10 @@ export class MemoryStore {
       whereParams.push(options.kind);
     }
 
-    const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
-    const staleParams = [...stalePropIds];
-    const notStale =
-      staleParams.length > 0
-        ? `a.proposition_id NOT IN (${staleParams.map(() => "?").join(",")})`
-        : "1";
+    // getStalePropositionIds also materializes the set into STALE_PROP_IDS_TABLE
+    // for the NOT EXISTS join below.
+    getStalePropositionIds(this.db, this.sourceRoot, cache);
+    const notStale = `NOT EXISTS (SELECT 1 FROM ${STALE_PROP_IDS_TABLE} _s WHERE _s.proposition_id = a.proposition_id)`;
     const having = includeOrphans ? "" : "HAVING valid_count > 0";
 
     const selectExpr = `
@@ -408,14 +407,14 @@ export class MemoryStore {
       ${having}`;
 
     const total = (
-      this.db
-        .prepare(`SELECT COUNT(*) as total FROM (${selectExpr})`)
-        .get(...staleParams, ...whereParams) as { total: number }
+      this.db.prepare(`SELECT COUNT(*) as total FROM (${selectExpr})`).get(...whereParams) as {
+        total: number;
+      }
     ).total;
 
     const rows = this.db
       .prepare(`${selectExpr} ORDER BY e.created_at DESC LIMIT ? OFFSET ?`)
-      .all(...staleParams, ...whereParams, limit, offset) as Array<
+      .all(...whereParams, limit, offset) as Array<
       EntityRow & { proposition_count: number; valid_count: number }
     >;
 
@@ -463,9 +462,9 @@ export class MemoryStore {
     // `valid_proposition_count` on the entity header reports the
     // entity-wide valid total (across the full, unpaginated set); the
     // paginated `propositions` list is just the current page.
-    const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
-    const validCount = countValidForEntity(this.db, entity.id, stalePropIds);
-    const neighbors = getNeighbors(this.db, entity.id, stalePropIds);
+    getStalePropositionIds(this.db, this.sourceRoot, cache);
+    const validCount = countValidForEntity(this.db, entity.id);
+    const neighbors = getNeighbors(this.db, entity.id);
 
     if (shape === "minimal") {
       return {
@@ -600,8 +599,8 @@ export class MemoryStore {
     const limit = clampLimit(options?.limit);
     const offset = clampOffset(options?.offset);
 
-    const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
-    const validCount = countValidForEntity(this.db, entity.id, stalePropIds);
+    getStalePropositionIds(this.db, this.sourceRoot, cache);
+    const validCount = countValidForEntity(this.db, entity.id);
     const totalCount = (
       this.db.prepare("SELECT COUNT(*) as c FROM about WHERE entity_id = ?").get(entity.id) as {
         c: number;
@@ -609,7 +608,7 @@ export class MemoryStore {
     ).c;
 
     const total = countNeighbors(this.db, entity.id);
-    const rows = getNeighbors(this.db, entity.id, stalePropIds, {
+    const rows = getNeighbors(this.db, entity.id, {
       withSample: true,
       limit,
       offset,
