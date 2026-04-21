@@ -156,10 +156,12 @@ Read operations (available any time):
 freelance memory status
 freelance memory browse [--name X] [--kind Y] [--limit N] [--offset N]
 freelance memory search "<query>" [--limit N]
-freelance memory inspect <entityIdOrName>
-freelance memory related <entityIdOrName>
-freelance memory by-source <filePath>
+freelance memory inspect <entityIdOrName> [--limit N] [--offset N] [--shape minimal|full]
+freelance memory related <entityIdOrName> [--limit N] [--offset N]
+freelance memory by-source <filePath> [--limit N] [--offset N]
 ```
+
+`--shape minimal` on `memory inspect` trims per-proposition source details when you want the entity graph but not full provenance; default is `full`.
 
 Maintenance:
 

@@ -355,6 +355,7 @@ Script paths resolve relative to the **graph file's directory**. A hook in \`.fr
 - **Timeout**: each hook has a 5000ms default timeout. Configure per-project via \`hooks.timeoutMs\` in \`config.yml\`. On timeout, the hook errors with a clear message and the node arrival fails.
 - **Errors**: a throwing hook aborts the node arrival with an \`EngineError\` wrapping the underlying message, the node id, and the hook call. The traversal stays on the previous node.
 - **Execution point**: hooks fire AFTER edge-condition evaluation and transitions — i.e., after the engine has decided the agent is arriving at this node, but before the response is built. The agent sees the node's \`validTransitions\` and \`context\` AFTER hooks have run.
+- **Validation**: script hooks are imported eagerly by \`freelance validate\` — syntax errors, missing deps, and non-function default exports fail at authoring time, not mid-traversal. The validator never invokes the hook body; it only verifies the module loads and its default export is callable.
 
 ## When to use hooks (vs agent-driven context)
 
@@ -373,6 +374,8 @@ Script paths resolve relative to the **graph file's directory**. A hook in \`.fr
 ## Trust model
 
 Local script hooks execute with full Node.js privileges in the host process. A \`.workflow.yaml\` that references a local script is trusted code — treat it like a \`package.json\` scripts block. Don't load graphs from untrusted sources.
+
+Operators in shared-graph-registry scenarios (untrusted contributors, multi-agent marketplaces) can set \`FREELANCE_HOOKS_ALLOW_SCRIPTS=0\` in the environment; graph load then rejects every \`onEnter\` entry that resolves to a local script, leaving built-ins as the only runnable hook surface. Default is allowed — the flag is opt-in to stricter handling, not default-deny.
 
 ## Tips
 

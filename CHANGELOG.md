@@ -22,6 +22,184 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   callers access the same behavior via the new `responseMode: "full" |
   "minimal"` option on `GraphEngine.advance / contextSet / inspect`
   and `TraversalStore.advance / contextSet / inspect`. See issue #81.
+- **Canonical `EngineError` code catalog.** `src/error-codes.ts`
+  exports `ENGINE_ERROR_CODES` (codes grouped by exit-code category),
+  `EngineErrorCode` (union type), and `EC` (symbol aliases used at
+  throw sites). `EngineError.code` is typed as `EngineErrorCode` so
+  typos are caught at compile time, and `mapEngineErrorToExit` is
+  derived from the grouping — adding a new code in the wrong group,
+  or a new category without an exit mapping, is a compile error.
+  Wire format unchanged; the refactor is source-internal. See issue
+  #117.
+- **Single driving skill + `freelance init` wires it up.** Ships
+  `plugins/freelance/skills/freelance/SKILL.md` with the plugin and
+  `templates/skills/freelance/SKILL.md` for CLI users. The skill teaches
+  the invariant protocol for driving any Freelance workflow via the
+  `freelance` CLI — discover, start, loop, recover, exit — and branches
+  on the semantic exit codes shipped in the previous CHANGELOG entry.
+  `freelance init --client claude-code` now copies the skill into
+  `.claude/skills/freelance/SKILL.md` (project scope) or
+  `~/.claude/skills/freelance/SKILL.md` (user scope), so agents can
+  drive workflows without per-turn MCP tool-definition weight. Other
+  clients (Cursor / Windsurf / Cline) skip skill installation — they
+  don't consume Claude Agent Skills. See issue #115.
+- **Byte caps on context writes.** Every write to session context —
+  `freelance_context_set`, `contextUpdates` on `freelance_advance`,
+  `initialContext` on `freelance_start`, and onEnter hook return
+  values — is now checked against a per-value cap (default 4 KB) and a
+  post-merge total cap (default 64 KB). Over-cap writes throw
+  `EngineError` with codes `CONTEXT_VALUE_TOO_LARGE` or
+  `CONTEXT_TOTAL_TOO_LARGE` *before* the bad value persists, so a
+  misbehaving hook or runaway write can't silently inflate every
+  subsequent advance/inspect response. Configure via
+  `context.maxValueBytes` / `context.maxTotalBytes` in `config.yml`.
+  See issue #83.
+- **`freelance memory prune --keep <ref>`** — manual, user-initiated
+  cleanup for `proposition_sources`. Deletes a row only when its
+  `content_hash` doesn't match the file at **any** location the caller
+  declared live: the current working tree on disk *or* the tip of any
+  `--keep` ref. Implementation reads blobs via `git cat-file --batch` —
+  no branch switching, no working-tree churn; the user's current
+  checkout stays untouched while prune inspects every preserve ref.
+  Rebase-, squash-, and amend-robust by construction: those workflows
+  rewrite commit SHAs but preserve tree content, and prune asks about
+  content, not SHAs. Unresolvable `--keep` refs hard-error before
+  touching the db; source roots outside a git checkout hard-error
+  (prune is a git-scoped operation). Config default under
+  `memory.prune.keep: [ref, ...]`; CLI `--keep` flags concatenate on
+  top. See issue #78 and `docs/memory-intent.md` § "Knowledge is
+  append-only across corpus frames" for why the store stays additive
+  at emit time.
+- **`freelance validate` eager-imports every script hook at validate
+  time (#123).** `validateHookImports` walks each `onEnter` script,
+  imports it, and verifies the default export is a function —
+  surfacing syntax errors, missing deps, and non-function defaults
+  at authoring time instead of deep inside a traversal. Hook bodies
+  are never invoked; Node's import cache keys by URL so the subsequent
+  runtime load is free. Runtime keeps its own check as a second line
+  of defense for callers that bypass `validate` (direct engine
+  construction, programmatic use).
+- **`TRAVERSAL_CONFLICT` error code (#124).** Exit 5 (`INVALID_INPUT`).
+  Emitted when a stale read-modify-write races another writer against
+  the same traversal JSON; the caller should re-read and retry.
+- **Memory read pagination and `--shape` projection (#125).**
+  `freelance memory inspect`, `memory by-source`, and `memory related`
+  accept `--limit` (default 50, cap 200) and `--offset`, matching
+  `memory browse`'s shape. Every response carries `total` so callers
+  can decide whether to page further. `memory inspect` also accepts
+  `--shape minimal|full` (default `full`) — `minimal` trims the
+  per-proposition `source_files` details when response size matters
+  more than full provenance. The `memory_inspect` onEnter hook
+  defaults to `minimal` (to keep `freelance advance` responses under
+  the 50 KB ceiling) and exposes `shape: "full"` for recall-style
+  hooks that need provenance in-context. `memory_by_source` stays
+  fixed at minimal — that wire shape is a contract warm-path callers
+  rely on. `inspect`'s `source_files` list now spans the entity's
+  full proposition set regardless of pagination (was silently shifting
+  per offset). `EC.INVALID_SHAPE` surfaces `--shape` typos.
+- **`FREELANCE_HOOKS_ALLOW_SCRIPTS` opt-out for script hooks (#126).**
+  Setting the env var to `0`, `false`, or `no` makes graph load reject
+  every `onEnter` entry that resolves to a local script, leaving
+  built-in hooks as the only runnable surface. Default is allowed —
+  the flag is opt-in to stricter handling for shared-graph-registry
+  and untrusted-contributor scenarios, not default-deny. See
+  `docs/decisions.md` § "Hook trust model".
+- **Minimal-mode advance errors carry the unified `error.kind`
+  envelope (#130 follow-up).** `AdvanceErrorMinimalResult` now exposes
+  `error: { code, message, kind: "blocked" }` matching the full-mode
+  contract from #134, so skills can branch on `error.kind` without
+  knowing which response mode they're in. See #137.
+- **`EC.INVALID_FLAG_VALUE` error code for malformed CLI numeric
+  flag inputs (#139).** Exit 5 (`INVALID_INPUT`). Surfaces when
+  `--limit`, `--offset`, or another integer flag receives a
+  non-integer value — a specific subclass of invalid input that
+  skills can branch on without regex-parsing the message.
+
+### Changed
+
+- **Unified CLI error envelope.** Every error — whether a gate-block
+  on `advance` (in-band) or a thrown `EngineError` (structural) —
+  now carries the same wire shape: `{ isError: true, error: { code,
+  message, kind } }` where `kind` is `"blocked"` (traversal is fine;
+  fix context and retry) or `"structural"` (stop and report). The
+  in-band gate-block response still carries `status: "error"`,
+  `currentNode`, `validTransitions`, and `context` on top of the
+  envelope so a skill can decide the next move without another
+  round-trip; `reason` stays populated (duplicates `error.message`)
+  for pre-#95 readers. Four new codes surface gate blocks with the
+  same stability promise as the others — `WAIT_BLOCKING`,
+  `RETURN_SCHEMA_VIOLATION`, `VALIDATION_FAILED`,
+  `EDGE_CONDITION_NOT_MET`, all grouped under the `BLOCKED`
+  category that maps to exit 2. Skills no longer branch on two
+  shapes; they read `error.kind` and the exit code. See issue #95.
+- **All CLI verbs are JSON-only (BREAKING).** Every handler —
+  `status`, `start`, `advance`, `context set`, `meta set`, `inspect`,
+  `reset`, `memory *`, `init`, `validate`, `visualize`, `config`,
+  `sources *`, `guide`, `distill` — emits structured JSON to stdout
+  with semantic exit codes (0 success, 1 internal, 2 blocked, 3
+  validation, 4 not found, 5 invalid input). The dual-mode
+  (`--json` vs human-readable) branching is removed; `--json` and
+  `--no-color` flags are deleted. The architectural commitment in
+  `docs/decisions.md` § "CLI is the execution surface for agents"
+  is that no human is driving this API — the skill loop is the
+  only consumer. Error responses use the canonical shape
+  `{ isError: true, error: { code, message } }`, so a skill
+  consuming the CLI sees the same contract across every verb. See
+  issue #99 Phase 1.
+- **`visualize --open` removed.** The browser-rendering path was a
+  human-only affordance; the JSON response carries the diagram
+  inline (or `--output <path>` writes the raw artifact to disk for
+  pipeline integration).
+- **`freelance_inspect --detail=history` paginates `traversalHistory`
+  and strips snapshots by default.** `traversalHistory` is sliced by
+  `limit` (default 50, max 200) and `offset`. Per-entry
+  `contextSnapshot` — which made the response grow quadratically on
+  long traversals — is omitted by default; opt back in with
+  `includeSnapshots: true` when you genuinely need per-step state.
+  `contextHistory` ships in full (entries are small — key + value +
+  two timestamps). The response reports `totalSteps` and
+  `totalContextWrites` so callers can sense the traversal's size and
+  page `traversalHistory` further if needed. See issue #84.
+- **`freelance_inspect` separates state from projection (BREAKING).**
+  `detail` is now just `"position"` (default) or `"history"` — `"full"`
+  is removed. A new optional `fields` parameter projects graph-
+  structure pieces on top: `currentNode` (full NodeDefinition of the
+  active node), `neighbors` (one-edge-away NodeDefinitions),
+  `contextSchema` (declared schema), `definition` (entire
+  GraphDefinition — the escape hatch). The old `detail: "full"` was
+  the single largest response any tool emitted, and the caller almost
+  never actually wanted every node in the graph. Callers should
+  replace `detail: "full"` with `fields: ["definition"]` (and
+  typically with a narrower projection like `fields: ["currentNode"]`
+  or `["neighbors"]`). See issue #85.
+- **`memory_browse` now hides orphan entities by default** — those whose
+  `valid_proposition_count` is 0 because every linked proposition is
+  derived from a source file that has since drifted. Without the filter
+  the vocabulary returned to the agent (and surfaced as
+  `context.entities` on `memory:compile` / `memory:recall`) leaked
+  names from superseded drafts — e.g. a rename in a spec file left the
+  old entity visible indefinitely because `emit()` is append-only per
+  source. Pass `includeOrphans: true` (hook arg) or
+  `--include-orphans` (CLI) to see all entities — useful for audit
+  tooling that wants to find prune candidates.
+- **Read-side queries use a temp table for stale-proposition exclusion
+  (#131).** `browse`, `getNeighbors`, and `countValidForEntity` used
+  to build a dynamic `NOT IN (?, ?, ?, …)` clause with one parameter
+  per stale proposition id, which would hit
+  `SQLITE_MAX_VARIABLE_NUMBER` on large stale sets (e.g. after a
+  major refactor that touched many sourced files) and churn the
+  prepared-statement cache across differently-sized stale sets.
+  `getStalePropositionIds` now materializes the set into a
+  connection-scoped `_stale_prop_ids` TEMP TABLE; reads `NOT EXISTS`
+  against it. One fixed SQL string, zero stale-id parameters bound,
+  regardless of cardinality. Inserts batch at 500 ids per call.
+- **`parseIntArg` + `collectRepeatable` CLI helpers (#139).** The
+  `opts?.foo ? parseInt(opts.foo, 10) : undefined` idiom at nine sites
+  across `src/cli/` collapsed into a single `parseIntArg(opts?.foo)`
+  helper in `src/cli/output.ts`; the ad-hoc repeatable-option parsers
+  (`--meta`, `--keep`, `--workflows`, `--filter`) collapsed to one
+  `collectRepeatable` in `src/cli/program.ts`. Pure refactor — no
+  wire change.
 
 ### Removed
 
@@ -57,131 +235,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   support on that client. A minimal-surface fallback was considered in
   #99 Phase 3 and declined in favor of one execution surface.
   Reopen #116 if Desktop usage data shows the fallback is load-bearing.
-
-### Changed
-
-- **Unified CLI error envelope.** Every error — whether a gate-block
-  on `advance` (in-band) or a thrown `EngineError` (structural) —
-  now carries the same wire shape: `{ isError: true, error: { code,
-  message, kind } }` where `kind` is `"blocked"` (traversal is fine;
-  fix context and retry) or `"structural"` (stop and report). The
-  in-band gate-block response still carries `status: "error"`,
-  `currentNode`, `validTransitions`, and `context` on top of the
-  envelope so a skill can decide the next move without another
-  round-trip; `reason` stays populated (duplicates `error.message`)
-  for pre-#95 readers. Four new codes surface gate blocks with the
-  same stability promise as the others — `WAIT_BLOCKING`,
-  `RETURN_SCHEMA_VIOLATION`, `VALIDATION_FAILED`,
-  `EDGE_CONDITION_NOT_MET`, all grouped under the `BLOCKED`
-  category that maps to exit 2. Skills no longer branch on two
-  shapes; they read `error.kind` and the exit code. See issue #95.
-- **All CLI verbs are JSON-only (BREAKING).** Every handler —
-  `status`, `start`, `advance`, `context set`, `meta set`, `inspect`,
-  `reset`, `memory *`, `init`, `validate`, `visualize`, `config`,
-  `sources *`, `guide`, `distill` — emits structured JSON to stdout
-  with semantic exit codes (0 success, 1 internal, 2 blocked, 3
-  validation, 4 not found, 5 invalid input). The dual-mode
-  (`--json` vs human-readable) branching is removed; `--json` and
-  `--no-color` flags are deleted. The architectural commitment in
-  `docs/decisions.md` § "CLI is the execution surface for agents"
-  is that no human is driving this API — the skill loop is the
-  only consumer. Error responses on both CLI and MCP surfaces use
-  the canonical shape `{ isError: true, error: { code, message } }`,
-  so a skill consuming either sees the same contract. See issue
-  #99 Phase 1.
-- **`visualize --open` removed.** The browser-rendering path was a
-  human-only affordance; the JSON response carries the diagram
-  inline (or `--output <path>` writes the raw artifact to disk for
-  pipeline integration).
-- **`freelance_inspect --detail=history` paginates `traversalHistory`
-  and strips snapshots by default.** `traversalHistory` is sliced by
-  `limit` (default 50, max 200) and `offset`. Per-entry
-  `contextSnapshot` — which made the response grow quadratically on
-  long traversals — is omitted by default; opt back in with
-  `includeSnapshots: true` when you genuinely need per-step state.
-  `contextHistory` ships in full (entries are small — key + value +
-  two timestamps). The response reports `totalSteps` and
-  `totalContextWrites` so callers can sense the traversal's size and
-  page `traversalHistory` further if needed. See issue #84.
-- **`freelance_inspect` separates state from projection (BREAKING).**
-  `detail` is now just `"position"` (default) or `"history"` — `"full"`
-  is removed. A new optional `fields` parameter projects graph-
-  structure pieces on top: `currentNode` (full NodeDefinition of the
-  active node), `neighbors` (one-edge-away NodeDefinitions),
-  `contextSchema` (declared schema), `definition` (entire
-  GraphDefinition — the escape hatch). The old `detail: "full"` was
-  the single largest response any tool emitted, and the caller almost
-  never actually wanted every node in the graph. Callers should
-  replace `detail: "full"` with `fields: ["definition"]` (and
-  typically with a narrower projection like `fields: ["currentNode"]`
-  or `["neighbors"]`). See issue #85.
-
-### Added
-
-- **Canonical `EngineError` code catalog.** `src/error-codes.ts`
-  exports `ENGINE_ERROR_CODES` (codes grouped by exit-code category),
-  `EngineErrorCode` (union type), and `EC` (symbol aliases used at
-  throw sites). `EngineError.code` is typed as `EngineErrorCode` so
-  typos are caught at compile time, and `mapEngineErrorToExit` is
-  derived from the grouping — adding a new code in the wrong group,
-  or a new category without an exit mapping, is a compile error.
-  Wire format unchanged; the refactor is source-internal. See issue
-  #117.
-- **Single driving skill + `freelance init` wires it up.** Ships
-  `plugins/freelance/skills/freelance/SKILL.md` with the plugin and
-  `templates/skills/freelance/SKILL.md` for CLI users. The skill teaches
-  the invariant protocol for driving any Freelance workflow via the
-  `freelance` CLI — discover, start, loop, recover, exit — and branches
-  on the semantic exit codes shipped in the previous CHANGELOG entry.
-  `freelance init --client claude-code` now copies the skill into
-  `.claude/skills/freelance/SKILL.md` (project scope) or
-  `~/.claude/skills/freelance/SKILL.md` (user scope), so agents can
-  drive workflows without per-turn MCP tool-definition weight. Other
-  clients (Cursor / Windsurf / Cline) skip skill installation — they
-  don't consume Claude Agent Skills. See issue #115.
-- **Byte caps on context writes.** Every write to session context —
-  `freelance_context_set`, `contextUpdates` on `freelance_advance`,
-  `initialContext` on `freelance_start`, and onEnter hook return
-  values — is now checked against a per-value cap (default 4 KB) and a
-  post-merge total cap (default 64 KB). Over-cap writes throw
-  `EngineError` with codes `CONTEXT_VALUE_TOO_LARGE` or
-  `CONTEXT_TOTAL_TOO_LARGE` *before* the bad value persists, so a
-  misbehaving hook or runaway write can't silently inflate every
-  subsequent advance/inspect response. Configure via
-  `context.maxValueBytes` / `context.maxTotalBytes` in `config.yml`.
-  See issue #83.
-- **`freelance memory prune --keep <ref>` and MCP `memory_prune`** —
-  manual, user-initiated cleanup for `proposition_sources`. Deletes a
-  row only when its `content_hash` doesn't match the file at **any**
-  location the caller declared live: the current working tree on disk
-  *or* the tip of any `--keep` ref. Implementation reads blobs via
-  `git cat-file --batch` — no branch switching, no working-tree churn;
-  the user's current checkout stays untouched while prune inspects
-  every preserve ref. Rebase-, squash-, and amend-robust by
-  construction: those workflows rewrite commit SHAs but preserve tree
-  content, and prune asks about content, not SHAs. Unresolvable
-  `--keep` refs hard-error before touching the db; source roots
-  outside a git checkout hard-error (prune is a git-scoped operation).
-  Config default under `memory.prune.keep: [ref, ...]`; CLI
-  `--keep` flags concatenate on top. See issue #78 and
-  `docs/memory-intent.md` § "Knowledge is append-only across corpus
-  frames" for why the store stays additive at emit time.
-
-### Changed
-
-- **`memory_browse` now hides orphan entities by default** — those whose
-  `valid_proposition_count` is 0 because every linked proposition is
-  derived from a source file that has since drifted. Without the filter
-  the vocabulary returned to the agent (and surfaced as
-  `context.entities` on `memory:compile` / `memory:recall`) leaked
-  names from superseded drafts — e.g. a rename in a spec file left the
-  old entity visible indefinitely because `emit()` is append-only per
-  source. Pass `includeOrphans: true` (MCP tool, hook arg) or
-  `--include-orphans` (CLI) to see all entities — useful for audit
-  tooling that wants to find prune candidates.
+- **Vestigial `src/watcher.ts` hot-reload primitive (#127).** The
+  graph-file watcher had no production caller after MCP removal
+  (#121); its only importer was its own test file. Leaving it in
+  place would trap a future re-wire in the silent orphan-handling
+  bug #90 describes. Deleted alongside the decisions-log entry that
+  locks in the constraint on any future hot-reload surface. See
+  `docs/decisions.md` § "Graph hot-reload is not a runtime concept".
+- **`PropositionInfo.collection` field dropped (BREAKING wire) (#135).**
+  The `propositions.collection` column, the `idx_prop_hash_coll`
+  unique index, and `idx_prop_collection` are gone; schema migration
+  detects the column via `PRAGMA table_info` and drops it in place on
+  next open of a pre-migration db. Every existing row had
+  `collection = 'default'`, so `content_hash` alone stays unique and
+  no data is lost. Stale `--collection` filters at call sites no
+  longer have any effect; `memory.collections` config keys are
+  silently ignored (Zod drops unknown fields). External consumers
+  that depended on the literal `'default'` string in wire responses
+  must update. CLAUDE.md had always declared memory as a single flat
+  namespace; the schema finally matches.
 
 ### Fixed
 
+- **Atomic read-modify-write on traversal JSON (#124).** Until now the
+  per-file rename inside `put` was atomic but the
+  `load → mutate → save` window wasn't, so two writers racing against
+  the same traversal (CLI invocation + a hook that shells out to
+  `freelance`; two CLI invocations from different shells; any
+  concurrent `TraversalStore` caller) could drop one update.
+  Every `TraversalRecord` now carries a monotonic `version` bumped on
+  each `put`; `StateStore.putIfVersion(record, expectedVersion)`
+  check-and-writes and throws `EngineError(TRAVERSAL_CONFLICT)` when
+  the observed version is stale. `TraversalStore.saveEngine` and
+  `setMeta` use it. `advance` additionally takes a per-id async
+  mutex so same-process callers serialize instead of racing. Legacy
+  on-disk records without `version` read as version 0; first write
+  bumps to 1. `TRAVERSAL_CONFLICT` classifies under `INVALID_INPUT`
+  (exit 5) — transient, caller can re-read and retry.
+- **`MemoryStore.resetAll` now runs in a transaction (#129).** The
+  two back-to-back `DELETE` statements had a partial-state window: a
+  mid-reset crash (process killed, disk pressure, FK trigger fault)
+  could leave zero propositions but the full entity set — all of
+  which are now unreachable since `about.proposition_id` cascaded
+  away with the propositions. Reset was meant to be the recovery
+  tool; leaving it non-atomic meant the recovery tool itself was
+  unreliable. Both deletes now run under `BEGIN/COMMIT/ROLLBACK`,
+  matching the existing pattern in `prune()`.
 - **Memory drift detection no longer trusts mtime.** The staleness
   check used an mtime fast-path — if the file's current mtime matched
   what was recorded at emit time, it skipped the content hash and
