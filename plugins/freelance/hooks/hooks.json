@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PLUGIN_ROOT\"/hooks/session-start.mjs"
+            "command": "node \"$CLAUDE_PLUGIN_ROOT\"/hooks/nudge.mjs session-start"
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PLUGIN_ROOT\"/hooks/post-compact.mjs"
+            "command": "node \"$CLAUDE_PLUGIN_ROOT\"/hooks/nudge.mjs post-compact"
           }
         ]
       }
