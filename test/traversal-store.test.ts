@@ -400,6 +400,70 @@ describe("TraversalStore — stateless JSON", () => {
     });
   });
 
+  describe("orphanedTraversals split (#136)", () => {
+    it("splits traversals whose graph no longer loads into a distinct array", async () => {
+      const t1 = await store.createTraversal("valid-simple");
+      const t2 = await store.createTraversal("valid-branching");
+
+      // Simulate the yaml for one graph disappearing between CLI
+      // invocations — the store is constructed fresh each time, so
+      // this models the post-#127 reality (no watcher; each run loads
+      // graphs from disk).
+      const pruned = new Map(graphs);
+      pruned.delete("valid-simple");
+      store.updateGraphs(pruned);
+
+      const result = store.listGraphs();
+      expect(result.activeTraversals).toHaveLength(1);
+      expect(result.activeTraversals[0].traversalId).toBe(t2.traversalId);
+      expect(result.orphanedTraversals).toHaveLength(1);
+      expect(result.orphanedTraversals?.[0].traversalId).toBe(t1.traversalId);
+      expect(result.orphanedTraversals?.[0].graphId).toBe("valid-simple");
+    });
+
+    it("elides orphanedTraversals when every traversal's graph resolves", async () => {
+      await store.createTraversal("valid-simple");
+      const result = store.listGraphs();
+      expect("orphanedTraversals" in result).toBe(false);
+    });
+  });
+
+  describe("loadEngine orphan recovery hint (#136)", () => {
+    it("throws GRAPH_NOT_FOUND with a reset hint when the graph is gone", async () => {
+      const t = await store.createTraversal("valid-simple");
+      const pruned = new Map(graphs);
+      pruned.delete("valid-simple");
+      store.updateGraphs(pruned);
+
+      await expect(store.advance(t.traversalId, "work-done")).rejects.toMatchObject({
+        code: "GRAPH_NOT_FOUND",
+        message: expect.stringContaining(`freelance reset ${t.traversalId} --confirm`),
+      });
+    });
+
+    it("preserves TRAVERSAL_NOT_FOUND precedence over orphan detection", async () => {
+      // An unknown traversalId is a bigger miss than an orphan; the
+      // skill gets the same error whether or not the referenced graph
+      // would have been orphaned.
+      await expect(store.advance("tr_nonexistent", "work-done")).rejects.toMatchObject({
+        code: "TRAVERSAL_NOT_FOUND",
+      });
+    });
+
+    it("lets resetTraversal clear an orphan (recovery path the error message recommends)", async () => {
+      const t = await store.createTraversal("valid-simple");
+      const pruned = new Map(graphs);
+      pruned.delete("valid-simple");
+      store.updateGraphs(pruned);
+
+      const result = store.resetTraversal(t.traversalId);
+      expect(result.status).toBe("reset");
+      expect(result.previousGraph).toBe("valid-simple");
+      expect(result.message).toMatch(/orphaned/);
+      expect(store.listTraversals()).toHaveLength(0);
+    });
+  });
+
   describe("listGraphs determinism", () => {
     it("returns graphs sorted by id regardless of insertion order", async () => {
       // Reinstall store with graphs inserted in reverse-alphabetical order to
