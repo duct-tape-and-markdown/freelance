@@ -292,6 +292,87 @@ describe("traversalStart --meta", () => {
       store.close();
     }
   });
+
+  it("rejects a --meta key over the 256-byte cap with INVALID_META", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const oversizedKey = "k".repeat(257);
+      await expect(
+        traversalStart(store, graphId, undefined, { meta: [`${oversizedKey}=x`] }),
+      ).rejects.toThrow("process.exit");
+      const parsed = stdoutJson() as { error?: { code?: string; message?: string } };
+      expect(parsed.error?.code).toBe("INVALID_META");
+      expect(parsed.error?.message).toMatch(/256-byte cap/);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("rejects a --meta value over the 4096-byte cap with INVALID_META", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const oversizedValue = "v".repeat(4097);
+      await expect(
+        traversalStart(store, graphId, undefined, { meta: [`k=${oversizedValue}`] }),
+      ).rejects.toThrow("process.exit");
+      const parsed = stdoutJson() as { error?: { code?: string; message?: string } };
+      expect(parsed.error?.code).toBe("INVALID_META");
+      expect(parsed.error?.message).toMatch(/4096-byte cap/);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("accepts --meta at exactly the cap", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const key = "k".repeat(256);
+      const value = "v".repeat(4096);
+      await traversalStart(store, graphId, undefined, { meta: [`${key}=${value}`] });
+      const parsed = stdoutJson() as { meta: Record<string, string> };
+      expect(parsed.meta[key]).toBe(value);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("measures byte length not character length (rejects multibyte UTF-8 over cap)", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      // "🎯" is 4 UTF-8 bytes; 1025 repeats = 4100 bytes (> 4096 cap) but
+      // only 2050 JS string length. Confirms we cap on Buffer.byteLength.
+      const multibyte = "🎯".repeat(1025);
+      await expect(
+        traversalStart(store, graphId, undefined, { meta: [`k=${multibyte}`] }),
+      ).rejects.toThrow("process.exit");
+      const parsed = stdoutJson() as { error?: { code?: string } };
+      expect(parsed.error?.code).toBe("INVALID_META");
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("traversalStatus --filter enforces the same meta caps (#62)", () => {
+  it("rejects --filter value over the cap — caps are symmetric", () => {
+    const store = createTestStore();
+    try {
+      const oversized = "v".repeat(4097);
+      expect(() => traversalStatus(store, { filter: [`k=${oversized}`] })).toThrow("process.exit");
+      const parsed = stdoutJson() as { error?: { code?: string } };
+      expect(parsed.error?.code).toBe("INVALID_META");
+    } finally {
+      store.close();
+    }
+  });
 });
 
 describe("traversalStatus --filter (operator-side)", () => {

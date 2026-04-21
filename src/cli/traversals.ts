@@ -54,6 +54,13 @@ function parseContextJson(raw: string): Record<string, unknown> {
   }
 }
 
+// Byte caps for meta key/value pairs at the CLI boundary. Key names
+// are short by design; values are tag-sized (URLs, ticket ids, branch
+// names), not blob-sized. `--filter` uses the same caps since a value
+// larger than the cap couldn't have been stored to match against.
+export const META_KEY_MAX_BYTES = 256;
+export const META_VALUE_MAX_BYTES = 4096;
+
 // Values stay strings — meta is deliberately opaque, so (unlike
 // `freelance context set`) no JSON coercion here.
 function parseMetaPairs(pairs: string[] | undefined, flag: string): Record<string, string> {
@@ -61,6 +68,20 @@ function parseMetaPairs(pairs: string[] | undefined, flag: string): Record<strin
   if (!pairs) return out;
   for (const pair of pairs) {
     const [key, value] = splitKeyValue(pair, flag);
+    const keyBytes = Buffer.byteLength(key, "utf-8");
+    if (keyBytes > META_KEY_MAX_BYTES) {
+      throw new EngineError(
+        `${flag} key exceeds ${META_KEY_MAX_BYTES}-byte cap (got ${keyBytes} bytes)`,
+        EC.INVALID_META,
+      );
+    }
+    const valueBytes = Buffer.byteLength(value, "utf-8");
+    if (valueBytes > META_VALUE_MAX_BYTES) {
+      throw new EngineError(
+        `${flag} value for "${key}" exceeds ${META_VALUE_MAX_BYTES}-byte cap (got ${valueBytes} bytes)`,
+        EC.INVALID_META,
+      );
+    }
     out[key] = value;
   }
   return out;
