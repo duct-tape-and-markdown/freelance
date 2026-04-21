@@ -117,6 +117,12 @@ freelance inspect [<traversalId>] --detail history   # step history + context wr
 
 `--active` lists every active traversal with its current node. `--waits` filters that list to traversals sitting on a wait node.
 
+## Lean responses (`--minimal`)
+
+`freelance advance`, `freelance context set`, and `freelance inspect` accept `--minimal`. The response drops the full `context` echo and the `node` NodeInfo blob (instructions, suggestedTools, sources) and returns `{ currentNode, validTransitions, contextDelta, status, ... }`. `contextDelta` names the keys written this turn — your own updates plus anything an `onEnter` hook wrote — so hook activity stays visible without re-shipping unchanged state.
+
+Use it on the steady-state loop once you've seen the node's `instructions` at least once and you're just picking edges. Drop `--minimal` (or call `freelance inspect`) to resync to the full shape after compaction or when you land on a new node you haven't seen yet.
+
 ## Subgraphs
 
 Some workflows push subgraph calls. Responses include:

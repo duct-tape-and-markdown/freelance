@@ -1,11 +1,14 @@
 import { EC, EngineError } from "../errors.js";
 import type {
+  ContextSetMinimalResult,
   ContextSetResult,
   GraphDefinition,
   HistoryEntryProjection,
   InspectField,
   InspectFieldProjections,
   InspectHistoryResult,
+  InspectMinimalResult,
+  InspectPositionMinimalResult,
   InspectPositionResult,
   InspectResult,
   NodeDefinition,
@@ -16,6 +19,17 @@ import type {
 import { cloneContext, toNodeInfo } from "./helpers.js";
 import { evaluateTransitions } from "./transitions.js";
 import { checkWaitTimeout, computeTimeoutAt, evaluateWaitConditions } from "./wait.js";
+
+/**
+ * Caller-controlled response shape. `"full"` (default) is the
+ * backwards-compatible echo-everything response. `"minimal"` strips
+ * the full-context echo and the NodeInfo blob from success / gate-
+ * blocked / context-set / inspect-position responses, keeping only
+ * the fields a mid-loop caller needs to pick the next edge (see
+ * issue #81). Structural `EngineError` throws are unaffected — they
+ * carry no context payload either way.
+ */
+export type ResponseMode = "full" | "minimal";
 
 export function applyContextUpdates(session: SessionState, updates: Record<string, unknown>): void {
   const timestamp = new Date().toISOString();
@@ -144,6 +158,22 @@ export function buildContextSetResult(
   };
 }
 
+export function buildContextSetMinimalResult(
+  session: SessionState,
+  nodeDef: NodeDefinition,
+  contextDelta: readonly string[],
+): ContextSetMinimalResult {
+  return {
+    status: "updated",
+    isError: false,
+    currentNode: session.currentNode,
+    contextDelta,
+    validTransitions: evaluateTransitions(nodeDef, session.context),
+    turnCount: session.turnCount,
+    turnWarning: computeTurnWarning(nodeDef, session.turnCount),
+  };
+}
+
 /**
  * Build the set of optional projections a caller asked for via `fields`.
  * Each entry in `fields` maps to exactly one property on the result; any
@@ -216,6 +246,39 @@ function projectHistoryEntries(
   return slice.map(({ contextSnapshot: _drop, ...rest }) => rest);
 }
 
+/**
+ * Build the history inspect response. Shape is identical across `full`
+ * and `minimal` modes — history is the recovery / audit path where
+ * stripping fields defeats the purpose — except that `fields`
+ * projections are only honored on the full-mode call site (passed via
+ * `extraProjections`).
+ *
+ * contextHistory ships in full — entries are small and per-array
+ * pagination on both surfaces muddles the caller's mental model
+ * (edge indices and write indices aren't correlated).
+ */
+function buildHistoryResult(
+  session: SessionState,
+  historyOpts: InspectHistoryOptions,
+  extraProjections?: InspectFieldProjections,
+): InspectHistoryResult {
+  const { limit, offset } = resolveHistoryPagination(historyOpts);
+  return {
+    graphId: session.graphId,
+    currentNode: session.currentNode,
+    traversalHistory: projectHistoryEntries(
+      session.history,
+      offset,
+      limit,
+      historyOpts.includeSnapshots === true,
+    ),
+    contextHistory: session.contextHistory,
+    totalSteps: session.history.length,
+    totalContextWrites: session.contextHistory.length,
+    ...(extraProjections ?? {}),
+  };
+}
+
 export function buildInspectResult(
   detail: "position" | "history",
   session: SessionState,
@@ -226,51 +289,62 @@ export function buildInspectResult(
 ): InspectResult {
   const projections = buildFieldProjections(fields, def, session.currentNode);
 
-  switch (detail) {
-    case "history": {
-      const { limit, offset } = resolveHistoryPagination(historyOpts);
-      return {
-        graphId: session.graphId,
-        currentNode: session.currentNode,
-        traversalHistory: projectHistoryEntries(
-          session.history,
-          offset,
-          limit,
-          historyOpts.includeSnapshots === true,
-        ),
-        // contextHistory ships in full — entries are small and per-array
-        // pagination on both surfaces muddles the caller's mental model
-        // (edge indices and write indices aren't correlated).
-        contextHistory: session.contextHistory,
-        totalSteps: session.history.length,
-        totalContextWrites: session.contextHistory.length,
-        ...projections,
-      } satisfies InspectHistoryResult;
-    }
-
-    case "position": {
-      // historyOpts are intentionally ignored for non-history detail —
-      // pagination and snapshot toggles have no meaning here.
-      const currentNodeDef = def.nodes[session.currentNode];
-      const waitInfo = computeWaitInfo(session, currentNodeDef);
-
-      return {
-        graphId: session.graphId,
-        graphName: def.name,
-        currentNode: session.currentNode,
-        node: toNodeInfo(currentNodeDef),
-        validTransitions: evaluateTransitions(currentNodeDef, session.context),
-        context: cloneContext(session.context),
-        turnCount: session.turnCount,
-        turnWarning: computeTurnWarning(currentNodeDef, session.turnCount),
-        stackDepth: stack.length,
-        stack: buildStackView(stack),
-        ...(def.sources && def.sources.length > 0 ? { graphSources: def.sources } : {}),
-        ...waitInfo,
-        ...projections,
-      } satisfies InspectPositionResult;
-    }
+  if (detail === "history") {
+    return buildHistoryResult(session, historyOpts, projections);
   }
+
+  // historyOpts are intentionally ignored for non-history detail —
+  // pagination and snapshot toggles have no meaning here.
+  const currentNodeDef = def.nodes[session.currentNode];
+  const waitInfo = computeWaitInfo(session, currentNodeDef);
+
+  return {
+    graphId: session.graphId,
+    graphName: def.name,
+    currentNode: session.currentNode,
+    node: toNodeInfo(currentNodeDef),
+    validTransitions: evaluateTransitions(currentNodeDef, session.context),
+    context: cloneContext(session.context),
+    turnCount: session.turnCount,
+    turnWarning: computeTurnWarning(currentNodeDef, session.turnCount),
+    stackDepth: stack.length,
+    stack: buildStackView(stack),
+    ...(def.sources && def.sources.length > 0 ? { graphSources: def.sources } : {}),
+    ...waitInfo,
+    ...projections,
+  } satisfies InspectPositionResult;
+}
+
+/**
+ * Minimal counterpart to `buildInspectResult`. `detail: "history"`
+ * reuses the same builder — history is the recovery / audit path.
+ * `detail: "position"` projects down to the fields a mid-loop caller
+ * actually reads. `fields` projections are ignored on minimal by
+ * design — the projection surface is for introspection, not the hot
+ * path that opts into minimal. See `ResponseMode` and issue #81.
+ */
+export function buildInspectMinimalResult(
+  detail: "position" | "history",
+  session: SessionState,
+  def: GraphDefinition,
+  stack: SessionState[],
+  historyOpts: InspectHistoryOptions = {},
+): InspectMinimalResult {
+  if (detail === "history") {
+    return buildHistoryResult(session, historyOpts);
+  }
+
+  const currentNodeDef = def.nodes[session.currentNode];
+  const waitInfo = computeWaitInfo(session, currentNodeDef);
+  return {
+    graphId: session.graphId,
+    currentNode: session.currentNode,
+    validTransitions: evaluateTransitions(currentNodeDef, session.context),
+    turnCount: session.turnCount,
+    turnWarning: computeTurnWarning(currentNodeDef, session.turnCount),
+    stackDepth: stack.length,
+    ...waitInfo,
+  } satisfies InspectPositionMinimalResult;
 }
 
 function computeWaitInfo(

@@ -9,6 +9,7 @@
 export type { NodeInput } from "../builder.js";
 // Graph construction and loading
 export { GraphBuilder } from "../builder.js";
+export type { ResponseMode } from "../engine/index.js";
 // Graph engine
 export { GraphEngine } from "../engine/index.js";
 // Errors
@@ -31,18 +32,23 @@ export {
 } from "../schema/graph-schema.js";
 // Source hashing
 export { checkSourcesDetailed, hashContent, hashSource, hashSources } from "../sources.js";
-
 // Types
 export type {
+  AdvanceErrorMinimalResult,
   AdvanceErrorResult,
+  AdvanceMinimalResult,
   AdvanceResult,
+  AdvanceSuccessMinimalResult,
   AdvanceSuccessResult,
+  ContextSetMinimalResult,
   ContextSetResult,
   EdgeDefinition,
   GraphDefinition,
   InspectField,
   InspectFieldProjections,
   InspectHistoryResult,
+  InspectMinimalResult,
+  InspectPositionMinimalResult,
   InspectPositionResult,
   InspectResult,
   NodeDefinition,

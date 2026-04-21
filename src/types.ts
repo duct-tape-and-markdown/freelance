@@ -109,6 +109,37 @@ export interface AdvanceSuccessResult {
 }
 
 /**
+ * Lean success shape — returned when the caller passes `responseMode:
+ * "minimal"`. Strips the two fat fields that dominate per-response token
+ * cost: `node` (full NodeInfo — instructions, suggestedTools, sources)
+ * and `context` (full state echo). `contextDelta` names the keys
+ * written this turn (caller updates + hook writes) so hook activity
+ * stays visible without echoing unchanged state. See issue #81.
+ *
+ * Callers resync to the full shape on demand via `freelance inspect`
+ * (which defaults to `responseMode: "full"`) — typically once after
+ * compaction rather than on every advance.
+ */
+export interface AdvanceSuccessMinimalResult {
+  readonly status: "advanced" | "complete" | "subgraph_complete" | "waiting";
+  readonly isError: false;
+  readonly previousNode: string;
+  readonly edgeTaken: string;
+  readonly currentNode: string;
+  readonly validTransitions: readonly TransitionInfo[];
+  readonly contextDelta: readonly string[];
+  readonly traversalHistory?: readonly string[];
+  readonly subgraphPushed?: SubgraphPushedInfo;
+  readonly completedGraph?: string;
+  readonly returnedContext?: Readonly<Record<string, unknown>>;
+  readonly stackDepth?: number;
+  readonly resumedNode?: string;
+  readonly waitingOn?: readonly WaitCondition[];
+  readonly timeout?: string;
+  readonly timeoutAt?: string;
+}
+
+/**
  * Gate-blocked advance result — carried in-band on the engine's advance
  * return, not thrown. The wire envelope matches the thrown-error shape
  * so a skill sees one unified error format: `{ isError: true, error: {
@@ -134,13 +165,47 @@ export interface AdvanceErrorResult {
   readonly graphSources?: readonly SourceBinding[];
 }
 
+/**
+ * Lean gate-blocked shape — `responseMode: "minimal"` counterpart to
+ * `AdvanceErrorResult`. Keeps `reason` and `validTransitions` (the
+ * caller needs both to fix and retry) but drops the full `context`
+ * echo. `contextDelta` is included for symmetry with the success shape
+ * — empty on pure gate blocks (wait/validation/return-schema/edge
+ * condition don't write), populated only when the caller's
+ * contextUpdates applied before a gate failed.
+ */
+export interface AdvanceErrorMinimalResult {
+  readonly status: "error";
+  readonly isError: true;
+  readonly error: {
+    readonly code: GateBlockCode;
+    readonly message: string;
+    readonly kind: "blocked";
+  };
+  readonly currentNode: string;
+  readonly reason: string;
+  readonly validTransitions: readonly TransitionInfo[];
+  readonly contextDelta: readonly string[];
+}
+
 export type AdvanceResult = AdvanceSuccessResult | AdvanceErrorResult;
+export type AdvanceMinimalResult = AdvanceSuccessMinimalResult | AdvanceErrorMinimalResult;
 
 export interface ContextSetResult {
   readonly status: "updated";
   readonly isError: false;
   readonly currentNode: string;
   readonly context: Readonly<Record<string, unknown>>;
+  readonly validTransitions: readonly TransitionInfo[];
+  readonly turnCount: number;
+  readonly turnWarning: string | null;
+}
+
+export interface ContextSetMinimalResult {
+  readonly status: "updated";
+  readonly isError: false;
+  readonly currentNode: string;
+  readonly contextDelta: readonly string[];
   readonly validTransitions: readonly TransitionInfo[];
   readonly turnCount: number;
   readonly turnWarning: string | null;
@@ -188,6 +253,28 @@ export interface InspectPositionResult extends InspectFieldProjections {
   readonly timeoutAt?: string;
 }
 
+/**
+ * Lean position shape — `responseMode: "minimal"` on inspect. Drops
+ * `node` (NodeInfo), `context`, `stack` array, and `graphSources`.
+ * Keeps the fields a mid-loop caller actually reads: current node id,
+ * valid transitions, turn state, stack depth, and wait info if any.
+ * `fields` projections are intentionally ignored on minimal — the
+ * projection surface is an introspection affordance, not a loop-hot
+ * one.
+ */
+export interface InspectPositionMinimalResult {
+  readonly graphId: string;
+  readonly currentNode: string;
+  readonly validTransitions: readonly TransitionInfo[];
+  readonly turnCount: number;
+  readonly turnWarning: string | null;
+  readonly stackDepth: number;
+  readonly waitStatus?: "waiting" | "ready" | "timed_out";
+  readonly waitingOn?: readonly WaitCondition[];
+  readonly timeout?: string;
+  readonly timeoutAt?: string;
+}
+
 export interface HistoryEntry {
   readonly node: string;
   readonly edge: string;
@@ -229,6 +316,15 @@ export interface InspectHistoryResult extends InspectFieldProjections {
 }
 
 export type InspectResult = InspectPositionResult | InspectHistoryResult;
+
+/**
+ * Shape returned by `engine.inspect` / `store.inspect` when
+ * `responseMode: "minimal"` is requested. History mode is unchanged —
+ * `detail: "history"` is the recovery/audit path where the whole point
+ * is the full entry list, so projecting it to a lean form would
+ * defeat the purpose. Only `detail: "position"` has a minimal form.
+ */
+export type InspectMinimalResult = InspectPositionMinimalResult | InspectHistoryResult;
 
 export interface ClearedStackEntry {
   readonly graphId: string;
