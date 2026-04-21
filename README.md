@@ -72,7 +72,7 @@ nodes:
 
 **Subgraph composition** — Nodes can push into child workflows with scoped context. `contextMap` passes parent values in, `returnMap` passes child values back. The engine manages a stack, so subgraphs can nest.
 
-**Expression evaluator** — Edge conditions and validations use a safe expression language (`context.x == 'value'`, `context.count > 0`, boolean operators, nested property access). Validated at load time, evaluated at runtime.
+**Expression evaluator** — Edge conditions and validations use a safe expression language (`context.x == 'value'`, `context.count > 0`, boolean operators, nested property access). Validated at load time, evaluated at runtime. The grammar is deliberately closed — expressions are predicates, not computations; derive values in an `onEnter` hook and compare the result. See `docs/decisions.md` § "Expression language stop-line" or `freelance guide expressions`.
 
 **onEnter hooks** — Any node can declare `onEnter: [{ call, args }]` hooks that run before the agent sees the node. `call` resolves to either a built-in hook (`memory_status`, `memory_browse`) or a local script path (`./scripts/fetch-context.js`). Hooks receive resolved args, live context, and the memory store, and return a plain object of context updates. Strict-context enforcement still applies. Per-hook timeout defaults to 5000ms, configurable via `hooks.timeoutMs` in `config.yml`. Script hooks are validated at `freelance validate` time (eager import) — syntax errors, missing deps, and non-function default exports surface before the first traversal hits the node.
 

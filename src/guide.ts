@@ -6,6 +6,7 @@ export const GUIDE_TOPICS = [
   "subgraphs",
   "wait-nodes",
   "onenter-hooks",
+  "expressions",
   "multi-agent",
   "meta",
   "memory-workflows",
@@ -383,6 +384,54 @@ Operators in shared-graph-registry scenarios (untrusted contributors, multi-agen
 - **Fail loud**: if a hook can't complete its job, throw. Don't return partial data.
 - **Keep hooks short**: they block node arrival. Use them for fast lookups (<100ms typical), not heavy work.
 - **Version scripts alongside graphs**: \`.freelance/scripts/\` lives next to the workflows that reference it.`,
+
+  expressions: `# Expressions
+
+Edge conditions (\`condition: "context.x == 'ready'"\`) and gate validations (\`expr: "context.count > 0"\`) use a small expression language. It's deliberately narrow — the grammar is closed and will stay that way.
+
+## What's in the language
+
+- **Literals:** strings (\`'single-quoted'\`), numbers (\`42\`, \`3.14\`), booleans (\`true\`, \`false\`), \`null\`
+- **Property access:** \`context.foo\`, \`context.nested.value\` — must start with \`context.\`
+- **Comparison:** \`==\`, \`!=\`, \`>\`, \`<\`, \`>=\`, \`<=\`. No type coercion — \`context.x == '5'\` is false when \`x\` is the number \`5\`
+- **Logic:** \`&&\`, \`||\`, \`!\`, parentheses for grouping
+- **Built-in:** \`len(x)\` — length of arrays and strings; \`0\` for anything else (including null/missing)
+
+## What's not in the language (and won't be)
+
+No arithmetic (\`a + b\`), no string operations (\`startsWith\`, \`contains\`, regex), no array membership (\`x in xs\`), no environment access (\`Date.now()\`, \`process.env\`), no multi-argument functions.
+
+Three rules govern the stop-line (see \`docs/decisions.md\` § "Expression language stop-line"):
+
+1. **Expressions are predicates, not computations.** The evaluator returns boolean. No value transformations.
+2. **Built-in functions must be total and side-effect free.** \`len\` qualifies. A function that reads files, calls APIs, or throws on bad input doesn't.
+3. **Context is the only data source.** No env vars, no clock, no filesystem. Replaying the same context must yield the same result.
+
+## When you want something that isn't there
+
+The pattern is **derive in a hook, compare in the expression**. If you need \`context.url.startsWith('https://')\`, add an \`onEnter\` hook that computes \`context.isHttps\` and write the edge condition as \`context.isHttps == true\`.
+
+\`\`\`yaml
+nodes:
+  fetch:
+    type: action
+    onEnter:
+      - call: ./scripts/classify-url.js
+        args:
+          url: context.url
+      # script returns { isHttps: true/false }
+    edges:
+      - target: secure-path
+        condition: "context.isHttps == true"
+      - target: insecure-path
+        default: true
+\`\`\`
+
+This keeps the expression language auditable (every comparison is statically enumerable via \`extractPropertyComparisons\`), keeps the hook surface the place where I/O and derivations live (with timeouts and a trust model — see \`onenter-hooks\`), and keeps edge conditions reproducible from context alone.
+
+## Load-time checks
+
+\`freelance validate\` tokenizes and parses every \`condition\` and \`validations[].expr\`. Syntax errors surface at validate time, not mid-traversal. If a node declares a \`context\` schema with an \`enum\`, comparisons against that field are statically checked against the declared values — a typo like \`context.phase == 'raceSpecific'\` against \`enum: [race-specific, ...]\` fails validation. See the \`conventions\` topic § "Context Enums".`,
 
   "multi-agent": `# Multi-Agent Workflows
 

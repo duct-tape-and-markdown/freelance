@@ -85,3 +85,17 @@ Two adjacent mitigations travel with the lazy open: (a) `PRAGMA busy_timeout = 5
 **What would break if reversed:** eager opens re-expose every CLI verb to the open-time races, re-surface the uncaught `ERR_SQLITE_ERROR` stack traces, and drag every invocation's startup cost up by the WAL setup and schema-compatibility checks even when they never read memory.
 
 See issue [#138](https://github.com/duct-tape-and-markdown/freelance/issues/138).
+
+### Expression language stop-line: predicates, not computations
+
+`src/evaluator.ts` is a hand-rolled tokenizer plus recursive-descent parser — literals, `context.` property access, `&& || !`, `== != > < >= <=`, and a single built-in `len()`. Every request to extend it (add `startsWith`, add regex, add arithmetic, add array membership) has to answer the same question: what's the stop-line? Without one, the language ratchets outward one operator at a time until it's a general-purpose mini-language with its own tokenizer bugs and security surface. Three rules, in order:
+
+1. **Expressions are predicates, not computations.** The evaluator returns `boolean`. No arithmetic, no string construction, no value transformations. If a graph needs `lowercase(x)` or `a + b`, that work belongs in a hook that writes the derived value back to context; the edge condition then compares the derived field. This keeps the parser's output type trivially checkable at load time and keeps graph authors from debugging subtle coercion in a DSL they didn't know they were writing.
+2. **Built-in functions must be total and side-effect free.** `len()` qualifies — it's defined for every input (returns 0 for non-array-non-string), throws nothing, reads nothing outside its argument. A hypothetical `fileExists()` or `fetchStatus()` would not; those belong in hooks where the failure mode is a visible hook error, not a silent `false`. New built-ins must clear both bars: total (defined everywhere, no throw paths) and side-effect free (no I/O, no globals, no `Date.now()`).
+3. **Context is the only data source.** No environment variables, no `process.env`, no `Date.now()`, no filesystem reads. An expression evaluated twice with the same context must return the same value. This makes graphs reproducible — replay the same context, get the same routing decision — and keeps the attack surface tiny (a malicious graph can't exfiltrate env via an edge condition).
+
+The rationale is cumulative: small surface (one parser, one evaluator, bounded grammar), small attack area (no I/O primitive a graph author can reach), auditable load-time validation (`extractPropertyComparisons` can statically enumerate every comparison because the grammar is closed), and forced separation of concerns (derivations live in hooks, which have a trust model, timeouts, and a test story — see "Hook trust model" above).
+
+**What would break if reversed:** Adding a `startsWith` or regex operator looks cheap in isolation. The second operator has to decide whether it composes with the first (is `!startsWith(x, "http")` valid? how about `startsWith(lower(x), "http")`?); the third has to decide whether built-ins can take other built-ins as arguments. Each choice accretes parser complexity and user-facing surprise. Keeping the grammar closed and pushing derivations to hooks means the extension point is `onEnter` hooks — which already have a trust model, a timeout, and a well-defined error envelope — rather than an ever-growing DSL.
+
+See issue [#93](https://github.com/duct-tape-and-markdown/freelance/issues/93).
