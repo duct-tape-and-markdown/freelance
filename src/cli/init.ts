@@ -106,6 +106,18 @@ function getConfigPath(client: Client, scope: Scope): string {
   }
 }
 
+/**
+ * Resolve where to install the driving SKILL.md, or `null` when the
+ * client doesn't consume Claude Skills (cursor / windsurf / cline /
+ * manual). Claude Code reads from `.claude/skills/<name>/SKILL.md`
+ * (project) or `~/.claude/skills/<name>/SKILL.md` (user).
+ */
+function resolveSkillInstallPath(client: Client, scope: Scope): string | null {
+  if (client !== "claude-code") return null;
+  const base = scope === "user" ? homeDir() : process.cwd();
+  return path.join(base, ".claude", "skills", "freelance", "SKILL.md");
+}
+
 function writeClientConfig(client: Client, scope: Scope): string | null {
   if (client === "manual") return null;
 
@@ -351,6 +363,18 @@ export async function init(options: InitOptions): Promise<void> {
     }
   }
 
+  // 6. Driving skill — Claude Code only. Installs `SKILL.md` so the
+  // agent can drive workflows via the CLI without per-turn MCP weight.
+  // Cursor / Windsurf / Cline don't consume Claude Skills; skip for them.
+  const skillPath = resolveSkillInstallPath(client, scope);
+  if (skillPath) {
+    if (fs.existsSync(skillPath)) {
+      actions.push({ verb: "skip", target: displayPath(skillPath), detail: "already exists" });
+    } else {
+      actions.push({ verb: "create", target: displayPath(skillPath) });
+    }
+  }
+
   // --- Dry run ---
   if (dryRun) {
     outputJson({ dryRun: true, scope, client, starter, actions });
@@ -375,9 +399,10 @@ export async function init(options: InitOptions): Promise<void> {
     filesCreated.push(ignorePath);
   }
 
+  const templatesDir = getTemplatesDir();
+
   // 2. Copy starter graph
   if (starter !== "none") {
-    const templatesDir = getTemplatesDir();
     const templateFile = path.join(templatesDir, `${starter}.workflow.yaml`);
 
     if (!fs.existsSync(templateFile)) {
@@ -393,7 +418,6 @@ export async function init(options: InitOptions): Promise<void> {
 
   // 2b. Copy starter config.yml
   {
-    const templatesDir = getTemplatesDir();
     const configTemplate = path.join(templatesDir, "config.yml");
     const configDest = path.join(graphsDir, "config.yml");
     if (!fs.existsSync(configDest) && fs.existsSync(configTemplate)) {
@@ -428,6 +452,18 @@ export async function init(options: InitOptions): Promise<void> {
     if (hookResult) {
       filesCreated.push(hookResult.path);
     }
+  }
+
+  // 6. Install the driving skill. Skip if the target exists to preserve
+  // local edits on re-init.
+  if (skillPath && !fs.existsSync(skillPath)) {
+    const skillTemplate = path.join(templatesDir, "skills", "freelance", "SKILL.md");
+    if (!fs.existsSync(skillTemplate)) {
+      fatal(`Skill template not found: ${skillTemplate}`, EXIT.NOT_FOUND, "TEMPLATE_NOT_FOUND");
+    }
+    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
+    fs.copyFileSync(skillTemplate, skillPath);
+    filesCreated.push(skillPath);
   }
 
   outputJson({
