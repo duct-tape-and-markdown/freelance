@@ -52,7 +52,7 @@ export class TraversalStore {
   private maxDepth: number;
   private hookRunner: HookRunner;
   private contextCaps?: ContextCaps;
-  private loadErrors: readonly LoadError[];
+  private readonly loadErrors: readonly LoadError[];
   // Per-id async mutex tails, keyed by traversal id. See `withLock`.
   private locks = new Map<string, Promise<unknown>>();
 
@@ -72,16 +72,6 @@ export class TraversalStore {
     this.hookRunner = options.hookRunner;
     this.contextCaps = options.contextCaps;
     this.loadErrors = options.loadErrors ?? [];
-  }
-
-  /**
-   * Replace the snapshot of non-fatal load errors. The hot-reload watcher
-   * re-runs graph loading when source files change; callers update the
-   * store so `status` reflects the current file-set rather than the
-   * initial one.
-   */
-  setLoadErrors(errors: readonly LoadError[]): void {
-    this.loadErrors = errors;
   }
 
   /**

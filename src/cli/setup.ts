@@ -17,7 +17,7 @@ import type { MemoryConfig, MemoryStore } from "../memory/index.js";
 import { extractSection } from "../section-resolver.js";
 import type { SourceOptions } from "../sources.js";
 import type { TraversalStore } from "../state/index.js";
-import type { ValidatedGraph } from "../types.js";
+import type { LoadError, ValidatedGraph } from "../types.js";
 
 // --- Layout helpers ---
 //
@@ -154,7 +154,7 @@ interface CliSetup {
   sourceRoot: string | undefined;
   sourceOpts: SourceOptions;
   /** Non-fatal per-file load failures from graphsDirs; empty when all files parsed + validated. */
-  loadErrors: Array<{ file: string; message: string }>;
+  loadErrors: readonly LoadError[];
 }
 
 /** Load graphs and resolve directories for CLI commands. */
