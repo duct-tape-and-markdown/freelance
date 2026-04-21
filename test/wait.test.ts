@@ -67,6 +67,8 @@ describe("wait nodes — blocking advance", () => {
     if (result.isError) {
       expect(result.reason).toContain("Waiting for external signals");
       expect(result.reason).toContain("approved");
+      expect(result.error.code).toBe("WAIT_BLOCKING");
+      expect(result.error.kind).toBe("blocked");
     }
   });
 

@@ -81,17 +81,30 @@ To preview the current node's edges without advancing, call `freelance advance` 
 
 ## Error shape on stdout
 
-On failure, stdout carries `{ "isError": true, "error": { "code": "...", "message": "..." } }`. Common codes:
+Every error — whether a gate-block on `advance` or a structural failure anywhere — carries the same envelope:
 
-- `EDGE_NOT_FOUND` — the edge label doesn't exist on the current node. Exit 4. Check `validTransitions`.
-- `NO_EDGES` — the current node is terminal. Exit 2.
-- `TRAVERSAL_NOT_FOUND` / `NO_TRAVERSAL` / `AMBIGUOUS_TRAVERSAL` — traversal id issue. Exit 4 or 5.
-- `STRICT_CONTEXT_VIOLATION` — tried to write a key the graph's context schema doesn't declare. Exit 5.
-- `CONTEXT_VALUE_TOO_LARGE` / `CONTEXT_TOTAL_TOO_LARGE` — write exceeds the byte cap. Exit 5. Shrink the value or split it across calls.
-- `REQUIRED_META_MISSING` — `start` without required meta keys. Exit 5. Rerun with `--meta k=v`.
-- `HOOK_FAILED` / `HOOK_IMPORT_FAILED` / `HOOK_BAD_SHAPE` — an `onEnter` hook is broken. Exit 1. Surface to the user; don't loop.
+```json
+{
+  "isError": true,
+  "error": { "code": "...", "message": "...", "kind": "blocked" | "structural" }
+}
+```
 
-A **blocked advance** (exit 2) returns a normal response shape with `isError: true` and `status: "error"`, carrying `validTransitions` so you can see what's still possible. Distinct from the structured-error shape above.
+Branch on `error.kind` before anything else:
+
+- `"blocked"` — the traversal is fine; the last op can't proceed given current state. Fix context and retry. Exit 2. Response carries extra fields (`status: "error"`, `currentNode`, `validTransitions`, `context`) so you can pick a different edge or adjust context without another round-trip.
+- `"structural"` — something's wrong (bad graph id, unknown edge, malformed input, broken hook). Retrying won't help; report to the user.
+
+Common codes:
+
+- `WAIT_BLOCKING` / `RETURN_SCHEMA_VIOLATION` / `VALIDATION_FAILED` / `EDGE_CONDITION_NOT_MET` — gate blocks on `advance`. Kind `"blocked"`. Exit 2. Read the message and `validTransitions` to decide the next move.
+- `NO_EDGES` — the current node is terminal. Kind `"blocked"`. Exit 2.
+- `EDGE_NOT_FOUND` — the edge label doesn't exist on the current node. Kind `"structural"`. Exit 4. Check `validTransitions`.
+- `TRAVERSAL_NOT_FOUND` / `NO_TRAVERSAL` / `AMBIGUOUS_TRAVERSAL` — traversal id issue. Kind `"structural"`. Exit 4 or 5.
+- `STRICT_CONTEXT_VIOLATION` — tried to write a key the graph's context schema doesn't declare. Kind `"structural"`. Exit 5.
+- `CONTEXT_VALUE_TOO_LARGE` / `CONTEXT_TOTAL_TOO_LARGE` — write exceeds the byte cap. Kind `"structural"`. Exit 5. Shrink the value or split across calls.
+- `REQUIRED_META_MISSING` — `start` without required meta keys. Kind `"structural"`. Exit 5. Rerun with `--meta k=v`.
+- `HOOK_FAILED` / `HOOK_IMPORT_FAILED` / `HOOK_BAD_SHAPE` — an `onEnter` hook is broken. Kind `"structural"`. Exit 1. Surface to the user; don't loop.
 
 ## Recovery from context compaction
 

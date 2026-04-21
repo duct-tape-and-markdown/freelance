@@ -2,6 +2,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setCli } from "../src/cli/output.js";
 import {
+  traversalAdvance,
   traversalContextSet,
   traversalInspect,
   traversalInspectActive,
@@ -86,10 +87,50 @@ describe("traversalStart", () => {
     const store = createTestStore();
     try {
       await expect(traversalStart(store, "nonexistent-graph")).rejects.toThrow("process.exit");
-      const parsed = stdoutJson() as { isError: true; error: { code: string } };
+      const parsed = stdoutJson() as {
+        isError: true;
+        error: { code: string; kind: string };
+      };
       expect(parsed.isError).toBe(true);
       expect(parsed.error.code).toBe("GRAPH_NOT_FOUND");
+      expect(parsed.error.kind).toBe("structural");
       expect(exitSpy).toHaveBeenCalledWith(4); // EXIT.NOT_FOUND
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("traversalAdvance — unified error envelope on gate-block", () => {
+  it("emits error.code + kind and exits BLOCKED on edge-condition failure", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const { traversalId } = await store.createTraversal(graphId);
+      await traversalAdvance(store, "initialized", { traversal: traversalId });
+
+      // Reset stdout so we only capture the blocked response
+      stdoutSpy.mockClear();
+
+      await expect(traversalAdvance(store, "go-left", { traversal: traversalId })).rejects.toThrow(
+        "process.exit",
+      );
+
+      const parsed = stdoutJson() as {
+        isError: true;
+        status: string;
+        error: { code: string; kind: string; message: string };
+        reason: string;
+        validTransitions: unknown[];
+      };
+      expect(parsed.isError).toBe(true);
+      expect(parsed.status).toBe("error");
+      expect(parsed.error.code).toBe("EDGE_CONDITION_NOT_MET");
+      expect(parsed.error.kind).toBe("blocked");
+      expect(parsed.error.message).toBe(parsed.reason);
+      expect(parsed.validTransitions).toBeDefined();
+      expect(exitSpy).toHaveBeenCalledWith(2); // EXIT.BLOCKED
     } finally {
       store.close();
     }
@@ -373,9 +414,13 @@ describe("traversalReset", () => {
     const store = createTestStore();
     try {
       expect(() => traversalReset(store, undefined, {})).toThrow("process.exit");
-      const parsed = stdoutJson() as { isError: true; error: { code: string } };
+      const parsed = stdoutJson() as {
+        isError: true;
+        error: { code: string; kind: string };
+      };
       expect(parsed.isError).toBe(true);
       expect(parsed.error.code).toBe("CONFIRM_REQUIRED");
+      expect(parsed.error.kind).toBe("structural");
       expect(exitSpy).toHaveBeenCalledWith(5); // EXIT.INVALID_INPUT
     } finally {
       store.close();

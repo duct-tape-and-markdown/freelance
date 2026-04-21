@@ -13,7 +13,7 @@
 import { EC, EngineError } from "../errors.js";
 import type { TraversalStore } from "../state/index.js";
 import type { InspectPositionResult } from "../types.js";
-import { EXIT, handleRuntimeError as handleError, outputJson } from "./output.js";
+import { EXIT, errorEnvelope, handleRuntimeError as handleError, outputJson } from "./output.js";
 
 /**
  * Shared primitive for CLI flags that accept `key=value` pairs. Splits on
@@ -234,10 +234,7 @@ export function traversalReset(
   opts?: { confirm?: boolean },
 ): void {
   if (!opts?.confirm) {
-    outputJson({
-      isError: true,
-      error: { code: "CONFIRM_REQUIRED", message: "must pass --confirm to reset a traversal." },
-    });
+    outputJson(errorEnvelope("CONFIRM_REQUIRED", "must pass --confirm to reset a traversal."));
     process.exit(EXIT.INVALID_INPUT);
   }
   try {

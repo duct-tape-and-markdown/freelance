@@ -14,6 +14,7 @@ export type {
   WaitOnEntry,
 } from "./schema/graph-schema.js";
 
+import type { GateBlockCode } from "./error-codes.js";
 import type { HookResolutionMap } from "./hook-resolution.js";
 import type {
   GraphDefinition,
@@ -107,9 +108,25 @@ export interface AdvanceSuccessResult {
   readonly graphSources?: readonly SourceBinding[];
 }
 
+/**
+ * Gate-blocked advance result — carried in-band on the engine's advance
+ * return, not thrown. The wire envelope matches the thrown-error shape
+ * so a skill sees one unified error format: `{ isError: true, error: {
+ * code, message, kind } }`. Blocked responses add `status: "error"`,
+ * `currentNode`, `validTransitions`, and `context` so the caller can
+ * pick a different edge or fix context and retry. `reason` duplicates
+ * `error.message` for back-compat with pre-#95 readers; new code should
+ * read `error.message`. See `error-codes.ts` for the `kind`
+ * discriminator and issue #95 for the unification rationale.
+ */
 export interface AdvanceErrorResult {
   readonly status: "error";
   readonly isError: true;
+  readonly error: {
+    readonly code: GateBlockCode;
+    readonly message: string;
+    readonly kind: "blocked";
+  };
   readonly currentNode: string;
   readonly reason: string;
   readonly validTransitions: readonly TransitionInfo[];

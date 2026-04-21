@@ -36,6 +36,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Unified CLI error envelope.** Every error — whether a gate-block
+  on `advance` (in-band) or a thrown `EngineError` (structural) —
+  now carries the same wire shape: `{ isError: true, error: { code,
+  message, kind } }` where `kind` is `"blocked"` (traversal is fine;
+  fix context and retry) or `"structural"` (stop and report). The
+  in-band gate-block response still carries `status: "error"`,
+  `currentNode`, `validTransitions`, and `context` on top of the
+  envelope so a skill can decide the next move without another
+  round-trip; `reason` stays populated (duplicates `error.message`)
+  for pre-#95 readers. Four new codes surface gate blocks with the
+  same stability promise as the others — `WAIT_BLOCKING`,
+  `RETURN_SCHEMA_VIOLATION`, `VALIDATION_FAILED`,
+  `EDGE_CONDITION_NOT_MET`, all grouped under the `BLOCKED`
+  category that maps to exit 2. Skills no longer branch on two
+  shapes; they read `error.kind` and the exit code. See issue #95.
 - **All CLI verbs are JSON-only (BREAKING).** Every handler —
   `status`, `start`, `advance`, `context set`, `meta set`, `inspect`,
   `reset`, `memory *`, `init`, `validate`, `visualize`, `config`,

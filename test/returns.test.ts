@@ -25,6 +25,8 @@ describe("return schema — engine validation", () => {
     if (result.isError) {
       expect(result.reason).toContain("Return schema violation");
       expect(result.reason).toContain("filesChanged");
+      expect(result.error.code).toBe("RETURN_SCHEMA_VIOLATION");
+      expect(result.error.kind).toBe("blocked");
     }
   });
 
