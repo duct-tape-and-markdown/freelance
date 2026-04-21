@@ -142,8 +142,20 @@ export class MemoryStore {
     ).c;
     const entCount = (this.db.prepare("SELECT COUNT(*) as c FROM entities").get() as { c: number })
       .c;
-    this.db.exec("DELETE FROM propositions");
-    this.db.exec("DELETE FROM entities");
+    // Atomically — partial reset (propositions gone but entities left
+    // orphaned) is worse than no reset, since the user now has stranded
+    // entity rows the normal flow can't reach. Mirrors the prune BEGIN/
+    // COMMIT/ROLLBACK pattern. `about` and `proposition_sources` cascade
+    // via FK on proposition delete; FTS via the `propositions_ad` trigger.
+    this.db.exec("BEGIN");
+    try {
+      this.db.exec("DELETE FROM propositions");
+      this.db.exec("DELETE FROM entities");
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
     return { deleted_propositions: propCount, deleted_entities: entCount };
   }
 
