@@ -48,3 +48,11 @@ The residual concern the issue captures — a user starts a traversal, edits/ren
 **What would break if reversed:** reintroducing a watcher without an explicit orphan-handling policy re-opens #90. Any future hot-reload surface must decide up front whether it (a) refuses to reload when active traversals reference the departing graph, (b) marks orphans but continues serving, or (c) auto-resets orphans loudly.
 
 See issue [#90](https://github.com/duct-tape-and-markdown/freelance/issues/90).
+
+### Config changes take effect on the next CLI invocation
+
+Freelance config (`.freelance/config.yml`, `.freelance/config.local.yml`) is read at CLI startup and flows into `composeRuntime` → `HookRunner` / `GraphEngine` / `MemoryStore` for the duration of that invocation. There is no long-running process to hot-patch — each `freelance advance` / `freelance status` / etc. reloads config from disk before wiring the runtime. "Config reload" is therefore not a runtime concern; it's "run the next verb."
+
+Historical note (closed by #121 and #90): an MCP-server era `onConfigChange` handler in `src/server.ts` logged `"Freelance: config reloaded"` on `config.yml` / `config.local.yml` edits but never re-threaded the new values into the live `HookRunner` or `GraphEngine` — edits looked like they applied and didn't. #91 called that out. The handler was deleted with the MCP server (#121); the watcher that would have invoked it was deleted with #90. A future re-introduction of any long-running surface must either (a) plumb the new config through every downstream that consumed it (hook timeouts, maxDepth, memory dir — with the caveat that some fields can't hot-swap, e.g. memory db path reopening) or (b) log `"Freelance: config changed on disk — restart to apply"` and leave the mutation out. Silent reload-without-apply is the specific trap to avoid.
+
+See issue [#91](https://github.com/duct-tape-and-markdown/freelance/issues/91).
