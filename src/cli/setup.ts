@@ -153,12 +153,14 @@ interface CliSetup {
   graphsDirs: string[];
   sourceRoot: string | undefined;
   sourceOpts: SourceOptions;
+  /** Non-fatal per-file load failures from graphsDirs; empty when all files parsed + validated. */
+  loadErrors: Array<{ file: string; message: string }>;
 }
 
 /** Load graphs and resolve directories for CLI commands. */
 export function loadGraphSetup(opts: CliSetupOptions): CliSetup {
   const graphsDirs = resolveGraphsDirs(opts.workflows);
-  const { graphs } = loadGraphsGraceful(graphsDirs);
+  const { graphs, errors: loadErrors } = loadGraphsGraceful(graphsDirs);
   const sourceRoot = resolveSourceRoot(graphsDirs, opts.sourceRoot);
   const sectionResolver = (filePath: string, section: string) => extractSection(filePath, section);
   return {
@@ -166,6 +168,7 @@ export function loadGraphSetup(opts: CliSetupOptions): CliSetup {
     graphsDirs,
     sourceRoot,
     sourceOpts: { resolver: sectionResolver, basePath: sourceRoot },
+    loadErrors,
   };
 }
 
@@ -196,6 +199,7 @@ export function createTraversalStore(opts: CliSetupOptions): {
     maxDepth: opts.maxDepth ?? fileConfig.maxDepth ?? 5,
     hookTimeoutMs: fileConfig.hooks.timeoutMs,
     contextCaps: resolveContextCaps(fileConfig.context),
+    loadErrors: setup.loadErrors,
   });
 
   return { store: runtime.store, setup, runtime };

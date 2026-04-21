@@ -21,7 +21,7 @@ import type { MemoryConfig } from "./memory/index.js";
 import { MemoryStore } from "./memory/index.js";
 import type { SectionResolver, SourceOptions } from "./sources.js";
 import { openStateStore, TraversalStore } from "./state/index.js";
-import type { ValidatedGraph } from "./types.js";
+import type { LoadError, ValidatedGraph } from "./types.js";
 
 /**
  * Build a MemoryStore from a MemoryConfig. Shared by `composeRuntime`
@@ -64,6 +64,12 @@ export interface ComposeConfig {
    * contextUpdates, contextSet). Omit to use `DEFAULT_CONTEXT_CAPS`.
    */
   readonly contextCaps?: ContextCaps;
+  /**
+   * Non-fatal graph-load errors carried through from the CLI setup so
+   * `status` can surface which files were dropped. See `LoadError` in
+   * `types.ts`.
+   */
+  readonly loadErrors?: readonly LoadError[];
 }
 
 export interface Runtime {
@@ -186,6 +192,7 @@ export function composeRuntime(config: ComposeConfig): Runtime {
     maxDepth: config.maxDepth,
     hookRunner,
     ...(config.contextCaps ? { contextCaps: config.contextCaps } : {}),
+    ...(config.loadErrors ? { loadErrors: config.loadErrors } : {}),
   });
 
   const sourceOpts: SourceOptions = {
