@@ -113,9 +113,18 @@ If you lose track of where a traversal is:
 ```bash
 freelance inspect [<traversalId>]                # current node + validTransitions
 freelance inspect [<traversalId>] --detail history   # step history + context writes
+freelance inspect [<traversalId>] --detail history --limit 10 --offset 0
+                                                 # paginate traversalHistory (default 50, max 200)
+freelance inspect [<traversalId>] --detail history --include-snapshots
+                                                 # include per-step contextSnapshot (opt-in: quadratic size)
+freelance inspect [<traversalId>] --fields currentNode --fields neighbors
+                                                 # additive projections (repeatable):
+                                                 # currentNode | neighbors | contextSchema | definition
 ```
 
 `--active` lists every active traversal with its current node. `--waits` filters that list to traversals sitting on a wait node.
+
+`freelance status` includes a `loadErrors: [{file, message}]` array if any workflow yaml in the graphs dir failed to parse or validate. The field is elided when empty — its presence means at least one file was silently dropped from the `graphs` listing.
 
 ## Lean responses (`--minimal`)
 

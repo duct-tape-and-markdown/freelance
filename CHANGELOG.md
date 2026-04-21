@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`freelance inspect` flag parity restored (#122).** Threads the
+  engine-level inspect parameters through to the CLI surface, closing
+  the regression introduced when MCP was removed in #116:
+  - `--fields <name>` (repeatable; `currentNode | neighbors |
+    contextSchema | definition`) — additive projections on
+    position/history responses. Unknown values emit `INVALID_FLAG_VALUE`
+    (exit 5) via the unified envelope.
+  - `--limit <n>` / `--offset <n>` — pagination on
+    `--detail history`'s `traversalHistory` (default 50, max 200).
+    Parsed through the shared `parseIntArg` helper; typos surface as
+    `INVALID_FLAG_VALUE` exit 5 instead of silent `NaN`.
+  - `--include-snapshots` — opt-in inclusion of per-step
+    `contextSnapshot` in history entries (quadratic size; off by
+    default).
+  - `freelance status` surfaces `loadErrors: [{file, message}]` when
+    any workflow yaml in the graphs dir fails to parse or validate —
+    previously such files were silently dropped from the `graphs`
+    listing. The field is elided when empty, preserving the pre-#122
+    success shape.
 - **Lean response projection on the hot path (`--minimal`).** `freelance
   advance`, `freelance context set`, and `freelance inspect` now accept
   `--minimal`, which drops the full-context echo and the `node`
