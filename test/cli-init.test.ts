@@ -398,6 +398,44 @@ describe("CLI init", () => {
     expect(parsed.actions.some((a) => a.verb === "append" && a.target === "CLAUDE.md")).toBe(true);
   });
 
+  it("claude-code project scope installs driving skill at .claude/skills/freelance/SKILL.md", async () => {
+    await init(defaults());
+    const skillPath = path.join(workDir, ".claude", "skills", "freelance", "SKILL.md");
+    expect(fs.existsSync(skillPath)).toBe(true);
+    const content = fs.readFileSync(skillPath, "utf-8");
+    expect(content).toContain("name: Freelance");
+    expect(content).toContain("freelance advance");
+  });
+
+  it("claude-code user scope installs driving skill at ~/.claude/skills/freelance/SKILL.md", async () => {
+    const fakeHome = tmpDir();
+    const origHome = process.env.HOME;
+    process.env.HOME = fakeHome;
+    try {
+      await init(defaults({ scope: "user", client: "claude-code" }));
+      const skillPath = path.join(fakeHome, ".claude", "skills", "freelance", "SKILL.md");
+      expect(fs.existsSync(skillPath)).toBe(true);
+    } finally {
+      process.env.HOME = origHome;
+    }
+  });
+
+  it("non-claude-code clients skip skill installation", async () => {
+    await init(defaults({ client: "cursor" }));
+    expect(fs.existsSync(path.join(workDir, ".claude", "skills", "freelance", "SKILL.md"))).toBe(
+      false,
+    );
+  });
+
+  it("existing SKILL.md is preserved on re-init", async () => {
+    const skillDir = path.join(workDir, ".claude", "skills", "freelance");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, "SKILL.md"), "# locally customized\n");
+    await init(defaults());
+    const content = fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf-8");
+    expect(content).toBe("# locally customized\n");
+  });
+
   it("missing template file calls fatal", async () => {
     // Use a starter name that has no template file
     // We can't easily make "blank" template missing, but we can test by

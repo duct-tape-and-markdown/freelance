@@ -52,6 +52,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Single driving skill + `freelance init` wires it up.** Ships
+  `plugins/freelance/skills/freelance/SKILL.md` with the plugin and
+  `templates/skills/freelance/SKILL.md` for CLI users. The skill teaches
+  the invariant protocol for driving any Freelance workflow via the
+  `freelance` CLI — discover, start, loop, recover, exit — and branches
+  on the semantic exit codes shipped in the previous CHANGELOG entry.
+  `freelance init --client claude-code` now copies the skill into
+  `.claude/skills/freelance/SKILL.md` (project scope) or
+  `~/.claude/skills/freelance/SKILL.md` (user scope), so agents can
+  drive workflows without per-turn MCP tool-definition weight. Other
+  clients (Cursor / Windsurf / Cline) skip skill installation — they
+  don't consume Claude Agent Skills. See issue #115.
 - **Byte caps on context writes.** Every write to session context —
   `freelance_context_set`, `contextUpdates` on `freelance_advance`,
   `initialContext` on `freelance_start`, and onEnter hook return

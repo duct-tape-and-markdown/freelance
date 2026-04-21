@@ -23,6 +23,14 @@ cd /path/to/your/project
 freelance init
 ```
 
+## Driving workflows via skill + CLI
+
+For Claude Code, Freelance ships a single [Claude Agent Skill](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview) that teaches the agent how to drive any workflow through the `freelance` CLI. The skill activates from its description match — when the user mentions a workflow to run, describes a task matching a loaded workflow, or wants to continue an in-flight traversal.
+
+`freelance init --client claude-code` installs `SKILL.md` at `.claude/skills/freelance/` (project scope) or `~/.claude/skills/freelance/` (user scope) alongside scaffolding the workflows directory and MCP config. The plugin install path (`/plugin install freelance@freelance-plugins`) ships the same skill.
+
+The agent drives workflows through shell-out calls — `freelance status`, `freelance start <graphId>`, `freelance advance <edge>`, `freelance context set k=v`, `freelance inspect` — and branches on semantic exit codes (0 success, 1 internal, 2 blocked, 3 validation, 4 not found, 5 invalid input). Every runtime verb emits a structured JSON response on stdout; breadcrumbs go to stderr. See [`plugins/freelance/skills/freelance/SKILL.md`](plugins/freelance/skills/freelance/SKILL.md) for the driving protocol.
+
 ## Workflows
 
 Workflows are directed graphs defined in YAML. The agent calls MCP tools to traverse them — `freelance_start` to begin, `freelance_advance` to move between nodes. Gate nodes block advancement until conditions are met. State lives server-side, so it survives context compaction.
