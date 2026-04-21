@@ -29,9 +29,8 @@
  *     hard error (prune is a git-scoped operation).
  */
 
-import fs from "node:fs";
 import path from "node:path";
-import { hashContent } from "../sources.js";
+import { hashContent, hashSourceFile } from "../sources.js";
 import { readBlobsAtRefs, resolveGitTopLevel, resolveRef } from "./git.js";
 import type { MemoryStore } from "./store.js";
 
@@ -55,14 +54,6 @@ interface RowMeta {
   proposition_id: string;
   file_path: string;
   content_hash: string;
-}
-
-function hashFileOnDisk(absPath: string): string | null {
-  try {
-    return hashContent(fs.readFileSync(absPath, "utf-8"));
-  } catch {
-    return null;
-  }
 }
 
 /** `"?, ?, ?"` for `n=3`. Used when binding variadic `IN (...)` clauses. */
@@ -127,7 +118,7 @@ export function prune(store: MemoryStore, options: PruneOptions): PruneResult {
   const liveHashes = new Map<string, Set<string>>();
   for (const fp of distinctPaths) {
     const set = new Set<string>();
-    const diskHash = hashFileOnDisk(path.resolve(sourceRoot, fp));
+    const diskHash = hashSourceFile(path.resolve(sourceRoot, fp));
     if (diskHash !== null) set.add(diskHash);
     liveHashes.set(fp, set);
   }

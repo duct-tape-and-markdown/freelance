@@ -32,6 +32,21 @@ export function hashContent(content: string): string {
     .substring(0, 16);
 }
 
+/**
+ * Hash an on-disk source file by absolute path. Returns null when the
+ * file is missing or unreadable — every memory-side caller (emit,
+ * staleness, prune) treats "can't read the file" as "no live hash for
+ * this path right now", not as an error. Read known-UTF-8 today; the
+ * binary-safe switch is tracked in docs/debt.md.
+ */
+export function hashSourceFile(absPath: string): string | null {
+  try {
+    return hashContent(fs.readFileSync(absPath, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
 // --- Types ---
 
 interface SourceRef {
