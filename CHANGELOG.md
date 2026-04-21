@@ -52,6 +52,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Canonical `EngineError` code catalog.** `src/error-codes.ts`
+  exports `ENGINE_ERROR_CODES` (codes grouped by exit-code category),
+  `EngineErrorCode` (union type), and `EC` (symbol aliases used at
+  throw sites). `EngineError.code` is typed as `EngineErrorCode` so
+  typos are caught at compile time, and `mapEngineErrorToExit` is
+  derived from the grouping — adding a new code in the wrong group,
+  or a new category without an exit mapping, is a compile error.
+  Wire format unchanged; the refactor is source-internal. See issue
+  #117.
 - **Single driving skill + `freelance init` wires it up.** Ships
   `plugins/freelance/skills/freelance/SKILL.md` with the plugin and
   `templates/skills/freelance/SKILL.md` for CLI users. The skill teaches

@@ -10,7 +10,7 @@
  * relevant, never on the success path.
  */
 
-import { EngineError } from "../errors.js";
+import { EC, EngineError } from "../errors.js";
 import type { TraversalStore } from "../state/index.js";
 import type { InspectPositionResult } from "../types.js";
 import { EXIT, handleRuntimeError as handleError, outputJson } from "./output.js";
@@ -27,12 +27,12 @@ function splitKeyValue(pair: string, flag: string): [string, string] {
   if (eqIdx === -1) {
     throw new EngineError(
       `${flag} requires key=value pairs; got "${pair}"`,
-      "INVALID_KEY_VALUE_PAIR",
+      EC.INVALID_KEY_VALUE_PAIR,
     );
   }
   const key = pair.slice(0, eqIdx);
   if (!key) {
-    throw new EngineError(`${flag} key is empty in "${pair}"`, "INVALID_KEY_VALUE_PAIR");
+    throw new EngineError(`${flag} key is empty in "${pair}"`, EC.INVALID_KEY_VALUE_PAIR);
   }
   return [key, pair.slice(eqIdx + 1)];
 }
@@ -43,7 +43,7 @@ function parseContextJson(raw: string): Record<string, unknown> {
     return JSON.parse(raw) as Record<string, unknown>;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    throw new EngineError(`--context must be valid JSON: ${msg}`, "INVALID_CONTEXT_JSON");
+    throw new EngineError(`--context must be valid JSON: ${msg}`, EC.INVALID_CONTEXT_JSON);
   }
 }
 
@@ -167,7 +167,7 @@ export function traversalMetaSet(
     const id = store.resolveTraversalId(opts?.traversal);
     const parsed = parseMetaPairs(updates, "meta set");
     if (Object.keys(parsed).length === 0) {
-      throw new EngineError("meta set requires at least one key=value pair", "INVALID_META");
+      throw new EngineError("meta set requires at least one key=value pair", EC.INVALID_META);
     }
     const result = store.setMeta(id, parsed);
     outputJson(result);

@@ -8,6 +8,7 @@
  */
 
 import { getDistillPrompt } from "../distill.js";
+import { EC } from "../errors.js";
 import { getGuide } from "../guide.js";
 import { findGraphFiles, loadSingleGraph } from "../loader.js";
 import type { SourceOptions } from "../sources.js";
@@ -97,7 +98,7 @@ export function sourcesValidate(
 
     if (targets.length === 0) {
       if (graphId) {
-        fatal(`graph not found: ${graphId}`, EXIT.NOT_FOUND, "GRAPH_NOT_FOUND");
+        fatal(`graph not found: ${graphId}`, EXIT.NOT_FOUND, EC.GRAPH_NOT_FOUND);
       }
       fatal(
         "no loadable *.workflow.yaml files in the configured graphs directories",

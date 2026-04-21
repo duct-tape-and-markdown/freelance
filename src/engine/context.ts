@@ -1,4 +1,4 @@
-import { EngineError } from "../errors.js";
+import { EC, EngineError } from "../errors.js";
 import type {
   ContextSetResult,
   GraphDefinition,
@@ -87,7 +87,7 @@ export function enforceContextCaps(
     if (bytes > caps.maxValueBytes) {
       throw new EngineError(
         `Context value "${key}" is ${bytes} bytes, exceeds per-value cap of ${caps.maxValueBytes} bytes (context.maxValueBytes).`,
-        "CONTEXT_VALUE_TOO_LARGE",
+        EC.CONTEXT_VALUE_TOO_LARGE,
       );
     }
   }
@@ -97,7 +97,7 @@ export function enforceContextCaps(
   if (totalBytes > caps.maxTotalBytes) {
     throw new EngineError(
       `Context total would be ${totalBytes} bytes after write, exceeds cap of ${caps.maxTotalBytes} bytes (context.maxTotalBytes).`,
-      "CONTEXT_TOTAL_TOO_LARGE",
+      EC.CONTEXT_TOTAL_TOO_LARGE,
     );
   }
 }
@@ -109,7 +109,7 @@ export function enforceStrictContext(def: GraphDefinition, updates: Record<strin
     if (!declaredKeys.has(key)) {
       throw new EngineError(
         `Key "${key}" is not declared in the graph's context schema (strictContext is enabled)`,
-        "STRICT_CONTEXT_VIOLATION",
+        EC.STRICT_CONTEXT_VIOLATION,
       );
     }
   }
