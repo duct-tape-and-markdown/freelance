@@ -48,6 +48,8 @@ export class TraversalStore {
   private maxDepth: number;
   private hookRunner: HookRunner;
   private contextCaps?: ContextCaps;
+  // Per-id async mutex tails, keyed by traversal id. See `withLock`.
+  private locks = new Map<string, Promise<unknown>>();
 
   constructor(
     state: StateStore,
@@ -59,6 +61,34 @@ export class TraversalStore {
     this.maxDepth = options.maxDepth ?? 5;
     this.hookRunner = options.hookRunner;
     this.contextCaps = options.contextCaps;
+  }
+
+  /**
+   * Run `fn` under the per-id lock. Subsequent calls for the same id
+   * queue behind the current one. The map entry is cleared when the
+   * last waiter settles so an idle id carries no memory cost.
+   *
+   * The tail-marker stored in `this.locks` is a rejection-swallowing
+   * derivative of the result promise — a failure in `fn` doesn't
+   * poison subsequent operations on the same id. The rejection still
+   * propagates to the immediate caller via the awaited result.
+   */
+  private async withLock<T>(id: string, fn: () => Promise<T> | T): Promise<T> {
+    // Stored tails already swallow rejections, so `prior` always
+    // resolves; chaining with a single continuation is enough.
+    const prior = this.locks.get(id) ?? Promise.resolve();
+    const result = prior.then(fn);
+    const tail = result.catch(() => {});
+    this.locks.set(id, tail);
+    try {
+      return await result;
+    } finally {
+      // Only evict if we're still the tail — another caller may have
+      // appended behind us while we awaited.
+      if (this.locks.get(id) === tail) {
+        this.locks.delete(id);
+      }
+    }
   }
 
   close(): void {
@@ -166,20 +196,28 @@ export class TraversalStore {
     edge: string,
     contextUpdates?: Record<string, unknown>,
   ): Promise<{ traversalId: string; meta: Record<string, string> } & AdvanceResult> {
-    const { engine, record } = this.loadEngine(traversalId);
-    const hookMeta: Record<string, string> = {};
-    const result = await engine.advance(edge, contextUpdates, {
-      metaCollector: (updates) => Object.assign(hookMeta, updates),
+    // advance() is the only traversal-mutating path that awaits (hooks
+    // run mid-call), so two concurrent invocations on the same id can
+    // interleave their load → mutate → save sequences within one
+    // process. The mutex gives them clean sequential semantics; the
+    // sync methods (contextSet/setMeta) can't interleave within a
+    // process and rely on putIfVersion alone for cross-process races.
+    return this.withLock(traversalId, async () => {
+      const { engine, record } = this.loadEngine(traversalId);
+      const hookMeta: Record<string, string> = {};
+      const result = await engine.advance(edge, contextUpdates, {
+        metaCollector: (updates) => Object.assign(hookMeta, updates),
+      });
+      // Merge collected hook updates into the in-memory record before save —
+      // saveEngine carries record.meta forward verbatim, so this is the
+      // single point of integration. Avoids a separate setMeta + extra disk
+      // write per advance.
+      if (Object.keys(hookMeta).length > 0) {
+        record.meta = { ...record.meta, ...hookMeta };
+      }
+      this.saveEngine(record, engine);
+      return { traversalId, meta: record.meta ?? EMPTY_META, ...result };
     });
-    // Merge collected hook updates into the in-memory record before save —
-    // saveEngine carries record.meta forward verbatim, so this is the
-    // single point of integration. Avoids a separate setMeta + extra disk
-    // write per advance.
-    if (Object.keys(hookMeta).length > 0) {
-      record.meta = { ...record.meta, ...hookMeta };
-    }
-    this.saveEngine(record, engine);
-    return { traversalId, meta: record.meta ?? EMPTY_META, ...result };
   }
 
   contextSet(
@@ -210,7 +248,10 @@ export class TraversalStore {
       throw new EngineError(`Traversal "${traversalId}" not found`, EC.TRAVERSAL_NOT_FOUND);
     }
     const meta = { ...record.meta, ...updates };
-    this.state.put({ ...record, meta, updatedAt: new Date().toISOString() });
+    this.state.putIfVersion(
+      { ...record, meta, updatedAt: new Date().toISOString() },
+      record.version ?? 0,
+    );
     return { traversalId, meta };
   }
 
@@ -301,6 +342,10 @@ export class TraversalStore {
     // meta_set onEnter hook) mutate record.meta *before* calling saveEngine,
     // so reading from `record` here picks up their writes.
     if (record.meta) next.meta = record.meta;
-    this.state.put(next);
+    // `record.version` is what we observed at loadEngine() time —
+    // putIfVersion throws TRAVERSAL_CONFLICT if another writer bumped
+    // the version meanwhile. `version ?? 0` handles legacy records
+    // written before the field existed.
+    this.state.putIfVersion(next, record.version ?? 0);
   }
 }

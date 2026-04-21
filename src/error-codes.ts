@@ -22,6 +22,13 @@ export const ENGINE_ERROR_CODES = {
     "REQUIRED_META_MISSING",
     "AMBIGUOUS_TRAVERSAL",
     "TRAVERSAL_ACTIVE",
+    // Optimistic-concurrency conflict: another writer updated the
+    // record between our load and save. Transient — caller should
+    // re-read the traversal and retry. Classified as INVALID_INPUT
+    // because the caller's implicit precondition ("state hasn't
+    // changed since I read it") was violated; semantically retriable
+    // without operator intervention.
+    "TRAVERSAL_CONFLICT",
     "INVALID_KEY_VALUE_PAIR",
     "INVALID_CONTEXT_JSON",
     "INVALID_EMIT_JSON",
@@ -61,6 +68,7 @@ export const EC = {
   REQUIRED_META_MISSING: "REQUIRED_META_MISSING",
   AMBIGUOUS_TRAVERSAL: "AMBIGUOUS_TRAVERSAL",
   TRAVERSAL_ACTIVE: "TRAVERSAL_ACTIVE",
+  TRAVERSAL_CONFLICT: "TRAVERSAL_CONFLICT",
   INVALID_KEY_VALUE_PAIR: "INVALID_KEY_VALUE_PAIR",
   INVALID_CONTEXT_JSON: "INVALID_CONTEXT_JSON",
   INVALID_EMIT_JSON: "INVALID_EMIT_JSON",

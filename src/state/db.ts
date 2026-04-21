@@ -5,6 +5,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { EC, EngineError } from "../errors.js";
 import type { SessionState } from "../types.js";
 
 export interface TraversalRecord {
@@ -15,6 +16,12 @@ export interface TraversalRecord {
   stackDepth: number;
   createdAt: string;
   updatedAt: string;
+  // Monotonic revision counter. Bumped on every successful put. Callers
+  // that read-then-write use this for optimistic-concurrency conflict
+  // detection via `putIfVersion`. Optional on the type for backward
+  // compatibility with pre-1.4 records on disk; read paths synthesize
+  // `version: 0` when absent.
+  version?: number;
   // Caller-supplied opaque tags set at createTraversal time and mutable
   // thereafter via setMeta. Freelance never interprets the keys or values —
   // they exist purely so external systems can find a traversal by their own
@@ -28,9 +35,33 @@ export interface StateStore {
   /** Load all records. Each record requires a full read + parse, so prefer `listIds` for count/presence checks. */
   list(): TraversalRecord[];
   get(id: string): TraversalRecord | undefined;
+  /** Unconditional write. Use for first-time creation; prefer `putIfVersion` for updates. */
   put(record: TraversalRecord): void;
+  /**
+   * Optimistic-concurrency write. Writes `record` iff the on-disk
+   * version still matches `expectedVersion`. Throws
+   * `EngineError(TRAVERSAL_CONFLICT)` otherwise. The caller passes the
+   * version it observed at load time; a mismatch means another writer
+   * raced between the caller's get() and this put().
+   *
+   * The supplied `record.version` is ignored on input — the store
+   * always writes `expectedVersion + 1`. Returns the record actually
+   * written (with the bumped version) so callers have an accurate
+   * view of what's on disk without a follow-up read.
+   */
+  putIfVersion(record: TraversalRecord, expectedVersion: number): TraversalRecord;
   delete(id: string): void;
   close(): void;
+}
+
+class TraversalConflictError extends EngineError {
+  constructor(id: string, expected: number, actual: number) {
+    super(
+      `Traversal "${id}" was modified concurrently (expected version ${expected}, found ${actual}). ` +
+        `Re-read the traversal and retry.`,
+      EC.TRAVERSAL_CONFLICT,
+    );
+  }
 }
 
 function sortByUpdatedDesc(records: TraversalRecord[]): TraversalRecord[] {
@@ -50,7 +81,17 @@ class InMemoryStateStore implements StateStore {
     return this.records.get(id);
   }
   put(record: TraversalRecord): void {
-    this.records.set(record.id, record);
+    this.records.set(record.id, { ...record, version: (record.version ?? 0) + 1 });
+  }
+  putIfVersion(record: TraversalRecord, expectedVersion: number): TraversalRecord {
+    const current = this.records.get(record.id);
+    const currentVersion = current?.version ?? 0;
+    if (current && currentVersion !== expectedVersion) {
+      throw new TraversalConflictError(record.id, expectedVersion, currentVersion);
+    }
+    const next = { ...record, version: expectedVersion + 1 };
+    this.records.set(record.id, next);
+    return next;
   }
   delete(id: string): void {
     this.records.delete(id);
@@ -111,6 +152,29 @@ class JsonDirectoryStateStore implements StateStore {
   }
 
   put(record: TraversalRecord): void {
+    const next = { ...record, version: (record.version ?? 0) + 1 };
+    this.writeAtomic(next);
+  }
+
+  putIfVersion(record: TraversalRecord, expectedVersion: number): TraversalRecord {
+    // Within a single Node process the read-check-write here is
+    // effectively atomic — the event loop can't interleave synchronous
+    // fs calls. Across processes it's still racy (classic TOCTOU on
+    // the version field), but the per-file rename is atomic, so the
+    // worst case is two writers both think they won. For Freelance's
+    // workload (per-checkout tool, rare cross-process concurrency)
+    // detection via TRAVERSAL_CONFLICT beats silent loss.
+    const existing = this.get(record.id);
+    const current = existing?.version ?? 0;
+    if (existing && current !== expectedVersion) {
+      throw new TraversalConflictError(record.id, expectedVersion, current);
+    }
+    const next = { ...record, version: expectedVersion + 1 };
+    this.writeAtomic(next);
+    return next;
+  }
+
+  private writeAtomic(record: TraversalRecord): void {
     const final = this.fileFor(record.id);
     const tmp = `${final}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(record));
