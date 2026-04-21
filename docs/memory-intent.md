@@ -184,6 +184,15 @@ The store does not write itself. All writes route through the gated emit path. T
 ### Not an emit-time garbage collector
 `memory_emit` never removes stale provenance. A proposition whose source file no longer derives it stays at its original `content_hash`, flagged stale against the current frame and hidden by the default orphan filter — but recoverable the instant the file reverts. Emit-time deletion would coerce a multi-frame store into a single-frame one and break the branch-switch reversibility that "append-only across corpus frames" depends on. Pruning — if we ever ship it — is an explicit, scope-bounded, user-initiated operation, never a side effect of a normal write.
 
+### Not a contradiction detector
+Memory's job is to house source-linked claims, not judge them. If two sources are valid at the same corpus frame and assert contradicting things, the contradiction is visible by virtue of both being there — **the nexus is the detector**. The store doesn't pre-compute flags, rank similarity, or suggest which claim is "right."
+
+Layering an emit-time heuristic (BM25 + entity overlap, embedding distance, LLM judgment) over this model is structurally the same mistake as emit-time GC: write-time side effects doing semantic judgment with tools that can't reliably judge. Textual similarity is orthogonal to contradiction — "X is always true" and "X is always true and forever" score near-identical but don't contradict; "Alpha shipped Q1" and "Alpha shipped Q3" share few tokens but do. Once an agent learns the warnings are noisy, the feature is pure cost.
+
+Real contradiction detection belongs at query time (comparison is an explicit operator choice — "show me every claim about Alpha, let me look") or in temporal memory (bitemporal `valid_from`/`valid_to` along corpus time — #54 §3 — where supersession has a principled answer grounded in frames rather than heuristics).
+
+Kill at the premise, not at review: if a proposed feature is "detect X at write time" where X is a semantic quality, ask whether the nexus alone is sufficient before reaching for heuristics. See #46 for the closed instance of this anti-pattern.
+
 ## How this doc should be used
 
 When evaluating a proposed change to memory (prose, topology, tool, schema), ask:
