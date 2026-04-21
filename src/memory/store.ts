@@ -16,6 +16,7 @@ import path from "node:path";
 import { hashSourceFile } from "../sources.js";
 import type { Db } from "./db.js";
 import { computeStatus, countNeighbors, countValidForEntity, getNeighbors } from "./enrichment.js";
+import { type PruneOptions, type PruneResult, prune as pruneExternal } from "./prune.js";
 import {
   createStalenessCache,
   getStalePropositionIds,
@@ -107,15 +108,15 @@ export class MemoryStore {
     this.sourceRoot = sourceRoot;
   }
 
-  // `prune` lives outside this class (content-reachability needs git
-  // subprocesses; MemoryStore stays SQLite-only). The getters below
-  // are a deliberate narrow window for that caller — not a general
-  // "expose internals" pattern.
-  getDb(): Db {
-    return this.db;
-  }
-  getSourceRoot(): string {
-    return this.sourceRoot;
+  // Thin delegation to the standalone `prune` function. The prune
+  // implementation lives outside this class because content-reachability
+  // needs git subprocesses (MemoryStore stays SQLite-only), but the
+  // wrapper lets callers invoke it through the public surface so we
+  // don't have to expose `getDb` / `getSourceRoot` escape hatches on
+  // the class. Kept as a one-line method to keep the subprocess logic
+  // off the MemoryStore type.
+  prune(options: PruneOptions): PruneResult {
+    return pruneExternal(this.db, this.sourceRoot, options);
   }
 
   // Idempotent — CLI paths that `process.exit` mid-command want to

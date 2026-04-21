@@ -31,8 +31,8 @@
 
 import path from "node:path";
 import { hashContent, hashSourceFile } from "../sources.js";
+import type { Db } from "./db.js";
 import { readBlobsAtRefs, resolveGitTopLevel, resolveRef } from "./git.js";
-import type { MemoryStore } from "./store.js";
 
 export interface PruneOptions {
   /** Preserve refs. Must be non-empty. Each must resolve via git rev-parse. */
@@ -61,16 +61,18 @@ function sqlPlaceholders(n: number): string {
   return Array(n).fill("?").join(",");
 }
 
-export function prune(store: MemoryStore, options: PruneOptions): PruneResult {
+// Takes `db` + `sourceRoot` directly instead of a `MemoryStore`. Prune
+// needs read-write SQL and filesystem access but nothing that lives on
+// the store's public API; threading the primitives keeps MemoryStore's
+// surface narrow (no `getDb`/`getSourceRoot` escape hatches). The CLI
+// caller already has both from the composition root.
+export function prune(db: Db, sourceRoot: string, options: PruneOptions): PruneResult {
   const { keep, dryRun = false } = options;
   if (!keep || keep.length === 0) {
     throw new Error(
       "memory prune requires at least one --keep <ref>. There is no default preserve set.",
     );
   }
-
-  const sourceRoot = store.getSourceRoot();
-  const db = store.getDb();
 
   const gitRoot = resolveGitTopLevel(sourceRoot);
   if (!gitRoot) {

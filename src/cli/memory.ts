@@ -11,7 +11,6 @@
 import fs from "node:fs";
 import { EC, EngineError } from "../errors.js";
 import type { MemoryStore } from "../memory/index.js";
-import { prune } from "../memory/prune.js";
 import type { PropositionShape } from "../memory/types.js";
 import { EXIT, errorEnvelope, handleRuntimeError as handleError, outputJson } from "./output.js";
 
@@ -163,7 +162,7 @@ export function memoryPrune(
     // `--yes`. Return the plan + an explicit refusal when neither flag
     // is set, so the skill sees the blast radius before committing.
     const confirmed = opts.dryRun || opts.yes;
-    const result = prune(store, { keep: opts.keep, dryRun: !confirmed });
+    const result = store.prune({ keep: opts.keep, dryRun: !confirmed });
     if (confirmed) {
       outputJson(result);
     } else {
