@@ -1,3 +1,5 @@
+// Grammar scope is a deliberate stop-line — see docs/decisions.md § "Expression language stop-line".
+
 export class EvaluatorError extends Error {
   constructor(
     message: string,
@@ -187,7 +189,7 @@ function tokenize(expr: string): Token[] {
         tokens.push({ type: "PROPERTY", value: ident, pos: start });
       } else {
         throw new EvaluatorError(
-          `Unexpected identifier '${ident}' at position ${start}. Property access must start with 'context.', or call a built-in function (${[...BUILTIN_FUNCTIONS].join(", ")}).`,
+          `Unexpected identifier '${ident}' at position ${start}. Property access must start with 'context.', or call a built-in function (${[...BUILTIN_FUNCTIONS].join(", ")}). Expressions are predicates, not computations — derive values in an onEnter hook and compare the result.`,
           expr,
           start,
         );
