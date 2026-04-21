@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { validateHookImports } from "../hook-resolution.js";
 import { findGraphFiles, loadSingleGraph, validateCrossGraphRefs } from "../loader.js";
 import { SEALED_GRAPH_IDS } from "../memory/sealed.js";
 import { extractSection } from "../section-resolver.js";
@@ -36,7 +37,7 @@ interface ValidateOptions {
   basePath?: string;
 }
 
-export function validate(graphsDir: string, options?: ValidateOptions): void {
+export async function validate(graphsDir: string, options?: ValidateOptions): Promise<void> {
   const resolvedDir = path.resolve(graphsDir);
 
   if (!fs.existsSync(resolvedDir)) {
@@ -67,8 +68,8 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
   for (const filePath of files) {
     const relFile = path.relative(resolvedDir, filePath);
     try {
-      const { id, definition, graph } = loadSingleGraph(filePath);
-      parsed.set(id, { definition, graph });
+      const { id, definition, graph, hookResolutions } = loadSingleGraph(filePath);
+      parsed.set(id, { definition, graph, hookResolutions });
       graphFilePaths.set(id, filePath);
       result.graphs.push({
         id,
@@ -92,6 +93,27 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
       const msg = err instanceof Error ? err.message : String(err);
       result.errors.push({ file: resolvedDir, message: msg });
       result.valid = false;
+    }
+  }
+
+  // Phase 2.5: eager hook-script import check. Catches syntax errors,
+  // missing relative deps, and non-function default exports at validate
+  // time instead of deep into a traversal. Only runs if schema + cross-
+  // graph checks passed — a graph that didn't parse has no resolutions
+  // to import anyway.
+  if (result.errors.length === 0) {
+    for (const [graphId, { hookResolutions }] of parsed) {
+      if (!hookResolutions) continue;
+      const hookErrors = await validateHookImports(hookResolutions);
+      if (hookErrors.length === 0) continue;
+      const relFile = path.relative(resolvedDir, graphFilePaths.get(graphId)!);
+      for (const hookErr of hookErrors) {
+        result.errors.push({
+          file: relFile,
+          message: `Node "${hookErr.nodeId}", onEnter[${hookErr.index}] "${hookErr.call}": ${hookErr.message}`,
+        });
+        result.valid = false;
+      }
     }
   }
 

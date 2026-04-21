@@ -204,9 +204,13 @@ export class HookRunner {
    * on the same absolute path is a Module-map lookup, no re-parse and
    * no re-execute. We don't layer our own cache on top.
    *
-   * Import failure and bad-shape are both hard errors surfaced at the
-   * first invocation attempt, not at engine construction, so graphs
-   * with script hooks only fail when those nodes are actually reached.
+   * Runtime is the second line of defense: `freelance validate` runs
+   * `validateHookImports` (hook-resolution.ts) eagerly over every
+   * script so authors see syntax errors and bad-shape exports at
+   * validate time. Callers that skip validate (direct engine
+   * construction in tests, programmatic use) still hit the same import
+   * + typeof-default checks here on first invocation, surfacing the
+   * same error codes.
    */
   private async loadHookFn(resolved: ResolvedHook, nodeId: string): Promise<HookFn> {
     if (resolved.kind === "builtin") {

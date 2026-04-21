@@ -41,46 +41,46 @@ describe("CLI validate", () => {
     vi.restoreAllMocks();
   });
 
-  it("succeeds with valid graph files (exit 0)", () => {
+  it("succeeds with valid graph files (exit 0)", async () => {
     const dir = tmpDir();
     copyFixtures(dir, "valid-simple.workflow.yaml", "valid-branching.workflow.yaml");
-    expect(() => validate(dir)).toThrow("process.exit");
+    await expect(validate(dir)).rejects.toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(0);
     const result = stdoutJson() as { valid: boolean; graphs: Array<{ id: string }> };
     expect(result.valid).toBe(true);
     expect(result.graphs).toHaveLength(2);
   });
 
-  it("exits with VALIDATION (3) for nonexistent directory", () => {
-    expect(() => validate("/nonexistent/path")).toThrow("process.exit");
+  it("exits with VALIDATION (3) for nonexistent directory", async () => {
+    await expect(validate("/nonexistent/path")).rejects.toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(3);
     const result = stdoutJson() as { valid: boolean; errors: Array<{ message: string }> };
     expect(result.valid).toBe(false);
     expect(result.errors[0].message).toContain("does not exist");
   });
 
-  it("exits with VALIDATION (3) for empty directory", () => {
+  it("exits with VALIDATION (3) for empty directory", async () => {
     const dir = tmpDir();
-    expect(() => validate(dir)).toThrow("process.exit");
+    await expect(validate(dir)).rejects.toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(3);
     const result = stdoutJson() as { valid: boolean; errors: Array<{ message: string }> };
     expect(result.errors[0].message).toContain("No *.workflow.yaml");
   });
 
-  it("exits with VALIDATION (3) for invalid graph", () => {
+  it("exits with VALIDATION (3) for invalid graph", async () => {
     const dir = tmpDir();
     copyFixtures(dir, "invalid-orphan.workflow.yaml");
-    expect(() => validate(dir)).toThrow("process.exit");
+    await expect(validate(dir)).rejects.toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(3);
     const result = stdoutJson() as { valid: boolean; errors: unknown[] };
     expect(result.valid).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
   });
 
-  it("reports per-file errors in the JSON response", () => {
+  it("reports per-file errors in the JSON response", async () => {
     const dir = tmpDir();
     copyFixtures(dir, "valid-simple.workflow.yaml", "invalid-orphan.workflow.yaml");
-    expect(() => validate(dir)).toThrow("process.exit");
+    await expect(validate(dir)).rejects.toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(3);
     const result = stdoutJson() as {
       valid: boolean;
@@ -94,39 +94,39 @@ describe("CLI validate", () => {
     expect(result.errors.some((e) => e.file.includes("invalid-orphan"))).toBe(true);
   });
 
-  it("validates cross-graph subgraph references (success path)", () => {
+  it("validates cross-graph subgraph references (success path)", async () => {
     const dir = tmpDir();
     copyFixtures(dir, "parent-with-subgraph.workflow.yaml", "child-review.workflow.yaml");
-    expect(() => validate(dir)).toThrow("process.exit");
+    await expect(validate(dir)).rejects.toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  it("fails on broken cross-graph subgraph reference", () => {
+  it("fails on broken cross-graph subgraph reference", async () => {
     const dir = tmpDir();
     copyFixtures(dir, "parent-with-subgraph.workflow.yaml");
-    expect(() => validate(dir)).toThrow("process.exit");
+    await expect(validate(dir)).rejects.toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(3);
   });
 
-  it("accepts subgraph references to sealed memory:* workflows", () => {
+  it("accepts subgraph references to sealed memory:* workflows", async () => {
     const dir = tmpDir();
     copyFixtures(dir, "parent-with-sealed-subgraph.workflow.yaml");
-    expect(() => validate(dir)).toThrow("process.exit");
+    await expect(validate(dir)).rejects.toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  it("treats directory with non-graph files as empty", () => {
+  it("treats directory with non-graph files as empty", async () => {
     const dir = tmpDir();
     fs.writeFileSync(path.join(dir, "readme.txt"), "not a graph");
     fs.writeFileSync(path.join(dir, "data.yaml"), "id: test");
-    expect(() => validate(dir)).toThrow("process.exit");
+    await expect(validate(dir)).rejects.toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(3);
   });
 
-  it("JSON output includes graph metadata fields", () => {
+  it("JSON output includes graph metadata fields", async () => {
     const dir = tmpDir();
     copyFixtures(dir, "valid-simple.workflow.yaml");
-    expect(() => validate(dir)).toThrow("process.exit");
+    await expect(validate(dir)).rejects.toThrow("process.exit");
     expect(exitSpy).toHaveBeenCalledWith(0);
     const result = stdoutJson() as {
       graphs: Array<{ id: string; name: string; version: string; nodeCount: number }>;
@@ -161,36 +161,40 @@ nodes:
       fs.writeFileSync(path.join(dir, "source-test.workflow.yaml"), graphContent);
     }
 
-    it("passes when source hashes match", () => {
+    it("passes when source hashes match", async () => {
       const dir = tmpDir();
       const docContent = "# Doc\n\nContent here.\n";
       fs.writeFileSync(path.join(dir, "doc.md"), docContent);
       const correctHash = hashContent(docContent);
       writeGraphWithSources(dir, correctHash);
 
-      expect(() => validate(dir, { checkSources: true, basePath: dir })).toThrow("process.exit");
+      await expect(validate(dir, { checkSources: true, basePath: dir })).rejects.toThrow(
+        "process.exit",
+      );
       expect(exitSpy).toHaveBeenCalledWith(0);
     });
 
-    it("detects drift when source hash is wrong", () => {
+    it("detects drift when source hash is wrong", async () => {
       const dir = tmpDir();
       fs.writeFileSync(path.join(dir, "doc.md"), "# Doc\n");
       writeGraphWithSources(dir, "0000000000000000");
 
-      expect(() => validate(dir, { checkSources: true, basePath: dir })).toThrow("process.exit");
+      await expect(validate(dir, { checkSources: true, basePath: dir })).rejects.toThrow(
+        "process.exit",
+      );
       expect(exitSpy).toHaveBeenCalledWith(3);
       const result = stdoutJson() as { sourceDrift: unknown[] };
       expect(result.sourceDrift.length).toBeGreaterThan(0);
     });
 
-    it("--fix updates drifted hashes in-place", () => {
+    it("--fix updates drifted hashes in-place", async () => {
       const dir = tmpDir();
       const docContent = "# Doc\n\nFixed content.\n";
       fs.writeFileSync(path.join(dir, "doc.md"), docContent);
       const wrongHash = "0000000000000000";
       writeGraphWithSources(dir, wrongHash);
 
-      expect(() => validate(dir, { checkSources: true, fix: true, basePath: dir })).toThrow(
+      await expect(validate(dir, { checkSources: true, fix: true, basePath: dir })).rejects.toThrow(
         "process.exit",
       );
       expect(exitSpy).toHaveBeenCalledWith(0);
@@ -204,11 +208,11 @@ nodes:
       expect(result.fixed).toBeGreaterThan(0);
     });
 
-    it("--fix skips FILE_NOT_FOUND sources", () => {
+    it("--fix skips FILE_NOT_FOUND sources", async () => {
       const dir = tmpDir();
       writeGraphWithSources(dir, "0000000000000000");
 
-      expect(() => validate(dir, { checkSources: true, fix: true, basePath: dir })).toThrow(
+      await expect(validate(dir, { checkSources: true, fix: true, basePath: dir })).rejects.toThrow(
         "process.exit",
       );
       expect(exitSpy).toHaveBeenCalledWith(3);
@@ -216,12 +220,14 @@ nodes:
       expect(result.sourceDrift.length).toBeGreaterThan(0);
     });
 
-    it("reports drift in JSON output", () => {
+    it("reports drift in JSON output", async () => {
       const dir = tmpDir();
       fs.writeFileSync(path.join(dir, "doc.md"), "# Doc\n");
       writeGraphWithSources(dir, "0000000000000000");
 
-      expect(() => validate(dir, { checkSources: true, basePath: dir })).toThrow("process.exit");
+      await expect(validate(dir, { checkSources: true, basePath: dir })).rejects.toThrow(
+        "process.exit",
+      );
       const result = stdoutJson() as {
         valid: boolean;
         sourceDrift: Array<{ drifted: Array<{ expected: string; actual: string }> }>;
@@ -229,6 +235,99 @@ nodes:
       expect(result.valid).toBe(false);
       expect(result.sourceDrift[0].drifted[0].expected).toBe("0000000000000000");
       expect(result.sourceDrift[0].drifted[0].actual).toBeTruthy();
+    });
+  });
+
+  describe("hook-script import check", () => {
+    // File-existence of `./scripts/foo.js` is checked synchronously in
+    // `resolveGraphHooks` (loader path). The cases here exercise errors
+    // that can only be caught by actually importing the module — syntax
+    // errors, missing default export, non-function default. Without the
+    // eager check these would only surface at first hook invocation
+    // inside a live traversal.
+    function writeGraphWithHook(dir: string, scriptName: string): void {
+      const graphContent = `id: hook-validate
+version: "1.0.0"
+name: "Hook Validate"
+description: "Graph with a local hook script"
+startNode: start
+nodes:
+  start:
+    type: action
+    description: "Start"
+    onEnter:
+      - call: ./scripts/${scriptName}
+    edges:
+      - target: done
+        label: done
+  done:
+    type: terminal
+    description: "Done"
+`;
+      fs.writeFileSync(path.join(dir, "hook-validate.workflow.yaml"), graphContent);
+    }
+
+    it("passes with a syntactically-valid default-function-exporting script", async () => {
+      const dir = tmpDir();
+      fs.mkdirSync(path.join(dir, "scripts"));
+      fs.writeFileSync(
+        path.join(dir, "scripts", "ok.js"),
+        "export default async function () { return {}; }\n",
+      );
+      writeGraphWithHook(dir, "ok.js");
+
+      await expect(validate(dir)).rejects.toThrow("process.exit");
+      expect(exitSpy).toHaveBeenCalledWith(0);
+    });
+
+    it("reports syntax errors in hook scripts", async () => {
+      const dir = tmpDir();
+      fs.mkdirSync(path.join(dir, "scripts"));
+      // Unterminated string literal
+      fs.writeFileSync(path.join(dir, "scripts", "broken.js"), 'export default "\n');
+      writeGraphWithHook(dir, "broken.js");
+
+      await expect(validate(dir)).rejects.toThrow("process.exit");
+      expect(exitSpy).toHaveBeenCalledWith(3);
+      const result = stdoutJson() as {
+        valid: boolean;
+        errors: Array<{ file: string; message: string }>;
+      };
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.message.includes("Failed to import hook script"))).toBe(
+        true,
+      );
+    });
+
+    it("reports missing default export", async () => {
+      const dir = tmpDir();
+      fs.mkdirSync(path.join(dir, "scripts"));
+      fs.writeFileSync(
+        path.join(dir, "scripts", "nodefault.js"),
+        "export const notTheDefault = 1;\n",
+      );
+      writeGraphWithHook(dir, "nodefault.js");
+
+      await expect(validate(dir)).rejects.toThrow("process.exit");
+      expect(exitSpy).toHaveBeenCalledWith(3);
+      const result = stdoutJson() as { errors: Array<{ message: string }> };
+      expect(result.errors.some((e) => e.message.includes("must export a default function"))).toBe(
+        true,
+      );
+    });
+
+    it("reports non-function default export", async () => {
+      const dir = tmpDir();
+      fs.mkdirSync(path.join(dir, "scripts"));
+      fs.writeFileSync(path.join(dir, "scripts", "notfn.js"), "export default 42;\n");
+      writeGraphWithHook(dir, "notfn.js");
+
+      await expect(validate(dir)).rejects.toThrow("process.exit");
+      expect(exitSpy).toHaveBeenCalledWith(3);
+      const result = stdoutJson() as { errors: Array<{ message: string }> };
+      expect(result.errors.some((e) => e.message.includes("must export a default function"))).toBe(
+        true,
+      );
     });
   });
 });

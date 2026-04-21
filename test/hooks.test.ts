@@ -6,7 +6,8 @@ import { BUILTIN_HOOKS } from "../src/engine/builtin-hooks.js";
 import type { HookFn } from "../src/engine/hooks.js";
 import { HookRunner, resolveHookArgs } from "../src/engine/hooks.js";
 import { GraphEngine } from "../src/engine/index.js";
-import { resolveGraphHooks } from "../src/hook-resolution.js";
+import type { HookResolutionMap } from "../src/hook-resolution.js";
+import { resolveGraphHooks, validateHookImports } from "../src/hook-resolution.js";
 import { loadGraphs, loadSingleGraph } from "../src/loader.js";
 import type { ValidatedGraph } from "../src/types.js";
 
@@ -304,5 +305,70 @@ describe("hook runner — end-to-end via engine", () => {
     const graphs = loadGraphs(tmpDir);
     const engine = new GraphEngine(graphs, { hookRunner: makeRunner() });
     await expect(engine.start("bad-return")).rejects.toThrow(/must return a plain object/);
+  });
+});
+
+describe("validateHookImports — load-time eager check", () => {
+  // resolveGraphHooks already stats the script path; the cases here
+  // only materialize when the file exists but fails to import or
+  // exports the wrong thing. Runtime's lazy check still covers the
+  // same surface, but authors want the failure at validate time.
+
+  function stageScript(contents: string): { resolutions: HookResolutionMap } {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hook-validate-test-"));
+    fs.mkdirSync(path.join(tmpDir, "scripts"));
+    const abs = path.join(tmpDir, "scripts", "hook.js");
+    fs.writeFileSync(abs, contents);
+    const resolutions: HookResolutionMap = new Map([
+      ["start", [{ kind: "script", call: "./scripts/hook.js", absolutePath: abs }]],
+    ]);
+    return { resolutions };
+  }
+
+  it("returns no errors for a valid default-exporting script", async () => {
+    const { resolutions } = stageScript("export default async function () { return {}; }\n");
+    const errors = await validateHookImports(resolutions);
+    expect(errors).toEqual([]);
+  });
+
+  it("flags syntax errors as import failures", async () => {
+    // Unterminated string — parse fails during import()
+    const { resolutions } = stageScript('export default "\n');
+    const errors = await validateHookImports(resolutions);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toMatch(/Failed to import hook script/);
+    expect(errors[0].nodeId).toBe("start");
+    expect(errors[0].index).toBe(0);
+  });
+
+  it("flags missing default export", async () => {
+    const { resolutions } = stageScript("export const other = 1;\n");
+    const errors = await validateHookImports(resolutions);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toMatch(/must export a default function/);
+  });
+
+  it("flags non-function default exports", async () => {
+    const { resolutions } = stageScript("export default 42;\n");
+    const errors = await validateHookImports(resolutions);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toMatch(/must export a default function \(got number\)/);
+  });
+
+  it("ignores built-in resolutions", async () => {
+    const resolutions: HookResolutionMap = new Map([
+      ["start", [{ kind: "builtin", call: "memory_status", name: "memory_status" }]],
+    ]);
+    const errors = await validateHookImports(resolutions);
+    expect(errors).toEqual([]);
+  });
+
+  it("does NOT invoke the hook body (module-level side effects stay quiet)", async () => {
+    // If we called fn(), this would throw. The check is import-only.
+    const { resolutions } = stageScript(
+      "export default async function () { throw new Error('SHOULD-NOT-RUN'); }\n",
+    );
+    const errors = await validateHookImports(resolutions);
+    expect(errors).toEqual([]);
   });
 });

@@ -16,6 +16,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { BUILTIN_HOOK_NAMES } from "./engine/builtin-hooks.js";
 import type { GraphDefinition } from "./schema/graph-schema.js";
 
@@ -24,6 +25,14 @@ export type ResolvedHook =
   | { readonly kind: "script"; readonly call: string; readonly absolutePath: string };
 
 export type HookResolutionMap = ReadonlyMap<string, readonly ResolvedHook[]>;
+
+export interface HookImportError {
+  readonly nodeId: string;
+  readonly index: number;
+  readonly call: string;
+  readonly absolutePath: string;
+  readonly message: string;
+}
 
 /**
  * Walk every node's `onEnter` list and resolve each hook reference.
@@ -155,4 +164,59 @@ function resolveOneHook(call: string, graphDir: string): ResolvedHook | string {
   }
 
   return { kind: "script", call, absolutePath };
+}
+
+/**
+ * Attempt to import every script hook in `resolutions` and verify it
+ * exposes a default-exported function. Does NOT invoke the hook — we're
+ * only catching module-level syntax errors, missing dependencies, and
+ * obviously-wrong exports. Runtime-only failures (throws inside the
+ * hook body, argument misuse) still surface on first invocation.
+ *
+ * Returns one entry per broken script. An empty array means every
+ * script loaded cleanly. Node's import cache is keyed by URL, so a
+ * subsequent runtime call won't re-parse or re-execute — this pass is
+ * a cheap pre-flight, not a duplicate load.
+ *
+ * Kept async + off the sync `loadSingleGraph` path so graph loading
+ * stays synchronous. Callers that want fail-fast authoring feedback
+ * (CLI `validate`) invoke this explicitly after load.
+ */
+export async function validateHookImports(
+  resolutions: HookResolutionMap,
+): Promise<HookImportError[]> {
+  const errors: HookImportError[] = [];
+  for (const [nodeId, nodeResolutions] of resolutions) {
+    for (let i = 0; i < nodeResolutions.length; i++) {
+      const resolved = nodeResolutions[i];
+      if (resolved.kind !== "script") continue;
+
+      let mod: Record<string, unknown>;
+      try {
+        mod = (await import(pathToFileURL(resolved.absolutePath).href)) as Record<string, unknown>;
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        errors.push({
+          nodeId,
+          index: i,
+          call: resolved.call,
+          absolutePath: resolved.absolutePath,
+          message: `Failed to import hook script: ${message}`,
+        });
+        continue;
+      }
+
+      const fn = mod.default;
+      if (typeof fn !== "function") {
+        errors.push({
+          nodeId,
+          index: i,
+          call: resolved.call,
+          absolutePath: resolved.absolutePath,
+          message: `Hook script must export a default function (got ${typeof fn})`,
+        });
+      }
+    }
+  }
+  return errors;
 }
