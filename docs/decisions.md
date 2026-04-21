@@ -86,6 +86,23 @@ Two adjacent mitigations travel with the lazy open: (a) `PRAGMA busy_timeout = 5
 
 See issue [#138](https://github.com/duct-tape-and-markdown/freelance/issues/138).
 
+### Sealed memory workflows are runtime-injected freelance primitives
+
+`memory:compile` and `memory:recall` live in code (`src/memory/sealed.ts` + `src/memory/recollection.ts` + `src/memory/workflow.ts`) and are merged into the loaded graphs map at runtime via `mergeSealedGraphs`. Validate / visualize / sources_validate special-case their ids via `extraAvailableIds` so user workflows can reference them as subgraphs without seeing "unknown graph" errors at load time.
+
+This is deliberate, not an artifact. Sealed workflows are freelance-domain **primitives** the user composes *with*, not starter templates the user customizes. Shipping them as YAML in `.freelance/` would:
+
+- Invite divergent local edits that break the release-cycle guarantee — every freelance install on the same version emits identical memory teaching prose (atomicity rubric, entity guidance, warm-path edges).
+- Turn `freelance` upgrades into silent no-ops for users whose local sealed files have drifted.
+- Make community packs that reference `memory:compile` as a subgraph a gamble on whichever variant the installing user happens to be running. The marketplace case (#45) depends on sealed behavior being uniform across installs.
+- Expose the memory system's internal prose to casual modification, where subtle edits (the atomicity rubric's WRONG/RIGHT examples, the entity-reuse prose) degrade recall quality in ways that don't surface until much later.
+
+The `extraAvailableIds` allow-list is not a leak; it's the mechanism by which user workflows can legitimately reference a sealed subgraph without a local copy. The three special-cases in validate / visualize / sources_validate are the cost of maintaining the primitive/user boundary — a cost worth paying.
+
+**What would break if reversed:** shipping sealed as templates erases the sealed-vs-user distinction, makes sealed prose version-drift a silent failure mode, and requires a `freelance memory refresh-sealed` lifecycle verb whose only job is to un-break installs where the user edited sealed files without understanding the contract. The current injection is simpler than any template variant that preserves the invariant.
+
+See issue [#92](https://github.com/duct-tape-and-markdown/freelance/issues/92).
+
 ### Expression language stop-line: predicates, not computations
 
 `src/evaluator.ts` is a hand-rolled tokenizer plus recursive-descent parser — literals, `context.` property access, `&& || !`, `== != > < >= <=`, and a single built-in `len()`. Every request to extend it (add `startsWith`, add regex, add arithmetic, add array membership) has to answer the same question: what's the stop-line? Without one, the language ratchets outward one operator at a time until it's a general-purpose mini-language with its own tokenizer bugs and security surface. Three rules, in order:

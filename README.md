@@ -208,6 +208,8 @@ Subdirectories are scanned recursively. Later directories shadow earlier ones by
 freelance status --workflows ./my-workflows/
 ```
 
+**Source path resolution in cascades:** relative `sources:` paths in graphs resolve against the **parent of the first graphsDir only** — there is no per-dir source root. In a project + user cascade, a user-level workflow in `~/.freelance/` with `sources: ["docs/notes.md"]` resolves against the project root, not `~/`. User-level workflows with source bindings should use absolute paths or override per-invocation with `--source-root <path>`.
+
 ### `.freelance/` directory layout
 
 ```

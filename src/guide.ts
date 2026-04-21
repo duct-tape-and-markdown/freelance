@@ -251,6 +251,12 @@ returnMap:
 - Separation of concerns (keep each graph focused on one process)
 - Conditional workflows (only enter the subgraph when a condition is met)
 
+## History is session-scoped
+
+\`inspect --detail=history\` is scoped to the current traversal session. When a subgraph pops, the child session — its visited nodes, its context writes — is discarded. Only \`returnMap\` writes land on the parent's contextHistory. This is deliberate: the subgraph is an abstraction boundary, and \`returnMap\` is the explicit "what crosses back" contract. Agents reading parent history after a subgraph completes see the subgraph as a single nesting point, not a flattened trace of internals.
+
+If a workflow needs the subgraph's reasoning visible to the parent, model it through \`returnMap\` — map the relevant child context keys back explicitly.
+
 ## Tips
 
 - Subgraph nesting has a configurable depth limit (default: 5)

@@ -3,6 +3,17 @@
  * helpers used to merge them into a graphs map. The loader needs these
  * visible during cross-graph validation or user workflows that subgraph
  * into memory:* fail as "unknown graph" before runtime injection.
+ *
+ * Why injection instead of templates: sealed workflows are freelance-
+ * domain primitives, user-composable but not user-editable. Shipping
+ * them as YAML in `.freelance/` would invite divergent local edits,
+ * break the release-cycle guarantee that every freelance install on
+ * the same version emits the same memory teaching prose, and make a
+ * community pack that references `memory:compile` as a subgraph a
+ * gamble on whichever variant the installing user happens to be
+ * running. Injection is the mechanism that keeps the sealed/user
+ * boundary sharp. See docs/decisions.md §"Sealed memory workflows
+ * are runtime-injected freelance primitives".
  */
 
 import type { ValidatedGraph } from "../types.js";
