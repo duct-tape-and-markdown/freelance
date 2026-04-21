@@ -442,6 +442,55 @@ describe("MemoryStore", () => {
     });
   });
 
+  describe("resetAll", () => {
+    it("wipes propositions and entities together", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.emit([
+        { content: "Auth validates.", entities: ["Auth"], sources: ["a.ts"] },
+        { content: "DB stores.", entities: ["Database"], sources: ["a.ts"] },
+      ]);
+
+      const result = store.resetAll();
+      expect(result.deleted_propositions).toBe(2);
+      expect(result.deleted_entities).toBe(2);
+
+      const status = store.status();
+      expect(status.total_propositions).toBe(0);
+      expect(status.total_entities).toBe(0);
+    });
+
+    it("rolls back on failure — no partial-delete window", () => {
+      // Force the second DELETE to throw by stubbing exec; the first
+      // DELETE (propositions) must be rolled back so the store isn't
+      // left with stranded entity rows.
+      writeFile(tmpDir, "a.ts", "x");
+      store.emit([{ content: "Auth validates.", entities: ["Auth"], sources: ["a.ts"] }]);
+
+      const db = (store as unknown as { db: { exec: (sql: string) => void } }).db;
+      const origExec = db.exec.bind(db);
+      let seen = 0;
+      db.exec = (sql: string) => {
+        // Let BEGIN + first DELETE succeed; fail the second DELETE to
+        // exercise the rollback path. ROLLBACK itself must pass through.
+        if (sql.includes("DELETE FROM entities")) {
+          seen++;
+          throw new Error("simulated failure on second delete");
+        }
+        return origExec(sql);
+      };
+
+      expect(() => store.resetAll()).toThrow("simulated failure");
+      expect(seen).toBe(1);
+
+      // Restore before asserting so status() can run.
+      db.exec = origExec;
+
+      const status = store.status();
+      expect(status.total_propositions).toBe(1);
+      expect(status.total_entities).toBe(1);
+    });
+  });
+
   describe("cross-session knowledge", () => {
     it("accumulates knowledge across sessions", () => {
       writeFile(tmpDir, "auth.ts", "class Auth {}");
