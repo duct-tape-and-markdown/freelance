@@ -49,9 +49,9 @@ export const DEFAULT_CONTEXT_CAPS: ContextCaps = {
 };
 
 /**
- * Fill in a partial cap config with defaults. Lets callers (CLI / MCP
- * bootstrap) forward user config that may specify one cap, both, or
- * neither, and still produce a concrete `ContextCaps` for the runtime.
+ * Fill in a partial cap config with defaults. Lets the CLI bootstrap
+ * forward user config that may specify one cap, both, or neither, and
+ * still produce a concrete `ContextCaps` for the runtime.
  */
 export function resolveContextCaps(partial?: {
   maxValueBytes?: number;
@@ -196,7 +196,7 @@ export interface InspectHistoryOptions {
 
 /** Default page size for history arrays. Matches `memory_browse`'s default. */
 export const DEFAULT_HISTORY_LIMIT = 50;
-/** Hard upper bound on `limit`. Pairs with Zod `.max(200)` at the MCP boundary. */
+/** Hard upper bound on `limit` for history pagination. */
 export const MAX_HISTORY_LIMIT = 200;
 
 function resolveHistoryPagination(opts: InspectHistoryOptions): { limit: number; offset: number } {

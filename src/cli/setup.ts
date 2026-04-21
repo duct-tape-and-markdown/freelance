@@ -2,8 +2,7 @@
  * Shared CLI setup — graph loading and store creation.
  *
  * Single source of truth for the layout of `.freelance/`, memory and
- * traversal-state path resolution, and config-to-runtime wiring. Used
- * by both CLI commands and the MCP entry point in index.ts.
+ * traversal-state path resolution, and config-to-runtime wiring.
  */
 
 import fs from "node:fs";
@@ -171,9 +170,9 @@ export function loadGraphSetup(opts: CliSetupOptions): CliSetup {
 }
 
 /**
- * Build a CLI-facing runtime. Shares the composition root with the MCP
- * server, so hook wiring, memory-store lifecycle, and state backend
- * construction are identical between the two entry points.
+ * Build a CLI-facing runtime via `composeRuntime` — hook wiring,
+ * memory-store lifecycle, and state backend construction all flow
+ * through the shared composition root.
  */
 export function createTraversalStore(opts: CliSetupOptions): {
   store: TraversalStore;

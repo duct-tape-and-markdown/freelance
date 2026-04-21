@@ -11,6 +11,18 @@ Freelance is graph-based workflow enforcement for AI agents. The **workflow grap
 
 **Key idea:** the workflow is the teacher. Every `advance` response returns the new node's full teaching surface — `instructions`, `suggestedTools`, valid edges with descriptions, sources. Read the response, follow the instructions, pick the edge, advance. You don't need prior knowledge of any specific workflow.
 
+## First-time setup (if needed)
+
+If the project has no `.freelance/` directory yet, set it up before starting a traversal:
+
+```bash
+freelance init --client claude-code --scope project --yes     # default: blank starter, no hooks
+freelance init --client claude-code --scope project --hooks --yes     # with enforcement hooks
+freelance init --client claude-code --scope project --starter none --yes  # no starter template
+```
+
+Creates `.freelance/` with a starter workflow, scaffolds `config.yml`, appends a Freelance section to `CLAUDE.md`, and refreshes this skill in `.claude/skills/freelance/`. Idempotent — safe to re-run.
+
 ## Discover loaded workflows
 
 ```bash
