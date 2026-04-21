@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { openDatabase } from "../src/memory/db.js";
+import { openDatabase, retryOnSqliteBusy } from "../src/memory/db.js";
 import { MemoryStore } from "../src/memory/store.js";
 
 function createTempDir(): string {
@@ -1023,6 +1023,104 @@ describe("MemoryStore schema migration", () => {
       expect(cols.map((c) => c.name)).not.toContain("collection");
     } finally {
       second.close();
+    }
+  });
+});
+
+describe("MemoryStore lazy open (#138)", () => {
+  let tmpDir: string;
+  beforeEach(() => {
+    tmpDir = createTempDir();
+  });
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("does not invoke the db factory at construction", () => {
+    let opened = 0;
+    const store = new MemoryStore(() => {
+      opened++;
+      return openDatabase(path.join(tmpDir, "memory.db"));
+    }, tmpDir);
+    expect(opened).toBe(0);
+    // Confirm a cleanup without any method call is a pure no-op — no
+    // CLI verb that avoided touching memory should ever accidentally
+    // force the open via close() in a finally block.
+    store.close();
+    expect(opened).toBe(0);
+  });
+
+  it("opens on first memory access and reuses the handle", () => {
+    let opened = 0;
+    const store = new MemoryStore(() => {
+      opened++;
+      return openDatabase(path.join(tmpDir, "memory.db"));
+    }, tmpDir);
+    store.status();
+    expect(opened).toBe(1);
+    store.status();
+    expect(opened).toBe(1);
+    store.close();
+  });
+});
+
+describe("retryOnSqliteBusy (#138)", () => {
+  function busyError(): Error {
+    const e = new Error("database is locked");
+    (e as { code?: string }).code = "ERR_SQLITE_ERROR";
+    return e;
+  }
+
+  it("returns the first successful attempt", () => {
+    let calls = 0;
+    const result = retryOnSqliteBusy(() => {
+      calls++;
+      return "ok";
+    }, "test");
+    expect(result).toBe("ok");
+    expect(calls).toBe(1);
+  });
+
+  it("retries through up to 3 busy errors then succeeds", () => {
+    let calls = 0;
+    const result = retryOnSqliteBusy(() => {
+      calls++;
+      if (calls <= 3) throw busyError();
+      return "ok";
+    }, "test");
+    expect(result).toBe("ok");
+    expect(calls).toBe(4);
+  });
+
+  it("throws EngineError DATABASE_BUSY after all retries exhaust", () => {
+    let calls = 0;
+    try {
+      retryOnSqliteBusy(() => {
+        calls++;
+        throw busyError();
+      }, "/tmp/x");
+      expect.fail("expected DATABASE_BUSY to throw");
+    } catch (e) {
+      expect(calls).toBe(4);
+      expect(e).toMatchObject({
+        code: "DATABASE_BUSY",
+        message: expect.stringContaining("/tmp/x"),
+      });
+    }
+  });
+
+  it("re-throws non-busy errors immediately without retry", () => {
+    let calls = 0;
+    const other = new Error("unrelated");
+    try {
+      retryOnSqliteBusy(() => {
+        calls++;
+        throw other;
+      }, "test");
+      expect.fail("expected throw");
+    } catch (e) {
+      expect(calls).toBe(1);
+      expect(e).toBe(other);
     }
   });
 });

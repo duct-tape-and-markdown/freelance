@@ -95,17 +95,26 @@ function hashPropContent(content: string): string {
 }
 
 export class MemoryStore {
-  private db: Db;
+  private _db: Db | undefined;
+  private readonly dbFactory: () => Db;
   private sourceRoot: string;
   private closed = false;
 
-  // Takes an already-opened Db handle. Opening the database (PRAGMA +
-  // DDL + schema check) is a composition-root concern and lives in
-  // src/compose.ts — keeps this constructor pure and makes the class
-  // trivially testable with an in-process db handle.
-  constructor(db: Db, sourceRoot: string) {
-    this.db = db;
+  // Thunk form opens lazily on first `db` access. See
+  // `docs/decisions.md` § "Memory database opens lazily on first access".
+  constructor(db: Db | (() => Db), sourceRoot: string) {
+    if (typeof db === "function") {
+      this.dbFactory = db;
+    } else {
+      this._db = db;
+      this.dbFactory = () => db;
+    }
     this.sourceRoot = sourceRoot;
+  }
+
+  private get db(): Db {
+    if (!this._db) this._db = this.dbFactory();
+    return this._db;
   }
 
   // Thin delegation to the standalone `prune` function. The prune
@@ -126,7 +135,10 @@ export class MemoryStore {
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    this.db.close();
+    // Only close if we actually opened. Close on a never-used lazy store
+    // must be a no-op — otherwise a harmless `status` invocation would
+    // trigger the open it was designed to avoid.
+    if (this._db) this._db.close();
   }
 
   resetAll(): { deleted_propositions: number; deleted_entities: number } {

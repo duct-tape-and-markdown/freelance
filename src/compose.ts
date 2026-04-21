@@ -23,14 +23,10 @@ import type { SectionResolver, SourceOptions } from "./sources.js";
 import { openStateStore, TraversalStore } from "./state/index.js";
 import type { LoadError, ValidatedGraph } from "./types.js";
 
-/**
- * Build a MemoryStore from a MemoryConfig. Shared by `composeRuntime`
- * and the CLI's `createMemoryStore` helper so the "open the db, build
- * the store" sequence has exactly one site — if we ever add migration
- * or schema-version checks, this is where they go.
- */
+// Thunk form: defers the SQLite open until first memory access. See
+// `docs/decisions.md` § "Memory database opens lazily on first access".
 export function buildMemoryStore(memConfig: MemoryConfig, sourceRoot: string): MemoryStore {
-  return new MemoryStore(openDatabase(memConfig.db), sourceRoot);
+  return new MemoryStore(() => openDatabase(memConfig.db), sourceRoot);
 }
 
 export interface ComposeConfig {
