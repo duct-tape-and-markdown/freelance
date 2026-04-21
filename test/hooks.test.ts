@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { BUILTIN_HOOKS } from "../src/engine/builtin-hooks.js";
 import type { HookFn } from "../src/engine/hooks.js";
 import { HookRunner, resolveHookArgs } from "../src/engine/hooks.js";
@@ -139,6 +139,58 @@ describe("hook resolution — loader", () => {
       },
     };
     expect(() => resolveGraphHooks(def, "/tmp/bad.workflow.yaml")).toThrow(/must be relative/);
+  });
+
+  describe("FREELANCE_HOOKS_ALLOW_SCRIPTS opt-in hardening", () => {
+    // Env var is read on every resolution call — not cached — so we can
+    // flip it per-test without restart. Restore after each case so later
+    // suites that rely on the default (allowed) don't see stale state.
+    const originalEnv = process.env.FREELANCE_HOOKS_ALLOW_SCRIPTS;
+    afterEach(() => {
+      if (originalEnv === undefined) delete process.env.FREELANCE_HOOKS_ALLOW_SCRIPTS;
+      else process.env.FREELANCE_HOOKS_ALLOW_SCRIPTS = originalEnv;
+    });
+
+    it("rejects script hooks when set to 0", () => {
+      process.env.FREELANCE_HOOKS_ALLOW_SCRIPTS = "0";
+      expect(() => stageFixture("hook-simple.workflow.yaml", ["set-count.js"])).toThrow(
+        /FREELANCE_HOOKS_ALLOW_SCRIPTS is disabled/,
+      );
+    });
+
+    it.each(["false", "no", "FALSE", "No"])("rejects script hooks when set to %s", (value) => {
+      process.env.FREELANCE_HOOKS_ALLOW_SCRIPTS = value;
+      expect(() => stageFixture("hook-simple.workflow.yaml", ["set-count.js"])).toThrow(
+        /FREELANCE_HOOKS_ALLOW_SCRIPTS is disabled/,
+      );
+    });
+
+    it("still resolves built-in hooks when scripts are disabled", () => {
+      process.env.FREELANCE_HOOKS_ALLOW_SCRIPTS = "0";
+      const def = {
+        id: "ok",
+        version: "1.0.0",
+        name: "ok",
+        description: "",
+        startNode: "start",
+        nodes: {
+          start: {
+            type: "action" as const,
+            description: "",
+            onEnter: [{ call: "memory_status" }],
+            edges: [{ target: "done", label: "next" }],
+          },
+          done: { type: "terminal" as const, description: "" },
+        },
+      };
+      expect(() => resolveGraphHooks(def, "/tmp/ok.workflow.yaml")).not.toThrow();
+    });
+
+    it.each(["1", "true", "yes", "", undefined])("allows scripts when env is %s", (value) => {
+      if (value === undefined) delete process.env.FREELANCE_HOOKS_ALLOW_SCRIPTS;
+      else process.env.FREELANCE_HOOKS_ALLOW_SCRIPTS = value;
+      expect(() => stageFixture("hook-simple.workflow.yaml", ["set-count.js"])).not.toThrow();
+    });
   });
 });
 

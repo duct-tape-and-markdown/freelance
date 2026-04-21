@@ -56,3 +56,22 @@ Freelance config (`.freelance/config.yml`, `.freelance/config.local.yml`) is rea
 Historical note (closed by #121 and #90): an MCP-server era `onConfigChange` handler in `src/server.ts` logged `"Freelance: config reloaded"` on `config.yml` / `config.local.yml` edits but never re-threaded the new values into the live `HookRunner` or `GraphEngine` — edits looked like they applied and didn't. #91 called that out. The handler was deleted with the MCP server (#121); the watcher that would have invoked it was deleted with #90. A future re-introduction of any long-running surface must either (a) plumb the new config through every downstream that consumed it (hook timeouts, maxDepth, memory dir — with the caveat that some fields can't hot-swap, e.g. memory db path reopening) or (b) log `"Freelance: config changed on disk — restart to apply"` and leave the mutation out. Silent reload-without-apply is the specific trap to avoid.
 
 See issue [#91](https://github.com/duct-tape-and-markdown/freelance/issues/91).
+
+### Hook trust model: built-ins curated, script hooks full-privilege, sandbox deferred
+
+`onEnter` hooks have two tiers with deliberately different trust postures:
+
+- **Built-in hooks** (`src/engine/builtin-hooks.ts`) are part of the package surface. They run against a narrow read interface over memory (`HookMemoryAccess`) plus an explicit meta collector — not the whole `MemoryStore` — so a built-in can't reach write methods, the SQLite handle, or process globals. They're reviewed at every release.
+- **Local script hooks** (`./scripts/foo.js`) are user code loaded via `import()` into the same Node process. They get filesystem, network, subprocess, and environment at full privilege. The 5-second `hooks.timeoutMs` only bounds the promise race; side effects initiated before the timeout still run to completion.
+
+This asymmetry is intentional. Collapsing the tiers either way is worse: sandboxing built-ins adds indirection with no security win (they're curated), and sandboxing user scripts requires real isolation (`isolated-vm`, subprocess with `--permission`, or a WASM runtime) — that's architecture work, not a patch, and doesn't fit in a P2 issue.
+
+What ships today is the assertion surface, not the sandbox:
+
+- `FREELANCE_HOOKS_ALLOW_SCRIPTS=0` at the environment makes `resolveGraphHooks` reject every `kind: "script"` entry at graph load with a clear error. Operators that can't vet every contributed workflow (shared graph registry, multi-agent marketplace scenarios from #45) set the flag and get a built-ins-only runtime. Default is allowed — the flag is an opt-in to stricter handling, not a default-deny, because the dominant single-user case is a trusted repo.
+- The README's "Trust model for hook scripts" paragraph names the line explicitly so a graph author can't claim they didn't know.
+- A real sandbox (isolate scripts in a subprocess or VM with no ambient authority) is the right answer for the marketplace scenario. Tracking as a milestone feature, not a patch on this PR.
+
+**What would break if reversed:** Making user scripts sandboxed-by-default would require picking a sandbox technology now — each option has real tradeoffs (vm2 is unmaintained, isolated-vm is a native dep, subprocess adds IPC overhead to every hook) and picking wrong is worse than the honest "no sandbox, don't load untrusted graphs" stance.
+
+See issue [#89](https://github.com/duct-tape-and-markdown/freelance/issues/89).
