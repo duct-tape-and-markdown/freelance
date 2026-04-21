@@ -38,3 +38,13 @@ Motivation: MCP was duplicate plumbing. Every tool handler wrapped an engine met
 A minimal Desktop fallback surface was considered in #99 Phase 3 and declined. Claude Desktop is the only non-shell client in the realistic audience, and the maintenance burden of even a 4-tool subset didn't earn its keep against measurable Desktop usage. If usage data later argues otherwise, the right move is a fresh minimal-surface fallback, not a restoration of the full 21-tool surface.
 
 See issue [#116](https://github.com/duct-tape-and-markdown/freelance/issues/116).
+
+### Graph hot-reload is not a runtime concept
+
+Post-MCP-removal, Freelance has no long-running server process — every CLI invocation loads graphs fresh from disk and exits. There is no in-flight "reload" to reconcile against active traversals. `src/watcher.ts` (the `watchGraphs` primitive that debounced file-system events and called `manager.updateGraphs`) was deleted alongside this decision; its only caller was the MCP server, and it left a sharp edge without one: a re-wire would silently invalidate active traversals whose `graphId` disappeared, throwing `GRAPH_NOT_FOUND` at the next advance (the failure mode #90 describes).
+
+The residual concern the issue captures — a user starts a traversal, edits/renames the graph, runs the next verb — still exists, but at CLI-invocation boundaries. The current behavior there is already fail-loud: `GRAPH_NOT_FOUND` on the next `advance` or `inspect`. Improving that UX (surfacing orphaned traversals on `status`, adding actionable error messages, optionally migrating by nearest-matching id) is a separate design question that belongs on its own issue if and when observed pain warrants it.
+
+**What would break if reversed:** reintroducing a watcher without an explicit orphan-handling policy re-opens #90. Any future hot-reload surface must decide up front whether it (a) refuses to reload when active traversals reference the departing graph, (b) marks orphans but continues serving, or (c) auto-resets orphans loudly.
+
+See issue [#90](https://github.com/duct-tape-and-markdown/freelance/issues/90).
