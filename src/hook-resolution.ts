@@ -20,6 +20,26 @@ import { pathToFileURL } from "node:url";
 import { BUILTIN_HOOK_NAMES } from "./engine/builtin-hooks.js";
 import type { GraphDefinition } from "./schema/graph-schema.js";
 
+/**
+ * Trust gate for user-authored script hooks. Read from the environment
+ * on every resolution call (not cached) so tests and operators can flip
+ * the flag without restarting the host.
+ *
+ * Scripts run with full Node privileges in the host process — see
+ * README.md "Trust model for hook scripts" and the decision entry in
+ * `docs/decisions.md`. A deployment that can't vet every workflow
+ * (shared graph registry, untrusted contributors) sets
+ * `FREELANCE_HOOKS_ALLOW_SCRIPTS=0` and gets a built-ins-only runtime.
+ *
+ * Defaults to allowed; the flag is an opt-in to stricter handling, not
+ * a default-deny.
+ */
+function scriptsAllowed(): boolean {
+  const raw = process.env.FREELANCE_HOOKS_ALLOW_SCRIPTS?.trim().toLowerCase();
+  if (raw === undefined || raw === "") return true;
+  return raw !== "0" && raw !== "false" && raw !== "no";
+}
+
 export type ResolvedHook =
   | { readonly kind: "builtin"; readonly call: string; readonly name: string }
   | { readonly kind: "script"; readonly call: string; readonly absolutePath: string };
@@ -149,6 +169,13 @@ function resolveOneHook(call: string, graphDir: string): ResolvedHook | string {
     return (
       `script path "${call}" must be relative (start with "./" or "../"). ` +
       `Absolute paths are rejected to keep graphs portable.`
+    );
+  }
+
+  if (!scriptsAllowed()) {
+    return (
+      `script hook "${call}" rejected: FREELANCE_HOOKS_ALLOW_SCRIPTS is disabled. ` +
+      `This deployment runs built-in hooks only. Remove the hook or unset the env var.`
     );
   }
 

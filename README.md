@@ -76,7 +76,12 @@ nodes:
 
 **onEnter hooks** — Any node can declare `onEnter: [{ call, args }]` hooks that run before the agent sees the node. `call` resolves to either a built-in hook (`memory_status`, `memory_browse`) or a local script path (`./scripts/fetch-context.js`). Hooks receive resolved args, live context, and the memory store, and return a plain object of context updates. Strict-context enforcement still applies. Per-hook timeout defaults to 5000ms, configurable via `hooks.timeoutMs` in `config.yml`.
 
-> **Trust model for hook scripts.** Local script hooks execute with full Node privileges in the host process on graph load and node arrival — treat a workflow file that references a local script like a `package.json` scripts block: trust it at the same level you trust the rest of the repo. Do not load workflow graphs from untrusted sources.
+> **Trust model for hook scripts.** Hook execution sits on an explicit line between two tiers:
+>
+> - **Built-in hooks** (`memory_status`, `memory_browse`, `meta_set`, …) are curated and ship inside the package. They run against a narrow read interface over memory + a meta collector. Always safe to reference.
+> - **Local script hooks** (`./scripts/foo.js`) execute with full Node privileges in the host process — same filesystem, same network, same subprocess spawn, same env vars. There is no sandbox. Treat a workflow file that references a local script like a `package.json` scripts block: trust it at the same level you trust the rest of the repo. Do not load workflow graphs from untrusted sources.
+>
+> A deployment that can't vet every workflow (shared graph registry, untrusted contributors) can set `FREELANCE_HOOKS_ALLOW_SCRIPTS=0` in the environment; graph load then rejects any `onEnter` entry that points at a local script, leaving built-ins as the only runnable hook surface. Unset or set to any other value means scripts are allowed (default). See `docs/decisions.md` for the architectural rationale and the sandboxing milestone.
 
 ## Memory
 
