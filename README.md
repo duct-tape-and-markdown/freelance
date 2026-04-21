@@ -74,7 +74,7 @@ nodes:
 
 **Expression evaluator** — Edge conditions and validations use a safe expression language (`context.x == 'value'`, `context.count > 0`, boolean operators, nested property access). Validated at load time, evaluated at runtime.
 
-**onEnter hooks** — Any node can declare `onEnter: [{ call, args }]` hooks that run before the agent sees the node. `call` resolves to either a built-in hook (`memory_status`, `memory_browse`) or a local script path (`./scripts/fetch-context.js`). Hooks receive resolved args, live context, and the memory store, and return a plain object of context updates. Strict-context enforcement still applies. Per-hook timeout defaults to 5000ms, configurable via `hooks.timeoutMs` in `config.yml`.
+**onEnter hooks** — Any node can declare `onEnter: [{ call, args }]` hooks that run before the agent sees the node. `call` resolves to either a built-in hook (`memory_status`, `memory_browse`) or a local script path (`./scripts/fetch-context.js`). Hooks receive resolved args, live context, and the memory store, and return a plain object of context updates. Strict-context enforcement still applies. Per-hook timeout defaults to 5000ms, configurable via `hooks.timeoutMs` in `config.yml`. Script hooks are validated at `freelance validate` time (eager import) — syntax errors, missing deps, and non-function default exports surface before the first traversal hits the node.
 
 > **Trust model for hook scripts.** Hook execution sits on an explicit line between two tiers:
 >
@@ -105,8 +105,6 @@ Memory is **enabled by default** with zero configuration. The database is stored
 
 To customize, add memory settings to your `.freelance/config.yml` (see [Configuration](#configuration-1) below).
 
-**Collections** partition propositions into named buckets. All read tools accept an optional `--collection` filter. Propositions are deduplicated within a collection — the same claim can exist in multiple collections.
-
 Two sealed workflows are auto-injected: `memory:compile` (read sources, emit propositions, evaluate coverage) and `memory:recall` (recall, source, compare, fill delta, evaluate). These can be referenced as subgraphs in your own workflows.
 
 ### Memory CLI verbs
@@ -122,10 +120,10 @@ Read (available anytime):
 
 | Command | Description |
 |---------|-------------|
-| `freelance memory browse` | Find entities by name or kind |
-| `freelance memory inspect <entity>` | Full entity details with propositions, neighbors, and deduped source files |
-| `freelance memory by-source <file>` | All propositions derived from a specific source file |
-| `freelance memory related <entity>` | Entity graph navigation — co-occurring entities with connection strength |
+| `freelance memory browse` | Find entities by name or kind (paginated via `--limit`/`--offset`) |
+| `freelance memory inspect <entity>` | Full entity details with propositions, neighbors, and deduped source files. Paginates via `--limit`/`--offset`; `--shape minimal\|full` (default `full`) trims per-proposition source details when size matters |
+| `freelance memory by-source <file>` | All propositions derived from a specific source file (paginated via `--limit`/`--offset`) |
+| `freelance memory related <entity>` | Entity graph navigation — co-occurring entities with connection strength (paginated via `--limit`/`--offset`) |
 | `freelance memory search <query>` | Full-text search across proposition content (FTS5) |
 | `freelance memory status` | Knowledge graph health: total, valid, stale counts |
 
@@ -135,10 +133,10 @@ Read (available anytime):
 |---------|-------------|
 | `freelance status` | Discover available workflow graphs and active traversals (each with any `meta` tags) |
 | `freelance start <graphId>` | Begin traversing a graph (optional opaque `--meta key=value` tags for later lookup) |
-| `freelance advance <edge>` | Move to the next node via a labeled edge |
-| `freelance context set <key=value>...` | Update session context without advancing |
+| `freelance advance <edge>` | Move to the next node via a labeled edge. `--minimal` drops the full-context echo + `node` blob and returns `contextDelta` (keys written this turn) for lean hot-path responses |
+| `freelance context set <key=value>...` | Update session context without advancing. `--minimal` returns `contextDelta` only |
 | `freelance meta set <key=value>...` | Merge opaque `meta` tags onto a traversal (add or overwrite) |
-| `freelance inspect [id]` | Read-only introspection (`--detail position` or `--detail history`); includes `meta` tags |
+| `freelance inspect [id]` | Read-only introspection (`--detail position` or `--detail history`); includes `meta` tags. `--minimal` strips the `node` blob on position detail |
 | `freelance reset --confirm` | Clear traversal and start over |
 | `freelance guide [topic]` | Authoring guidance for writing graphs |
 | `freelance distill --mode distill\|refine` | Distill a task into a new workflow, or refine an existing one |
@@ -163,7 +161,6 @@ General precedence: **CLI flags > env vars > config.local.yml > config.yml > def
 | `workflows` | `--workflows` (repeatable) | `FREELANCE_WORKFLOWS` | ✓ (array, concatenates across files) | User/project dirs cascade automatically |
 | `memory.enabled` | `--memory` / `--no-memory` | — | ✓ | CLI flag always wins |
 | `memory.dir` | `--memory-dir` | — | ✓ | Default: `.freelance/memory/` |
-| `memory.collections` | — | — | ✓ (concatenates) | Must be declared before emit |
 | `maxDepth` | `--max-depth` | — | ✓ | Default: `5` |
 | `hooks.timeoutMs` | — | — | ✓ | Config-only. Default: `5000` |
 | `context.maxValueBytes` | — | — | ✓ | Per-value cap on context writes. Default: `4096` (4 KB) |
@@ -178,13 +175,6 @@ workflows:                          # Additional workflow directories
 memory:
   enabled: true                     # Default: true. Set false to disable.
   dir: /path/to/persistent/dir      # Override memory.db location (default: .freelance/memory/)
-  collections:                      # Partition propositions into named buckets
-    - name: default
-      description: General project knowledge
-      paths: [""]
-    - name: spec
-      description: Feature specifications
-      paths: ["docs/", "specs/"]
 
 maxDepth: 5                         # Max subgraph nesting depth. CLI --max-depth overrides.
 
@@ -198,7 +188,7 @@ context:
 
 Over-cap writes are rejected with `CONTEXT_VALUE_TOO_LARGE` or `CONTEXT_TOTAL_TOO_LARGE` errors at the `freelance context set`, `freelance advance --context …`, and onEnter-hook return boundaries, so a runaway hook or context write never persists.
 
-Merge rules: arrays (`workflows`, `collections`) concatenate across files. Scalars use highest-precedence value.
+Merge rules: arrays (`workflows`) concatenate across files. Scalars use highest-precedence value.
 
 Use `freelance config show` to see the resolved configuration and which files contributed.
 
@@ -289,10 +279,10 @@ freelance visualize <file>                # Render graph as Mermaid or DOT
 # Traversals
 freelance status [--filter key=value ...]           # Show loaded graphs and active traversals (with meta); --filter narrows by meta
 freelance start <graphId> [--meta key=value ...]    # Begin a workflow traversal, optionally tagged
-freelance advance [edge]                            # Move to next node via edge label
-freelance context set <key=value...>                # Update traversal context
+freelance advance [edge] [--minimal]                # Move to next node via edge label; --minimal for lean response
+freelance context set <key=value...> [--minimal]    # Update traversal context; --minimal for lean response
 freelance meta set <key=value...>                   # Merge meta tags (add or overwrite)
-freelance inspect [traversalId]                     # Read-only introspection (includes meta)
+freelance inspect [traversalId] [--minimal]         # Read-only introspection (includes meta); --minimal trims node blob
 freelance reset [traversalId] --confirm             # Clear a traversal
 
 # Memory
@@ -302,7 +292,6 @@ freelance memory inspect <entity>         # Full entity details
 freelance memory search <query>           # Full-text search
 freelance memory related <entity>         # Co-occurring entities
 freelance memory by-source <file>         # Propositions from a source file
-freelance memory register <file>          # Hash a file (stateless echo)
 freelance memory emit <file>              # Write propositions from JSON
 
 # Graph tools
