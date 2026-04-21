@@ -155,7 +155,7 @@ describe("program commands", () => {
 
   it("preAction hook sets CLI state", async () => {
     const { validate } = await import("../src/cli/validate.js");
-    await program.parseAsync(["node", "freelance", "--json", "--quiet", "validate", "/tmp"]);
+    await program.parseAsync(["node", "freelance", "--quiet", "validate", "/tmp"]);
     expect(validate).toHaveBeenCalled();
   });
 

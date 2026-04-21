@@ -1,64 +1,30 @@
 /**
- * CLI handlers for `freelance config` subcommands.
+ * CLI handlers for `freelance config` subcommands — JSON-only.
  *
- * - config show     — display resolved configuration with sources
+ * Per docs/decisions.md § "CLI is the execution surface for agents",
+ * every CLI verb is agent-driven. These handlers emit structured JSON
+ * to stdout and use semantic exit codes. Warnings (e.g. overwrite of
+ * an existing memory.dir) still go to stderr as breadcrumbs.
+ *
+ * - config show      — display resolved configuration with sources
  * - config set-local — modify config.local.yml (used by plugin hooks)
  */
 
 import path from "node:path";
 import { loadConfig, loadConfigFromDirs, updateLocalConfig } from "../config.js";
 import { resolveGraphsDirs } from "../graph-resolution.js";
-import { cli, EXIT, fatal, info, outputJson } from "./output.js";
+import { EXIT, fatal, outputJson } from "./output.js";
 
 // --- config show ---
 
 export function configShow(opts: { workflows?: string | string[] }): void {
   const dirs = resolveGraphsDirs(opts.workflows);
   if (dirs.length === 0) {
-    if (cli.json) {
-      outputJson({ workflows: [], memory: {}, sources: [], graphsDirs: [] });
-    } else {
-      info("No configuration found.");
-      info("Run `freelance init` or specify --workflows.");
-    }
+    outputJson({ workflows: [], memory: {}, sources: [], graphsDirs: [] });
     return;
   }
-
   const config = loadConfigFromDirs(dirs);
-
-  if (cli.json) {
-    outputJson({ ...config, graphsDirs: dirs });
-    return;
-  }
-
-  info("Resolved configuration:\n");
-
-  info("  Graph directories:");
-  for (const d of dirs) {
-    info(`    - ${d}`);
-  }
-
-  if (config.workflows.length) {
-    info("\n  Additional workflows (from config):");
-    for (const w of config.workflows) {
-      info(`    - ${w}`);
-    }
-  }
-
-  info(`\n  Memory:`);
-  info(`    enabled: ${config.memory.enabled ?? "true (default)"}`);
-  if (config.memory.dir) {
-    info(`    dir: ${config.memory.dir}`);
-  }
-  if (config.memory.prune?.keep?.length) {
-    info(`    prune.keep: ${config.memory.prune.keep.join(", ")}`);
-  }
-  if (config.sources.length) {
-    info(`\n  Loaded from:`);
-    for (const s of config.sources) {
-      info(`    - ${s}`);
-    }
-  }
+  outputJson({ ...config, graphsDirs: dirs });
 }
 
 // --- config set-local ---
@@ -72,7 +38,11 @@ export function configSetLocal(
 ): void {
   const dirs = resolveGraphsDirs(opts.workflows);
   if (dirs.length === 0) {
-    fatal("No .freelance directory found. Run `freelance init` first.", EXIT.INVALID_USAGE);
+    fatal(
+      "No .freelance directory found. Run `freelance init` first.",
+      EXIT.INVALID_INPUT,
+      "NO_FREELANCE_DIR",
+    );
   }
 
   const freelanceDir = dirs[0];
@@ -84,7 +54,6 @@ export function configSetLocal(
       if (existing.includes(resolved)) return config; // idempotent
       return { ...config, workflows: [...existing, resolved] };
     });
-    info(`Added workflow directory: ${resolved}`);
   } else if (key === "memory.dir") {
     const resolved = path.resolve(value);
     updateLocalConfig(freelanceDir, (config) => {
@@ -96,22 +65,25 @@ export function configSetLocal(
       }
       return { ...config, memory: { ...config.memory, dir: resolved } };
     });
-    info(`Set memory.dir: ${resolved}`);
   } else if (key === "memory.enabled") {
     if (value !== "true" && value !== "false") {
-      fatal(`memory.enabled must be "true" or "false", got "${value}"`, EXIT.INVALID_USAGE);
+      fatal(
+        `memory.enabled must be "true" or "false", got "${value}"`,
+        EXIT.INVALID_INPUT,
+        "INVALID_CONFIG_VALUE",
+      );
     }
     const enabled = value === "true";
     updateLocalConfig(freelanceDir, (config) => {
       return { ...config, memory: { ...config.memory, enabled } };
     });
-    info(`Set memory.enabled: ${enabled}`);
   } else {
-    fatal(`Unknown config key: ${key}. Supported: ${SETTABLE_KEYS.join(", ")}`, EXIT.INVALID_USAGE);
+    fatal(
+      `Unknown config key: ${key}. Supported: ${SETTABLE_KEYS.join(", ")}`,
+      EXIT.INVALID_INPUT,
+      "UNKNOWN_CONFIG_KEY",
+    );
   }
 
-  if (cli.json) {
-    const config = loadConfig(freelanceDir);
-    outputJson(config);
-  }
+  outputJson(loadConfig(freelanceDir));
 }

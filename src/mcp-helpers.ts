@@ -23,15 +23,17 @@ export function errorResponse(message: string, detail?: unknown) {
  * domain errors meant for the agent; anything else is prefixed
  * "Internal error:" so users can tell a bug from a usage issue.
  *
- * When the thrown error is an EngineError, the response payload
- * includes its `code` alongside `error` so callers can branch on the
- * machine-readable code (e.g. CONTEXT_VALUE_TOO_LARGE) rather than
- * string-matching the message.
+ * The response payload uses the canonical error shape
+ *   { isError: true, error: { code, message } }
+ * shared with the CLI's `outputError` (see `src/cli/output.ts`) so a
+ * skill consuming either surface branches on the same structure.
  */
 export function handleError(e: unknown) {
   if (e instanceof EngineError) {
-    return errorResponse(e.message, { error: e.message, code: e.code });
+    return errorResponse(e.message, { error: { code: e.code, message: e.message } });
   }
   const message = e instanceof Error ? e.message : String(e);
-  return errorResponse(`Internal error: ${message}`);
+  return errorResponse(`Internal error: ${message}`, {
+    error: { code: "INTERNAL", message: `Internal error: ${message}` },
+  });
 }

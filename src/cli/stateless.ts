@@ -1,7 +1,10 @@
 /**
- * CLI handlers for stateless commands (graph files only, no store needed).
+ * CLI handlers for stateless commands — JSON-only.
  *
- * guide, distill, sources — these operate on graph definitions and source files.
+ * guide, distill, sources — these operate on graph definitions and
+ * source files without needing a TraversalStore. Per docs/decisions.md
+ * § "CLI is the execution surface for agents", every handler emits
+ * structured JSON to stdout.
  */
 
 import { getDistillPrompt } from "../distill.js";
@@ -14,38 +17,19 @@ import {
   hashSources,
   validateGraphSources,
 } from "../sources.js";
-import { cli, info, outputJson } from "./output.js";
-
-function handleError(e: unknown): never {
-  const message = e instanceof Error ? e.message : String(e);
-  if (cli.json) {
-    outputJson({ error: message });
-  } else {
-    info(`Error: ${message}`);
-  }
-  process.exit(1);
-}
+import { EXIT, fatal, handleRuntimeError as handleError, outputJson } from "./output.js";
 
 export function guideShow(topic?: string): void {
   const result = getGuide(topic);
-  if (cli.json) {
-    outputJson(result);
-  } else if ("error" in result) {
-    info(result.error);
-    process.exit(1);
-  } else {
-    info(result.content);
+  if ("error" in result) {
+    fatal(result.error, EXIT.NOT_FOUND, "TOPIC_NOT_FOUND");
   }
+  outputJson(result);
 }
 
 export function distillRun(opts?: { mode?: string }): void {
   const mode = (opts?.mode === "refine" ? "refine" : "distill") as "distill" | "refine";
-  const result = getDistillPrompt(mode);
-  if (cli.json) {
-    outputJson(result);
-  } else {
-    info(result.content);
-  }
+  outputJson(getDistillPrompt(mode));
 }
 
 export function sourcesHash(sourceOpts: SourceOptions, paths: string[]): void {
@@ -58,14 +42,7 @@ export function sourcesHash(sourceOpts: SourceOptions, paths: string[]): void {
       }
       return { path: p };
     });
-    const result = hashSources(sources, sourceOpts);
-    if (cli.json) {
-      outputJson(result);
-    } else {
-      for (const s of result.sources) {
-        info(`${s.path}${s.section ? `:${s.section}` : ""}  ${s.hash}`);
-      }
-    }
+    outputJson(hashSources(sources, sourceOpts));
   } catch (e) {
     handleError(e);
   }
@@ -73,7 +50,6 @@ export function sourcesHash(sourceOpts: SourceOptions, paths: string[]): void {
 
 export function sourcesCheck(sourceOpts: SourceOptions, paths: string[]): void {
   try {
-    // Expect path:hash or path:section:hash format
     const sources: Array<{ path: string; section?: string; hash: string }> = [];
     for (const p of paths) {
       const parts = p.split(":");
@@ -82,25 +58,14 @@ export function sourcesCheck(sourceOpts: SourceOptions, paths: string[]): void {
       } else if (parts.length === 2) {
         sources.push({ path: parts[0], hash: parts[1] });
       } else {
-        info(`Error: invalid format "${p}" — expected path:hash or path:section:hash`);
-        process.exit(1);
+        fatal(
+          `invalid format "${p}" — expected path:hash or path:section:hash`,
+          EXIT.INVALID_INPUT,
+          "INVALID_SOURCE_FORMAT",
+        );
       }
     }
-    const result = checkSourcesDetailed(sources, sourceOpts);
-    if (cli.json) {
-      outputJson(result);
-    } else {
-      if (result.valid) {
-        info("All sources valid.");
-      } else {
-        info("Drifted sources:");
-        for (const d of result.drifted) {
-          info(
-            `  ${d.path}${d.section ? `:${d.section}` : ""}  expected=${d.expected} actual=${d.actual}`,
-          );
-        }
-      }
-    }
+    outputJson(checkSourcesDetailed(sources, sourceOpts));
   } catch (e) {
     handleError(e);
   }
@@ -113,11 +78,9 @@ export function sourcesValidate(
 ): void {
   try {
     if (graphsDirs.length === 0) {
-      info("Error: no graph directories found.");
-      process.exit(1);
+      fatal("no graph directories found.", EXIT.NOT_FOUND, "NO_GRAPHS_DIR");
     }
 
-    // Collect graph definitions from all directories
     const fileMap = new Map<string, ReturnType<typeof loadSingleGraph>["definition"]>();
     for (const dir of graphsDirs) {
       for (const filePath of findGraphFiles(dir)) {
@@ -133,8 +96,14 @@ export function sourcesValidate(
     const targets = graphId ? (fileMap.has(graphId) ? [graphId] : []) : [...fileMap.keys()];
 
     if (targets.length === 0) {
-      info(graphId ? `Error: graph not found: ${graphId}` : "No graphs loaded.");
-      process.exit(1);
+      if (graphId) {
+        fatal(`graph not found: ${graphId}`, EXIT.NOT_FOUND, "GRAPH_NOT_FOUND");
+      }
+      fatal(
+        "no loadable *.workflow.yaml files in the configured graphs directories",
+        EXIT.NOT_FOUND,
+        "NO_GRAPHS_LOADED",
+      );
     }
 
     const drift: Array<{
@@ -155,23 +124,7 @@ export function sourcesValidate(
       }
     }
 
-    const result = { valid: drift.length === 0, graphsChecked: targets.length, drift };
-    if (cli.json) {
-      outputJson(result);
-    } else {
-      if (result.valid) {
-        info(`All sources valid across ${result.graphsChecked} graph(s).`);
-      } else {
-        for (const d of drift) {
-          info(`${d.graphId} / ${d.node}:`);
-          for (const s of d.drifted) {
-            info(
-              `  ${s.path}${s.section ? `:${s.section}` : ""}  expected=${s.expected} actual=${s.actual}`,
-            );
-          }
-        }
-      }
-    }
+    outputJson({ valid: drift.length === 0, graphsChecked: targets.length, drift });
   } catch (e) {
     handleError(e);
   }

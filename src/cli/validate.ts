@@ -6,7 +6,7 @@ import { extractSection } from "../section-resolver.js";
 import type { SourceOptions } from "../sources.js";
 import { getDetailedDrift, validateGraphSources } from "../sources.js";
 import type { ValidatedGraph } from "../types.js";
-import { cli, EXIT, error, fatal, info, outputJson } from "./output.js";
+import { EXIT, outputJson } from "./output.js";
 
 interface GraphResult {
   id: string;
@@ -40,29 +40,23 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
   const resolvedDir = path.resolve(graphsDir);
 
   if (!fs.existsSync(resolvedDir)) {
-    if (cli.json) {
-      outputJson({
-        valid: false,
-        graphs: [],
-        errors: [{ file: resolvedDir, message: "Directory does not exist" }],
-      });
-      process.exit(EXIT.GRAPH_ERROR);
-    }
-    fatal(`Graph directory does not exist: ${resolvedDir}`, EXIT.GRAPH_ERROR);
+    outputJson({
+      valid: false,
+      graphs: [],
+      errors: [{ file: resolvedDir, message: "Directory does not exist" }],
+    });
+    process.exit(EXIT.VALIDATION);
   }
 
   const files = findGraphFiles(resolvedDir);
 
   if (files.length === 0) {
-    if (cli.json) {
-      outputJson({
-        valid: false,
-        graphs: [],
-        errors: [{ file: resolvedDir, message: "No *.workflow.yaml files found" }],
-      });
-      process.exit(EXIT.GRAPH_ERROR);
-    }
-    fatal(`No *.workflow.yaml files found in: ${resolvedDir}`, EXIT.GRAPH_ERROR);
+    outputJson({
+      valid: false,
+      graphs: [],
+      errors: [{ file: resolvedDir, message: "No *.workflow.yaml files found" }],
+    });
+    process.exit(EXIT.VALIDATION);
   }
 
   const result: ValidateResult = { valid: true, graphs: [], errors: [] };
@@ -82,18 +76,10 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
         version: definition.version,
         nodeCount: graph.nodeCount(),
       });
-      if (!cli.json) {
-        info(
-          `  OK  ${definition.name} (id: ${id}, v${definition.version}, ${graph.nodeCount()} nodes)`,
-        );
-      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       result.errors.push({ file: relFile, message: msg });
       result.valid = false;
-      if (!cli.json) {
-        info(`  FAIL  ${relFile}: ${msg}`);
-      }
     }
   }
 
@@ -106,9 +92,6 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
       const msg = err instanceof Error ? err.message : String(err);
       result.errors.push({ file: resolvedDir, message: msg });
       result.valid = false;
-      if (!cli.json) {
-        info(`  FAIL  ${msg}`);
-      }
     }
   }
 
@@ -127,17 +110,12 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
       const sourceResult = validateGraphSources(definition, sourceOpts);
 
       for (const warning of sourceResult.warnings) {
-        // Get detailed drift with expected/actual hashes
         const detailedDrift = getDetailedDrift(definition, warning.node, sourceOpts);
         sourceDrift.push({
           graphId,
           node: warning.node,
           drifted: detailedDrift,
         });
-
-        if (!cli.json) {
-          info(`  DRIFT  ${graphId} → ${warning.node}: ${detailedDrift.length} source(s) changed`);
-        }
 
         // Collect hash replacements for --fix
         if (options.fix) {
@@ -172,13 +150,11 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
           let replaced: string;
 
           if (section) {
-            // Match section line followed by hash line — replace only the hash for this specific section
             const pattern = new RegExp(
               `(section:\\s*"${escapeRegex(section)}"\\s*\\n\\s*hash:\\s*")${escapeRegex(oldHash)}"`,
             );
             replaced = content.replace(pattern, `$1${newHash}"`);
           } else {
-            // No section — match hash alone (whole-file source)
             const pattern = new RegExp(`(hash:\\s*")${escapeRegex(oldHash)}"`);
             replaced = content.replace(pattern, `$1${newHash}"`);
           }
@@ -186,21 +162,12 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
           if (replaced !== content) {
             content = replaced;
             fileFixed++;
-          } else if (!cli.json) {
-            const loc = section ? `${section}:${oldHash}` : oldHash;
-            info(
-              `  WARN  Could not match hash pattern for ${loc} in ${path.relative(resolvedDir, filePath)} — YAML formatting may differ from expected`,
-            );
           }
         }
 
         if (fileFixed > 0) {
           fs.writeFileSync(filePath, content, "utf-8");
           totalFixed += fileFixed;
-          const relFile = path.relative(resolvedDir, filePath);
-          if (!cli.json) {
-            info(`  FIXED  ${relFile}: ${fileFixed} hash(es) updated`);
-          }
         }
       }
 
@@ -211,36 +178,8 @@ export function validate(graphsDir: string, options?: ValidateOptions): void {
     }
   }
 
-  if (cli.json) {
-    outputJson(result);
-    process.exit(result.valid ? EXIT.SUCCESS : EXIT.GRAPH_ERROR);
-  }
-
-  info(`\nValidated ${result.graphs.length} graph(s), ${result.errors.length} error(s).\n`);
-
-  if (result.errors.length > 0) {
-    error("Errors:");
-    for (const e of result.errors) {
-      error(`  ${e.file}: ${e.message}`);
-    }
-    process.exit(EXIT.GRAPH_ERROR);
-  }
-
-  if (result.fixed && result.fixed > 0) {
-    info(`Fixed ${result.fixed} drifted hash(es). Re-run without --fix to verify.`);
-    return;
-  }
-
-  if (result.sourceDrift && result.sourceDrift.length > 0) {
-    error("Source drift detected:");
-    for (const d of result.sourceDrift) {
-      error(`  ${d.graphId} → ${d.node}:`);
-      for (const s of d.drifted) {
-        error(`    ${s.path}${s.section ? `#${s.section}` : ""} (${s.expected} → ${s.actual})`);
-      }
-    }
-    process.exit(EXIT.GRAPH_ERROR);
-  }
+  outputJson(result);
+  process.exit(result.valid ? EXIT.SUCCESS : EXIT.VALIDATION);
 }
 
 // --- Helpers ---

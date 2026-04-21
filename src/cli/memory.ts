@@ -1,32 +1,22 @@
-/** CLI handlers for memory subcommands. Operates directly on MemoryStore. */
+/**
+ * CLI handlers for memory subcommands — JSON-only machine surface.
+ *
+ * Runtime verbs under `freelance memory ...` are the primary execution
+ * path for the Claude Agent Skill per `docs/decisions.md` § "CLI is the
+ * primary execution surface". There is no human audience — every
+ * handler writes structured JSON to stdout and exits with a semantic
+ * code (see `EXIT` in output.ts).
+ */
 
 import fs from "node:fs";
-import path from "node:path";
+import { EngineError } from "../errors.js";
 import type { MemoryStore } from "../memory/index.js";
 import { prune } from "../memory/prune.js";
-import { cli, info, outputJson } from "./output.js";
-
-function handleError(e: unknown): never {
-  const message = e instanceof Error ? e.message : String(e);
-  if (cli.json) {
-    outputJson({ error: message });
-  } else {
-    info(`Error: ${message}`);
-  }
-  process.exit(1);
-}
+import { EXIT, handleRuntimeError as handleError, outputJson } from "./output.js";
 
 export function memoryStatus(store: MemoryStore): void {
   try {
-    const result = store.status();
-    if (cli.json) {
-      outputJson(result);
-    } else {
-      info(
-        `Propositions: ${result.total_propositions} total, ${result.valid_propositions} valid, ${result.stale_propositions} stale`,
-      );
-      info(`Entities: ${result.total_entities}`);
-    }
+    outputJson(store.status());
   } catch (e) {
     handleError(e);
   }
@@ -50,20 +40,7 @@ export function memoryBrowse(
       offset: opts?.offset ? parseInt(opts.offset, 10) : undefined,
       includeOrphans: opts?.includeOrphans,
     });
-    if (cli.json) {
-      outputJson(result);
-    } else {
-      if (result.entities.length === 0) {
-        info("No entities found.");
-        return;
-      }
-      for (const e of result.entities) {
-        info(
-          `  ${e.name}${e.kind ? ` (${e.kind})` : ""}  ${e.valid_proposition_count} propositions`,
-        );
-      }
-      info(`\n${result.entities.length} entities (total: ${result.total})`);
-    }
+    outputJson(result);
   } catch (e) {
     handleError(e);
   }
@@ -71,25 +48,7 @@ export function memoryBrowse(
 
 export function memoryInspect(store: MemoryStore, entity: string): void {
   try {
-    const result = store.inspect(entity);
-    if (cli.json) {
-      outputJson(result);
-    } else {
-      info(`Entity: ${result.entity.name}${result.entity.kind ? ` (${result.entity.kind})` : ""}`);
-      if (result.propositions.length > 0) {
-        info("\nPropositions:");
-        for (const p of result.propositions) {
-          const status = p.valid ? "" : " [stale]";
-          info(`  - ${p.content}${status}`);
-        }
-      }
-      if (result.neighbors && result.neighbors.length > 0) {
-        info("\nNeighbors:");
-        for (const n of result.neighbors) {
-          info(`  ${n.name}${n.kind ? ` (${n.kind})` : ""}`);
-        }
-      }
-    }
+    outputJson(store.inspect(entity));
   } catch (e) {
     handleError(e);
   }
@@ -97,23 +56,11 @@ export function memoryInspect(store: MemoryStore, entity: string): void {
 
 export function memorySearch(store: MemoryStore, query: string, opts?: { limit?: string }): void {
   try {
-    const result = store.search(query, {
-      limit: opts?.limit ? parseInt(opts.limit, 10) : undefined,
-    });
-    if (cli.json) {
-      outputJson(result);
-    } else {
-      if (result.propositions.length === 0) {
-        info("No results found.");
-        return;
-      }
-      for (const r of result.propositions) {
-        const entities = r.entities.map((e: { name: string }) => e.name).join(", ");
-        const status = r.valid ? "" : " [stale]";
-        info(`  [${entities}] ${r.content}${status}`);
-      }
-      info(`\n${result.propositions.length} results`);
-    }
+    outputJson(
+      store.search(query, {
+        limit: opts?.limit ? parseInt(opts.limit, 10) : undefined,
+      }),
+    );
   } catch (e) {
     handleError(e);
   }
@@ -121,19 +68,7 @@ export function memorySearch(store: MemoryStore, query: string, opts?: { limit?:
 
 export function memoryRelated(store: MemoryStore, entity: string): void {
   try {
-    const result = store.related(entity);
-    if (cli.json) {
-      outputJson(result);
-    } else {
-      if (result.neighbors.length === 0) {
-        info("No related entities found.");
-        return;
-      }
-      for (const r of result.neighbors) {
-        info(`  ${r.name}${r.kind ? ` (${r.kind})` : ""}  shared: ${r.shared_propositions}`);
-        if ("sample" in r) info(`    "${(r as { sample: string }).sample}"`);
-      }
-    }
+    outputJson(store.related(entity));
   } catch (e) {
     handleError(e);
   }
@@ -141,20 +76,7 @@ export function memoryRelated(store: MemoryStore, entity: string): void {
 
 export function memoryBySource(store: MemoryStore, filePath: string): void {
   try {
-    const result = store.bySource(filePath);
-    if (cli.json) {
-      outputJson(result);
-    } else {
-      if (result.propositions.length === 0) {
-        info(`No propositions found for ${filePath}.`);
-        return;
-      }
-      for (const p of result.propositions) {
-        const status = p.valid ? "" : " [stale]";
-        info(`  ${p.content}${status}`);
-      }
-      info(`\n${result.propositions.length} propositions`);
-    }
+    outputJson(store.bySource(filePath));
   } catch (e) {
     handleError(e);
   }
@@ -162,12 +84,7 @@ export function memoryBySource(store: MemoryStore, filePath: string): void {
 
 export function memoryEmit(store: MemoryStore, file: string): void {
   try {
-    let raw: string;
-    if (file === "-") {
-      raw = fs.readFileSync(0, "utf-8");
-    } else {
-      raw = fs.readFileSync(file, "utf-8");
-    }
+    const raw = file === "-" ? fs.readFileSync(0, "utf-8") : fs.readFileSync(file, "utf-8");
 
     let propositions: Array<{
       content: string;
@@ -180,15 +97,10 @@ export function memoryEmit(store: MemoryStore, file: string): void {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       const source = file === "-" ? "stdin" : file;
-      throw new Error(`${source} must contain valid JSON: ${msg}`);
+      throw new EngineError(`${source} must contain valid JSON: ${msg}`, "INVALID_EMIT_JSON");
     }
 
-    const result = store.emit(propositions);
-    if (cli.json) {
-      outputJson(result);
-    } else {
-      info(`Emitted ${result.created} propositions (${result.deduplicated} deduplicated)`);
-    }
+    outputJson(store.emit(propositions));
   } catch (e) {
     handleError(e);
   }
@@ -203,39 +115,39 @@ export function memoryPrune(
   // before every exit. MemoryStore.close is idempotent, so the
   // caller's finally is a harmless no-op after this.
   if (!opts.keep || opts.keep.length === 0) {
-    if (cli.json) {
-      outputJson({ error: "memory prune requires --keep <ref> (repeatable)." });
-    } else {
-      info("memory prune requires --keep <ref> (repeatable). No default preserve set.");
-    }
+    outputJson({
+      isError: true,
+      error: {
+        code: "MISSING_KEEP",
+        message: "memory prune requires --keep <ref> (repeatable).",
+      },
+    });
     store.close();
-    process.exit(2);
+    process.exit(EXIT.INVALID_INPUT);
   }
 
   try {
     // `--dry-run` is itself a no-op preview; otherwise require explicit
-    // `--yes`. Print the plan on the refusal so the caller sees the
-    // blast radius before committing.
+    // `--yes`. Return the plan + an explicit refusal when neither flag
+    // is set, so the skill sees the blast radius before committing.
     const confirmed = opts.dryRun || opts.yes;
     const result = prune(store, { keep: opts.keep, dryRun: !confirmed });
-    if (cli.json) {
-      outputJson(
-        confirmed ? result : { ...result, error: "Refusing to delete without --yes or --dry-run." },
-      );
+    if (confirmed) {
+      outputJson(result);
     } else {
-      const preview = result.dry_run ? "Would prune" : "Pruned";
-      const preview2 = result.dry_run ? "Would hard-delete" : "Hard-deleted";
-      info(`${preview} ${result.rows_pruned} source row(s).`);
-      info(
-        `${preview2} ${result.propositions_hard_deleted} proposition(s); ${result.entities_orphaned} entity/entities orphaned.`,
-      );
-      if (!confirmed) info("Re-run with --yes to execute.");
-    }
-    if (!confirmed) {
+      outputJson({
+        ...result,
+        isError: true,
+        error: {
+          code: "CONFIRM_REQUIRED",
+          message: "Refusing to delete without --yes or --dry-run.",
+        },
+      });
       store.close();
-      process.exit(2);
+      process.exit(EXIT.INVALID_INPUT);
     }
   } catch (e) {
+    store.close();
     handleError(e);
   }
 }
@@ -250,8 +162,14 @@ export function memoryPrune(
  */
 export function memoryReset(dbPath: string, opts: { confirm?: boolean }): void {
   if (!opts.confirm) {
-    info("memory reset requires --confirm (destructive: deletes memory.db + sidecars).");
-    process.exit(2);
+    outputJson({
+      isError: true,
+      error: {
+        code: "CONFIRM_REQUIRED",
+        message: "memory reset requires --confirm (destructive: deletes memory.db + sidecars).",
+      },
+    });
+    process.exit(EXIT.INVALID_INPUT);
   }
   const targets = [dbPath, `${dbPath}-shm`, `${dbPath}-wal`];
   const deleted: string[] = [];
@@ -265,14 +183,5 @@ export function memoryReset(dbPath: string, opts: { confirm?: boolean }): void {
   } catch (e) {
     handleError(e);
   }
-  if (cli.json) {
-    outputJson({ status: "reset", deleted, dbPath });
-  } else {
-    if (deleted.length === 0) {
-      info(`No memory db files found at ${path.dirname(dbPath)}/ — nothing to reset.`);
-    } else {
-      info(`Deleted ${deleted.length} file(s) from ${path.dirname(dbPath)}/`);
-      info("Next run will re-initialize memory.db on first use.");
-    }
-  }
+  outputJson({ status: "reset", deleted, dbPath });
 }

@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **All CLI verbs are JSON-only (BREAKING).** Every handler —
+  `status`, `start`, `advance`, `context set`, `meta set`, `inspect`,
+  `reset`, `memory *`, `init`, `validate`, `visualize`, `config`,
+  `sources *`, `guide`, `distill` — emits structured JSON to stdout
+  with semantic exit codes (0 success, 1 internal, 2 blocked, 3
+  validation, 4 not found, 5 invalid input). The dual-mode
+  (`--json` vs human-readable) branching is removed; `--json` and
+  `--no-color` flags are deleted. The architectural commitment in
+  `docs/decisions.md` § "CLI is the execution surface for agents"
+  is that no human is driving this API — the skill loop is the
+  only consumer. Error responses on both CLI and MCP surfaces use
+  the canonical shape `{ isError: true, error: { code, message } }`,
+  so a skill consuming either sees the same contract. See issue
+  #99 Phase 1.
+- **`visualize --open` removed.** The browser-rendering path was a
+  human-only affordance; the JSON response carries the diagram
+  inline (or `--output <path>` writes the raw artifact to disk for
+  pipeline integration).
 - **`freelance_inspect --detail=history` paginates `traversalHistory`
   and strips snapshots by default.** `traversalHistory` is sliced by
   `limit` (default 50, max 200) and `offset`. Per-entry
