@@ -8,7 +8,16 @@
  */
 
 import type { Db } from "./db.js";
+import { STALE_PROP_IDS_TABLE } from "./staleness.js";
 import type { NeighborEntity, StatusResult } from "./types.js";
+
+// Every query below assumes `materializeStalePropIds` has been called
+// on this db handle earlier in the same public read — the store does
+// this once per call right after `getStalePropositionIds`. The filter
+// joins against a shared TEMP TABLE instead of spreading ids inline as
+// parameters, which keeps us clear of SQLite's `SQLITE_MAX_VARIABLE_NUMBER`
+// ceiling and lets the prepared-statement cache reuse one SQL string.
+const NOT_STALE_EXISTS_FILTER = `NOT EXISTS (SELECT 1 FROM ${STALE_PROP_IDS_TABLE} _s WHERE _s.proposition_id = a1.proposition_id)`;
 
 /**
  * Co-occurring entities for a given entity. Ranks by count of shared
@@ -20,16 +29,9 @@ import type { NeighborEntity, StatusResult } from "./types.js";
 export function getNeighbors(
   db: Db,
   entityId: string,
-  stalePropIds: Set<string>,
   options?: { withSample?: boolean; limit?: number; offset?: number },
 ): Array<NeighborEntity & { sample?: string | null }> {
   const withSample = options?.withSample ?? false;
-
-  const staleParams = [...stalePropIds];
-  const staleFilter =
-    staleParams.length > 0
-      ? `a1.proposition_id NOT IN (${staleParams.map(() => "?").join(",")})`
-      : "1";
 
   const sampleCol = withSample
     ? `, (SELECT p2.content FROM propositions p2
@@ -48,7 +50,7 @@ export function getNeighbors(
     .prepare(
       `SELECT e2.id, e2.name, e2.kind,
             COUNT(DISTINCT a1.proposition_id) as shared_propositions,
-            COUNT(DISTINCT CASE WHEN ${staleFilter} THEN a1.proposition_id END) as valid_shared_propositions${sampleCol}
+            COUNT(DISTINCT CASE WHEN ${NOT_STALE_EXISTS_FILTER} THEN a1.proposition_id END) as valid_shared_propositions${sampleCol}
      FROM about a1
      JOIN about a2 ON a1.proposition_id = a2.proposition_id
      JOIN entities e2 ON a2.entity_id = e2.id
@@ -57,7 +59,7 @@ export function getNeighbors(
      ORDER BY valid_shared_propositions DESC
      ${pageClause}`,
     )
-    .all(...staleParams, ...sampleParams, entityId, ...pageParams) as Array<
+    .all(...sampleParams, entityId, ...pageParams) as Array<
     NeighborEntity & { sample?: string | null }
   >;
 }
@@ -83,25 +85,14 @@ export function countNeighbors(db: Db, entityId: string): number {
 }
 
 /** Count propositions about an entity that are currently valid. */
-export function countValidForEntity(db: Db, entityId: string, stalePropIds: Set<string>): number {
-  // Fast path: no stale props — skip the exclusion filter
-  if (stalePropIds.size === 0) {
-    return (
-      db.prepare("SELECT COUNT(*) as c FROM about WHERE entity_id = ?").get(entityId) as {
-        c: number;
-      }
-    ).c;
-  }
-
-  const staleParams = [...stalePropIds];
-  const placeholders = staleParams.map(() => "?").join(",");
+export function countValidForEntity(db: Db, entityId: string): number {
   return (
     db
       .prepare(
-        `SELECT COUNT(*) as c FROM about
-     WHERE entity_id = ? AND proposition_id NOT IN (${placeholders})`,
+        `SELECT COUNT(*) as c FROM about a1
+         WHERE a1.entity_id = ? AND ${NOT_STALE_EXISTS_FILTER}`,
       )
-      .get(entityId, ...staleParams) as { c: number }
+      .get(entityId) as { c: number }
   ).c;
 }
 

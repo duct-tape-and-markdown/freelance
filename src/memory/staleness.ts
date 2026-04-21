@@ -56,9 +56,35 @@ export function isFileChanged(
 }
 
 /**
+ * Name of the TEMP TABLE populated by `getStalePropositionIds`. The
+ * read-side queries in `enrichment.ts` + `store.ts` join against it
+ * (`NOT EXISTS (SELECT 1 FROM _stale_prop_ids ...)`) instead of
+ * spreading ids into a dynamically-sized `NOT IN (?, ?, ?, …)` clause,
+ * which would hit SQLite's `SQLITE_MAX_VARIABLE_NUMBER` ceiling on
+ * large stale sets and churn the prepared-statement cache across
+ * differently-sized stale sets.
+ *
+ * Population is coupled into `getStalePropositionIds` so downstream
+ * readers can't forget to materialize. An empty table means "no stale
+ * props" — `NOT EXISTS` returns TRUE for every row, which correctly
+ * counts all propositions as valid.
+ */
+export const STALE_PROP_IDS_TABLE = "_stale_prop_ids";
+
+// Bulk-insert batch size — well under SQLite's default variable limit
+// (32766) so materialization never hits the very ceiling it's meant to
+// sidestep, regardless of stale-set cardinality.
+const STALE_PROP_BATCH_SIZE = 500;
+
+/**
  * Scan proposition_sources and return the set of propositions that have
  * at least one drifted source file. Uses the cache to avoid re-stating
  * files that multiple propositions share.
+ *
+ * Side effect: materializes the stale set into `STALE_PROP_IDS_TABLE`
+ * on the same connection so read queries can reference it. Every public
+ * read on MemoryStore calls this once per operation, which keeps the
+ * temp-table contents consistent with the Set returned here.
  */
 export function getStalePropositionIds(
   db: Db,
@@ -80,5 +106,23 @@ export function getStalePropositionIds(
       stale.add(proposition_id);
     }
   }
+  materializeStalePropIds(db, stale);
   return stale;
+}
+
+function materializeStalePropIds(db: Db, stalePropIds: Set<string>): void {
+  db.exec(
+    `CREATE TEMP TABLE IF NOT EXISTS ${STALE_PROP_IDS_TABLE} (proposition_id TEXT PRIMARY KEY) WITHOUT ROWID`,
+  );
+  db.exec(`DELETE FROM ${STALE_PROP_IDS_TABLE}`);
+  if (stalePropIds.size === 0) return;
+
+  const ids = [...stalePropIds];
+  for (let i = 0; i < ids.length; i += STALE_PROP_BATCH_SIZE) {
+    const batch = ids.slice(i, i + STALE_PROP_BATCH_SIZE);
+    const placeholders = batch.map(() => "(?)").join(",");
+    db.prepare(`INSERT INTO ${STALE_PROP_IDS_TABLE} (proposition_id) VALUES ${placeholders}`).run(
+      ...batch,
+    );
+  }
 }

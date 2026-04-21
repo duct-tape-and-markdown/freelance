@@ -568,6 +568,30 @@ describe("MemoryStore", () => {
     });
   });
 
+  describe("stale filter at scale", () => {
+    // Regression guard: the old `NOT IN (?, …)` pattern bound one param
+    // per stale id, which would hit SQLITE_MAX_VARIABLE_NUMBER on a
+    // large-enough stale set. The temp-table materialization keeps the
+    // param count bounded regardless.
+    it("browse/inspect/related work when every proposition is stale", () => {
+      writeFile(tmpDir, "heavy.ts", "v1");
+      const N = 150;
+      const batch = Array.from({ length: N }, (_, i) => ({
+        content: `Heavy claim number ${i} about the system.`,
+        entities: [`Hub${i}`, "Shared"],
+        sources: ["heavy.ts"],
+      }));
+      store.emit(batch);
+      writeFile(tmpDir, "heavy.ts", "v2-drifted");
+
+      expect(() => store.browse({ includeOrphans: true })).not.toThrow();
+      expect(() => store.inspect("Shared")).not.toThrow();
+      expect(() => store.related("Shared")).not.toThrow();
+
+      expect(store.status().stale_propositions).toBe(N);
+    });
+  });
+
   describe("cross-session knowledge", () => {
     it("accumulates knowledge across sessions", () => {
       writeFile(tmpDir, "auth.ts", "class Auth {}");
