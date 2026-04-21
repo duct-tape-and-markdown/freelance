@@ -1,12 +1,29 @@
 // Shared CLI output helpers and global state.
 import path from "node:path";
 import {
+  EC,
   ENGINE_ERROR_CODES,
   type EngineErrorCategory,
   type EngineErrorCode,
   errorKind,
 } from "../error-codes.js";
 import { EngineError } from "../errors.js";
+
+/**
+ * Parse a repeated `parseInt(opts.foo, 10)` pattern into a single call-site
+ * shape. Returns `undefined` for `undefined`/empty input (commander emits
+ * `undefined` when the flag is absent). Throws `INVALID_FLAG_VALUE` when
+ * the value isn't a finite integer, so typos like `--limit abc` fail
+ * loudly at the CLI boundary instead of silently becoming `NaN`.
+ */
+export function parseIntArg(raw: string | undefined, flag: string): number | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || String(parsed) !== raw.trim()) {
+    throw new EngineError(`${flag} must be an integer; got "${raw}".`, EC.INVALID_FLAG_VALUE);
+  }
+  return parsed;
+}
 
 /**
  * Semantic exit codes. Consumed by the skill body (and any shell-driving

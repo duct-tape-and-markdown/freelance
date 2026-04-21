@@ -43,6 +43,12 @@ import {
 import { validate } from "./validate.js";
 import { visualize } from "./visualize.js";
 
+// Commander repeatable-option collector: appends each occurrence into
+// an accumulating array. Shared by `--workflows`, `--filter`, `--meta`,
+// `--keep` so every repeatable flag goes through one code path.
+const collectRepeatable = (value: string, previous?: string[]): string[] =>
+  previous ? [...previous, value] : [value];
+
 // --- Program setup ---
 
 export const program = new Command();
@@ -158,7 +164,7 @@ function addWorkflowsOpt(cmd: Command): Command {
   return cmd.option(
     "--workflows <directory>",
     "Workflow definitions directory (repeatable for layering)",
-    (value: string, previous?: string[]) => (previous ? [...previous, value] : [value]),
+    collectRepeatable,
   );
 }
 
@@ -169,7 +175,7 @@ addWorkflowsOpt(
     .option(
       "--filter <pair>",
       "Show only traversals whose meta tags match key=value (repeatable; all must match)",
-      (value: string, previous?: string[]) => (previous ? [...previous, value] : [value]),
+      collectRepeatable,
     ),
 ).action((opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
@@ -188,7 +194,7 @@ addWorkflowsOpt(
     .option(
       "--meta <pair>",
       "Opaque key=value tag for lookup via `freelance traversals find` (repeatable)",
-      (value: string, previous?: string[]) => (previous ? [...previous, value] : [value]),
+      collectRepeatable,
     ),
 ).action(async (graphId, opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
@@ -412,7 +418,7 @@ addWorkflowsOpt(
     .option(
       "--keep <ref>",
       "Preserve ref (repeatable; required). Concatenates with memory.prune.keep in config.",
-      (value: string, previous?: string[]) => (previous ? [...previous, value] : [value]),
+      collectRepeatable,
     )
     .option("--dry-run", "Show what would be pruned without deleting")
     .option("--yes", "Execute the prune (required unless --dry-run)"),
