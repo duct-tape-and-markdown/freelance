@@ -19,7 +19,7 @@ const GUIDE_CONTENT: Record<GuideTopic, string> = {
 
 A Freelance graph is a directed graph defined in YAML. Each graph has:
 
-- **id**: unique identifier used in \`freelance_start\`
+- **id**: unique identifier used in \`freelance start\`
 - **startNode**: where traversal begins
 - **context**: initial key-value state available throughout the traversal
 - **nodes**: the steps of the workflow
@@ -35,24 +35,24 @@ A Freelance graph is a directed graph defined in YAML. Each graph has:
 ## Edges
 
 Every non-terminal node has edges — labeled transitions to other nodes. An edge can have:
-- **label**: the name you pass to \`freelance_advance\`
+- **label**: the name you pass to \`freelance advance\`
 - **target**: the destination node
 - **condition**: an expression evaluated against context (optional)
 - **default**: if true, this edge is taken when no other edge's condition matches
 
 ## Context
 
-Context is a key-value store that persists throughout the traversal. Update it with \`freelance_context_set\` or via \`contextUpdates\` in \`freelance_advance\`. Edge conditions and gate validations read from context.
+Context is a key-value store that persists throughout the traversal. Update it with \`freelance context set\` or via \`contextUpdates\` in \`freelance advance\`. Edge conditions and gate validations read from context.
 
 Any node can also declare \`onEnter\` hooks — functions that run automatically on node arrival and pre-populate context from external state (memory, filesystem, APIs) so the agent arrives with what it needs instead of spending a turn fetching it. See the \`onenter-hooks\` topic.
 
 ## Typical flow
 
-1. \`freelance_list\` — discover available graphs
-2. \`freelance_start\` — begin a traversal, get first node's instructions
+1. \`freelance status\` — discover available graphs
+2. \`freelance start\` — begin a traversal, get first node's instructions
 3. Do the work described in the node's instructions
-4. \`freelance_context_set\` — record results
-5. \`freelance_advance\` — move to next node
+4. \`freelance context set\` — record results
+5. \`freelance advance\` — move to next node
 6. Repeat until terminal node`,
 
   conventions: `# Authoring Conventions
@@ -119,7 +119,7 @@ Then in your graph, reference it as \`path: "docs/guide.md"\` — relative to \`
 
 For sibling layouts (workflows separate from codebase), the same rule applies — paths resolve from the parent of the workflows directory. Override with \`--source-root\` if needed.
 
-Use \`freelance_sources_hash\` to generate hashes. Paths you pass to it are also resolved from the source root.
+Use \`freelance sources hash\` to generate hashes. Paths you pass to it are also resolved from the source root.
 
 ## Ambient Sources: Graph-Level Knowledge
 
@@ -148,8 +148,8 @@ Organize graphs into subdirectories by domain. File convention: \`{name}.workflo
 Every source binding includes a content hash. Drift detection is built in at three levels:
 
 - **CLI**: \`freelance validate <dir> --sources\` checks all graphs. Add \`--fix\` to restamp drifted hashes in-place.
-- **MCP**: \`freelance_sources_validate\` checks a single graph or all loaded graphs by ID.
-- **MCP**: \`freelance_sources_check\` checks an explicit list of source bindings.
+- \`freelance sources validate\` checks a single graph or all loaded graphs by ID.
+- \`freelance sources check\` checks an explicit list of source bindings.
 
 When KB content changes, run validation to surface drift. Review drifted sections for instruction implications before restamping.`,
 
@@ -163,7 +163,7 @@ A gate node has a \`validations\` array. Each validation has:
 - **expr**: an expression evaluated against context (e.g., \`context.testsPass == true\`)
 - **message**: shown to the agent when the validation fails
 
-When the agent calls \`freelance_advance\` on a gate node, ALL validations must pass. If any fail, the advance is rejected with the failing messages. The agent must fix the issues and update context before retrying.
+When the agent calls \`freelance advance\` on a gate node, ALL validations must pass. If any fail, the advance is rejected with the failing messages. The agent must fix the issues and update context before retrying.
 
 ## When to use gates
 
@@ -174,7 +174,7 @@ When the agent calls \`freelance_advance\` on a gate node, ALL validations must 
 ## Tips
 
 - Keep validation expressions simple — they read from context, not external systems
-- The agent should use \`freelance_context_set\` to record results before hitting the gate
+- The agent should use \`freelance context set\` to record results before hitting the gate
 - Gates with multiple validations enforce ALL conditions simultaneously`,
 
   cycles: `# Cycles
@@ -281,8 +281,8 @@ Wait nodes can have a \`timeout\` field (ISO 8601 duration, e.g., "PT1H" for 1 h
 
 ## Tips
 
-- Use \`freelance_context_set\` from outside the agent (or a separate process) to satisfy wait conditions
-- Traversal state is persisted to disk, so wait nodes survive MCP client restarts — the traversal resumes when conditions are met`,
+- Use \`freelance context set\` from outside the agent (or a separate process) to satisfy wait conditions
+- Traversal state is persisted to disk, so wait nodes survive CLI invocations and client restarts — the traversal resumes when conditions are met`,
 
   "onenter-hooks": `# onEnter Hooks
 
@@ -319,8 +319,8 @@ Built-in hooks fire automatically on node arrival instead of requiring an agent 
 - **memory_search**: FTS5 search over propositions. Args: \`query\` (required), \`limit\` (optional).
 - **memory_related**: neighbor entities sharing propositions with one entity. Args: \`entity\` (required).
 - **memory_inspect**: full detail (propositions, neighbors, source files) for one entity. Args: \`entity\` (required).
-- **memory_by_source**: prior knowledge keyed by source path. Args: \`paths\` (required string array). **Diverges from the single-path \`memory_by_source\` MCP tool on purpose** — the hook accepts an array so a single onEnter declaration can fan out over \`context.filesReadPaths\`. Caller-provided lists are capped at 50 paths per call (longer should be a script hook). Returns \`{ priorKnowledgeByPath, priorKnowledgePathsConsidered, priorKnowledgePathsTruncated }\`.
-- **meta_set**: tags the traversal with caller-opaque meta key/value pairs. Every arg becomes a meta entry; values must resolve to strings (use \`context.foo\` to pull from live context). Merge semantics — new keys add, existing keys overwrite. See \`freelance_guide meta\`.
+- **memory_by_source**: prior knowledge keyed by source path. Args: \`paths\` (required string array). The hook accepts an array so a single onEnter declaration can fan out over \`context.filesReadPaths\`. Caller-provided lists are capped at 50 paths per call (longer should be a script hook). Returns \`{ priorKnowledgeByPath, priorKnowledgePathsConsidered, priorKnowledgePathsTruncated }\`.
+- **meta_set**: tags the traversal with caller-opaque meta key/value pairs. Every arg becomes a meta entry; values must resolve to strings (use \`context.foo\` to pull from live context). Merge semantics — new keys add, existing keys overwrite. See \`freelance guide meta\`.
 
 ## Local script hooks
 
@@ -346,7 +346,7 @@ The function receives a \`HookContext\` with:
 - **memory**: narrow read interface over the memory store. Exposes \`status()\`, \`browse()\`, \`search()\`, \`related()\`, \`inspect()\`, \`bySource()\` — read methods only; \`emit()\` and other write paths stay unreachable. Present only when memory is enabled in the host config. Built-in memory hooks throw a clear error if you call them with memory off.
 - **graphId, nodeId**: identifiers for the current position
 
-The returned object is merged into session context via the same path as \`freelance_context_set\`, so strict-context enforcement applies. Scripts must return a plain object; returning \`undefined\`, \`null\`, an array, or a non-object errors loudly.
+The returned object is merged into session context via the same path as \`freelance context set\`, so strict-context enforcement applies. Scripts must return a plain object; returning \`undefined\`, \`null\`, an array, or a non-object errors loudly.
 
 Script paths resolve relative to the **graph file's directory**. A hook in \`.freelance/my.workflow.yaml\` with \`call: ./scripts/foo.js\` looks for \`.freelance/scripts/foo.js\`. Missing files fail at graph load time, not at first invocation.
 
@@ -383,11 +383,11 @@ Local script hooks execute with full Node.js privileges in the host process. A \
 
   "multi-agent": `# Multi-Agent Workflows
 
-Freelance can coordinate multiple agents working on the same traversal or related traversals. Traversal state lives on disk, so any MCP client pointed at the same state directory sees the same traversals.
+Freelance can coordinate multiple agents working on the same traversal or related traversals. Traversal state lives on disk, so any agent invoking the CLI against the same state directory sees the same traversals.
 
 ## Shared traversals
 
-Multiple MCP clients pointed at the same workflows directory share traversal state through the filesystem. One agent advances the graph while another monitors or contributes context.
+Multiple agents invoking the CLI against the same workflows directory share traversal state through the filesystem. One agent advances the graph while another monitors or contributes context.
 
 ## Separate traversals
 
@@ -425,7 +425,7 @@ This is the right place for whatever uniquely identifies what the traversal is *
 
 **Mid-traversal (for keys that emerge):**
 
-Some lookup keys aren't known at start — a PR url is created during the work, a branch may be picked partway through. Use \`freelance_meta_set\` to merge new tags in:
+Some lookup keys aren't known at start — a PR url is created during the work, a branch may be picked partway through. Use \`freelance meta set\` to merge new tags in:
 
 \`\`\`json
 { "traversalId": "tr_abc12345", "meta": { "prUrl": "https://github.com/o/r/pull/42" } }
@@ -463,18 +463,18 @@ nodes:
   triage: ...
 \`\`\`
 
-With that, \`freelance_start\` rejects calls that don't pass \`meta.externalKey\` — unless the start node's onEnter hooks set it (meta_set fires before the requiredMeta check, so a hook can satisfy the requirement from context).
+With that, \`freelance start\` rejects calls that don't pass \`meta.externalKey\` — unless the start node's onEnter hooks set it (meta_set fires before the requiredMeta check, so a hook can satisfy the requirement from context).
 
 Use \`requiredMeta\` for workflows that are meaningless without a specific external binding: ticket-driven delivery workflows, PR-review workflows, document-author workflows. Don't use it for optional tagging — it turns the absence of a tag into a hard error.
 
 ## Reading meta back
 
 Every traversal-state response includes meta when set:
-- \`freelance_list\` — each entry in \`activeTraversals\` carries its meta
-- \`freelance_inspect\` — meta at the top level of the response
-- \`freelance_advance\` — meta at the top level of the response
+- \`freelance status\` — each entry in \`activeTraversals\` carries its meta
+- \`freelance inspect\` — meta at the top level of the response
+- \`freelance advance\` — meta at the top level of the response
 
-For ambient lookup ("which traversal is DEV-1234?"), call \`freelance_list\` and read tags off the entries — Freelance does not provide a server-side filter because the discovery payload is already shaped for the agent to reason over.
+For ambient lookup ("which traversal is DEV-1234?"), call \`freelance status\` and read tags off the entries — Freelance does not provide a server-side filter because the discovery payload is already shaped for the agent to reason over.
 
 ## What meta is NOT
 
@@ -485,10 +485,10 @@ For ambient lookup ("which traversal is DEV-1234?"), call \`freelance_list\` and
 ## Patterns
 
 ### Connect-dev workflows
-Set \`externalKey = ticketId\` at start. Subsequent phases of the same ticket can be separate traversals tagged with the same \`externalKey\` — \`freelance_list\` will show them all.
+Set \`externalKey = ticketId\` at start. Subsequent phases of the same ticket can be separate traversals tagged with the same \`externalKey\` — \`freelance status\` will show them all.
 
 ### PR-driven workflows
-Start with \`externalKey\` only. After the PR is opened, call \`freelance_meta_set\` to add \`prUrl\` and \`branch\`. External systems can then locate the traversal by any of three keys.
+Start with \`externalKey\` only. After the PR is opened, call \`freelance meta set\` to add \`prUrl\` and \`branch\`. External systems can then locate the traversal by any of three keys.
 
 ### Multi-key cross-reference
 \`meta: { externalKey: "DEV-1234", prUrl: "...", branch: "feat/x" }\` — three independent lookup paths to the same traversal.
@@ -511,7 +511,7 @@ Read source files, extract atomic claims, and write them to the graph.
 
 **Shape:** three-node loop — \`exploring\` (read source files, delta-check against prior knowledge), \`compiling\` (extract atomic claims, plan entities, emit), \`evaluating\` (check coverage, loop or terminate). onEnter hooks pre-populate entity vocabulary and per-file prior knowledge, so the agent never burns a turn on setup.
 
-**Warm start:** pass \`initialContext: { query, filesReadPaths: [...] }\` to \`freelance_start\` so prior knowledge is available on first arrival.
+**Warm start:** pass \`initialContext: { query, filesReadPaths: [...] }\` to \`freelance start\` so prior knowledge is available on first arrival.
 
 ## memory:recall
 
@@ -523,7 +523,7 @@ Query-driven knowledge recall. Searches existing memory, reads provenance source
 
 ## Authoring guidance lives in the workflow nodes
 
-The proposition rubric (atomicity, independence test, relationship exception) and entity guidance (search hubs, reuse existing names) are carried in the \`compiling\` / \`filling\` nodes' instruction prose — not in this guide and not in the tool descriptions. When you land on one of those nodes via \`freelance_advance\`, the response's \`node.instructions\` field has the full rubric. Read that at emit time.
+The proposition rubric (atomicity, independence test, relationship exception) and entity guidance (search hubs, reuse existing names) are carried in the \`compiling\` / \`filling\` nodes' instruction prose — not in this guide and not in the tool descriptions. When you land on one of those nodes via \`freelance advance\`, the response's \`node.instructions\` field has the full rubric. Read that at emit time.
 
 ## User-authored graphs can also use memory tools
 
@@ -570,7 +570,7 @@ export function getGuide(topic?: string): { content: string } | { error: string 
   if (!topic) {
     const catalog = GUIDE_TOPICS.map((t) => `- ${t}`).join("\n");
     return {
-      content: `# Freelance Graph Authoring Guide\n\nAvailable topics:\n${catalog}\n\nCall freelance_guide with a topic to read it.`,
+      content: `# Freelance Graph Authoring Guide\n\nAvailable topics:\n${catalog}\n\nCall freelance guide with a topic to read it.`,
     };
   }
 

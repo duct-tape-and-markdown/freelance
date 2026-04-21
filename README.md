@@ -2,7 +2,7 @@
 
 Graph-based workflow enforcement and persistent memory for AI coding agents.
 
-Define structured workflows in YAML. Enforce them at tool boundaries via MCP. Build a persistent knowledge graph that grows with every query and knows when its sources have changed.
+Define structured workflows in YAML. Agents drive them through the `freelance` CLI, via a Claude Agent Skill that teaches the invariant protocol. Build a persistent knowledge graph that grows with every query and knows when its sources have changed.
 
 ## Quick Start
 
@@ -13,7 +13,7 @@ Define structured workflows in YAML. Enforce them at tool boundaries via MCP. Bu
 /plugin install freelance@freelance-plugins
 ```
 
-This installs the MCP server, hooks, and skills automatically. Run `/freelance:freelance-init` to scaffold your first workflow.
+This installs the CLI-driving skill, setup skill, and hooks automatically. Run `/freelance:freelance-init` to scaffold your first workflow.
 
 ### Other clients (Cursor, Windsurf, Cline)
 
@@ -25,15 +25,15 @@ freelance init
 
 ## Driving workflows via skill + CLI
 
-For Claude Code, Freelance ships a single [Claude Agent Skill](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview) that teaches the agent how to drive any workflow through the `freelance` CLI. The skill activates from its description match — when the user mentions a workflow to run, describes a task matching a loaded workflow, or wants to continue an in-flight traversal.
+Freelance ships a single [Claude Agent Skill](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview) that teaches the agent how to drive any workflow through the `freelance` CLI. The skill activates from its description match — when the user mentions a workflow to run, describes a task matching a loaded workflow, or wants to continue an in-flight traversal.
 
-`freelance init --client claude-code` installs `SKILL.md` at `.claude/skills/freelance/` (project scope) or `~/.claude/skills/freelance/` (user scope) alongside scaffolding the workflows directory and MCP config. The plugin install path (`/plugin install freelance@freelance-plugins`) ships the same skill.
+`freelance init --client claude-code` installs `SKILL.md` at `.claude/skills/freelance/` (project scope) or `~/.claude/skills/freelance/` (user scope) alongside the workflows directory. The plugin install path ships the same skill.
 
 The agent drives workflows through shell-out calls — `freelance status`, `freelance start <graphId>`, `freelance advance <edge>`, `freelance context set k=v`, `freelance inspect` — and branches on semantic exit codes (0 success, 1 internal, 2 blocked, 3 validation, 4 not found, 5 invalid input). Every runtime verb emits a structured JSON response on stdout; breadcrumbs go to stderr. See [`plugins/freelance/skills/freelance/SKILL.md`](plugins/freelance/skills/freelance/SKILL.md) for the driving protocol.
 
 ## Workflows
 
-Workflows are directed graphs defined in YAML. The agent calls MCP tools to traverse them — `freelance_start` to begin, `freelance_advance` to move between nodes. Gate nodes block advancement until conditions are met. State lives server-side, so it survives context compaction.
+Workflows are directed graphs defined in YAML. The agent calls CLI verbs to traverse them — `freelance start` to begin, `freelance advance` to move between nodes. Gate nodes block advancement until conditions are met. State lives on disk under `.freelance/traversals/`, so it survives context compaction.
 
 ```yaml
 id: my-workflow
@@ -104,43 +104,43 @@ To customize, add memory settings to your `.freelance/config.yml` (see [Configur
 
 Two sealed workflows are auto-injected: `memory:compile` (read sources, emit propositions, evaluate coverage) and `memory:recall` (recall, source, compare, fill delta, evaluate). These can be referenced as subgraphs in your own workflows.
 
-### Memory tools
+### Memory CLI verbs
 
-Write tools (gated by an active workflow traversal):
+Write (gated by an active workflow traversal):
 
-| Tool | Description |
-|------|-------------|
-| `memory_emit` | Write propositions with required per-file source attribution |
-| `memory_prune` | Scope-bounded delete by content-reachability (see [Pruning memory](#pruning-memory)) |
+| Command | Description |
+|---------|-------------|
+| `freelance memory emit <file>` | Write propositions with required per-file source attribution (use `-` for stdin) |
+| `freelance memory prune --keep <ref>` | Scope-bounded delete by content-reachability (see [Pruning memory](#pruning-memory)) |
 
-Read tools (available anytime):
+Read (available anytime):
 
-| Tool | Description |
-|------|-------------|
-| `memory_browse` | Find entities by name or kind |
-| `memory_inspect` | Full entity details with propositions, neighbors, and deduped source files |
-| `memory_by_source` | All propositions derived from a specific source file |
-| `memory_related` | Entity graph navigation — co-occurring entities with connection strength |
-| `memory_search` | Full-text search across proposition content (FTS5) |
-| `memory_status` | Knowledge graph health: total, valid, stale counts |
+| Command | Description |
+|---------|-------------|
+| `freelance memory browse` | Find entities by name or kind |
+| `freelance memory inspect <entity>` | Full entity details with propositions, neighbors, and deduped source files |
+| `freelance memory by-source <file>` | All propositions derived from a specific source file |
+| `freelance memory related <entity>` | Entity graph navigation — co-occurring entities with connection strength |
+| `freelance memory search <query>` | Full-text search across proposition content (FTS5) |
+| `freelance memory status` | Knowledge graph health: total, valid, stale counts |
 
-## Workflow Tools
+## Workflow CLI verbs
 
-| Tool | Description |
-|------|-------------|
-| `freelance_list` | Discover available workflow graphs and active traversals (each with any `meta` tags) |
-| `freelance_start` | Begin traversing a graph (optional opaque `meta` tags for later lookup) |
-| `freelance_advance` | Move to the next node via a labeled edge |
-| `freelance_context_set` | Update session context without advancing |
-| `freelance_meta_set` | Merge opaque `meta` tags onto a traversal (add or overwrite) |
-| `freelance_inspect` | Read-only introspection (position or history; optional `fields` for graph projections); includes `meta` tags |
-| `freelance_reset` | Clear traversal and start over |
-| `freelance_guide` | Authoring guidance for writing graphs |
-| `freelance_distill` | Distill a task into a new workflow |
-| `freelance_validate` | Validate graph definitions |
-| `freelance_sources_hash` | Compute hashes for source binding |
-| `freelance_sources_check` | Verify source file availability |
-| `freelance_sources_validate` | Validate source integrity against expectations |
+| Command | Description |
+|---------|-------------|
+| `freelance status` | Discover available workflow graphs and active traversals (each with any `meta` tags) |
+| `freelance start <graphId>` | Begin traversing a graph (optional opaque `--meta key=value` tags for later lookup) |
+| `freelance advance <edge>` | Move to the next node via a labeled edge |
+| `freelance context set <key=value>...` | Update session context without advancing |
+| `freelance meta set <key=value>...` | Merge opaque `meta` tags onto a traversal (add or overwrite) |
+| `freelance inspect [id]` | Read-only introspection (`--detail position` or `--detail history`); includes `meta` tags |
+| `freelance reset --confirm` | Clear traversal and start over |
+| `freelance guide [topic]` | Authoring guidance for writing graphs |
+| `freelance distill --mode distill\|refine` | Distill a task into a new workflow, or refine an existing one |
+| `freelance validate <dir>` | Validate graph definitions |
+| `freelance sources hash <paths...>` | Compute hashes for source binding |
+| `freelance sources check <sources...>` | Verify source file hashes |
+| `freelance sources validate` | Validate source integrity across loaded graphs |
 
 ## Configuration
 
@@ -191,7 +191,7 @@ context:
   maxTotalBytes: 65536              # Total serialized-context cap per traversal. Default 64 KB.
 ```
 
-Over-cap writes are rejected with `CONTEXT_VALUE_TOO_LARGE` or `CONTEXT_TOTAL_TOO_LARGE` errors at the `freelance_context_set`, `freelance_advance` (contextUpdates), and onEnter-hook return boundaries, so a runaway hook or context write never persists.
+Over-cap writes are rejected with `CONTEXT_VALUE_TOO_LARGE` or `CONTEXT_TOTAL_TOO_LARGE` errors at the `freelance context set`, `freelance advance --context …`, and onEnter-hook return boundaries, so a runaway hook or context write never persists.
 
 Merge rules: arrays (`workflows`, `collections`) concatenate across files. Scalars use highest-precedence value.
 
@@ -210,7 +210,7 @@ Workflows load automatically from these directories (no flags needed):
 Subdirectories are scanned recursively. Later directories shadow earlier ones by graph ID. You can also specify directories explicitly:
 
 ```bash
-freelance mcp --workflows ./my-workflows/
+freelance status --workflows ./my-workflows/
 ```
 
 ### `.freelance/` directory layout
@@ -246,8 +246,6 @@ A row is deleted only when its `content_hash` doesn't match the file at **any** 
 
 The approach is robust to history-rewriting workflows (rebase, squash merge, amend) because it asks about tree content, not commit reachability — a squashed branch's bytes end up in the merge commit's tree and are still found. Unresolvable `--keep` refs hard-error before touching the database. Non-git source roots can't use prune at all.
 
-The MCP equivalent — `memory_prune({ keep: [...], dryRun? })` — is gated by an active workflow traversal. Call it from a user-authored cleanup workflow; it isn't wired into `memory:compile` / `memory:recall`.
-
 Config default:
 
 ```yaml
@@ -273,26 +271,9 @@ Deletes `memory.db` and its sidecars without opening the database, so it works e
 **Environment variables:**
 - `FREELANCE_WORKFLOWS_DIR` — colon-separated list of workflow directories (bypasses auto-scan)
 
-### MCP setup
-
-Run `freelance init` to auto-detect your client and generate the config. Supports Claude Code, Cursor, Windsurf, and Cline.
-
-Manual configuration (e.g., `.mcp.json` for Claude Code):
-
-```json
-{
-  "mcpServers": {
-    "freelance": {
-      "command": "freelance",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
 ## CLI
 
-Every MCP tool has a CLI equivalent. Commands operate directly on the local state store — no daemon or MCP client required.
+Agents drive Freelance through the CLI. Commands operate directly on the local state store — no daemon or server required.
 
 ```
 # Setup
@@ -330,8 +311,6 @@ freelance sources validate                # Validate all source bindings
 freelance config show                     # Display resolved config with sources
 freelance config set-local <key> <value>  # Modify config.local.yml
 
-# Server
-freelance mcp                             # Start MCP server
 freelance completion bash|zsh|fish        # Shell completion script
 ```
 

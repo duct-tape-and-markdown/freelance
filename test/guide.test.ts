@@ -29,7 +29,7 @@ describe("freelance_guide", () => {
     expect("content" in result).toBe(true);
     if ("content" in result) {
       expect(result.content).toContain("Graph Basics");
-      expect(result.content).toContain("freelance_list");
+      expect(result.content).toContain("freelance status");
     }
   });
 

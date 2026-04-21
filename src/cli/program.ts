@@ -8,11 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Command, Option } from "commander";
 import { loadConfigFromDirs } from "../config.js";
-import { resolveContextCaps } from "../engine/context.js";
-import { loadGraphsGraceful, resolveGraphsDirs, resolveSourceRoot } from "../graph-resolution.js";
-import { getSealedGraphs } from "../memory/sealed.js";
-import { extractSection } from "../section-resolver.js";
-import { startServer } from "../server.js";
+import { resolveGraphsDirs } from "../graph-resolution.js";
 import { VERSION } from "../version.js";
 import { configSetLocal, configShow } from "./config.js";
 import {
@@ -26,14 +22,12 @@ import {
   memorySearch,
   memoryStatus,
 } from "./memory.js";
-import { EXIT, fatal, info, outputJson, setCli } from "./output.js";
+import { EXIT, fatal, outputJson, setCli } from "./output.js";
 import {
   createMemoryStore,
   createTraversalStore,
-  ensureFreelanceDir,
   loadGraphSetup,
   resolveMemoryConfig,
-  resolveTraversalsDir,
 } from "./setup.js";
 import { distillRun, guideShow, sourcesCheck, sourcesHash, sourcesValidate } from "./stateless.js";
 import {
@@ -87,7 +81,7 @@ program
       .default("project"),
   )
   .addOption(
-    new Option("--client <client>", "MCP client to configure").choices([
+    new Option("--client <client>", "Target agent client").choices([
       "claude-code",
       "cursor",
       "windsurf",
@@ -155,67 +149,6 @@ program
     visualize(file, {
       format: opts.format,
       output: opts.output,
-    });
-  });
-
-// --- mcp ---
-
-program
-  .command("mcp")
-  .description("Start MCP server")
-  .option(
-    "--workflows <directory>",
-    "Workflow definitions directory (repeatable for layering)",
-    (value: string, previous?: string[]) => (previous ? [...previous, value] : [value]),
-  )
-  .option("--max-depth <n>", "Maximum subgraph nesting depth (overrides config.maxDepth)")
-  .option(
-    "--source-root <path>",
-    "Base path for resolving source references (default: parent of first workflows dir)",
-  )
-  .option("--memory-dir <path>", "Persistent directory for memory database")
-  .option("--memory", "Force memory on (overrides memory.enabled=false in config)")
-  .option("--no-memory", "Disable memory (overrides memory.enabled=true in config)")
-  .action(async (opts) => {
-    const dirs = resolveGraphsDirs(opts.workflows);
-    const config = loadConfigFromDirs(dirs);
-    const memoryConfig = resolveMemoryConfig(
-      dirs,
-      { memoryDir: opts.memoryDir, memory: opts.memory },
-      config,
-    );
-    // Sealed graphs must reach the loader before cross-graph validation.
-    const sealedGraphs = memoryConfig ? getSealedGraphs() : undefined;
-    const { graphs, errors: loadErrors } = loadGraphsGraceful(dirs, { sealedGraphs });
-    const sourceRoot = resolveSourceRoot(dirs, opts.sourceRoot);
-    const sectionResolver = (filePath: string, section: string) =>
-      extractSection(filePath, section);
-    if (loadErrors.length > 0) {
-      info(
-        `Freelance: ${loadErrors.length} graph(s) failed validation — call freelance_validate for details`,
-      );
-    }
-    if (memoryConfig) {
-      info(`Freelance: memory enabled (${memoryConfig.db})`);
-    }
-    // Precedence: CLI flag > config.maxDepth > hardcoded default 5.
-    const maxDepth =
-      opts.maxDepth !== undefined ? parseInt(opts.maxDepth, 10) : (config.maxDepth ?? 5);
-    ensureFreelanceDir(dirs[0] ?? ".freelance");
-    const stateDir = resolveTraversalsDir(dirs);
-    info(
-      `Freelance: loaded ${graphs.size} graph(s) from ${dirs.length} directory(ies), maxDepth=${maxDepth}`,
-    );
-    await startServer(graphs, {
-      maxDepth,
-      graphsDirs: dirs,
-      sectionResolver,
-      sourceRoot,
-      loadErrors,
-      memory: memoryConfig ?? undefined,
-      stateDir,
-      hookTimeoutMs: config.hooks.timeoutMs,
-      contextCaps: resolveContextCaps(config.context),
     });
   });
 
