@@ -79,21 +79,25 @@ export function mapEngineErrorToExit(code: EngineErrorCode): number {
 
 /**
  * Write a structured error to stdout and return the exit code. Payload is
- *   { isError: true, error: { code, message, kind } }
+ *   { isError: true, error: { code, message, kind, ...context } }
  * where `kind` is "blocked" or "structural" per `errorKind`. Top-level
  * `isError` lets a shell consumer one-pass-parse without exit-code
  * inspection, `error.code` is what `mapEngineErrorToExit` branches on,
  * and `error.kind` is the wire-level recover-vs-stop discriminator
- * unified with in-band gate-block responses (see #95). For unknown
- * throws (non-EngineError), `code` is `INTERNAL`.
+ * unified with in-band gate-block responses (see #95). Any structured
+ * context carried on `EngineError.context` (e.g. `hook`) is spread
+ * into `error`. For unknown throws (non-EngineError), `code` is
+ * `INTERNAL`.
  */
 export function outputError(e: unknown): number {
   if (e instanceof EngineError) {
-    outputJson(errorEnvelope(e.code, e.message));
+    const envelope = errorEnvelope(e.code, e.message);
+    if (e.context) Object.assign(envelope.error, e.context);
+    outputJson(envelope);
     return mapEngineErrorToExit(e.code);
   }
   const message = e instanceof Error ? e.message : String(e);
-  outputJson(errorEnvelope("INTERNAL", message));
+  outputJson(errorEnvelope(EC.INTERNAL, message));
   return EXIT.INTERNAL;
 }
 
@@ -120,13 +124,16 @@ export function handleRuntimeError(e: unknown): never {
  * augmented with the envelope — e.g. `memory prune` returns the prune
  * plan alongside `isError: true` so the caller sees the blast radius
  * and the refusal in one response. `kind` is derived via `errorKind`.
+ *
+ * `code` is typed as `EngineErrorCode` so every caller picks from the
+ * catalog — typos and uncatalogued strings fail at compile time.
  */
 export function errorEnvelope(
-  code: string,
+  code: EngineErrorCode,
   message: string,
 ): {
   isError: true;
-  error: { code: string; message: string; kind: ReturnType<typeof errorKind> };
+  error: { code: EngineErrorCode; message: string; kind: ReturnType<typeof errorKind> };
 } {
   return { isError: true, error: { code, message, kind: errorKind(code) } };
 }
@@ -182,17 +189,15 @@ export function error(msg: string): void {
  * Emit a structured fatal error to stdout and exit with the given code.
  * Shape matches `outputError`: `{ isError: true, error: { code,
  * message, kind } }`. Callers pass an exit code that categorizes the
- * failure (see EXIT); `code` defaults to "FATAL" and can be overridden
- * for specificity. `kind` is derived via `errorKind` — any
- * `fatal()`-produced error whose code isn't in `ENGINE_ERROR_CODES.BLOCKED`
- * falls through to `"structural"`, which is the right default for
- * authoring-time and setup failures.
+ * failure (see EXIT) and a `code` from the engine catalog — no default,
+ * so every call site picks a specific code (the previous `"FATAL"`
+ * default hid novel failures behind a generic string). `kind` is
+ * derived via `errorKind` — any `fatal()`-produced error whose code
+ * isn't in `ENGINE_ERROR_CODES.BLOCKED` falls through to
+ * `"structural"`, which is the right default for authoring-time and
+ * setup failures.
  */
-export function fatal(
-  msg: string,
-  exitCode: number = EXIT.INTERNAL,
-  code: string = "FATAL",
-): never {
+export function fatal(msg: string, exitCode: number, code: EngineErrorCode): never {
   outputJson(errorEnvelope(code, msg));
   process.exit(exitCode);
 }

@@ -95,11 +95,19 @@ export const ENGINE_ERROR_CODES = {
     "FILE_NOT_FOUND",
     "COMPLETION_NOT_FOUND",
     "ENTITY_NOT_FOUND",
+    "TEMPLATE_NOT_FOUND",
   ],
   // CLI-surface structural failure: graph load, internal invariant,
-  // source file unreadable. Maps to exit 1 like engine internal
-  // errors — not operator-fixable, report-and-stop.
-  CLI_STRUCTURAL: ["GRAPH_LOAD_FAILED", "INTERNAL", "FATAL", "SOURCE_FILE_UNREADABLE"],
+  // source file unreadable, missing optional peer dep. Maps to exit 1
+  // like engine internal errors — not operator-fixable via retry,
+  // report-and-stop.
+  CLI_STRUCTURAL: [
+    "GRAPH_LOAD_FAILED",
+    "INTERNAL",
+    "FATAL",
+    "SOURCE_FILE_UNREADABLE",
+    "MISSING_OPTIONAL_DEP",
+  ],
   // Authoring-time graph validation failure. Exit 3 is reserved for
   // these so CI pipelines and `freelance validate` can branch on
   // "graph is malformed" distinct from runtime failures.
@@ -196,10 +204,12 @@ export const EC = {
   FILE_NOT_FOUND: "FILE_NOT_FOUND",
   COMPLETION_NOT_FOUND: "COMPLETION_NOT_FOUND",
   ENTITY_NOT_FOUND: "ENTITY_NOT_FOUND",
+  TEMPLATE_NOT_FOUND: "TEMPLATE_NOT_FOUND",
   GRAPH_LOAD_FAILED: "GRAPH_LOAD_FAILED",
   INTERNAL: "INTERNAL",
   FATAL: "FATAL",
   SOURCE_FILE_UNREADABLE: "SOURCE_FILE_UNREADABLE",
+  MISSING_OPTIONAL_DEP: "MISSING_OPTIONAL_DEP",
   GRAPH_STRUCTURE_INVALID: "GRAPH_STRUCTURE_INVALID",
 } as const satisfies { readonly [K in EngineErrorCode]: K };
 
