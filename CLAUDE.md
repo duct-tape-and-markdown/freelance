@@ -54,11 +54,17 @@ Flow for a patch release (e.g. 1.3.2 → 1.3.3):
 1. Graduate `[Unreleased]` in `CHANGELOG.md` to `[<version>] - YYYY-MM-DD`. Leave a fresh empty `[Unreleased]` above it.
 2. `npm version patch --no-git-tag-version` — bumps `package.json` + `package-lock.json`, runs the `version` script which invokes `scripts/sync-plugin-version.mjs` to rewrite `plugin.json` and `marketplace.json`.
 3. The `version` script only `git add`s `plugin.json` — **manually stage the rest**: `git add CHANGELOG.md package.json package-lock.json .claude-plugin/marketplace.json`.
-4. `git commit -m "release: <version>"` and `git tag v<version>`.
-5. Push main + tag: `git push origin main v<version>`.
+4. `git commit -m "release: <version>"` and `git tag v<version>`. A Biome-format pre-commit hook runs; if it finds unformatted files the commit is rejected — run `npx biome format --write <files>` (or `npx biome check --write .`) and retry **before** tagging. If a tag got created against the previous commit because of a silent commit failure, delete it (`git tag -d v<version>`, plus `git push origin :v<version>` if it's already on the remote) and re-tag after the real release commit lands.
+5. Push main + tag: `git push origin main v<version>`. Verify first: `git log --oneline -1 v<version>` should point at the `release: <version>` commit.
 6. `gh release create v<version> --title "v<version>" --notes "$(...)"` — CI workflow picks this up and publishes to npm.
 
-Historical context: Why `.mcp.json` pins exactly (not `^<major>`): npx keys its `_npx/<hash>` cache by the raw spec string, so a range reuses any satisfying cached version and never re-resolves (npm/cli#7838, #6804). Exact pinning changes the cache key each release so `/plugin update` actually delivers the new server. See CHANGELOG [1.3.3] and the file-header comment in `scripts/sync-plugin-version.mjs`. The mechanism is inactive after MCP removal in #121.
+### After a release: the plugin nudge is the CLI update signal
+
+Post-MCP (#121), the plugin no longer launches a server — users run `freelance` from their shell. `plugins/freelance/hooks/nudge.mjs` reads `plugin.json#version` on SessionStart, probes `freelance --version`, and emits a `systemMessage` recommending `npm install -g freelance-mcp@<plugin-version>` when the CLI is missing or older than the plugin. Comparison is asymmetric — CLI ahead of plugin stays silent.
+
+Practical consequence: every release via the flow above bumps `plugin.json` + `marketplace.json` (via `sync-plugin-version.mjs`), and that bump carries through `/plugin update` to become an install prompt in each user's next session. Plugin version is effectively the authoritative CLI version users should be on. This is the replacement for the pre-1.4 `.mcp.json` exact-pin mechanism.
+
+Historical context: pre-1.4, `.mcp.json` pinned `freelance-mcp@<exact-version>` rather than `^<major>` because npx keys its `_npx/<hash>` cache by the raw spec string, so a range reuses any satisfying cached version and never re-resolves (npm/cli#7838, #6804). Exact pinning changed the cache key each release so `/plugin update` delivered the new server. See CHANGELOG [1.3.3] and the file-header comment in `scripts/sync-plugin-version.mjs`. The mechanism is inactive after MCP removal in #121; the nudge above supersedes it.
 
 ## Code navigation
 
