@@ -66,6 +66,52 @@ export const ENGINE_ERROR_CODES = {
     "HOOK_BUILTIN_MISSING",
     "HOOK_BAD_RETURN",
   ],
+  // CLI-surface malformed input: missing project, invalid config
+  // value, unresolvable prune ref, source outside root, memory
+  // disabled when required. Shares exit 5 with INVALID_INPUT — the
+  // operator's shell invocation is wrong, not the engine state.
+  CLI_INVALID_INPUT: [
+    "NO_FREELANCE_DIR",
+    "INVALID_CONFIG_VALUE",
+    "UNKNOWN_CONFIG_KEY",
+    "INVALID_SOURCE_FORMAT",
+    "INVALID_EXTENSION",
+    "UNKNOWN_SHELL",
+    "CONFIRM_REQUIRED",
+    "MISSING_KEEP",
+    "PRUNE_NOT_GIT_CHECKOUT",
+    "PRUNE_UNRESOLVABLE_REF",
+    "SOURCE_OUTSIDE_ROOT",
+    "MEMORY_DISABLED",
+    "MEMORY_UNRESOLVED_SOURCE_ROOT",
+  ],
+  // CLI-surface missing-target: topic / graph dir / file / entity
+  // the operator referenced doesn't resolve. Shares exit 4 with
+  // engine NOT_FOUND.
+  CLI_NOT_FOUND: [
+    "TOPIC_NOT_FOUND",
+    "NO_GRAPHS_DIR",
+    "NO_GRAPHS_LOADED",
+    "FILE_NOT_FOUND",
+    "COMPLETION_NOT_FOUND",
+    "ENTITY_NOT_FOUND",
+    "TEMPLATE_NOT_FOUND",
+  ],
+  // CLI-surface structural failure: graph load, internal invariant,
+  // source file unreadable, missing optional peer dep. Maps to exit 1
+  // like engine internal errors — not operator-fixable via retry,
+  // report-and-stop.
+  CLI_STRUCTURAL: [
+    "GRAPH_LOAD_FAILED",
+    "INTERNAL",
+    "FATAL",
+    "SOURCE_FILE_UNREADABLE",
+    "MISSING_OPTIONAL_DEP",
+  ],
+  // Authoring-time graph validation failure. Exit 3 is reserved for
+  // these so CI pipelines and `freelance validate` can branch on
+  // "graph is malformed" distinct from runtime failures.
+  GRAPH_VALIDATION: ["GRAPH_STRUCTURE_INVALID"],
 } as const;
 
 export type EngineErrorCategory = keyof typeof ENGINE_ERROR_CODES;
@@ -139,4 +185,58 @@ export const EC = {
   HOOK_RESOLUTION_MISMATCH: "HOOK_RESOLUTION_MISMATCH",
   HOOK_BUILTIN_MISSING: "HOOK_BUILTIN_MISSING",
   HOOK_BAD_RETURN: "HOOK_BAD_RETURN",
+  NO_FREELANCE_DIR: "NO_FREELANCE_DIR",
+  INVALID_CONFIG_VALUE: "INVALID_CONFIG_VALUE",
+  UNKNOWN_CONFIG_KEY: "UNKNOWN_CONFIG_KEY",
+  INVALID_SOURCE_FORMAT: "INVALID_SOURCE_FORMAT",
+  INVALID_EXTENSION: "INVALID_EXTENSION",
+  UNKNOWN_SHELL: "UNKNOWN_SHELL",
+  CONFIRM_REQUIRED: "CONFIRM_REQUIRED",
+  MISSING_KEEP: "MISSING_KEEP",
+  PRUNE_NOT_GIT_CHECKOUT: "PRUNE_NOT_GIT_CHECKOUT",
+  PRUNE_UNRESOLVABLE_REF: "PRUNE_UNRESOLVABLE_REF",
+  SOURCE_OUTSIDE_ROOT: "SOURCE_OUTSIDE_ROOT",
+  MEMORY_DISABLED: "MEMORY_DISABLED",
+  MEMORY_UNRESOLVED_SOURCE_ROOT: "MEMORY_UNRESOLVED_SOURCE_ROOT",
+  TOPIC_NOT_FOUND: "TOPIC_NOT_FOUND",
+  NO_GRAPHS_DIR: "NO_GRAPHS_DIR",
+  NO_GRAPHS_LOADED: "NO_GRAPHS_LOADED",
+  FILE_NOT_FOUND: "FILE_NOT_FOUND",
+  COMPLETION_NOT_FOUND: "COMPLETION_NOT_FOUND",
+  ENTITY_NOT_FOUND: "ENTITY_NOT_FOUND",
+  TEMPLATE_NOT_FOUND: "TEMPLATE_NOT_FOUND",
+  GRAPH_LOAD_FAILED: "GRAPH_LOAD_FAILED",
+  INTERNAL: "INTERNAL",
+  FATAL: "FATAL",
+  SOURCE_FILE_UNREADABLE: "SOURCE_FILE_UNREADABLE",
+  MISSING_OPTIONAL_DEP: "MISSING_OPTIONAL_DEP",
+  GRAPH_STRUCTURE_INVALID: "GRAPH_STRUCTURE_INVALID",
 } as const satisfies { readonly [K in EngineErrorCode]: K };
+
+/**
+ * Structured hook identification carried on `EngineError.context.hook`
+ * when a hook execution fails. The CLI envelope spreads this into
+ * `error.hook` so the driving skill can point the operator at the
+ * exact hook call site (`name` + `nodeId`, plus `index` to
+ * disambiguate repeated calls on the same node).
+ *
+ * Defined here (not in `engine/hooks.ts`) because the CLI output
+ * layer spreads it into the envelope — keeping the type adjacent to
+ * `EngineErrorCode` avoids an engine → cli dependency for a plain
+ * data contract. PR D wires the engine to populate it on HOOK_*
+ * throws; PR B defines the shape and the envelope plumbing.
+ */
+export interface HookErrorContext {
+  name: string;
+  nodeId: string;
+  index: number;
+}
+
+/**
+ * Flat tuple of every known code, for Zod's `z.enum` in the
+ * envelope-contract test. Derived from `ENGINE_ERROR_CODES` so it
+ * stays in lockstep with the catalog.
+ */
+export const ALL_ENGINE_ERROR_CODES = (
+  Object.keys(ENGINE_ERROR_CODES) as EngineErrorCategory[]
+).flatMap((cat) => [...ENGINE_ERROR_CODES[cat]]) as [EngineErrorCode, ...EngineErrorCode[]];

@@ -12,6 +12,8 @@ import { buildMemoryStore, composeRuntime } from "../compose.js";
 import type { FreelanceConfig } from "../config.js";
 import { loadConfigFromDirs } from "../config.js";
 import { resolveContextCaps } from "../engine/context.js";
+import { EC } from "../error-codes.js";
+import { EngineError } from "../errors.js";
 import { loadGraphsGraceful, resolveGraphsDirs, resolveSourceRoot } from "../graph-resolution.js";
 import type { MemoryConfig, MemoryStore } from "../memory/index.js";
 import { extractSection } from "../section-resolver.js";
@@ -211,12 +213,16 @@ export function createMemoryStore(opts: CliSetupOptions): { store: MemoryStore; 
   const config = loadConfigFromDirs(setup.graphsDirs);
   const memConfig = resolveMemoryConfig(setup.graphsDirs, {}, config);
   if (!memConfig) {
-    throw new Error("Memory is disabled. Enable it in config.yml or remove --no-memory.");
+    throw new EngineError(
+      "Memory is disabled. Enable it in config.yml or remove --no-memory.",
+      EC.MEMORY_DISABLED,
+    );
   }
   if (!setup.sourceRoot) {
-    throw new Error(
+    throw new EngineError(
       "createMemoryStore: sourceRoot could not be resolved from graphsDirs. " +
         "Pass --workflows explicitly or configure workflows in config.yml.",
+      EC.MEMORY_UNRESOLVED_SOURCE_ROOT,
     );
   }
   const store = buildMemoryStore(memConfig, setup.sourceRoot);

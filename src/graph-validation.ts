@@ -11,6 +11,8 @@
  * Pure: no I/O, no graphlib, no side effects.
  */
 
+import { EC } from "./error-codes.js";
+import { EngineError } from "./errors.js";
 import { extractPropertyComparisons, validateExpression } from "./evaluator.js";
 import type { GraphDefinition } from "./schema/graph-schema.js";
 import { isContextFieldDescriptor } from "./schema/graph-schema.js";
@@ -26,8 +28,9 @@ export function validateReturnSchemas(def: GraphDefinition, filePath: string): v
     if (!node.returns) continue;
 
     if (node.type === "terminal") {
-      throw new Error(
+      throw new EngineError(
         `[${filePath}] Node "${nodeId}": terminal node must not have a returns schema`,
+        EC.GRAPH_STRUCTURE_INVALID,
       );
     }
 
@@ -36,8 +39,9 @@ export function validateReturnSchemas(def: GraphDefinition, filePath: string): v
 
     for (const key of optionalKeys) {
       if (requiredKeys.has(key)) {
-        throw new Error(
+        throw new EngineError(
           `[${filePath}] Node "${nodeId}": returns key "${key}" appears in both required and optional`,
+          EC.GRAPH_STRUCTURE_INVALID,
         );
       }
     }
@@ -49,8 +53,9 @@ export function validateReturnSchemas(def: GraphDefinition, filePath: string): v
 
     for (const [key, field] of Object.entries(allFields)) {
       if (field.items && field.type !== "array") {
-        throw new Error(
+        throw new EngineError(
           `[${filePath}] Node "${nodeId}": returns key "${key}" has "items" but type is "${field.type}" (items only valid on array type)`,
+          EC.GRAPH_STRUCTURE_INVALID,
         );
       }
     }
@@ -86,9 +91,10 @@ function checkEnumCompliance(
   for (const { property, literal } of comparisons) {
     const allowed = enumMap.get(property);
     if (allowed && !allowed.has(literal)) {
-      throw new Error(
+      throw new EngineError(
         `${location} references context.${property} with value '${literal}' ` +
           `which is not in the declared enum [${[...allowed].join(", ")}]`,
+        EC.GRAPH_STRUCTURE_INVALID,
       );
     }
   }
@@ -110,8 +116,9 @@ export function validateExpressions(def: GraphDefinition, filePath: string): voi
           checkEnumCompliance(v.expr, enumMap, `[${filePath}] Node "${nodeId}": validation`);
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          throw new Error(
+          throw new EngineError(
             `[${filePath}] Node "${nodeId}": invalid validation expression "${v.expr}": ${msg}`,
+            EC.GRAPH_STRUCTURE_INVALID,
           );
         }
       }
@@ -128,8 +135,9 @@ export function validateExpressions(def: GraphDefinition, filePath: string): voi
             );
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            throw new Error(
+            throw new EngineError(
               `[${filePath}] Node "${nodeId}": edge "${edge.label}" has invalid condition "${edge.condition}": ${msg}`,
+              EC.GRAPH_STRUCTURE_INVALID,
             );
           }
         }
@@ -146,8 +154,9 @@ export function validateExpressions(def: GraphDefinition, filePath: string): voi
         );
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        throw new Error(
+        throw new EngineError(
           `[${filePath}] Node "${nodeId}": invalid subgraph condition "${node.subgraph.condition}": ${msg}`,
+          EC.GRAPH_STRUCTURE_INVALID,
         );
       }
     }

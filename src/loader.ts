@@ -22,6 +22,8 @@ import { mergeSealedGraphs } from "./memory/sealed.js";
 // only the type keeps this file free of the CJS/ESM dance.
 type Graph = import("@dagrejs/graphlib").Graph;
 
+import { EC } from "./error-codes.js";
+import { EngineError } from "./errors.js";
 import type { GraphDefinition } from "./schema/graph-schema.js";
 import { graphDefinitionSchema, isContextFieldDescriptor } from "./schema/graph-schema.js";
 import type { ValidatedGraph } from "./types.js";
@@ -41,7 +43,10 @@ export function loadSingleGraph(filePath: string): { id: string } & ValidatedGra
     const errors = parseResult.error.issues
       .map((issue) => `  ${issue.path.join(".")}: ${issue.message}`)
       .join("\n");
-    throw new Error(`Schema validation failed for ${resolved}:\n${errors}`);
+    throw new EngineError(
+      `Schema validation failed for ${resolved}:\n${errors}`,
+      EC.GRAPH_STRUCTURE_INVALID,
+    );
   }
 
   const def = parseResult.data;
@@ -116,13 +121,16 @@ export function loadGraphs(
   const resolvedDir = path.resolve(directory);
 
   if (!fs.existsSync(resolvedDir)) {
-    throw new Error(`Graph directory does not exist: ${resolvedDir}`);
+    throw new EngineError(`Graph directory does not exist: ${resolvedDir}`, EC.NO_GRAPHS_DIR);
   }
 
   const files = findGraphFiles(resolvedDir);
 
   if (files.length === 0) {
-    throw new Error(`No *.workflow.yaml files found in or under: ${resolvedDir}`);
+    throw new EngineError(
+      `No *.workflow.yaml files found in or under: ${resolvedDir}`,
+      EC.NO_GRAPHS_LOADED,
+    );
   }
 
   const results = new Map<string, ValidatedGraph>();
@@ -138,7 +146,10 @@ export function loadGraphs(
   }
 
   if (results.size === 0) {
-    throw new Error(`All ${files.length} graph(s) failed validation:\n${errors.join("\n")}`);
+    throw new EngineError(
+      `All ${files.length} graph(s) failed validation:\n${errors.join("\n")}`,
+      EC.NO_GRAPHS_LOADED,
+    );
   }
 
   if (errors.length > 0) {
@@ -224,7 +235,7 @@ export function loadGraphsLayered(
   const warnings: string[] = [];
 
   if (directories.length === 0) {
-    throw new Error("No graph directories provided");
+    throw new EngineError("No graph directories provided", EC.NO_GRAPHS_DIR);
   }
 
   // Load in order so later directories override earlier ones
@@ -268,8 +279,9 @@ export function loadGraphsLayered(
 
   if (results.size === 0) {
     const dirs = directories.map((d) => path.resolve(d)).join(", ");
-    throw new Error(
+    throw new EngineError(
       `No valid graphs found in any directory: ${dirs}.\n\nSearched: ${directories.join(" → ")}`,
+      EC.NO_GRAPHS_LOADED,
     );
   }
 
@@ -314,8 +326,9 @@ export function validateCrossGraphRefs(
 
         // Verify referenced graph exists
         if (!graphs.has(targetId) && !extra?.has(targetId)) {
-          throw new Error(
+          throw new EngineError(
             `Graph "${graphId}", node "${nodeId}": subgraph references unknown graph "${targetId}"`,
+            EC.GRAPH_STRUCTURE_INVALID,
           );
         }
 
@@ -336,7 +349,10 @@ export function validateCrossGraphRefs(
     if (inStack.has(graphId)) {
       const cycleStart = path.indexOf(graphId);
       const cycle = path.slice(cycleStart).concat(graphId);
-      throw new Error(`Circular subgraph reference detected: ${cycle.join(" → ")}`);
+      throw new EngineError(
+        `Circular subgraph reference detected: ${cycle.join(" → ")}`,
+        EC.GRAPH_STRUCTURE_INVALID,
+      );
     }
     if (visited.has(graphId)) return;
 

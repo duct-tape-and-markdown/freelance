@@ -152,3 +152,26 @@ They don't substitute. `advance --shape` and `memory inspect --minimal` both fai
 **What would break if reversed:** a single projection verb collapses three axes into one; callers lose the per-surface defaults and additivity they rely on.
 
 Anchors: `src/types.ts` (minimal response shapes), `src/memory/types.ts` (PropositionShape), `src/cli/output.ts`, SKILL.md § "Three projection verbs, three axes".
+
+### Observable state transitions are durable before side effects
+
+Once an advance mutates `session.currentNode` past an edge, the traversal record is persisted **before** any code that can throw runs — specifically before `runArrivalHooks` fires onEnter hooks on the new node, and before the child-start onEnter fires on a subgraph push. Hook-collected context and meta writes persist on a second save after the hooks resolve.
+
+The rationale is log-then-apply on visible state. `advance` splits into two phases: `advanceTransition` (sync — mutates `session.currentNode`, records the history entry, returns), then `runArrivalHooks` (async — fires onEnter for the arrived node, merges hook writes). The traversal store persists between them. Two saves per successful advance; one save (the transition only) on a hook throw.
+
+Alternatives considered and rejected:
+
+- **Pre-transition hooks** — looks clean but hooks have external side effects (HTTP, `memory_emit`, filesystem writes from script hooks). Firing those for a transition that then aborts on a later hook's throw is a worse invariant — work done for a trip not taken.
+- **Save-in-finally** — preserves partial hook writes across a throw, but "disk reflects a transition that partially ran" is exactly the failure mode this contract is trying to escape.
+
+Under log-then-apply:
+
+- **Success:** two saves (post-transition record, then post-hook record carrying context + meta writes).
+- **Hook throw:** one save (the transition). Disk truth is "arrived at target, no hook writes." The envelope carries `currentNode = new node`, matching disk, with an `error.hook` sub-object naming the broken hook.
+- **Subgraph push:** same invariant. `maybePushSubgraph` mutates the stack, persists, then fires the child's onEnter.
+
+This contract applies to *traversal state only*. Memory emits are not traversal state and must not be entangled with transition outcomes — see § "Memory emit attribution is emit-time, not transition-time".
+
+**What would break if reversed:** collapsing the two saves into one re-opens the race where `advance` mutates in-memory state, fires a hook that throws, and returns an error while disk stays at the previous node. In-memory and on-disk diverge; the next CLI invocation loads a stale record and retries against a stale node.
+
+Anchors: `src/engine/engine.ts` (`advanceTransition` + `runArrivalHooks`), `src/engine/subgraph.ts` (`maybePushSubgraph`), `src/state/traversal-store.ts` (persist call site).
