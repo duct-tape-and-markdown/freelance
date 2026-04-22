@@ -10,6 +10,7 @@
 
 import fs from "node:fs";
 import { EC, EngineError } from "../errors.js";
+import { EmitBatchSchema } from "../memory/emit-schema.js";
 import type { MemoryStore } from "../memory/index.js";
 import type { PropositionShape } from "../memory/types.js";
 import {
@@ -129,22 +130,32 @@ function parseShape(raw: string | undefined): PropositionShape | undefined {
 export function memoryEmit(store: MemoryStore, file: string): void {
   try {
     const raw = file === "-" ? fs.readFileSync(0, "utf-8") : fs.readFileSync(file, "utf-8");
+    const source = file === "-" ? "stdin" : file;
 
-    let propositions: Array<{
-      content: string;
-      entities: string[];
-      sources: string[];
-      entityKinds?: Record<string, string>;
-    }>;
+    let parsed: unknown;
     try {
-      propositions = JSON.parse(raw);
+      parsed = JSON.parse(raw);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      const source = file === "-" ? "stdin" : file;
       throw new EngineError(`${source} must contain valid JSON: ${msg}`, EC.INVALID_EMIT_JSON);
     }
 
-    outputJson(store.emit(propositions));
+    // Zod at the boundary — the engine trusts `EmitProposition[]`, so
+    // shape validation has to live here or a malformed JSON payload
+    // (null sources, string entities, missing content, top-level
+    // non-array) becomes a generic TypeError mid-emit.
+    const shapeResult = EmitBatchSchema.safeParse(parsed);
+    if (!shapeResult.success) {
+      const issues = shapeResult.error.issues
+        .map((issue) => `  ${issue.path.join(".") || "<root>"}: ${issue.message}`)
+        .join("\n");
+      throw new EngineError(
+        `${source} does not match the EmitProposition shape:\n${issues}`,
+        EC.INVALID_EMIT_SHAPE,
+      );
+    }
+
+    outputJson(store.emit(shapeResult.data));
   } catch (e) {
     handleError(e);
   }
