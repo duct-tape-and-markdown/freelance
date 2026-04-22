@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`MemoryStore.close` no longer leaks WAL + SHM sidecars on error
+  exits (#153).** Every `freelance memory ...` verb except `prune` and
+  `reset` routed through `try { handler } finally { store.close() }`,
+  but `handleError` calls `process.exit` and `process.exit` does not
+  unwind `finally` — so the close ran only on success. New
+  `runMemoryHandler(store, fn)` wrapper in `src/cli/memory.ts` owns
+  the store lifetime for the seven read-path verbs (status, browse,
+  inspect, search, related, by-source, emit) and closes before
+  `handleError` on both success and error paths. The idempotence
+  guard on `MemoryStore.close` makes any surviving caller-side
+  `finally { store.close() }` a harmless no-op.
+
 ### Added
 
 - **Zod validation on the `memory emit` CLI boundary (#158).**
@@ -41,17 +55,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.4.0] - 2026-04-22
 
 ### Added
-
-- **Zod validation on the `memory emit` CLI boundary (#158).**
-  `EmitBatchSchema` (in `src/memory/emit-schema.ts`) enforces the
-  documented memory invariants — `content: min(1)`, `entities: 1..4`,
-  `sources: min(1)` — before the payload reaches `store.emit`.
-  Malformed JSON that previously propagated inward as a `TypeError`
-  (null sources, string-as-entities, missing content, top-level
-  non-array) now emits a structured `INVALID_EMIT_SHAPE` error with
-  the failing field path in the message. Syntax-tier failures still
-  emit the pre-existing `INVALID_EMIT_JSON`; the new code is the
-  shape tier alongside.
 
 - **`freelance inspect` flag parity restored (#122).** Threads the
   engine-level inspect parameters through to the CLI surface, closing
