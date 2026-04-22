@@ -14,13 +14,7 @@ import type { InspectHistoryOptions } from "../engine/context.js";
 import { EC, EngineError } from "../errors.js";
 import type { TraversalStore } from "../state/index.js";
 import type { InspectField, InspectPositionResult } from "../types.js";
-import {
-  EXIT,
-  errorEnvelope,
-  handleRuntimeError as handleError,
-  outputJson,
-  parseIntArg,
-} from "./output.js";
+import { CliExit, EXIT, errorEnvelope, outputJson, parseIntArg } from "./output.js";
 
 /**
  * Shared primitive for CLI flags that accept `key=value` pairs. Splits on
@@ -88,23 +82,19 @@ function parseMetaPairs(pairs: string[] | undefined, flag: string): Record<strin
 }
 
 export function traversalStatus(store: TraversalStore, opts?: { filter?: string[] }): void {
-  try {
-    const result = store.listGraphs();
-    // Operator-side pre-filter. The skill sees `meta` on every list
-    // entry and can pick directly; this shortcut is for shell scripts
-    // and humans who want to scope the response before parsing.
-    const filter = parseMetaPairs(opts?.filter, "--filter");
-    const filterEntries = Object.entries(filter);
-    const traversals =
-      filterEntries.length === 0
-        ? result.activeTraversals
-        : result.activeTraversals.filter(
-            (t) => t.meta !== undefined && filterEntries.every(([k, v]) => t.meta?.[k] === v),
-          );
-    outputJson({ ...result, activeTraversals: traversals });
-  } catch (e) {
-    handleError(e);
-  }
+  const result = store.listGraphs();
+  // Operator-side pre-filter. The skill sees `meta` on every list
+  // entry and can pick directly; this shortcut is for shell scripts
+  // and humans who want to scope the response before parsing.
+  const filter = parseMetaPairs(opts?.filter, "--filter");
+  const filterEntries = Object.entries(filter);
+  const traversals =
+    filterEntries.length === 0
+      ? result.activeTraversals
+      : result.activeTraversals.filter(
+          (t) => t.meta !== undefined && filterEntries.every(([k, v]) => t.meta?.[k] === v),
+        );
+  outputJson({ ...result, activeTraversals: traversals });
 }
 
 export async function traversalStart(
@@ -113,18 +103,14 @@ export async function traversalStart(
   context?: string,
   opts?: { meta?: string[] },
 ): Promise<void> {
-  try {
-    const initialContext = context ? parseContextJson(context) : undefined;
-    const meta = parseMetaPairs(opts?.meta, "--meta");
-    const result = await store.createTraversal(
-      graphId,
-      initialContext,
-      Object.keys(meta).length > 0 ? meta : undefined,
-    );
-    outputJson(result);
-  } catch (e) {
-    handleError(e);
-  }
+  const initialContext = context ? parseContextJson(context) : undefined;
+  const meta = parseMetaPairs(opts?.meta, "--meta");
+  const result = await store.createTraversal(
+    graphId,
+    initialContext,
+    Object.keys(meta).length > 0 ? meta : undefined,
+  );
+  outputJson(result);
 }
 
 export async function traversalAdvance(
@@ -132,32 +118,29 @@ export async function traversalAdvance(
   edge?: string,
   opts?: { traversal?: string; context?: string; minimal?: boolean },
 ): Promise<void> {
-  try {
-    const id = store.resolveTraversalId(opts?.traversal);
-    const contextUpdates = opts?.context ? parseContextJson(opts.context) : undefined;
-    if (!edge) {
-      // No edge argument: report the available edges instead. Useful for
-      // the skill to probe validTransitions without side effects.
-      const raw = store.inspect(id, "position");
-      const inspectResult = raw as { traversalId: string } & InspectPositionResult;
-      outputJson({ traversalId: id, validTransitions: inspectResult.validTransitions });
-      return;
-    }
-    const result = await store.advance(id, edge, contextUpdates, {
-      ...(opts?.minimal ? { responseMode: "minimal" as const } : {}),
-    });
-    if (result.isError) {
-      // In-band advance error — the traversal is fine, the caller's
-      // requested edge didn't pass. Exit BLOCKED so the skill can
-      // distinguish "retry with different context" from "structural
-      // error, stop". Response still carries `validTransitions` etc.
-      outputJson(result);
-      process.exit(EXIT.BLOCKED);
-    }
-    outputJson(result);
-  } catch (e) {
-    handleError(e);
+  const id = store.resolveTraversalId(opts?.traversal);
+  const contextUpdates = opts?.context ? parseContextJson(opts.context) : undefined;
+  if (!edge) {
+    // No edge argument: report the available edges instead. Useful for
+    // the skill to probe validTransitions without side effects.
+    const raw = store.inspect(id, "position");
+    const inspectResult = raw as { traversalId: string } & InspectPositionResult;
+    outputJson({ traversalId: id, validTransitions: inspectResult.validTransitions });
+    return;
   }
+  const result = await store.advance(id, edge, contextUpdates, {
+    ...(opts?.minimal ? { responseMode: "minimal" as const } : {}),
+  });
+  if (result.isError) {
+    // In-band advance error — the traversal is fine, the caller's
+    // requested edge didn't pass. Exit BLOCKED so the skill can
+    // distinguish "retry with different context" from "structural
+    // error, stop". Response still carries `validTransitions` etc.
+    // `CliExit` lets `runCliHandlerAsync` close the runtime before
+    // the BLOCKED exit — direct `process.exit` would leak sidecars.
+    throw new CliExit(result, EXIT.BLOCKED);
+  }
+  outputJson(result);
 }
 
 export function traversalContextSet(
@@ -165,29 +148,25 @@ export function traversalContextSet(
   updates: string[],
   opts?: { traversal?: string; minimal?: boolean },
 ): void {
-  try {
-    const id = store.resolveTraversalId(opts?.traversal);
+  const id = store.resolveTraversalId(opts?.traversal);
 
-    // Parse key=value pairs. Context accepts typed values, so JSON-coerce
-    // and fall back to the raw string — `foo=true` → boolean, `bar=1`
-    // → number, `baz=hello` → string.
-    const parsed: Record<string, unknown> = {};
-    for (const pair of updates) {
-      const [key, rawValue] = splitKeyValue(pair, "context set");
-      try {
-        parsed[key] = JSON.parse(rawValue);
-      } catch {
-        parsed[key] = rawValue;
-      }
+  // Parse key=value pairs. Context accepts typed values, so JSON-coerce
+  // and fall back to the raw string — `foo=true` → boolean, `bar=1`
+  // → number, `baz=hello` → string.
+  const parsed: Record<string, unknown> = {};
+  for (const pair of updates) {
+    const [key, rawValue] = splitKeyValue(pair, "context set");
+    try {
+      parsed[key] = JSON.parse(rawValue);
+    } catch {
+      parsed[key] = rawValue;
     }
-
-    const result = store.contextSet(id, parsed, {
-      ...(opts?.minimal ? { responseMode: "minimal" as const } : {}),
-    });
-    outputJson(result);
-  } catch (e) {
-    handleError(e);
   }
+
+  const result = store.contextSet(id, parsed, {
+    ...(opts?.minimal ? { responseMode: "minimal" as const } : {}),
+  });
+  outputJson(result);
 }
 
 export function traversalMetaSet(
@@ -195,17 +174,13 @@ export function traversalMetaSet(
   updates: string[],
   opts?: { traversal?: string },
 ): void {
-  try {
-    const id = store.resolveTraversalId(opts?.traversal);
-    const parsed = parseMetaPairs(updates, "meta set");
-    if (Object.keys(parsed).length === 0) {
-      throw new EngineError("meta set requires at least one key=value pair", EC.INVALID_META);
-    }
-    const result = store.setMeta(id, parsed);
-    outputJson(result);
-  } catch (e) {
-    handleError(e);
+  const id = store.resolveTraversalId(opts?.traversal);
+  const parsed = parseMetaPairs(updates, "meta set");
+  if (Object.keys(parsed).length === 0) {
+    throw new EngineError("meta set requires at least one key=value pair", EC.INVALID_META);
   }
+  const result = store.setMeta(id, parsed);
+  outputJson(result);
 }
 
 export function traversalInspect(
@@ -220,22 +195,18 @@ export function traversalInspect(
     includeSnapshots?: boolean;
   },
 ): void {
-  try {
-    const limit = parseIntArg(opts?.limit, "--limit");
-    const offset = parseIntArg(opts?.offset, "--offset");
-    const id = store.resolveTraversalId(traversalId);
-    const historyOpts: InspectHistoryOptions = {
-      ...(limit !== undefined && { limit }),
-      ...(offset !== undefined && { offset }),
-      ...(opts?.includeSnapshots && { includeSnapshots: true }),
-    };
-    const raw = store.inspect(id, detail ?? "position", opts?.fields, historyOpts, {
-      ...(opts?.minimal ? { responseMode: "minimal" as const } : {}),
-    });
-    outputJson(raw);
-  } catch (e) {
-    handleError(e);
-  }
+  const limit = parseIntArg(opts?.limit, "--limit");
+  const offset = parseIntArg(opts?.offset, "--offset");
+  const id = store.resolveTraversalId(traversalId);
+  const historyOpts: InspectHistoryOptions = {
+    ...(limit !== undefined && { limit }),
+    ...(offset !== undefined && { offset }),
+    ...(opts?.includeSnapshots && { includeSnapshots: true }),
+  };
+  const raw = store.inspect(id, detail ?? "position", opts?.fields, historyOpts, {
+    ...(opts?.minimal ? { responseMode: "minimal" as const } : {}),
+  });
+  outputJson(raw);
 }
 
 /**
@@ -248,31 +219,27 @@ export function traversalInspectActive(
   store: TraversalStore,
   opts?: { waitsOnly?: boolean },
 ): void {
-  try {
-    const infos = store.listTraversals();
-    const entries: Array<Record<string, unknown>> = [];
-    for (const t of infos) {
-      const raw = store.inspect(t.traversalId, "position");
-      const pos = raw as { traversalId: string } & InspectPositionResult;
-      if (opts?.waitsOnly && pos.node.type !== "wait") continue;
-      entries.push({
-        traversalId: t.traversalId,
-        graphId: t.graphId,
-        currentNode: t.currentNode,
-        nodeType: pos.node.type,
-        description: pos.node.description ?? "",
-        lastUpdated: t.lastUpdated,
-        stackDepth: t.stackDepth,
-        ...(pos.waitStatus ? { waitStatus: pos.waitStatus } : {}),
-        ...(pos.waitingOn ? { waitingOn: pos.waitingOn } : {}),
-        ...(pos.timeout ? { timeout: pos.timeout } : {}),
-        ...(pos.timeoutAt ? { timeoutAt: pos.timeoutAt } : {}),
-      });
-    }
-    outputJson({ traversals: entries });
-  } catch (e) {
-    handleError(e);
+  const infos = store.listTraversals();
+  const entries: Array<Record<string, unknown>> = [];
+  for (const t of infos) {
+    const raw = store.inspect(t.traversalId, "position");
+    const pos = raw as { traversalId: string } & InspectPositionResult;
+    if (opts?.waitsOnly && pos.node.type !== "wait") continue;
+    entries.push({
+      traversalId: t.traversalId,
+      graphId: t.graphId,
+      currentNode: t.currentNode,
+      nodeType: pos.node.type,
+      description: pos.node.description ?? "",
+      lastUpdated: t.lastUpdated,
+      stackDepth: t.stackDepth,
+      ...(pos.waitStatus ? { waitStatus: pos.waitStatus } : {}),
+      ...(pos.waitingOn ? { waitingOn: pos.waitingOn } : {}),
+      ...(pos.timeout ? { timeout: pos.timeout } : {}),
+      ...(pos.timeoutAt ? { timeoutAt: pos.timeoutAt } : {}),
+    });
   }
+  outputJson({ traversals: entries });
 }
 
 export function traversalReset(
@@ -281,17 +248,20 @@ export function traversalReset(
   opts?: { confirm?: boolean },
 ): void {
   if (!opts?.confirm) {
-    outputJson({
-      ...errorEnvelope(EC.CONFIRM_REQUIRED, "must pass --confirm to reset a traversal."),
-      commandName: "reset",
-    });
-    process.exit(EXIT.INVALID_INPUT);
+    // Main's envelope carries `commandName: "reset"` so the `{commandName}`
+    // slot in RECOVERY[CONFIRM_REQUIRED].verb renders correctly. Throw a
+    // CliExit instead of `outputJson + process.exit` so the wrapper
+    // closes the runtime before exit (#153 bug fixed the same way for
+    // memory-prune refusal).
+    throw new CliExit(
+      {
+        ...errorEnvelope(EC.CONFIRM_REQUIRED, "must pass --confirm to reset a traversal."),
+        commandName: "reset",
+      },
+      EXIT.INVALID_INPUT,
+    );
   }
-  try {
-    const id = store.resolveTraversalId(traversalId);
-    const result = store.resetTraversal(id);
-    outputJson(result);
-  } catch (e) {
-    handleError(e);
-  }
+  const id = store.resolveTraversalId(traversalId);
+  const result = store.resetTraversal(id);
+  outputJson(result);
 }

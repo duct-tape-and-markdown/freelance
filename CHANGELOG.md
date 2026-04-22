@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Close-before-exit extended to traversal verbs and memory prune
+  (#153 follow-up).** The memory-only wrapper landed in #153 moved
+  to `src/cli/output.ts` as `runCliHandler` / `runCliHandlerAsync`,
+  taking any `{ close(): void }` — `MemoryStore`, `Runtime`,
+  `TraversalStore`. Every traversal verb (status, start, advance,
+  context-set, meta-set, inspect, reset) now runs through the
+  wrapper and closes the runtime before `handleRuntimeError` exits;
+  memory prune refusal paths fold in too. New `CliExit` class
+  carries dual-payload + exit-code throws (`memory prune`'s
+  `result + CONFIRM_REQUIRED` envelope, `traversal advance`'s
+  in-band `BLOCKED` result) through the wrapper. `CONFIRM_REQUIRED`
+  and `MISSING_KEEP` catalogued in the `INVALID_INPUT` group. No
+  wire-format change: exit codes, `error.code` strings, and
+  `error.kind` classifications are unchanged.
+
 - **`MemoryStore.close` no longer leaks WAL + SHM sidecars on error
   exits (#153).** Every `freelance memory ...` verb except `prune` and
   `reset` routed through `try { handler } finally { store.close() }`,

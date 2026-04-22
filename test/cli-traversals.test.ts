@@ -1,6 +1,6 @@
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { setCli } from "../src/cli/output.js";
+import { runCliHandler, runCliHandlerAsync, setCli } from "../src/cli/output.js";
 import {
   traversalAdvance,
   traversalContextSet,
@@ -86,7 +86,9 @@ describe("traversalStart", () => {
   it("errors on unknown graph with GRAPH_NOT_FOUND code", async () => {
     const store = createTestStore();
     try {
-      await expect(traversalStart(store, "nonexistent-graph")).rejects.toThrow("process.exit");
+      await expect(
+        runCliHandlerAsync(store, () => traversalStart(store, "nonexistent-graph")),
+      ).rejects.toThrow("process.exit");
       const parsed = stdoutJson() as {
         isError: true;
         error: { code: string; kind: string };
@@ -113,9 +115,11 @@ describe("traversalAdvance — unified error envelope on gate-block", () => {
       // Reset stdout so we only capture the blocked response
       stdoutSpy.mockClear();
 
-      await expect(traversalAdvance(store, "go-left", { traversal: traversalId })).rejects.toThrow(
-        "process.exit",
-      );
+      await expect(
+        runCliHandlerAsync(store, () =>
+          traversalAdvance(store, "go-left", { traversal: traversalId }),
+        ),
+      ).rejects.toThrow("process.exit");
 
       const parsed = stdoutJson() as {
         isError: true;
@@ -178,7 +182,9 @@ describe("traversalContextSet", () => {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await store.createTraversal(graphId);
-      expect(() => traversalContextSet(store, ["noequalssign"])).toThrow("process.exit");
+      expect(() =>
+        runCliHandler(store, () => traversalContextSet(store, ["noequalssign"])),
+      ).toThrow("process.exit");
       const parsed = stdoutJson() as { isError: true; error: { code: string } };
       expect(parsed.isError).toBe(true);
       expect(parsed.error.code).toBe("INVALID_KEY_VALUE_PAIR");
@@ -286,7 +292,9 @@ describe("traversalStart --meta", () => {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await expect(
-        traversalStart(store, graphId, undefined, { meta: ["noequalssign"] }),
+        runCliHandlerAsync(store, () =>
+          traversalStart(store, graphId, undefined, { meta: ["noequalssign"] }),
+        ),
       ).rejects.toThrow("process.exit");
     } finally {
       store.close();
@@ -300,7 +308,9 @@ describe("traversalStart --meta", () => {
       if (!graphId) return;
       const oversizedKey = "k".repeat(257);
       await expect(
-        traversalStart(store, graphId, undefined, { meta: [`${oversizedKey}=x`] }),
+        runCliHandlerAsync(store, () =>
+          traversalStart(store, graphId, undefined, { meta: [`${oversizedKey}=x`] }),
+        ),
       ).rejects.toThrow("process.exit");
       const parsed = stdoutJson() as { error?: { code?: string; message?: string } };
       expect(parsed.error?.code).toBe("INVALID_META");
@@ -317,7 +327,9 @@ describe("traversalStart --meta", () => {
       if (!graphId) return;
       const oversizedValue = "v".repeat(4097);
       await expect(
-        traversalStart(store, graphId, undefined, { meta: [`k=${oversizedValue}`] }),
+        runCliHandlerAsync(store, () =>
+          traversalStart(store, graphId, undefined, { meta: [`k=${oversizedValue}`] }),
+        ),
       ).rejects.toThrow("process.exit");
       const parsed = stdoutJson() as { error?: { code?: string; message?: string } };
       expect(parsed.error?.code).toBe("INVALID_META");
@@ -351,7 +363,9 @@ describe("traversalStart --meta", () => {
       // only 2050 JS string length. Confirms we cap on Buffer.byteLength.
       const multibyte = "🎯".repeat(1025);
       await expect(
-        traversalStart(store, graphId, undefined, { meta: [`k=${multibyte}`] }),
+        runCliHandlerAsync(store, () =>
+          traversalStart(store, graphId, undefined, { meta: [`k=${multibyte}`] }),
+        ),
       ).rejects.toThrow("process.exit");
       const parsed = stdoutJson() as { error?: { code?: string } };
       expect(parsed.error?.code).toBe("INVALID_META");
@@ -366,7 +380,9 @@ describe("traversalStatus --filter enforces the same meta caps (#62)", () => {
     const store = createTestStore();
     try {
       const oversized = "v".repeat(4097);
-      expect(() => traversalStatus(store, { filter: [`k=${oversized}`] })).toThrow("process.exit");
+      expect(() =>
+        runCliHandler(store, () => traversalStatus(store, { filter: [`k=${oversized}`] })),
+      ).toThrow("process.exit");
       const parsed = stdoutJson() as { error?: { code?: string } };
       expect(parsed.error?.code).toBe("INVALID_META");
     } finally {
@@ -471,7 +487,9 @@ describe("traversalMetaSet", () => {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await store.createTraversal(graphId);
-      expect(() => traversalMetaSet(store, ["noequalssign"])).toThrow("process.exit");
+      expect(() => runCliHandler(store, () => traversalMetaSet(store, ["noequalssign"]))).toThrow(
+        "process.exit",
+      );
     } finally {
       store.close();
     }
@@ -483,7 +501,7 @@ describe("traversalMetaSet", () => {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await store.createTraversal(graphId);
-      expect(() => traversalMetaSet(store, [])).toThrow("process.exit");
+      expect(() => runCliHandler(store, () => traversalMetaSet(store, []))).toThrow("process.exit");
     } finally {
       store.close();
     }
@@ -597,7 +615,9 @@ describe("--minimal response projection (issue #81)", () => {
       await store.advance(traversalId, "initialized");
       stdoutSpy.mockClear();
       await expect(
-        traversalAdvance(store, "go-left", { traversal: traversalId, minimal: true }),
+        runCliHandlerAsync(store, () =>
+          traversalAdvance(store, "go-left", { traversal: traversalId, minimal: true }),
+        ),
       ).rejects.toThrow("process.exit");
       const parsed = stdoutJson() as Record<string, unknown>;
       expect(parsed.isError).toBe(true);
@@ -615,7 +635,9 @@ describe("traversalReset", () => {
   it("errors without --confirm (CONFIRM_REQUIRED / EXIT 5)", () => {
     const store = createTestStore();
     try {
-      expect(() => traversalReset(store, undefined, {})).toThrow("process.exit");
+      expect(() => runCliHandler(store, () => traversalReset(store, undefined, {}))).toThrow(
+        "process.exit",
+      );
       const parsed = stdoutJson() as {
         isError: true;
         error: { code: string; kind: string };
@@ -718,9 +740,9 @@ describe("traversalInspect options (#122)", () => {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await store.createTraversal(graphId);
-      expect(() => traversalInspect(store, undefined, "history", { limit: "abc" })).toThrow(
-        "process.exit",
-      );
+      expect(() =>
+        runCliHandler(store, () => traversalInspect(store, undefined, "history", { limit: "abc" })),
+      ).toThrow("process.exit");
       const parsed = stdoutJson() as {
         isError: true;
         error: { code: string; kind: string };
@@ -740,9 +762,11 @@ describe("traversalInspect options (#122)", () => {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await store.createTraversal(graphId);
-      expect(() => traversalInspect(store, undefined, "history", { offset: "1.5" })).toThrow(
-        "process.exit",
-      );
+      expect(() =>
+        runCliHandler(store, () =>
+          traversalInspect(store, undefined, "history", { offset: "1.5" }),
+        ),
+      ).toThrow("process.exit");
       const parsed = stdoutJson() as {
         isError: true;
         error: { code: string };
