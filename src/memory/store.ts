@@ -13,6 +13,7 @@
 
 import crypto from "node:crypto";
 import path from "node:path";
+import { EC, EngineError } from "../errors.js";
 import { hashSourceFile } from "../sources.js";
 import type { Db } from "./db.js";
 import { computeStatus, countNeighbors, countValidForEntity, getNeighbors } from "./enrichment.js";
@@ -185,7 +186,10 @@ export class MemoryStore {
       !normalizedPath.startsWith(normalizedRoot) &&
       normalizedPath !== path.resolve(this.sourceRoot)
     ) {
-      throw new Error(`Source file is outside the source root: ${filePath}`);
+      throw new EngineError(
+        `Source file is outside the source root: ${filePath}`,
+        EC.SOURCE_OUTSIDE_ROOT,
+      );
     }
 
     const storedPath = path.isAbsolute(filePath)
@@ -269,7 +273,10 @@ export class MemoryStore {
           const { storedPath, resolvedPath } = this.prepareSourcePath(sourcePath);
           const hash = hashSourceFile(resolvedPath);
           if (hash === null) {
-            throw new Error(`Cannot read source file "${sourcePath}" during emit.`);
+            throw new EngineError(
+              `Cannot read source file "${sourcePath}" during emit.`,
+              EC.SOURCE_FILE_UNREADABLE,
+            );
           }
           insertPropSource.run(propId, storedPath, hash);
         }
@@ -385,7 +392,7 @@ export class MemoryStore {
         .prepare("SELECT * FROM entities WHERE LOWER(name) = ?")
         .get(idOrName.toLowerCase()) as EntityRow | undefined);
     if (!entity) {
-      throw new Error(`Entity not found: ${idOrName}`);
+      throw new EngineError(`Entity not found: ${idOrName}`, EC.ENTITY_NOT_FOUND);
     }
     return entity;
   }

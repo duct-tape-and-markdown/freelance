@@ -30,6 +30,7 @@
  */
 
 import path from "node:path";
+import { EC, EngineError } from "../errors.js";
 import { hashContent, hashSourceFile } from "../sources.js";
 import type { Db } from "./db.js";
 import { readBlobsAtRefs, resolveGitTopLevel, resolveRef } from "./git.js";
@@ -77,16 +78,18 @@ function sqlPlaceholders(n: number): string {
 export function prune(db: Db, sourceRoot: string, options: PruneOptions): PruneResult {
   const { keep, dryRun = false } = options;
   if (!keep || keep.length === 0) {
-    throw new Error(
+    throw new EngineError(
       "memory prune requires at least one --keep <ref>. There is no default preserve set.",
+      EC.MISSING_KEEP,
     );
   }
 
   const gitRoot = resolveGitTopLevel(sourceRoot);
   if (!gitRoot) {
-    throw new Error(
+    throw new EngineError(
       `memory prune requires a git checkout at the source root (${sourceRoot}). ` +
         `Refs can't be resolved outside a git repository.`,
+      EC.PRUNE_NOT_GIT_CHECKOUT,
     );
   }
 
@@ -99,8 +102,9 @@ export function prune(db: Db, sourceRoot: string, options: PruneOptions): PruneR
     else failures.push(`${res.ref}: ${res.error}`);
   }
   if (failures.length > 0) {
-    throw new Error(
+    throw new EngineError(
       `Unresolvable --keep ref(s); prune aborted without touching the db:\n  - ${failures.join("\n  - ")}`,
+      EC.PRUNE_UNRESOLVABLE_REF,
     );
   }
 
