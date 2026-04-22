@@ -168,7 +168,7 @@ export class HookRunner {
       const rawArgs = specs[i].args ?? {};
       const resolvedArgs = resolveHookArgs(rawArgs, session.context);
 
-      const fn = await this.loadHookFn(resolved, nodeId);
+      const fn = await this.loadHookFn(resolved, nodeId, i);
 
       const hookCtx: HookContext = {
         args: resolvedArgs,
@@ -187,6 +187,7 @@ export class HookRunner {
         throw new EngineError(
           `onEnter hook "${resolved.call}" on node "${nodeId}" failed: ${message}`,
           EC.HOOK_FAILED,
+          { hook: { name: resolved.call, nodeId, index: i } },
         );
       }
 
@@ -195,6 +196,7 @@ export class HookRunner {
           `onEnter hook "${resolved.call}" on node "${nodeId}" must return a plain object; ` +
             `got ${Array.isArray(result) ? "array" : typeof result}`,
           EC.HOOK_BAD_RETURN,
+          { hook: { name: resolved.call, nodeId, index: i } },
         );
       }
 
@@ -219,7 +221,8 @@ export class HookRunner {
    * + typeof-default checks here on first invocation, surfacing the
    * same error codes.
    */
-  private async loadHookFn(resolved: ResolvedHook, nodeId: string): Promise<HookFn> {
+  private async loadHookFn(resolved: ResolvedHook, nodeId: string, index: number): Promise<HookFn> {
+    const hookCtx = { name: resolved.call, nodeId, index };
     if (resolved.kind === "builtin") {
       const fn = this.builtinHooks.get(resolved.name);
       if (!fn) {
@@ -227,6 +230,7 @@ export class HookRunner {
           `Built-in hook "${resolved.name}" referenced by node "${nodeId}" is not registered. ` +
             `Available built-ins: [${[...this.builtinHooks.keys()].join(", ")}]`,
           EC.HOOK_BUILTIN_MISSING,
+          { hook: hookCtx },
         );
       }
       return fn;
@@ -240,6 +244,7 @@ export class HookRunner {
       throw new EngineError(
         `Failed to import hook script "${resolved.absolutePath}" for node "${nodeId}": ${message}`,
         EC.HOOK_IMPORT_FAILED,
+        { hook: hookCtx },
       );
     }
 
@@ -248,6 +253,7 @@ export class HookRunner {
       throw new EngineError(
         `Hook script "${resolved.absolutePath}" must export a default function (got ${typeof fn})`,
         EC.HOOK_BAD_SHAPE,
+        { hook: hookCtx },
       );
     }
 
