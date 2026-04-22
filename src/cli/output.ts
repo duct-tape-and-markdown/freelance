@@ -6,6 +6,8 @@ import {
   type EngineErrorCategory,
   type EngineErrorCode,
   errorKind,
+  RECOVERY,
+  type RecoveryKind,
 } from "../error-codes.js";
 import { EngineError } from "../errors.js";
 
@@ -78,21 +80,34 @@ export function mapEngineErrorToExit(code: EngineErrorCode): number {
 }
 
 /**
- * Write a structured error to stdout and return the exit code. Payload is
- *   { isError: true, error: { code, message, kind, ...context } }
- * where `kind` is "blocked" or "structural" per `errorKind`. Top-level
- * `isError` lets a shell consumer one-pass-parse without exit-code
- * inspection, `error.code` is what `mapEngineErrorToExit` branches on,
- * and `error.kind` is the wire-level recover-vs-stop discriminator
- * unified with in-band gate-block responses (see #95). Any structured
- * context carried on `EngineError.context` (e.g. `hook`) is spread
- * into `error`. For unknown throws (non-EngineError), `code` is
- * `INTERNAL`.
+ * Write a structured error to stdout and return the exit code. Base
+ * payload is
+ *   {
+ *     isError: true,
+ *     error: { code, message, kind, recoveryVerb, recoveryKind },
+ *     ...envelopeSlots
+ *   }
+ * Two `EngineError.context` subfields spread to different targets:
+ *   - `context.hook` → nested under `envelope.error.hook` (hook
+ *     identity on HOOK_* throws, PR D).
+ *   - `context.envelopeSlots` → spread at envelope root (e.g.
+ *     CONFIRM_REQUIRED carries `commandName`, AMBIGUOUS_TRAVERSAL
+ *     carries `candidates`). The `recoveryVerb` template in
+ *     `RECOVERY[code]` interpolates against these root fields, so
+ *     they live next to the envelope's other top-level fields, not
+ *     buried under `error.*`.
+ *
+ * For unknown throws (non-EngineError), `code` is `INTERNAL`.
  */
 export function outputError(e: unknown): number {
   if (e instanceof EngineError) {
-    const envelope = errorEnvelope(e.code, e.message);
-    if (e.context) Object.assign(envelope.error, e.context);
+    const envelope: Record<string, unknown> = errorEnvelope(e.code, e.message);
+    if (e.context?.hook) {
+      (envelope.error as Record<string, unknown>).hook = e.context.hook;
+    }
+    if (e.context?.envelopeSlots) {
+      Object.assign(envelope, e.context.envelopeSlots);
+    }
     outputJson(envelope);
     return mapEngineErrorToExit(e.code);
   }
@@ -123,7 +138,13 @@ export function handleRuntimeError(e: unknown): never {
  * no exit). Used by CLI handlers that need to `outputJson` a payload
  * augmented with the envelope — e.g. `memory prune` returns the prune
  * plan alongside `isError: true` so the caller sees the blast radius
- * and the refusal in one response. `kind` is derived via `errorKind`.
+ * and the refusal in one response.
+ *
+ * Every envelope carries `recoveryVerb` (literal CLI template the
+ * driving skill renders after interpolating root-level
+ * `envelopeSlots`) and `recoveryKind` (the classifier the skill
+ * branches on) sourced from `RECOVERY[code]` — per-code recovery is
+ * catalog-owned, not per-throw-site prose.
  *
  * `code` is typed as `EngineErrorCode` so every caller picks from the
  * catalog — typos and uncatalogued strings fail at compile time.
@@ -133,9 +154,25 @@ export function errorEnvelope(
   message: string,
 ): {
   isError: true;
-  error: { code: EngineErrorCode; message: string; kind: ReturnType<typeof errorKind> };
+  error: {
+    code: EngineErrorCode;
+    message: string;
+    kind: ReturnType<typeof errorKind>;
+    recoveryVerb: string | null;
+    recoveryKind: RecoveryKind;
+  };
 } {
-  return { isError: true, error: { code, message, kind: errorKind(code) } };
+  const recovery = RECOVERY[code];
+  return {
+    isError: true,
+    error: {
+      code,
+      message,
+      kind: errorKind(code),
+      recoveryVerb: recovery.verb,
+      recoveryKind: recovery.kind,
+    },
+  };
 }
 
 // Global CLI state — set via setCli() from program.ts before any

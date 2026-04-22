@@ -240,3 +240,123 @@ export interface HookErrorContext {
 export const ALL_ENGINE_ERROR_CODES = (
   Object.keys(ENGINE_ERROR_CODES) as EngineErrorCategory[]
 ).flatMap((cat) => [...ENGINE_ERROR_CODES[cat]]) as [EngineErrorCode, ...EngineErrorCode[]];
+
+/**
+ * Classifier the driving skill branches on to pick its recovery
+ * strategy without re-parsing the error message:
+ *
+ *   - `"retry"` — transient (lock contention, optimistic-concurrency
+ *     conflict). Same call site should succeed on a fresh read.
+ *   - `"fix-context"` — operator-fixable: edit context / pick a
+ *     candidate / re-run with a flag, then execute `recoveryVerb`.
+ *   - `"report"` — structural bug or missing external resource the
+ *     skill can't fix programmatically. Surface to the operator and
+ *     stop.
+ *   - `"clear"` — stale reference (deleted traversal, deleted graph).
+ *     Drop the stale pointer and resume from a fresh starting state.
+ */
+export type RecoveryKind = "retry" | "fix-context" | "report" | "clear";
+
+/**
+ * Per-code recovery instruction. `verb` is a literal CLI template;
+ * `{camelCase}` slots interpolate against top-level envelope fields
+ * (see `EngineErrorContext.envelopeSlots`). `null` means "no verb
+ * recovers this" — skill reports and stops.
+ *
+ * Values authored alongside the catalog as a sidecar rather than
+ * restructuring `ENGINE_ERROR_CODES` itself — the flat category →
+ * code[] shape is load-bearing across `mapEngineErrorToExit`,
+ * `BLOCKED_CODES`, and `ALL_ENGINE_ERROR_CODES`, and a `satisfies`
+ * check below gives identical exhaustiveness at zero ripple cost.
+ */
+export interface Recovery {
+  readonly verb: string | null;
+  readonly kind: RecoveryKind;
+}
+
+/**
+ * Recovery instruction for every `EngineErrorCode`. Missing code →
+ * compile error via the `satisfies` clause; same source-of-truth
+ * guarantee as embedding the fields inside `ENGINE_ERROR_CODES`
+ * entries, without the downstream ripple.
+ *
+ * Slot convention: `{camelCase}` slot names match envelope root
+ * fields carried via `EngineErrorContext.envelopeSlots` at throw
+ * time — e.g. CONFIRM_REQUIRED carries `commandName`, so the verb
+ * template `{commandName} --confirm` interpolates against the
+ * `commandName` value the throw site attached. No casing
+ * translation; template key === envelope key === throw-site key.
+ */
+export const RECOVERY = {
+  // NOT_FOUND — stale pointer, clear and continue
+  TRAVERSAL_NOT_FOUND: { verb: null, kind: "clear" },
+  GRAPH_NOT_FOUND: { verb: null, kind: "clear" },
+  EDGE_NOT_FOUND: { verb: null, kind: "clear" },
+  NO_TRAVERSAL: { verb: "start {graphId}", kind: "fix-context" },
+
+  // INVALID_INPUT — caller context is wrong
+  STRICT_CONTEXT_VIOLATION: { verb: "advance", kind: "fix-context" },
+  CONTEXT_VALUE_TOO_LARGE: { verb: "advance", kind: "fix-context" },
+  CONTEXT_TOTAL_TOO_LARGE: { verb: "advance", kind: "fix-context" },
+  REQUIRED_META_MISSING: { verb: "advance", kind: "fix-context" },
+  AMBIGUOUS_TRAVERSAL: { verb: "advance --traversal {traversalId}", kind: "fix-context" },
+  TRAVERSAL_ACTIVE: { verb: "advance --traversal {traversalId}", kind: "fix-context" },
+  TRAVERSAL_CONFLICT: { verb: "advance", kind: "retry" },
+  INVALID_KEY_VALUE_PAIR: { verb: "advance", kind: "fix-context" },
+  INVALID_CONTEXT_JSON: { verb: "advance", kind: "fix-context" },
+  INVALID_EMIT_JSON: { verb: "memory emit", kind: "fix-context" },
+  INVALID_META: { verb: "advance", kind: "fix-context" },
+  INVALID_SHAPE: { verb: "advance", kind: "fix-context" },
+  INVALID_FLAG_VALUE: { verb: null, kind: "fix-context" },
+
+  // BLOCKED — traversal state fine, fix context and re-advance
+  NO_EDGES: { verb: "advance", kind: "fix-context" },
+  STACK_DEPTH_EXCEEDED: { verb: null, kind: "report" },
+  DATABASE_BUSY: { verb: "advance", kind: "retry" },
+  WAIT_BLOCKING: { verb: "advance", kind: "fix-context" },
+  RETURN_SCHEMA_VIOLATION: { verb: "advance", kind: "fix-context" },
+  VALIDATION_FAILED: { verb: "advance", kind: "fix-context" },
+  EDGE_CONDITION_NOT_MET: { verb: "advance", kind: "fix-context" },
+
+  // INTERNAL_HOOK — hook misbehavior, transition committed
+  HOOK_FAILED: { verb: "advance", kind: "fix-context" },
+  HOOK_IMPORT_FAILED: { verb: "advance", kind: "fix-context" },
+  HOOK_BAD_SHAPE: { verb: "advance", kind: "fix-context" },
+  HOOK_RESOLUTION_MISMATCH: { verb: null, kind: "report" },
+  HOOK_BUILTIN_MISSING: { verb: "advance", kind: "fix-context" },
+  HOOK_BAD_RETURN: { verb: "advance", kind: "fix-context" },
+
+  // CLI_INVALID_INPUT — shell invocation malformed
+  NO_FREELANCE_DIR: { verb: null, kind: "fix-context" },
+  INVALID_CONFIG_VALUE: { verb: null, kind: "fix-context" },
+  UNKNOWN_CONFIG_KEY: { verb: null, kind: "fix-context" },
+  INVALID_SOURCE_FORMAT: { verb: null, kind: "fix-context" },
+  INVALID_EXTENSION: { verb: null, kind: "fix-context" },
+  UNKNOWN_SHELL: { verb: null, kind: "fix-context" },
+  CONFIRM_REQUIRED: { verb: "{commandName} --confirm", kind: "fix-context" },
+  MISSING_KEEP: { verb: null, kind: "fix-context" },
+  PRUNE_NOT_GIT_CHECKOUT: { verb: null, kind: "report" },
+  PRUNE_UNRESOLVABLE_REF: { verb: null, kind: "fix-context" },
+  SOURCE_OUTSIDE_ROOT: { verb: null, kind: "fix-context" },
+  MEMORY_DISABLED: { verb: null, kind: "fix-context" },
+  MEMORY_UNRESOLVED_SOURCE_ROOT: { verb: null, kind: "fix-context" },
+
+  // CLI_NOT_FOUND — operator referenced non-existent target
+  TOPIC_NOT_FOUND: { verb: null, kind: "report" },
+  NO_GRAPHS_DIR: { verb: null, kind: "report" },
+  NO_GRAPHS_LOADED: { verb: null, kind: "report" },
+  FILE_NOT_FOUND: { verb: null, kind: "report" },
+  COMPLETION_NOT_FOUND: { verb: null, kind: "report" },
+  ENTITY_NOT_FOUND: { verb: null, kind: "clear" },
+  TEMPLATE_NOT_FOUND: { verb: null, kind: "report" },
+
+  // CLI_STRUCTURAL — internal/env failure, no operator fix
+  GRAPH_LOAD_FAILED: { verb: null, kind: "report" },
+  INTERNAL: { verb: null, kind: "report" },
+  FATAL: { verb: null, kind: "report" },
+  SOURCE_FILE_UNREADABLE: { verb: null, kind: "report" },
+  MISSING_OPTIONAL_DEP: { verb: null, kind: "report" },
+
+  // GRAPH_VALIDATION — authoring-time, operator fixes yaml
+  GRAPH_STRUCTURE_INVALID: { verb: "validate {graphDir}", kind: "report" },
+} as const satisfies { readonly [K in EngineErrorCode]: Recovery };
