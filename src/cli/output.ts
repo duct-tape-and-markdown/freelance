@@ -92,7 +92,9 @@ export function mapEngineErrorToExit(code: EngineErrorCode): number {
  *     identity on HOOK_* throws, PR D).
  *   - `context.envelopeSlots` → spread at envelope root (e.g.
  *     CONFIRM_REQUIRED carries `commandName`, AMBIGUOUS_TRAVERSAL
- *     carries `candidates`). The `recoveryVerb` template in
+ *     carries `candidates`; HOOK_FAILED carries `currentNode`,
+ *     `validTransitions`, `context` / `contextDelta` for gate-block
+ *     envelope parity). The `recoveryVerb` template in
  *     `RECOVERY[code]` interpolates against these root fields, so
  *     they live next to the envelope's other top-level fields, not
  *     buried under `error.*`.

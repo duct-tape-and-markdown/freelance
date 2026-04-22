@@ -255,10 +255,32 @@ export class TraversalStore {
       // ignores the callback — the pre-hook save above is the boundary
       // for that branch.
       const persistBetween = () => this.saveEngine(record, engine);
-      const result = await engine.runArrivalHooks(commit, {
-        metaCollector,
-        persistBetween,
-      });
+      let result: AdvanceResult | AdvanceMinimalResult;
+      try {
+        result = await engine.runArrivalHooks(commit, { metaCollector, persistBetween });
+      } catch (e) {
+        // Post-transition hook throw. Attach the envelope-sibling
+        // snapshot (currentNode, validTransitions, context / contextDelta)
+        // so the CLI surfaces the same recover-or-stop fields as a
+        // gate-block response — HOOK_FAILED callers are in the same
+        // state. The hook attribution on `context.hook` is already set
+        // by the hook runner.
+        if (e instanceof EngineError) {
+          const minimal = options?.responseMode === "minimal";
+          const writesBefore =
+            commit.kind === "standard" || commit.kind === "subgraph-push"
+              ? commit.writesBefore
+              : undefined;
+          const extras = engine.captureHookFailureEnvelope({
+            minimal,
+            ...(writesBefore !== undefined && { writesBefore }),
+          });
+          if (extras) {
+            e.context = { ...e.context, envelopeSlots: extras };
+          }
+        }
+        throw e;
+      }
 
       // Merge collected hook updates into the in-memory record before
       // the final save.

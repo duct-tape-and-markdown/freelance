@@ -533,6 +533,50 @@ export class GraphEngine {
     } satisfies ResetResult;
   }
 
+  /**
+   * Build the envelope-sibling snapshot (`currentNode`,
+   * `validTransitions`, `context` / `contextDelta`) that the CLI
+   * attaches to a post-transition hook-throw. Mirrors the gate-block
+   * shape so HOOK_FAILED surfaces the same recover-or-stop fields
+   * the caller sees on any other advance error. Returns `null` when
+   * no session is active (the throw happened before any transition
+   * committed — unusual; the CLI falls back to the bare envelope).
+   *
+   * `writesBefore` narrows `contextDelta` on `--minimal` responses;
+   * when omitted, `contextDelta` is empty and `context` is the full
+   * snapshot.
+   */
+  captureHookFailureEnvelope(opts?: {
+    minimal?: boolean;
+    writesBefore?: number;
+  }): {
+    currentNode: string;
+    validTransitions: readonly import("../types.js").TransitionInfo[];
+    context?: Readonly<Record<string, unknown>>;
+    contextDelta?: readonly string[];
+  } | null {
+    if (this.stack.length === 0) return null;
+    const session = this.activeSession();
+    const def = this.currentGraphDef();
+    const nodeDef = def.nodes[session.currentNode];
+    const validTransitions = evaluateTransitions(nodeDef, session.context);
+    if (opts?.minimal) {
+      return {
+        currentNode: session.currentNode,
+        validTransitions,
+        contextDelta:
+          opts.writesBefore !== undefined
+            ? keysSince(session.contextHistory, opts.writesBefore)
+            : [],
+      };
+    }
+    return {
+      currentNode: session.currentNode,
+      validTransitions,
+      context: cloneContext(session.context),
+    };
+  }
+
   // --- Serialization (for persistence) ---
 
   getStack(): SessionState[] {

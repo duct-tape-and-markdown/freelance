@@ -160,9 +160,22 @@ describe("save-before-hook invariant (PR D)", () => {
 
     expect(caught).toBeDefined();
     expect(caught?.code).toBe(EC.HOOK_FAILED);
-    expect(caught?.context).toEqual({
-      hook: { name: "memory_status", nodeId: "middle", phase: "onEnter", index: 0 },
+    // `context.hook` identifies the failing hook (populated by the
+    // runner). `context.envelope` carries the post-transition
+    // snapshot the CLI lifts to envelope-root siblings — gate-block
+    // parity so HOOK_FAILED and a gate block surface the same
+    // recover-or-stop fields. Runner-set and store-set, respectively.
+    expect(caught?.context?.hook).toEqual({
+      name: "memory_status",
+      nodeId: "middle",
+      index: 0,
     });
+    expect(caught?.context?.envelopeSlots).toBeDefined();
+    expect(caught?.context?.envelopeSlots?.currentNode).toBe("middle");
+    expect(caught?.context?.envelopeSlots?.validTransitions).toEqual([
+      { label: "next", target: "done", conditionMet: true },
+    ]);
+    expect(caught?.context?.envelopeSlots?.context).toEqual({ seed: 1 });
     store.close();
   });
 
@@ -223,6 +236,67 @@ describe("save-before-hook invariant (PR D)", () => {
     // post-hook save that WOULD merge it never runs because of the
     // throw. Disk meta therefore excludes "echo".
     expect(rec.meta?.echo).toBeUndefined();
+    store.close();
+  });
+
+  it("HOOK_FAILED wire envelope carries currentNode, validTransitions, context as siblings to error", async () => {
+    // End-to-end wire-format check: route the thrown EngineError
+    // through `outputError` (the same function CLI handlers call)
+    // and capture the JSON payload. Asserts gate-block parity on the
+    // envelope shape: top-level `currentNode` / `validTransitions` /
+    // `context` + `error.hook` with hook identity.
+    const { outputError } = await import("../src/cli/output.js");
+    const graphs = stageGraphWithThrowingHook(tmpDir);
+    const runner = makeRunner({
+      memory_status: async () => {
+        throw new Error("boom");
+      },
+    });
+    const store = new TraversalStore(openStateStore(traversalsDir), graphs, {
+      hookRunner: runner,
+    });
+
+    const t = await store.createTraversal("throw-on-middle");
+    let thrown: unknown;
+    try {
+      await store.advance(t.traversalId, "next");
+    } catch (e) {
+      thrown = e;
+    }
+
+    const writes: string[] = [];
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      writes.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      outputError(thrown);
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+
+    const payload = JSON.parse(writes.join("")) as {
+      isError: boolean;
+      error: { code: string; message: string; kind: string; hook?: unknown };
+      currentNode?: string;
+      validTransitions?: readonly unknown[];
+      context?: Record<string, unknown>;
+    };
+
+    expect(payload.isError).toBe(true);
+    expect(payload.error.code).toBe(EC.HOOK_FAILED);
+    expect(payload.error.kind).toBe("structural");
+    expect(payload.error.hook).toEqual({
+      name: "memory_status",
+      nodeId: "middle",
+      index: 0,
+    });
+    expect(payload.currentNode).toBe("middle");
+    expect(payload.validTransitions).toEqual([
+      { label: "next", target: "done", conditionMet: true },
+    ]);
+    expect(payload.context).toEqual({ seed: 1 });
     store.close();
   });
 });
