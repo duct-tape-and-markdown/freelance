@@ -56,6 +56,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Zod validation on the `memory emit` CLI boundary (#158).**
+  `EmitBatchSchema` (in `src/memory/emit-schema.ts`) enforces the
+  documented memory invariants — `content: min(1)`, `entities: 1..4`,
+  `sources: min(1)` — before the payload reaches `store.emit`.
+  Malformed JSON that previously propagated inward as a `TypeError`
+  (null sources, string-as-entities, missing content, top-level
+  non-array) now emits a structured `INVALID_EMIT_SHAPE` error with
+  the failing field path in the message. Syntax-tier failures still
+  emit the pre-existing `INVALID_EMIT_JSON`; the new code is the
+  shape tier alongside.
+
 - **`freelance inspect` flag parity restored (#122).** Threads the
   engine-level inspect parameters through to the CLI surface, closing
   the regression introduced when MCP was removed in #116:
