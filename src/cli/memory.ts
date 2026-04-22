@@ -151,30 +151,31 @@ export function memoryEmit(store: MemoryStore, file: string): void {
 
 export function memoryPrune(
   store: MemoryStore,
-  opts: { keep?: string[]; dryRun?: boolean; yes?: boolean },
+  opts: { keep?: string[]; dryRun?: boolean; confirm?: boolean },
 ): void {
   // `process.exit` bypasses the caller's `finally { store.close() }`,
   // which would leak the WAL + SHM sidecar files on disk. Close here
   // before every exit. MemoryStore.close is idempotent, so the
   // caller's finally is a harmless no-op after this.
   if (!opts.keep || opts.keep.length === 0) {
-    outputJson(errorEnvelope("MISSING_KEEP", "memory prune requires --keep <ref> (repeatable)."));
+    outputJson(errorEnvelope(EC.MISSING_KEEP, "memory prune requires --keep <ref> (repeatable)."));
     store.close();
     process.exit(EXIT.INVALID_INPUT);
   }
 
   try {
     // `--dry-run` is itself a no-op preview; otherwise require explicit
-    // `--yes`. Return the plan + an explicit refusal when neither flag
-    // is set, so the skill sees the blast radius before committing.
-    const confirmed = opts.dryRun || opts.yes;
+    // `--confirm`. Return the plan + an explicit refusal when neither
+    // flag is set, so the skill sees the blast radius before committing.
+    const confirmed = opts.dryRun || opts.confirm;
     const result = store.prune({ keep: opts.keep, dryRun: !confirmed });
     if (confirmed) {
       outputJson(result);
     } else {
       outputJson({
         ...result,
-        ...errorEnvelope("CONFIRM_REQUIRED", "Refusing to delete without --yes or --dry-run."),
+        ...errorEnvelope(EC.CONFIRM_REQUIRED, "Refusing to delete without --confirm or --dry-run."),
+        commandName: "memory prune",
       });
       store.close();
       process.exit(EXIT.INVALID_INPUT);
@@ -195,12 +196,13 @@ export function memoryPrune(
  */
 export function memoryReset(dbPath: string, opts: { confirm?: boolean }): void {
   if (!opts.confirm) {
-    outputJson(
-      errorEnvelope(
-        "CONFIRM_REQUIRED",
+    outputJson({
+      ...errorEnvelope(
+        EC.CONFIRM_REQUIRED,
         "memory reset requires --confirm (destructive: deletes memory.db + sidecars).",
       ),
-    );
+      commandName: "memory reset",
+    });
     process.exit(EXIT.INVALID_INPUT);
   }
   const targets = [dbPath, `${dbPath}-shm`, `${dbPath}-wal`];

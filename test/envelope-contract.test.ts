@@ -35,6 +35,7 @@ import {
   ALL_ENGINE_ERROR_CODES,
   ENGINE_ERROR_CODES,
   type EngineErrorCode,
+  RECOVERY,
 } from "../src/error-codes.js";
 
 const BIN = path.resolve(import.meta.dirname, "..", "dist", "bin.js");
@@ -50,6 +51,8 @@ const envelopeSchema = z
         code: z.enum(ALL_ENGINE_ERROR_CODES),
         message: z.string().min(1),
         kind: z.enum(["blocked", "structural"]),
+        recoveryVerb: z.string().nullable(),
+        recoveryKind: z.enum(["retry", "fix-context", "report", "clear"]),
         hook: z
           .object({
             name: z.string(),
@@ -165,10 +168,26 @@ describe("CLI error envelope — wire-level contract", () => {
   // catalog work.
   it.todo("AMBIGUOUS_TRAVERSAL carries candidates: Array<{traversalId, meta}> (PR C)");
 
-  // CONFIRM_REQUIRED isn't emitted anywhere today; PR C consolidates
-  // the `--confirm` plumbing and adds `commandName: string` to the
-  // envelope.
-  it.todo("CONFIRM_REQUIRED carries commandName: string (PR C)");
+  it("CONFIRM_REQUIRED — freelance reset without --confirm carries commandName", () => {
+    // Also scaffold a traversal-of-one so `reset` reaches the
+    // confirm guard rather than NO_TRAVERSAL / AMBIGUOUS_TRAVERSAL.
+    // No traversal active → `store.resolveTraversalId` is never
+    // called before the confirm check; the envelope is emitted
+    // regardless of traversal state.
+    const result = runCli(["reset"], tmpDir);
+    const envelope = assertEnvelope(result, "CONFIRM_REQUIRED");
+    // `commandName` lives at the envelope root (spread from
+    // `context.envelopeSlots`), next to `isError` — not under
+    // `error.*`. The recoveryVerb template `{commandName} --confirm`
+    // interpolates against this root-level field.
+    expect((envelope as Record<string, unknown>).commandName).toBe("reset");
+  });
+
+  it("CONFIRM_REQUIRED — freelance memory reset without --confirm carries commandName", () => {
+    const result = runCli(["memory", "reset"], tmpDir);
+    const envelope = assertEnvelope(result, "CONFIRM_REQUIRED");
+    expect((envelope as Record<string, unknown>).commandName).toBe("memory reset");
+  });
 
   // HOOK_* throws only carry `error.hook` once PR D populates
   // `EngineError.context.hook` on the throw sites in the engine
@@ -182,6 +201,25 @@ describe("CLI error envelope — wire-level contract", () => {
 });
 
 describe("envelope-contract test harness", () => {
+  it("every RECOVERY.verb slot is well-formed {camelCase}", () => {
+    // Guard: the slot convention is `{camelCase}` matching envelope
+    // root field names verbatim. A slot like `{Traversal_Id}` or
+    // `{TRAVERSAL}` would silently fail to interpolate at the skill
+    // side because the envelope carries no such field. Regex here
+    // matches the authored convention; a malformed template fails
+    // loudly at test time, not at render time.
+    const slotRegex = /^\{[a-z][a-zA-Z0-9]*\}$/;
+    const allSlots = /\{[^}]*\}/g;
+    for (const code of ALL_ENGINE_ERROR_CODES) {
+      const verb = RECOVERY[code].verb;
+      if (verb === null) continue;
+      const slots = verb.match(allSlots) ?? [];
+      for (const slot of slots) {
+        expect(slot, `RECOVERY[${code}].verb has malformed slot`).toMatch(slotRegex);
+      }
+    }
+  });
+
   it("mapEngineErrorToExit resolves every catalog code to a known EXIT value", () => {
     // Guard: if CATEGORY_EXIT gains an entry whose value isn't in
     // EXIT, `mapEngineErrorToExit` would return a code no consumer

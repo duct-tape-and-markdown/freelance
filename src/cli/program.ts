@@ -12,6 +12,7 @@ import { EC, EngineError } from "../errors.js";
 import { resolveGraphsDirs } from "../graph-resolution.js";
 import { INSPECT_FIELDS } from "../types.js";
 import { VERSION } from "../version.js";
+import { catalog } from "./catalog.js";
 import { configSetLocal, configShow } from "./config.js";
 import {
   memoryBrowse,
@@ -452,7 +453,7 @@ addWorkflowsOpt(
       collectRepeatable,
     )
     .option("--dry-run", "Show what would be pruned without deleting")
-    .option("--yes", "Execute the prune (required unless --dry-run)"),
+    .option("--confirm", "Execute the prune (required unless --dry-run)"),
 ).action((opts) => {
   const dirs = resolveGraphsDirs(opts.workflows);
   const fileConfig = loadConfigFromDirs(dirs);
@@ -460,7 +461,11 @@ addWorkflowsOpt(
   const mergedKeep = [...(fileConfig.memory.prune?.keep ?? []), ...(opts.keep ?? [])];
   const { store } = createMemoryStore({ workflows: opts.workflows });
   try {
-    memoryPrune(store, { keep: mergedKeep, dryRun: opts.dryRun, yes: opts.yes });
+    memoryPrune(store, {
+      keep: mergedKeep,
+      dryRun: opts.dryRun,
+      confirm: opts.confirm,
+    });
   } finally {
     store.close();
   }
@@ -487,6 +492,13 @@ addWorkflowsOpt(
 });
 
 // --- Stateless commands ---
+
+program
+  .command("catalog")
+  .description("Emit the error-code catalog with per-code exit + recovery instruction")
+  .action(() => {
+    catalog();
+  });
 
 program
   .command("guide [topic]")
