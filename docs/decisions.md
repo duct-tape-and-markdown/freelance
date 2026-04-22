@@ -134,10 +134,8 @@ Under log-then-apply:
 - **Hook throw:** one save (the transition). Disk truth is "arrived at target, no hook writes." The envelope carries `currentNode = new node`, matching disk, with an `error.hook` sub-object naming the broken hook.
 - **Subgraph push:** same invariant. `maybePushSubgraph` mutates the stack, persists, then fires the child's onEnter.
 
-This contract applies to *traversal state only*. Memory emits are not traversal state and must not be entangled with transition outcomes — see the memory-durability entry that lands with PR D.
+This contract applies to *traversal state only*. Memory emits are not traversal state and must not be entangled with transition outcomes — see § "Memory emit attribution is emit-time, not transition-time".
 
 **What would break if reversed:** collapsing the two saves into one re-opens the race where `advance` mutates in-memory state, fires a hook that throws, and returns an error while disk stays at the previous node. In-memory and on-disk diverge; the next CLI invocation loads a stale record and retries against a stale node.
 
 Anchors: `src/engine/engine.ts` (`advanceTransition` + `runArrivalHooks`), `src/engine/subgraph.ts` (`maybePushSubgraph`), `src/state/traversal-store.ts` (persist call site).
-
-PR attribution: contract + envelope spine land in PR B; the engine split (`advanceTransition` / `runArrivalHooks`) and `maybePushSubgraph` ordering land in PR D. This entry captures the stable invariant — re-read it before collapsing the two-save flow.
