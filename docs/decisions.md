@@ -139,3 +139,34 @@ This contract applies to *traversal state only*. Memory emits are not traversal 
 **What would break if reversed:** collapsing the two saves into one re-opens the race where `advance` mutates in-memory state, fires a hook that throws, and returns an error while disk stays at the previous node. In-memory and on-disk diverge; the next CLI invocation loads a stale record and retries against a stale node.
 
 Anchors: `src/engine/engine.ts` (`advanceTransition` + `runArrivalHooks`), `src/engine/subgraph.ts` (`maybePushSubgraph`), `src/state/traversal-store.ts` (persist call site).
+
+### Error envelope is the wire contract
+
+The CLI error envelope is `{ isError: true, error: { code, message, kind, recoveryVerb, recoveryKind } }` where `code: EngineErrorCode` (the discriminated union exported from `src/error-codes.ts`) and `kind: "blocked" | "structural"`. Every code is grouped under exactly one exit category in `ENGINE_ERROR_CODES`, which `mapEngineErrorToExit` derives from — adding a code in the wrong group, or a new category without an exit mapping, is a compile error, not a runtime bug.
+
+No code emitted by the CLI or any library surface may be string-typed or absent from the catalog. A contract test (`test/envelope-contract.test.ts`) walks every throw site in `src/` and asserts the thrown code is a member of `ENGINE_ERROR_CODES`. Ad-hoc strings in error messages are fine; the `code` field is not freeform.
+
+Every `EngineErrorCode` entry carries two non-optional recovery fields, sourced from a sidecar `RECOVERY` table the `freelance catalog --json` verb emits verbatim:
+
+- `recoveryVerb: string | null` — literal CLI the caller runs next (template-interpolated against root-level envelope fields; e.g. `"advance --traversal {traversalId}"`, `"{commandName} --confirm"`). `null` means no verb recovers this code — skill reports and stops.
+- `recoveryKind: "retry" | "fix-context" | "report" | "clear"` — classifier the skill branches on (transient retry vs operator-fixable context vs stop-and-report vs stale-state-clear).
+
+`EngineError.context` has two subfields distinguished by spread target: `context.hook` nests under `envelope.error.hook` (HOOK_* throws); `context.envelopeSlots` spreads at `envelope` root next to `isError` (carries the template interpolation values — `commandName`, `traversalId`, `candidates`, `graphId`, `graphDir`). Slot names are `{camelCase}` and match envelope root field names verbatim — no casing translation, skill substitutes by literal lookup.
+
+The CLI exposes the catalog via `freelance catalog --json` as the single source of truth. SKILL.md cites the command and the recovery pattern once; it does not restate per-code recovery prose.
+
+**What would break if reversed:** string-typed codes re-introduce pre-#118's typo-at-throw-site failure mode. Dropping `recoveryVerb` forces SKILL.md to restate per-code recovery prose that drifts silently. Collapsing `recoveryKind` into the verb (e.g. just emitting "no-op verb" for report-only codes) makes the skill parse the verb string to decide whether to retry — exactly the freeform-parsing antipattern the envelope is escaping. Spreading `envelopeSlots` into `error.*` instead of root hides the template fields under a layer the skill has to unwrap, and collides with future `error.*` field additions.
+
+Anchors: `src/error-codes.ts` (`RECOVERY`, `HookErrorContext`), `src/errors.ts` (`EngineErrorContext`), `src/cli/output.ts` (`errorEnvelope`, `outputError` spread logic), `src/cli/catalog.ts`, `test/envelope-contract.test.ts`, `test/catalog.test.ts`. Closes #95, #117, #118, #134, #137.
+
+### Destructive verbs gate on `--confirm`; `--yes` is a deprecated alias
+
+Every destructive CLI operation (`freelance reset`, `freelance memory reset`, `freelance memory prune`) requires `--confirm` to actually mutate. Without it the verb emits a preview / plan and exits non-zero with `CONFIRM_REQUIRED` (`kind: "structural"`, exit 5, `recoveryVerb: "{commandName} --confirm"`, `recoveryKind: "fix-context"`). `commandName` — the literal CLI path the operator used — is carried on envelope root via `EngineError.context.envelopeSlots` so the skill interpolates the template once and gets the right retry command regardless of which verb triggered the throw.
+
+`--yes` is retained as a silent alias for one release cycle so existing scripts continue to work. Help text names `--confirm` only; a `--yes` invocation emits a single stderr breadcrumb per process: `"warning: --yes is deprecated; use --confirm"`. After the deprecation window the alias is removed.
+
+Single recovery verb across destructive ops means SKILL.md teaches "on `CONFIRM_REQUIRED`, add `--confirm`" once, not per-verb.
+
+**What would break if reversed:** keeping both flags as first-class makes every destructive-action error message ambiguous about which flag is canonical; skills must per-verb know which word the current verb uses. Removing `--yes` entirely in the same release is a breaking change with no migration window. Dropping the `commandName` slot forces per-verb recovery templates in `RECOVERY`, which defeats the "teach once" property above.
+
+Anchors: `src/cli/program.ts` (flag registration), `src/cli/memory.ts` (`memoryPrune`, `memoryReset`, `warnYesDeprecated`), `src/cli/traversals.ts` (`traversalReset`), `src/error-codes.ts` (`CONFIRM_REQUIRED` + `RECOVERY[CONFIRM_REQUIRED]`).
