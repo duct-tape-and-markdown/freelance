@@ -13,6 +13,8 @@
 // @dagrejs/graphlib — see loader.ts for the createRequire explanation
 // (tsx can't resolve named ESM exports from the CJS bundle).
 import { createRequire } from "node:module";
+import { EC } from "./error-codes.js";
+import { EngineError } from "./errors.js";
 import type { GraphDefinition } from "./schema/graph-schema.js";
 
 const { Graph, alg } = createRequire(import.meta.url)(
@@ -31,27 +33,35 @@ export function buildAndValidateGraph(def: GraphDefinition, filePath: string): G
 
   // Validate startNode exists
   if (!def.nodes[def.startNode]) {
-    throw new Error(`[${filePath}] startNode "${def.startNode}" is not defined in nodes`);
+    throw new EngineError(
+      `[${filePath}] startNode "${def.startNode}" is not defined in nodes`,
+      EC.GRAPH_STRUCTURE_INVALID,
+    );
   }
 
   for (const [nodeId, node] of Object.entries(def.nodes)) {
     // Terminal nodes cannot have subgraph
     if (node.type === "terminal" && node.subgraph) {
-      throw new Error(`[${filePath}] Node "${nodeId}": terminal node must not have a subgraph`);
+      throw new EngineError(
+        `[${filePath}] Node "${nodeId}": terminal node must not have a subgraph`,
+        EC.GRAPH_STRUCTURE_INVALID,
+      );
     }
 
     if (node.type === "terminal") {
       // (d) Terminal nodes must have zero outgoing edges
       if (node.edges && node.edges.length > 0) {
-        throw new Error(
+        throw new EngineError(
           `[${filePath}] Node "${nodeId}": terminal node must not have outgoing edges`,
+          EC.GRAPH_STRUCTURE_INVALID,
         );
       }
     } else {
       // (c) Non-terminal nodes must have at least one outgoing edge
       if (!node.edges || node.edges.length === 0) {
-        throw new Error(
+        throw new EngineError(
           `[${filePath}] Node "${nodeId}": non-terminal node of type "${node.type}" must have at least one outgoing edge`,
+          EC.GRAPH_STRUCTURE_INVALID,
         );
       }
 
@@ -59,8 +69,9 @@ export function buildAndValidateGraph(def: GraphDefinition, filePath: string): G
       for (const edge of node.edges) {
         // (a) All edge targets must point to defined nodes
         if (!def.nodes[edge.target]) {
-          throw new Error(
+          throw new EngineError(
             `[${filePath}] Node "${nodeId}": edge "${edge.label}" targets undefined node "${edge.target}"`,
+            EC.GRAPH_STRUCTURE_INVALID,
           );
         }
         g.setEdge(nodeId, edge.target, edge.label);
@@ -70,8 +81,9 @@ export function buildAndValidateGraph(def: GraphDefinition, filePath: string): G
     // (f) Gate nodes must have at least one validation
     if (node.type === "gate") {
       if (!node.validations || node.validations.length === 0) {
-        throw new Error(
+        throw new EngineError(
           `[${filePath}] Node "${nodeId}": gate node must have at least one validation`,
+          EC.GRAPH_STRUCTURE_INVALID,
         );
       }
     }
@@ -79,8 +91,9 @@ export function buildAndValidateGraph(def: GraphDefinition, filePath: string): G
     // Wait nodes must have at least one waitOn entry
     if (node.type === "wait") {
       if (!node.waitOn || node.waitOn.length === 0) {
-        throw new Error(
+        throw new EngineError(
           `[${filePath}] Node "${nodeId}": wait node must have at least one waitOn entry`,
+          EC.GRAPH_STRUCTURE_INVALID,
         );
       }
     }
@@ -94,8 +107,9 @@ export function buildAndValidateGraph(def: GraphDefinition, filePath: string): G
   }
   for (const nodeId of nodeIds) {
     if (!reachable.has(nodeId)) {
-      throw new Error(
+      throw new EngineError(
         `[${filePath}] Node "${nodeId}": unreachable from startNode "${def.startNode}"`,
+        EC.GRAPH_STRUCTURE_INVALID,
       );
     }
   }
@@ -126,9 +140,10 @@ function validateCycles(g: Graph, def: GraphDefinition, filePath: string): void 
     });
 
     if (!hasBreakingNode) {
-      throw new Error(
+      throw new EngineError(
         `[${filePath}] Cycle detected among nodes [${scc.join(", ")}] with no decision, gate, or wait node. ` +
           `Cycles must include at least one decision, gate, or wait node to prevent infinite action loops.`,
+        EC.GRAPH_STRUCTURE_INVALID,
       );
     }
   }

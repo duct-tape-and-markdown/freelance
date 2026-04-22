@@ -16,6 +16,8 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ContextCaps } from "./engine/context.js";
 import { HookRunner } from "./engine/hooks.js";
+import { EC } from "./error-codes.js";
+import { EngineError } from "./errors.js";
 import { openDatabase } from "./memory/db.js";
 import type { MemoryConfig } from "./memory/index.js";
 import { MemoryStore } from "./memory/index.js";
@@ -170,9 +172,10 @@ export function composeRuntime(config: ComposeConfig): Runtime {
   let memoryStore: MemoryStore | undefined;
   if (config.memory && config.memory.enabled !== false && config.memory.db) {
     if (!config.sourceRoot) {
-      throw new Error(
+      throw new EngineError(
         "composeRuntime: sourceRoot is required when memory is enabled — " +
           "pass sourceRoot in the config so MemoryStore can resolve relative source paths.",
+        EC.INTERNAL,
       );
     }
     memoryStore = buildMemoryStore(config.memory, config.sourceRoot);
