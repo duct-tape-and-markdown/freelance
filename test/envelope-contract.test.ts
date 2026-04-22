@@ -146,12 +146,7 @@ describe("CLI error envelope — wire-level contract", () => {
   });
 
   it("INVALID_CONTEXT_JSON — freelance start --context <not-json>", () => {
-    const graphFile = path.join(tmpDir, "valid-simple.workflow.yaml");
-    fs.copyFileSync(path.join(FIXTURES, "valid-simple.workflow.yaml"), graphFile);
-    const result = runCli(
-      ["start", "--workflows", tmpDir, "--context", "not-json", "valid-simple"],
-      tmpDir,
-    );
+    const result = runCli(["start", "--context", "not-json", "valid-simple"], tmpDir);
     assertEnvelope(result, "INVALID_CONTEXT_JSON");
   });
 

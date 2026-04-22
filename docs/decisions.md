@@ -116,3 +116,28 @@ The rationale is cumulative: small surface (one parser, one evaluator, bounded g
 **What would break if reversed:** Adding a `startsWith` or regex operator looks cheap in isolation. The second operator has to decide whether it composes with the first (is `!startsWith(x, "http")` valid? how about `startsWith(lower(x), "http")`?); the third has to decide whether built-ins can take other built-ins as arguments. Each choice accretes parser complexity and user-facing surprise. Keeping the grammar closed and pushing derivations to hooks means the extension point is `onEnter` hooks — which already have a trust model, a timeout, and a well-defined error envelope — rather than an ever-growing DSL.
 
 See issue [#93](https://github.com/duct-tape-and-markdown/freelance/issues/93).
+
+### Observable state transitions are durable before side effects
+
+Once an advance mutates `session.currentNode` past an edge, the traversal record is persisted **before** any code that can throw runs — specifically before `runArrivalHooks` fires onEnter hooks on the new node, and before the child-start onEnter fires on a subgraph push. Hook-collected context and meta writes persist on a second save after the hooks resolve.
+
+The rationale is log-then-apply on visible state. `advance` splits into two phases: `advanceTransition` (sync — mutates `session.currentNode`, records the history entry, returns), then `runArrivalHooks` (async — fires onEnter for the arrived node, merges hook writes). The traversal store persists between them. Two saves per successful advance; one save (the transition only) on a hook throw.
+
+Alternatives considered and rejected:
+
+- **Pre-transition hooks** — looks clean but hooks have external side effects (HTTP, `memory_emit`, filesystem writes from script hooks). Firing those for a transition that then aborts on a later hook's throw is a worse invariant — work done for a trip not taken.
+- **Save-in-finally** — preserves partial hook writes across a throw, but "disk reflects a transition that partially ran" is exactly the failure mode this contract is trying to escape.
+
+Under log-then-apply:
+
+- **Success:** two saves (post-transition record, then post-hook record carrying context + meta writes).
+- **Hook throw:** one save (the transition). Disk truth is "arrived at target, no hook writes." The envelope carries `currentNode = new node`, matching disk, with an `error.hook` sub-object naming the broken hook.
+- **Subgraph push:** same invariant. `maybePushSubgraph` mutates the stack, persists, then fires the child's onEnter.
+
+This contract applies to *traversal state only*. Memory emits are not traversal state and must not be entangled with transition outcomes — see the memory-durability entry that lands with PR D.
+
+**What would break if reversed:** collapsing the two saves into one re-opens the race where `advance` mutates in-memory state, fires a hook that throws, and returns an error while disk stays at the previous node. In-memory and on-disk diverge; the next CLI invocation loads a stale record and retries against a stale node.
+
+Anchors: `src/engine/engine.ts` (`advanceTransition` + `runArrivalHooks`), `src/engine/subgraph.ts` (`maybePushSubgraph`), `src/state/traversal-store.ts` (persist call site).
+
+PR attribution: contract + envelope spine land in PR B; the engine split (`advanceTransition` / `runArrivalHooks`) and `maybePushSubgraph` ordering land in PR D. This entry captures the stable invariant — re-read it before collapsing the two-save flow.
