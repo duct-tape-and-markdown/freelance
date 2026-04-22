@@ -27,6 +27,16 @@ interface PushSubgraphArgs {
   minimal: boolean;
   /** Keys written this advance (caller updates ∪ hook writes in parent, before push). Only used on minimal shape. */
   contextDelta: readonly string[];
+  /**
+   * Optional save boundary invoked after the child session is pushed
+   * onto the stack but BEFORE `onEnter` fires on the child's start
+   * node. `TraversalStore.advance` threads its `saveEngine` through
+   * here; a hook throw below then leaves disk with the child pushed
+   * (next advance resumes from the child's start node, not the
+   * parent's pre-push state). Direct engine callers omit the callback
+   * and accept one-shot semantics.
+   */
+  persistBetween?: () => void;
 }
 
 export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<SubgraphResult> {
@@ -41,6 +51,7 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Subgrap
     metaCollector,
     minimal,
     contextDelta,
+    persistBetween,
   } = args;
   const parentSession = stack[stack.length - 1];
   const subgraph = newNodeDef.subgraph!;
@@ -122,6 +133,13 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Subgrap
     turnCount: 0,
     startedAt: new Date().toISOString(),
   });
+
+  // Save boundary between child push and child-start onEnter. When
+  // TraversalStore threads a callback here, a hook throw below leaves
+  // disk reflecting the pushed child (next advance runs on the
+  // child's start node). Direct engine callers omit the callback and
+  // get one-shot semantics.
+  persistBetween?.();
 
   const activeSession = stack[stack.length - 1];
 

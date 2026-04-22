@@ -11,6 +11,7 @@ import type {
   InspectField,
   InspectMinimalResult,
   InspectResult,
+  NodeDefinition,
   ResetResult,
   SessionState,
   StartResult,
@@ -43,6 +44,51 @@ import { evaluateTransitions } from "./transitions.js";
 import { computeTimeoutAt, evaluateWaitConditions } from "./wait.js";
 
 export type { ResponseMode } from "./context.js";
+
+/**
+ * Internal — returned by `GraphEngine.advanceTransition` and consumed
+ * by `GraphEngine.runArrivalHooks`. Not on the wire; callers outside
+ * the engine should use the convenience `advance()` which wires the
+ * two phases back-to-back.
+ *
+ * Three shapes:
+ * - `early`: transition was short-circuited (gate block, subgraph pop,
+ *   subgraph-condition-not-met). Session state is already in its final
+ *   post-advance form; the wire response is already built. No hooks
+ *   run. The caller should save once and return `result` directly.
+ * - `subgraph-push`: a subgraph node was the edge target. The parent
+ *   session's `currentNode` already moved to the subgraph node, but
+ *   the child session hasn't been pushed yet. `runArrivalHooks` pushes
+ *   the child + fires hooks on its start node + builds the response.
+ *   `TraversalStore` sandwiches a persist between push and hook via
+ *   the `persistBetween` callback so a hook throw leaves disk with
+ *   the child pushed, not the parent pre-push.
+ * - `standard`: normal node arrival. `currentNode` already moved on
+ *   the active session. `runArrivalHooks` fires `onEnter` + builds
+ *   the response. Caller saves BEFORE the hooks run (so a hook throw
+ *   leaves disk on the new node, not the stale pre-advance one) and
+ *   AFTER the hooks complete (to capture hook-written context + meta).
+ */
+export type TransitionCommit =
+  | { kind: "early"; result: AdvanceResult | AdvanceMinimalResult }
+  | {
+      kind: "subgraph-push";
+      previousNode: string;
+      edge: string;
+      writesBefore: number;
+      minimal: boolean;
+      newNodeDef: NodeDefinition;
+    }
+  | {
+      kind: "standard";
+      previousNode: string;
+      edge: string;
+      writesBefore: number;
+      minimal: boolean;
+      newNodeDef: NodeDefinition;
+      isTerminal: boolean;
+      isWait: boolean;
+    };
 
 export interface GraphEngineOptions {
   maxDepth?: number;
@@ -142,20 +188,31 @@ export class GraphEngine {
     } satisfies StartResult;
   }
 
-  async advance(
+  /**
+   * Transition phase of `advance`. Applies context updates, runs gate
+   * checks, and — if everything passes — mutates session state
+   * synchronously (pushes history, moves `currentNode`, pops a
+   * terminating subgraph). Does NOT run `onEnter` hooks. Returns a
+   * `TransitionCommit` carrying either an early-return wire result
+   * (gate-block, pop, push-skipped) or the metadata needed by
+   * `runArrivalHooks` to finish the advance.
+   *
+   * The split exists so `TraversalStore.advance` can persist the
+   * post-transition session BEFORE firing hooks — if a hook throws,
+   * disk matches the in-memory post-transition state and the next
+   * advance runs gates on the new node, not the stale one.
+   */
+  advanceTransition(
     edge: string,
     contextUpdates?: Record<string, unknown>,
-    options?: { metaCollector?: MetaCollector; responseMode?: ResponseMode },
-  ): Promise<AdvanceResult | AdvanceMinimalResult> {
+    options?: { responseMode?: ResponseMode },
+  ): TransitionCommit {
     const session = this.requireSession();
     const graph = this.currentGraph();
     const def = graph.definition;
     const currentNodeDef = def.nodes[session.currentNode];
     const minimal = options?.responseMode === "minimal";
 
-    // Anchor for the minimal `contextDelta`: caller writes + hook
-    // writes both append to contextHistory, so slicing from here
-    // captures both paths without parallel bookkeeping.
     const writesBefore = session.contextHistory.length;
 
     if (contextUpdates) {
@@ -164,8 +221,6 @@ export class GraphEngine {
       session.turnCount++;
     }
 
-    // Compute once for the pre-hook window (gate checks + subgraph
-    // push/pop branches). The full shape never reads this.
     const preHookDelta = minimal ? keysSince(session.contextHistory, writesBefore) : [];
     const gateOpts: GateOptions = {
       minimal,
@@ -173,15 +228,14 @@ export class GraphEngine {
       graphSources: def.sources,
     };
     const waitBlock = checkWaitBlocking(session, currentNodeDef, gateOpts);
-    if (waitBlock) return waitBlock;
+    if (waitBlock) return { kind: "early", result: waitBlock };
 
     const returnBlock = checkReturnSchema(session, currentNodeDef, gateOpts);
-    if (returnBlock) return returnBlock;
+    if (returnBlock) return { kind: "early", result: returnBlock };
 
     const validationBlock = checkValidations(session, currentNodeDef, gateOpts);
-    if (validationBlock) return validationBlock;
+    if (validationBlock) return { kind: "early", result: validationBlock };
 
-    // Find and validate edge
     if (!currentNodeDef.edges) {
       throw new EngineError(
         `Node "${session.currentNode}" is a terminal node with no outgoing edges`,
@@ -205,10 +259,9 @@ export class GraphEngine {
         edge,
         gateOpts,
       );
-      if (condBlock) return condBlock;
+      if (condBlock) return { kind: "early", result: condBlock };
     }
 
-    // Record history and advance
     const previousNode = session.currentNode;
     session.history.push({
       node: previousNode,
@@ -223,11 +276,11 @@ export class GraphEngine {
     const isTerminal = newNodeDef.type === "terminal";
     const isWait = newNodeDef.type === "wait";
 
-    // Subgraph transitions. Push runs hooks on the child's start node;
-    // pop does not re-fire hooks on the resumed parent (already fired on
-    // initial arrival).
+    // Subgraph pop: stack mutation + response build happen here. No
+    // hooks fire on the resumed parent — return early with the built
+    // wire result.
     if (isTerminal && this.stack.length > 1) {
-      return popSubgraph({
+      const result = popSubgraph({
         stack: this.stack,
         graphs: this.graphs,
         previousNode,
@@ -235,19 +288,68 @@ export class GraphEngine {
         minimal,
         contextDelta: preHookDelta,
       });
+      return { kind: "early", result };
     }
+    // Subgraph push deferred to runArrivalHooks so push + onEnter
+    // share a save boundary (persistBetween threads disk reflection
+    // of the push before hooks run).
     if (!isTerminal && !isWait && newNodeDef.subgraph) {
+      return {
+        kind: "subgraph-push",
+        previousNode,
+        edge,
+        writesBefore,
+        minimal,
+        newNodeDef,
+      };
+    }
+
+    return {
+      kind: "standard",
+      previousNode,
+      edge,
+      writesBefore,
+      minimal,
+      newNodeDef,
+      isTerminal,
+      isWait,
+    };
+  }
+
+  /**
+   * Arrival-hook phase of `advance`. Runs `onEnter` for the
+   * post-transition node and builds the wire response. Must be
+   * called after `advanceTransition` returned. Gate-block +
+   * subgraph-pop branches (`kind: "early"`) pass through their
+   * pre-built response unchanged.
+   *
+   * `persistBetween` is only consumed by the subgraph-push branch:
+   * `maybePushSubgraph` pushes the child, invokes `persistBetween`,
+   * then fires hooks on the child's start node.
+   */
+  async runArrivalHooks(
+    commit: TransitionCommit,
+    options?: { metaCollector?: MetaCollector; persistBetween?: () => void },
+  ): Promise<AdvanceResult | AdvanceMinimalResult> {
+    if (commit.kind === "early") return commit.result;
+
+    const session = this.requireSession();
+    const graph = this.currentGraph();
+    const def = graph.definition;
+
+    if (commit.kind === "subgraph-push") {
       return maybePushSubgraph({
         stack: this.stack,
         graphs: this.graphs,
-        previousNode,
-        edge,
-        newNodeDef,
+        previousNode: commit.previousNode,
+        edge: commit.edge,
+        newNodeDef: commit.newNodeDef,
         maxDepth: this.maxDepth,
         hookRunner: this.hookRunner,
         metaCollector: options?.metaCollector,
-        minimal,
-        contextDelta: preHookDelta,
+        minimal: commit.minimal,
+        contextDelta: commit.minimal ? keysSince(session.contextHistory, commit.writesBefore) : [],
+        ...(options?.persistBetween && { persistBetween: options.persistBetween }),
       });
     }
 
@@ -255,6 +357,7 @@ export class GraphEngine {
     // the response so hook writes land in validTransitions and context.
     await this.runHooksOnArrival(session, graph, options?.metaCollector);
 
+    const { previousNode, edge, writesBefore, minimal, newNodeDef, isTerminal, isWait } = commit;
     const contextDelta = minimal ? keysSince(session.contextHistory, writesBefore) : [];
     const validTransitions = evaluateTransitions(newNodeDef, session.context);
 
@@ -334,6 +437,22 @@ export class GraphEngine {
     }
 
     return result;
+  }
+
+  /**
+   * Library convenience: run `advanceTransition` + `runArrivalHooks`
+   * back-to-back without an intermediate persist. `TraversalStore.advance`
+   * invokes the two phases separately so it can sandwich a save between
+   * them; direct engine callers (tests, programmatic use) stay on this
+   * shape.
+   */
+  async advance(
+    edge: string,
+    contextUpdates?: Record<string, unknown>,
+    options?: { metaCollector?: MetaCollector; responseMode?: ResponseMode },
+  ): Promise<AdvanceResult | AdvanceMinimalResult> {
+    const commit = this.advanceTransition(edge, contextUpdates, options);
+    return this.runArrivalHooks(commit, options);
   }
 
   contextSet(

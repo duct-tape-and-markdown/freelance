@@ -233,14 +233,35 @@ export class TraversalStore {
     return this.withLock(traversalId, async () => {
       const { engine, record } = this.loadEngine(traversalId);
       const hookMeta: Record<string, string> = {};
-      const result = await engine.advance(edge, contextUpdates, {
-        metaCollector: (updates) => Object.assign(hookMeta, updates),
+      const metaCollector = (updates: Record<string, string>) =>
+        Object.assign(hookMeta, updates);
+
+      // Phase 1: transition + gate checks. On a gate-block ("early"),
+      // session state is already final and runArrivalHooks is a
+      // pass-through. On a committed transition, currentNode has
+      // moved; we save THAT state before hooks run so a hook throw
+      // leaves disk on the new node, not the stale pre-advance one.
+      // See docs/decisions.md § "Observable state transitions are
+      // durable before side effects".
+      const commit = engine.advanceTransition(edge, contextUpdates, {
         ...(options?.responseMode ? { responseMode: options.responseMode } : {}),
       });
-      // Merge collected hook updates into the in-memory record before save —
-      // saveEngine carries record.meta forward verbatim, so this is the
-      // single point of integration. Avoids a separate setMeta + extra disk
-      // write per advance.
+      this.saveEngine(record, engine);
+
+      // Phase 2: onEnter hooks + response construction. persistBetween
+      // is only consumed by the subgraph-push branch: maybePushSubgraph
+      // pushes the child, invokes it (so disk reflects the push), then
+      // fires child-start hooks. Standard-arrival runArrivalHooks
+      // ignores the callback — the pre-hook save above is the boundary
+      // for that branch.
+      const persistBetween = () => this.saveEngine(record, engine);
+      const result = await engine.runArrivalHooks(commit, {
+        metaCollector,
+        persistBetween,
+      });
+
+      // Merge collected hook updates into the in-memory record before
+      // the final save.
       if (Object.keys(hookMeta).length > 0) {
         record.meta = { ...record.meta, ...hookMeta };
       }
@@ -430,7 +451,11 @@ export class TraversalStore {
     // `record.version` is what we observed at loadEngine() time —
     // putIfVersion throws TRAVERSAL_CONFLICT if another writer bumped
     // the version meanwhile. `version ?? 0` handles legacy records
-    // written before the field existed.
-    this.state.putIfVersion(next, record.version ?? 0);
+    // written before the field existed. Track the bumped version in
+    // place so repeat saveEngine calls within one advance (the
+    // log-then-apply bracket around hook execution) don't trip
+    // conflict on themselves.
+    const written = this.state.putIfVersion(next, record.version ?? 0);
+    record.version = written.version;
   }
 }
