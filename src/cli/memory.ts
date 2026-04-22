@@ -151,7 +151,7 @@ export function memoryEmit(store: MemoryStore, file: string): void {
 
 export function memoryPrune(
   store: MemoryStore,
-  opts: { keep?: string[]; dryRun?: boolean; confirm?: boolean; yes?: boolean },
+  opts: { keep?: string[]; dryRun?: boolean; confirm?: boolean },
 ): void {
   // `process.exit` bypasses the caller's `finally { store.close() }`,
   // which would leak the WAL + SHM sidecar files on disk. Close here
@@ -163,14 +163,11 @@ export function memoryPrune(
     process.exit(EXIT.INVALID_INPUT);
   }
 
-  if (opts.yes) warnYesDeprecated();
-  const confirmFlag = opts.confirm || opts.yes;
-
   try {
     // `--dry-run` is itself a no-op preview; otherwise require explicit
     // `--confirm`. Return the plan + an explicit refusal when neither
     // flag is set, so the skill sees the blast radius before committing.
-    const confirmed = opts.dryRun || confirmFlag;
+    const confirmed = opts.dryRun || opts.confirm;
     const result = store.prune({ keep: opts.keep, dryRun: !confirmed });
     if (confirmed) {
       outputJson(result);
@@ -187,20 +184,6 @@ export function memoryPrune(
     store.close();
     handleError(e);
   }
-}
-
-/**
- * One-shot deprecation breadcrumb. Emits `warning: --yes is
- * deprecated; use --confirm` to stderr on first `--yes` use in this
- * process, then stays silent. Removes itself after the deprecation
- * window alongside the `--yes` alias (see decisions.md § "Destructive
- * verbs gate on --confirm; --yes is a deprecated alias").
- */
-let yesWarned = false;
-function warnYesDeprecated(): void {
-  if (yesWarned) return;
-  yesWarned = true;
-  process.stderr.write("warning: --yes is deprecated; use --confirm\n");
 }
 
 /**

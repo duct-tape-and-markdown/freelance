@@ -453,14 +453,7 @@ addWorkflowsOpt(
       collectRepeatable,
     )
     .option("--dry-run", "Show what would be pruned without deleting")
-    .option("--confirm", "Execute the prune (required unless --dry-run)")
-    // `--yes` is retained as a silent alias for one release cycle so
-    // existing scripts keep working. Help text names `--confirm` only;
-    // a `--yes` invocation emits a single stderr breadcrumb per
-    // process (see `memoryPrune` in cli/memory.ts). Removed after the
-    // deprecation window. See decisions.md § "Destructive verbs gate
-    // on --confirm".
-    .option("--yes", "(deprecated alias for --confirm)"),
+    .option("--confirm", "Execute the prune (required unless --dry-run)"),
 ).action((opts) => {
   const dirs = resolveGraphsDirs(opts.workflows);
   const fileConfig = loadConfigFromDirs(dirs);
@@ -472,7 +465,6 @@ addWorkflowsOpt(
       keep: mergedKeep,
       dryRun: opts.dryRun,
       confirm: opts.confirm,
-      yes: opts.yes,
     });
   } finally {
     store.close();

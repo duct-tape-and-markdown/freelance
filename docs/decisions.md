@@ -159,14 +159,14 @@ The CLI exposes the catalog via `freelance catalog --json` as the single source 
 
 Anchors: `src/error-codes.ts` (`RECOVERY`, `HookErrorContext`), `src/errors.ts` (`EngineErrorContext`), `src/cli/output.ts` (`errorEnvelope`, `outputError` spread logic), `src/cli/catalog.ts`, `test/envelope-contract.test.ts`, `test/catalog.test.ts`. Closes #95, #117, #118, #134, #137.
 
-### Destructive verbs gate on `--confirm`; `--yes` is a deprecated alias
+### Destructive verbs gate on `--confirm`
 
 Every destructive CLI operation (`freelance reset`, `freelance memory reset`, `freelance memory prune`) requires `--confirm` to actually mutate. Without it the verb emits a preview / plan and exits non-zero with `CONFIRM_REQUIRED` (`kind: "structural"`, exit 5, `recoveryVerb: "{commandName} --confirm"`, `recoveryKind: "fix-context"`). `commandName` — the literal CLI path the operator used — is carried on envelope root via `EngineError.context.envelopeSlots` so the skill interpolates the template once and gets the right retry command regardless of which verb triggered the throw.
 
-`--yes` is retained as a silent alias for one release cycle so existing scripts continue to work. Help text names `--confirm` only; a `--yes` invocation emits a single stderr breadcrumb per process: `"warning: --yes is deprecated; use --confirm"`. After the deprecation window the alias is removed.
+`--yes` was removed in 1.4. Prior to 1.4 some destructive verbs accepted `--yes` as a synonym for confirmation; the two-flag surface made every destructive-action error message ambiguous about which flag was canonical. The migration cost is zero — every `--yes` invocation becomes `--confirm`.
 
 Single recovery verb across destructive ops means SKILL.md teaches "on `CONFIRM_REQUIRED`, add `--confirm`" once, not per-verb.
 
-**What would break if reversed:** keeping both flags as first-class makes every destructive-action error message ambiguous about which flag is canonical; skills must per-verb know which word the current verb uses. Removing `--yes` entirely in the same release is a breaking change with no migration window. Dropping the `commandName` slot forces per-verb recovery templates in `RECOVERY`, which defeats the "teach once" property above.
+**What would break if reversed:** dropping the `commandName` slot forces per-verb recovery templates in `RECOVERY`, which defeats the "teach once" property above.
 
-Anchors: `src/cli/program.ts` (flag registration), `src/cli/memory.ts` (`memoryPrune`, `memoryReset`, `warnYesDeprecated`), `src/cli/traversals.ts` (`traversalReset`), `src/error-codes.ts` (`CONFIRM_REQUIRED` + `RECOVERY[CONFIRM_REQUIRED]`).
+Anchors: `src/cli/program.ts` (flag registration), `src/cli/memory.ts` (`memoryPrune`, `memoryReset`), `src/cli/traversals.ts` (`traversalReset`), `src/error-codes.ts` (`CONFIRM_REQUIRED` + `RECOVERY[CONFIRM_REQUIRED]`).
