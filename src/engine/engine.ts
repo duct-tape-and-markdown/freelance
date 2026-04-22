@@ -213,6 +213,9 @@ export class GraphEngine {
     const currentNodeDef = def.nodes[session.currentNode];
     const minimal = options?.responseMode === "minimal";
 
+    // Anchor for the minimal `contextDelta`: caller writes + hook
+    // writes both append to contextHistory, so slicing from here
+    // captures both paths without parallel bookkeeping.
     const writesBefore = session.contextHistory.length;
 
     if (contextUpdates) {
@@ -221,6 +224,8 @@ export class GraphEngine {
       session.turnCount++;
     }
 
+    // Compute once for the pre-hook window (gate checks + subgraph
+    // push/pop branches). The full shape never reads this.
     const preHookDelta = minimal ? keysSince(session.contextHistory, writesBefore) : [];
     const gateOpts: GateOptions = {
       minimal,
