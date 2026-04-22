@@ -134,6 +134,14 @@ freelance inspect [<traversalId>] --fields currentNode --fields neighbors
 
 Use it on the steady-state loop once you've seen the node's `instructions` at least once and you're just picking edges. Drop `--minimal` (or call `freelance inspect`) to resync to the full shape after compaction or when you land on a new node you haven't seen yet.
 
+### Three projection verbs, three axes
+
+- Response size → `--minimal` (bool, hot-path verbs: `advance`, `context set`, `inspect`)
+- Extra fields → `--fields <name>` (repeatable, inspect only)
+- Memory provenance depth → `--shape minimal|full` (memory inspect only)
+
+They don't substitute. `advance --shape` and `memory inspect --minimal` both fail `INVALID_FLAG_VALUE`.
+
 ## Subgraphs
 
 Some workflows push subgraph calls. Responses include:

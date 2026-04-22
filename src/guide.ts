@@ -559,7 +559,7 @@ Start with \`externalKey\` only. After the PR is opened, call \`freelance meta s
 
   "memory-workflows": `# Memory Workflows
 
-Freelance ships two sealed workflows that own writes to the knowledge graph. Direct calls to \`memory_emit\` and \`memory_prune\` are gated — they only succeed while a workflow traversal is active. Read tools (\`memory_browse\`, \`memory_inspect\`, \`memory_search\`, \`memory_related\`, \`memory_by_source\`, \`memory_status\`) are always available.
+Freelance ships two sealed workflows that own writes to the knowledge graph. Direct calls to \`memory_emit\` and the CLI verb \`freelance memory prune\` are gated — they only succeed while a workflow traversal is active. Read tools (\`memory_browse\`, \`memory_inspect\`, \`memory_search\`, \`memory_related\`, \`memory_by_source\`, \`memory_status\`) are always available.
 
 ## memory:compile
 
@@ -585,7 +585,7 @@ The proposition rubric (atomicity, independence test, relationship exception) an
 
 ## User-authored graphs can also use memory tools
 
-The \`memory_emit\` / \`memory_prune\` gate only checks that *some* traversal is active — not specifically one of the sealed workflows. If you author your own graph that writes to memory, carry your own authoring guidance in your node instructions (or reuse the sealed workflow's via a subgraph push).`,
+The \`memory_emit\` / \`freelance memory prune\` gate only checks that *some* traversal is active — not specifically one of the sealed workflows. If you author your own graph that writes to memory, carry your own authoring guidance in your node instructions (or reuse the sealed workflow's via a subgraph push).`,
 
   "anti-patterns": `# Anti-Patterns
 
