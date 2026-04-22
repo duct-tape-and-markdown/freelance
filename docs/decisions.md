@@ -238,3 +238,11 @@ This complements § "Observable state transitions are durable before side effect
 **What would break if reversed:** any mechanism tying emit durability to transition success re-introduces speculative writes — the agent sees "emitted" but the row vanishes if the next advance blocks. Worse: a `HOOK_FAILED` on the next node swallows the emit the caller believed was durable.
 
 Anchors: `src/memory/store.ts` (emit is synchronous, transaction-scoped to the emit call alone, no traversal-id entanglement), `docs/memory-intent.md` § "Append-only across corpus frames", § "The store is a passive sink", § "Not an emit-time garbage collector".
+
+### mtime_ms column removed from `proposition_sources`
+
+Post-#74 the `mtime_ms` column was neither written nor read — drift detection now re-hashes content per-call via `StalenessCache` amortization. The column was retained only as a no-op for existing databases. 1.4 drops it outright with an in-place migration matching the `propositions.collection` pattern (#135).
+
+**What would break if reversed:** re-adding the column re-introduces the mtime fast-path footgun (#74 rationale: mtime is preserved across real edits by `git checkout`, `rsync -t`, `touch -r`, etc.). The column has no legitimate use absent that fast path.
+
+Anchors: `src/memory/db.ts`, `src/memory/sources.ts`.

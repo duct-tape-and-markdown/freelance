@@ -77,10 +77,6 @@ CREATE TABLE IF NOT EXISTS proposition_sources (
   proposition_id TEXT NOT NULL REFERENCES propositions(id) ON DELETE CASCADE,
   file_path TEXT NOT NULL,
   content_hash TEXT NOT NULL,
-  -- Retained on the table for pre-1.3.4 rows. Not written to by new emits
-  -- and not read anywhere — mtime proved unsafe as a drift signal (can be
-  -- preserved across edits by git checkout, rsync -t, touch -r, etc.).
-  mtime_ms REAL,
   PRIMARY KEY (proposition_id, file_path)
 );
 CREATE INDEX IF NOT EXISTS idx_ps_file ON proposition_sources(file_path);
@@ -147,6 +143,28 @@ function migrateDropCollectionColumn(db: Db): void {
   db.exec("DROP INDEX IF EXISTS idx_prop_hash_coll");
   db.exec("DROP INDEX IF EXISTS idx_prop_collection");
   db.exec("ALTER TABLE propositions DROP COLUMN collection");
+}
+
+/**
+ * Transparent migration for the dead `mtime_ms` column on
+ * `proposition_sources`. Post-#74 the column was neither written nor
+ * read — drift detection re-hashes content per-call via
+ * `StalenessCache` amortization — but the column was retained for
+ * existing databases. 1.4 drops it outright. Mirrors the
+ * `propositions.collection` drop pattern above.
+ *
+ * mtime-based drift detection is fundamentally unsafe: `git checkout`,
+ * `rsync -t`, and `touch -r` all preserve mtime across real edits. No
+ * legitimate use absent the removed fast path. See `docs/decisions.md`
+ * § "mtime_ms column removed from `proposition_sources`".
+ */
+function migrateDropMtimeColumn(db: Db): void {
+  const cols = db
+    .prepare("PRAGMA table_info(proposition_sources)")
+    .all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "mtime_ms")) return;
+
+  db.exec("ALTER TABLE proposition_sources DROP COLUMN mtime_ms");
 }
 
 /**
@@ -228,6 +246,7 @@ function openDatabaseOnce(dbPath: string): Db {
   checkSchemaCompatibility(db);
   inner.exec(SCHEMA_SQL);
   migrateDropCollectionColumn(db);
+  migrateDropMtimeColumn(db);
 
   // Converge older databases that were created with the propositions_au
   // AFTER UPDATE trigger. memory_emit's ON CONFLICT DO NOTHING means

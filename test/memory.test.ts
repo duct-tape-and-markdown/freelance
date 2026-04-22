@@ -1091,6 +1091,56 @@ describe("MemoryStore schema migration", () => {
       second.close();
     }
   });
+
+  it("drops mtime_ms column from a pre-migration proposition_sources", () => {
+    const dbPath = path.join(tmpDir, "memory.db");
+    const raw = new DatabaseSync(dbPath);
+    raw.exec("PRAGMA journal_mode = WAL");
+    raw.exec(`
+      CREATE TABLE propositions (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        content_hash TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE proposition_sources (
+        proposition_id TEXT NOT NULL REFERENCES propositions(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        mtime_ms REAL,
+        PRIMARY KEY (proposition_id, file_path)
+      );
+    `);
+    raw.exec(
+      "INSERT INTO propositions (id, content, content_hash, created_at) VALUES ('p1', 'foo', 'h1', '2024-01-01')",
+    );
+    raw.exec(
+      "INSERT INTO proposition_sources (proposition_id, file_path, content_hash, mtime_ms) VALUES ('p1', 'a.ts', 'src-hash-1', 1234567890)",
+    );
+    raw.close();
+
+    const db = openDatabase(dbPath);
+    try {
+      const cols = db.prepare("PRAGMA table_info(proposition_sources)").all() as Array<{
+        name: string;
+      }>;
+      expect(cols.map((c) => c.name)).not.toContain("mtime_ms");
+
+      // Row survived the column drop.
+      const row = db
+        .prepare(
+          "SELECT proposition_id, file_path, content_hash FROM proposition_sources WHERE proposition_id = 'p1'",
+        )
+        .get() as { proposition_id: string; file_path: string; content_hash: string };
+      expect(row).toEqual({
+        proposition_id: "p1",
+        file_path: "a.ts",
+        content_hash: "src-hash-1",
+      });
+    } finally {
+      db.close();
+    }
+  });
 });
 
 describe("MemoryStore lazy open (#138)", () => {
