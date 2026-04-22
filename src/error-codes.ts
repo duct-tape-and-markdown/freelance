@@ -217,11 +217,8 @@ export const EC = {
  * Structured hook identification carried on `EngineError.context.hook`
  * when a hook execution fails. The CLI envelope spreads this into
  * `error.hook` so the driving skill can point the operator at the
- * exact hook call site (`call` + `nodeId`, plus `index` to
- * disambiguate repeated calls on the same node). Currently only
- * `onEnter` fires in-engine; `phase` is a literal placeholder so
- * future phases (onExit, onTransition) extend the union without
- * breaking wire-format readers.
+ * exact hook call site (`name` + `nodeId`, plus `index` to
+ * disambiguate repeated calls on the same node).
  *
  * Defined here (not in `engine/hooks.ts`) because the CLI output
  * layer spreads it into the envelope — keeping the type adjacent to
@@ -232,7 +229,6 @@ export const EC = {
 export interface HookErrorContext {
   name: string;
   nodeId: string;
-  phase: "onEnter";
   index: number;
 }
 

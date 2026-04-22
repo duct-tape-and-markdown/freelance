@@ -54,7 +54,6 @@ const envelopeSchema = z
           .object({
             name: z.string(),
             nodeId: z.string(),
-            phase: z.literal("onEnter"),
             index: z.number(),
           })
           .optional(),
