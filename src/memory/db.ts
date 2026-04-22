@@ -159,9 +159,9 @@ function migrateDropCollectionColumn(db: Db): void {
  * § "mtime_ms column removed from `proposition_sources`".
  */
 function migrateDropMtimeColumn(db: Db): void {
-  const cols = db
-    .prepare("PRAGMA table_info(proposition_sources)")
-    .all() as Array<{ name: string }>;
+  const cols = db.prepare("PRAGMA table_info(proposition_sources)").all() as Array<{
+    name: string;
+  }>;
   if (!cols.some((c) => c.name === "mtime_ms")) return;
 
   db.exec("ALTER TABLE proposition_sources DROP COLUMN mtime_ms");

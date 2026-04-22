@@ -233,8 +233,7 @@ export class TraversalStore {
     return this.withLock(traversalId, async () => {
       const { engine, record } = this.loadEngine(traversalId);
       const hookMeta: Record<string, string> = {};
-      const metaCollector = (updates: Record<string, string>) =>
-        Object.assign(hookMeta, updates);
+      const metaCollector = (updates: Record<string, string>) => Object.assign(hookMeta, updates);
 
       // Phase 1: transition + gate checks. On a gate-block ("early"),
       // session state is already final and runArrivalHooks is a

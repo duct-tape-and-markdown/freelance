@@ -17,8 +17,8 @@ import type { HookFn } from "../src/engine/hooks.js";
 import { HookRunner } from "../src/engine/hooks.js";
 import { EC, EngineError } from "../src/errors.js";
 import { loadGraphs } from "../src/loader.js";
-import { openStateStore, TraversalStore } from "../src/state/index.js";
 import type { TraversalRecord } from "../src/state/index.js";
+import { openStateStore, TraversalStore } from "../src/state/index.js";
 import type { ValidatedGraph } from "../src/types.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");

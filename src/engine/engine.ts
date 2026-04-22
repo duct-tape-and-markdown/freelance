@@ -546,10 +546,7 @@ export class GraphEngine {
    * when omitted, `contextDelta` is empty and `context` is the full
    * snapshot.
    */
-  captureHookFailureEnvelope(opts?: {
-    minimal?: boolean;
-    writesBefore?: number;
-  }): {
+  captureHookFailureEnvelope(opts?: { minimal?: boolean; writesBefore?: number }): {
     currentNode: string;
     validTransitions: readonly import("../types.js").TransitionInfo[];
     context?: Readonly<Record<string, unknown>>;

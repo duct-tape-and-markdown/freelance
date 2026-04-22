@@ -157,9 +157,11 @@ describe("MemoryStore", () => {
       store.close();
       const db = new DatabaseSync(dbPath);
       try {
-        const propCount = (db.prepare("SELECT COUNT(*) as c FROM propositions").get() as {
-          c: number;
-        }).c;
+        const propCount = (
+          db.prepare("SELECT COUNT(*) as c FROM propositions").get() as {
+            c: number;
+          }
+        ).c;
         const sourceCount = (
           db.prepare("SELECT COUNT(*) as c FROM proposition_sources").get() as {
             c: number;
@@ -420,9 +422,7 @@ describe("MemoryStore", () => {
       // now-orphaned prop. `includeOrphans: true` surfaces it for
       // audit paths. Mirrors browse's orphan lens.
       writeFile(tmpDir, "drift.ts", "original");
-      store.emit([
-        { content: "Drift claim.", entities: ["Drift"], sources: ["drift.ts"] },
-      ]);
+      store.emit([{ content: "Drift claim.", entities: ["Drift"], sources: ["drift.ts"] }]);
 
       // Overwrite — disk hash no longer matches the proposition's
       // stored source hash. Prop becomes stale.
