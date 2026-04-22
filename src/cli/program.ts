@@ -420,7 +420,11 @@ addWorkflowsOpt(
     .description("All propositions derived from a source file")
     .option("--limit <n>", "Maximum propositions (default 50, max 200)")
     .option("--offset <n>", "Skip first N propositions")
-    .option("--shape <shape>", 'Proposition shape: "full" (default) or "minimal"'),
+    .option("--shape <shape>", 'Proposition shape: "full" (default) or "minimal"')
+    .option(
+      "--include-orphans",
+      "Include propositions whose source bytes no longer match disk/any live ref (hidden by default)",
+    ),
 ).action((file, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
   try {

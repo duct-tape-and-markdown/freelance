@@ -575,8 +575,14 @@ describe("TraversalStore — stateless JSON", () => {
       store.setMeta(t.traversalId, { owner: "alice" });
       expect(raw().version).toBe(3);
 
+      // advance saves twice — once after the gate-checks + transition
+      // commit (before onEnter), once after hooks complete. The double
+      // write is load-bearing: a hook throw between the saves leaves
+      // disk on the new node, not the stale pre-advance one. See
+      // docs/decisions.md § "Observable state transitions are durable
+      // before side effects".
       await store.advance(t.traversalId, "work-done");
-      expect(raw().version).toBe(4);
+      expect(raw().version).toBe(5);
     });
 
     it("detects cross-process writer races via TRAVERSAL_CONFLICT", async () => {

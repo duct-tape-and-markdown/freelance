@@ -127,7 +127,7 @@ describe("memory prune (content-reachability)", () => {
       const result = store.prune({ keep: ["main"] });
       expect(result.rows_pruned).toBe(1);
       expect(result.propositions_hard_deleted).toBe(1);
-      expect(result.entities_orphaned).toBe(1);
+      expect(result.entities_now_orphaned).toBe(1);
 
       expect(readPropSources(dbPath)).toHaveLength(0);
     });

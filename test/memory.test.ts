@@ -131,6 +131,51 @@ describe("MemoryStore", () => {
       expect(result.entities_created).toBe(2);
       expect(result.propositions[0].entities).toHaveLength(2);
     });
+
+    it("rolls back the whole batch when a later proposition references a missing source", () => {
+      // Partial emit (some rows committed, others aborted) breaks the
+      // "every prop in the batch has its full source set on success"
+      // invariant. The BEGIN/COMMIT wrapper around the loop rolls back
+      // EVERY row the batch wrote (propositions, proposition_sources,
+      // entities, about) when any prop throws.
+      writeFile(tmpDir, "a.ts", "class A {}");
+
+      expect(() =>
+        store.emit([
+          { content: "A exists.", entities: ["A"], sources: ["a.ts"] },
+          {
+            content: "B exists.",
+            entities: ["B"],
+            sources: ["a.ts", "missing.ts"],
+          },
+        ]),
+      ).toThrow(/Cannot read source file/);
+
+      // Close the store so we can re-open a sibling connection on the
+      // same db file and read out the raw row counts post-rollback.
+      const dbPath = path.join(tmpDir, "memory.db");
+      store.close();
+      const db = new DatabaseSync(dbPath);
+      try {
+        const propCount = (
+          db.prepare("SELECT COUNT(*) as c FROM propositions").get() as {
+            c: number;
+          }
+        ).c;
+        const sourceCount = (
+          db.prepare("SELECT COUNT(*) as c FROM proposition_sources").get() as {
+            c: number;
+          }
+        ).c;
+        expect(propCount).toBe(0);
+        expect(sourceCount).toBe(0);
+      } finally {
+        db.close();
+      }
+
+      // Replace the closed store so afterEach's close() is a no-op.
+      store = makeMemoryStore(dbPath, tmpDir);
+    });
   });
 
   describe("entity resolution", () => {
@@ -369,6 +414,27 @@ describe("MemoryStore", () => {
       const minimal = store.bySource("auth.ts", { shape: "minimal" });
       const first = minimal.propositions[0] as Record<string, unknown>;
       expect(Object.keys(first).sort()).toEqual(["content", "id"]);
+    });
+
+    it("hides orphans by default, surfaces them with includeOrphans", () => {
+      // Emit against a file, then overwrite the file to break hash
+      // equivalence (content-drift staleness). Default lens hides the
+      // now-orphaned prop. `includeOrphans: true` surfaces it for
+      // audit paths. Mirrors browse's orphan lens.
+      writeFile(tmpDir, "drift.ts", "original");
+      store.emit([{ content: "Drift claim.", entities: ["Drift"], sources: ["drift.ts"] }]);
+
+      // Overwrite — disk hash no longer matches the proposition's
+      // stored source hash. Prop becomes stale.
+      writeFile(tmpDir, "drift.ts", "replaced");
+
+      const hidden = store.bySource("drift.ts");
+      expect(hidden.total).toBe(0);
+      expect(hidden.propositions).toHaveLength(0);
+
+      const surfaced = store.bySource("drift.ts", { includeOrphans: true });
+      expect(surfaced.total).toBe(1);
+      expect(surfaced.propositions).toHaveLength(1);
     });
   });
 
@@ -1023,6 +1089,56 @@ describe("MemoryStore schema migration", () => {
       expect(cols.map((c) => c.name)).not.toContain("collection");
     } finally {
       second.close();
+    }
+  });
+
+  it("drops mtime_ms column from a pre-migration proposition_sources", () => {
+    const dbPath = path.join(tmpDir, "memory.db");
+    const raw = new DatabaseSync(dbPath);
+    raw.exec("PRAGMA journal_mode = WAL");
+    raw.exec(`
+      CREATE TABLE propositions (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        content_hash TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE proposition_sources (
+        proposition_id TEXT NOT NULL REFERENCES propositions(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        mtime_ms REAL,
+        PRIMARY KEY (proposition_id, file_path)
+      );
+    `);
+    raw.exec(
+      "INSERT INTO propositions (id, content, content_hash, created_at) VALUES ('p1', 'foo', 'h1', '2024-01-01')",
+    );
+    raw.exec(
+      "INSERT INTO proposition_sources (proposition_id, file_path, content_hash, mtime_ms) VALUES ('p1', 'a.ts', 'src-hash-1', 1234567890)",
+    );
+    raw.close();
+
+    const db = openDatabase(dbPath);
+    try {
+      const cols = db.prepare("PRAGMA table_info(proposition_sources)").all() as Array<{
+        name: string;
+      }>;
+      expect(cols.map((c) => c.name)).not.toContain("mtime_ms");
+
+      // Row survived the column drop.
+      const row = db
+        .prepare(
+          "SELECT proposition_id, file_path, content_hash FROM proposition_sources WHERE proposition_id = 'p1'",
+        )
+        .get() as { proposition_id: string; file_path: string; content_hash: string };
+      expect(row).toEqual({
+        proposition_id: "p1",
+        file_path: "a.ts",
+        content_hash: "src-hash-1",
+      });
+    } finally {
+      db.close();
     }
   });
 });

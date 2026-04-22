@@ -14,9 +14,13 @@ export { EC, type EngineErrorCode } from "./error-codes.js";
  *     `isError`, `error`). Carries the top-level fields a
  *     `recoveryVerb` template interpolates against (e.g.
  *     CONFIRM_REQUIRED carries `commandName`, AMBIGUOUS_TRAVERSAL
- *     carries `candidates`). Values are `unknown` so throw sites
- *     don't fight the type system for structured payloads —
- *     `outputError` is the only consumer and it spreads directly.
+ *     carries `candidates`). PR D populates `currentNode` /
+ *     `validTransitions` / `context` / `contextDelta` here on
+ *     HOOK_FAILED for gate-block envelope parity — caller is in
+ *     the same recover-or-stop state, wire shape must not differ
+ *     by code path. Values are `unknown` so throw sites don't
+ *     fight the type system for structured payloads — `outputError`
+ *     is the only consumer and it spreads directly.
  *
  * Open-ended — add a new subfield when a fourth spread target (e.g.
  * a future `breadcrumb` field) emerges. Don't widen `envelopeSlots`
