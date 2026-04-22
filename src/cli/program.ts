@@ -12,6 +12,7 @@ import { EC, EngineError } from "../errors.js";
 import { resolveGraphsDirs } from "../graph-resolution.js";
 import { INSPECT_FIELDS } from "../types.js";
 import { VERSION } from "../version.js";
+import { catalog } from "./catalog.js";
 import { configSetLocal, configShow } from "./config.js";
 import {
   memoryBrowse,
@@ -499,6 +500,13 @@ addWorkflowsOpt(
 });
 
 // --- Stateless commands ---
+
+program
+  .command("catalog")
+  .description("Emit the error-code catalog with per-code exit + recovery instruction")
+  .action(() => {
+    catalog();
+  });
 
 program
   .command("guide [topic]")
