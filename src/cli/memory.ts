@@ -14,32 +14,13 @@ import { EmitBatchSchema } from "../memory/emit-schema.js";
 import type { MemoryStore } from "../memory/index.js";
 import type { PropositionShape } from "../memory/types.js";
 import {
+  CliExit,
   EXIT,
   errorEnvelope,
   handleRuntimeError as handleError,
   outputJson,
   parseIntArg,
 } from "./output.js";
-
-/**
- * Close-before-`handleError` for the seven read-path memory verbs.
- * Necessary because `handleError` → `process.exit` doesn't unwind
- * `finally`, so any outer `finally { store.close() }` never ran on
- * error and the WAL + SHM sidecars leaked on every error exit.
- *
- * `memoryPrune` + `memoryReset` bypass the wrapper — prune returns a
- * plan + errorEnvelope in one payload and calls `process.exit`
- * directly (not via throw); reset doesn't open a store.
- */
-export function runMemoryHandler(store: MemoryStore, fn: () => void): void {
-  try {
-    fn();
-    store.close();
-  } catch (e) {
-    store.close();
-    handleError(e);
-  }
-}
 
 export function memoryStatus(store: MemoryStore): void {
   outputJson(store.status());
@@ -157,37 +138,30 @@ export function memoryPrune(
   store: MemoryStore,
   opts: { keep?: string[]; dryRun?: boolean; confirm?: boolean },
 ): void {
-  // `process.exit` bypasses the caller's `finally { store.close() }`,
-  // which would leak the WAL + SHM sidecar files on disk. Close here
-  // before every exit. MemoryStore.close is idempotent, so the
-  // caller's finally is a harmless no-op after this.
   if (!opts.keep || opts.keep.length === 0) {
-    outputJson(errorEnvelope(EC.MISSING_KEEP, "memory prune requires --keep <ref> (repeatable)."));
-    store.close();
-    process.exit(EXIT.INVALID_INPUT);
+    throw new EngineError("memory prune requires --keep <ref> (repeatable).", EC.MISSING_KEEP);
   }
 
-  try {
-    // `--dry-run` is itself a no-op preview; otherwise require explicit
-    // `--confirm`. Return the plan + an explicit refusal when neither
-    // flag is set, so the skill sees the blast radius before committing.
-    const confirmed = opts.dryRun || opts.confirm;
-    const result = store.prune({ keep: opts.keep, dryRun: !confirmed });
-    if (confirmed) {
-      outputJson(result);
-    } else {
-      outputJson({
-        ...result,
-        ...errorEnvelope(EC.CONFIRM_REQUIRED, "Refusing to delete without --confirm or --dry-run."),
-        commandName: "memory prune",
-      });
-      store.close();
-      process.exit(EXIT.INVALID_INPUT);
-    }
-  } catch (e) {
-    store.close();
-    handleError(e);
+  // `--dry-run` is itself a no-op preview; otherwise require explicit
+  // `--confirm`. Return the plan + an explicit refusal when neither
+  // flag is set, so the skill sees the blast radius before committing.
+  const confirmed = opts.dryRun || opts.confirm;
+  const result = store.prune({ keep: opts.keep, dryRun: !confirmed });
+  if (confirmed) {
+    outputJson(result);
+    return;
   }
+  // Dual payload — the plan + the refusal envelope in one response.
+  // `EngineError` can't carry the plan, so throw a `CliExit` that
+  // `runCliHandler` unwraps into the combined stdout payload + exit.
+  throw new CliExit(
+    {
+      ...result,
+      ...errorEnvelope(EC.CONFIRM_REQUIRED, "Refusing to delete without --confirm or --dry-run."),
+      commandName: "memory prune",
+    },
+    EXIT.INVALID_INPUT,
+  );
 }
 
 /**

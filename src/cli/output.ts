@@ -48,6 +48,8 @@ export const EXIT = {
   INVALID_INPUT: 5,
 } as const;
 
+export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
+
 // Exit code each `EngineError` category maps to. Typed on
 // `EngineErrorCategory` so adding a new category to `ENGINE_ERROR_CODES`
 // becomes a compile error here until it's classified — the mapping
@@ -133,6 +135,73 @@ export function outputError(e: unknown): number {
 export function handleRuntimeError(e: unknown): never {
   if (e instanceof Error && e.message === "process.exit") throw e;
   process.exit(outputError(e));
+}
+
+/**
+ * Throw from a CLI handler when the response is a structured payload
+ * + a specific exit code — not a simple error envelope. Examples:
+ * `memory prune --confirm`-less refusal (plan + errorEnvelope
+ * combined), `traversal advance` in-band BLOCKED (full advance result
+ * with validTransitions). `runCliHandler` / `runCliHandlerAsync` catch
+ * this, close the disposable, write the payload, and exit with the
+ * code.
+ *
+ * Single-envelope failures use `EngineError` + `handleRuntimeError`
+ * instead — this class is only for the dual-payload cases that
+ * `outputError`'s `errorEnvelope(code, message)` shape can't express.
+ */
+export class CliExit extends Error {
+  constructor(
+    public readonly payload: unknown,
+    public readonly exitCode: ExitCode,
+  ) {
+    super("CliExit");
+    this.name = "CliExit";
+  }
+}
+
+/**
+ * Wrap a CLI handler whose resources need closing before
+ * `handleRuntimeError` / `CliExit` exit the process. `process.exit`
+ * doesn't unwind `finally`, so an outer `try { fn() } finally {
+ * disposable.close() }` never runs on error — the sidecars leak.
+ *
+ * `disposable` is anything with `close(): void` (MemoryStore,
+ * Runtime, TraversalStore — all already idempotent). The wrapper
+ * closes on success, on thrown errors, and on `CliExit` — all before
+ * `process.exit`, so callers of `runCliHandler` can drop the surrounding
+ * try/finally in `program.ts`.
+ */
+export function runCliHandler(disposable: { close(): void }, fn: () => void): void {
+  try {
+    fn();
+    disposable.close();
+  } catch (e) {
+    disposable.close();
+    if (e instanceof CliExit) {
+      outputJson(e.payload);
+      process.exit(e.exitCode);
+    }
+    handleRuntimeError(e);
+  }
+}
+
+/** Async variant of `runCliHandler` for `traversalStart` / `traversalAdvance` etc. */
+export async function runCliHandlerAsync(
+  disposable: { close(): void },
+  fn: () => Promise<void>,
+): Promise<void> {
+  try {
+    await fn();
+    disposable.close();
+  } catch (e) {
+    disposable.close();
+    if (e instanceof CliExit) {
+      outputJson(e.payload);
+      process.exit(e.exitCode);
+    }
+    handleRuntimeError(e);
+  }
 }
 
 /**

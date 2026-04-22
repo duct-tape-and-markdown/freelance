@@ -143,8 +143,8 @@ const BLOCKED_CODES: ReadonlySet<string> = new Set<string>(ENGINE_ERROR_CODES.BL
 /**
  * Classify an error code as `"blocked"` or `"structural"`. Unknown
  * codes (e.g. CLI-surface codes like `INVALID_CONFIG_VALUE`,
- * `CONFIRM_REQUIRED`, `TEMPLATE_NOT_FOUND`, or an uncatalogued throw)
- * are treated as structural — the default "stop and report" stance.
+ * `TEMPLATE_NOT_FOUND`, or an uncatalogued throw) are treated as
+ * structural — the default "stop and report" stance.
  */
 export function errorKind(code: string): ErrorKind {
   return BLOCKED_CODES.has(code) ? "blocked" : "structural";

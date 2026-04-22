@@ -24,9 +24,8 @@ import {
   memoryReset,
   memorySearch,
   memoryStatus,
-  runMemoryHandler,
 } from "./memory.js";
-import { EXIT, fatal, outputJson, setCli } from "./output.js";
+import { EXIT, fatal, outputJson, runCliHandler, runCliHandlerAsync, setCli } from "./output.js";
 import {
   createMemoryStore,
   createTraversalStore,
@@ -183,11 +182,7 @@ addWorkflowsOpt(
     ),
 ).action((opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
-  try {
-    traversalStatus(store, { filter: opts.filter });
-  } finally {
-    runtime.close();
-  }
+  runCliHandler(runtime, () => traversalStatus(store, { filter: opts.filter }));
 });
 
 addWorkflowsOpt(
@@ -202,11 +197,9 @@ addWorkflowsOpt(
     ),
 ).action(async (graphId, opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
-  try {
-    await traversalStart(store, graphId, opts.context, { meta: opts.meta });
-  } finally {
-    runtime.close();
-  }
+  await runCliHandlerAsync(runtime, () =>
+    traversalStart(store, graphId, opts.context, { meta: opts.meta }),
+  );
 });
 
 addWorkflowsOpt(
@@ -221,11 +214,7 @@ addWorkflowsOpt(
     ),
 ).action(async (edge, opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
-  try {
-    await traversalAdvance(store, edge, opts);
-  } finally {
-    runtime.close();
-  }
+  await runCliHandlerAsync(runtime, () => traversalAdvance(store, edge, opts));
 });
 
 const contextCmd = program.command("context").description("Update traversal context");
@@ -241,11 +230,7 @@ addWorkflowsOpt(
     ),
 ).action((updates, opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
-  try {
-    traversalContextSet(store, updates, opts);
-  } finally {
-    runtime.close();
-  }
+  runCliHandler(runtime, () => traversalContextSet(store, updates, opts));
 });
 
 const metaCmd = program.command("meta").description("Update traversal meta tags");
@@ -257,11 +242,7 @@ addWorkflowsOpt(
     .option("--traversal <id>", "Traversal ID (auto-resolved if only one active)"),
 ).action((updates, opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
-  try {
-    traversalMetaSet(store, updates, opts);
-  } finally {
-    runtime.close();
-  }
+  runCliHandler(runtime, () => traversalMetaSet(store, updates, opts));
 });
 
 addWorkflowsOpt(
@@ -301,7 +282,7 @@ addWorkflowsOpt(
     ),
 ).action((traversalId, opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
-  try {
+  runCliHandler(runtime, () => {
     if (opts.active) {
       traversalInspectActive(store, { waitsOnly: opts.waits });
     } else {
@@ -313,9 +294,7 @@ addWorkflowsOpt(
         includeSnapshots: opts.includeSnapshots,
       });
     }
-  } finally {
-    runtime.close();
-  }
+  });
 });
 
 addWorkflowsOpt(
@@ -325,11 +304,7 @@ addWorkflowsOpt(
     .option("--confirm", "Required safety check"),
 ).action((traversalId, opts) => {
   const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
-  try {
-    traversalReset(store, traversalId, opts);
-  } finally {
-    runtime.close();
-  }
+  runCliHandler(runtime, () => traversalReset(store, traversalId, opts));
 });
 
 // --- Memory commands ---
@@ -342,7 +317,7 @@ addWorkflowsOpt(
   memoryCmd.command("status").description("Show proposition and entity counts"),
 ).action((opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
-  runMemoryHandler(store, () => memoryStatus(store));
+  runCliHandler(store, () => memoryStatus(store));
 });
 
 addWorkflowsOpt(
@@ -359,7 +334,7 @@ addWorkflowsOpt(
     ),
 ).action((opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
-  runMemoryHandler(store, () => memoryBrowse(store, opts));
+  runCliHandler(store, () => memoryBrowse(store, opts));
 });
 
 addWorkflowsOpt(
@@ -371,7 +346,7 @@ addWorkflowsOpt(
     .option("--shape <shape>", 'Proposition shape: "full" (default) or "minimal"'),
 ).action((entity, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
-  runMemoryHandler(store, () => memoryInspect(store, entity, opts));
+  runCliHandler(store, () => memoryInspect(store, entity, opts));
 });
 
 addWorkflowsOpt(
@@ -381,7 +356,7 @@ addWorkflowsOpt(
     .option("--limit <n>", "Maximum results"),
 ).action((query, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
-  runMemoryHandler(store, () => memorySearch(store, query, opts));
+  runCliHandler(store, () => memorySearch(store, query, opts));
 });
 
 addWorkflowsOpt(
@@ -392,7 +367,7 @@ addWorkflowsOpt(
     .option("--offset <n>", "Skip first N neighbors"),
 ).action((entity, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
-  runMemoryHandler(store, () => memoryRelated(store, entity, opts));
+  runCliHandler(store, () => memoryRelated(store, entity, opts));
 });
 
 addWorkflowsOpt(
@@ -408,7 +383,7 @@ addWorkflowsOpt(
     ),
 ).action((file, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
-  runMemoryHandler(store, () => memoryBySource(store, file, opts));
+  runCliHandler(store, () => memoryBySource(store, file, opts));
 });
 
 addWorkflowsOpt(
@@ -417,7 +392,7 @@ addWorkflowsOpt(
     .description("Write propositions from JSON file (use - for stdin)"),
 ).action((file, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
-  runMemoryHandler(store, () => memoryEmit(store, file));
+  runCliHandler(store, () => memoryEmit(store, file));
 });
 
 addWorkflowsOpt(
@@ -437,15 +412,9 @@ addWorkflowsOpt(
   // CLI --keep concatenates on top of memory.prune.keep in config.
   const mergedKeep = [...(fileConfig.memory.prune?.keep ?? []), ...(opts.keep ?? [])];
   const { store } = createMemoryStore({ workflows: opts.workflows });
-  try {
-    memoryPrune(store, {
-      keep: mergedKeep,
-      dryRun: opts.dryRun,
-      confirm: opts.confirm,
-    });
-  } finally {
-    store.close();
-  }
+  runCliHandler(store, () =>
+    memoryPrune(store, { keep: mergedKeep, dryRun: opts.dryRun, confirm: opts.confirm }),
+  );
 });
 
 addWorkflowsOpt(
