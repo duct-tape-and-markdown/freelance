@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-04-22
+
+### Fixed
+
+- **Plugin SessionStart nudge detects CLI install state and recommends
+  matching version.** Post-1.4 the plugin no longer ships an MCP server
+  (#121); it relies on the `freelance` CLI being on PATH. Team members
+  who install only the plugin (not the npm package) hit `freelance:
+  command not found` on every skill-directed invocation.
+  `plugins/freelance/hooks/nudge.mjs` now reads the plugin version from
+  `plugin.json`, probes `freelance --version`, and emits a systemMessage
+  recommending `npm install -g freelance-mcp@<plugin-version>` when the
+  CLI is missing or older than the plugin. Comparison is asymmetric —
+  CLI ahead of plugin stays silent (forward-compat on minor releases).
+  On plugin auto-update, every `1.N → 1.N+1` bump surfaces as an install
+  nudge the next session, so plugin version becomes the effective source
+  of truth for which CLI version the user should be on.
+
 ## [1.4.0] - 2026-04-22
 
 ### Added
