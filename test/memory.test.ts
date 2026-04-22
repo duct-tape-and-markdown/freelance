@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { EngineError } from "../src/errors.js";
 import { openDatabase, retryOnSqliteBusy } from "../src/memory/db.js";
 import { MemoryStore } from "../src/memory/store.js";
 
@@ -49,6 +50,16 @@ describe("MemoryStore", () => {
       expect(() =>
         store.emit([{ content: "Foo exists.", entities: ["Foo"], sources: ["nonexistent.ts"] }]),
       ).toThrow("Cannot read source file");
+    });
+
+    it("rejects emit with SOURCE_OUTSIDE_ROOT when source escapes the root", () => {
+      try {
+        store.emit([{ content: "Foo.", entities: ["Foo"], sources: ["../escape.ts"] }]);
+        expect.fail("emit should have thrown");
+      } catch (e) {
+        expect(e).toBeInstanceOf(EngineError);
+        expect((e as EngineError).code).toBe("SOURCE_OUTSIDE_ROOT");
+      }
     });
 
     it("emits propositions with entities", () => {
@@ -435,6 +446,16 @@ describe("MemoryStore", () => {
       const surfaced = store.bySource("drift.ts", { includeOrphans: true });
       expect(surfaced.total).toBe(1);
       expect(surfaced.propositions).toHaveLength(1);
+    });
+
+    it("rejects bySource with SOURCE_OUTSIDE_ROOT when path escapes the root", () => {
+      try {
+        store.bySource("../../etc/passwd");
+        expect.fail("bySource should have thrown");
+      } catch (e) {
+        expect(e).toBeInstanceOf(EngineError);
+        expect((e as EngineError).code).toBe("SOURCE_OUTSIDE_ROOT");
+      }
     });
   });
 

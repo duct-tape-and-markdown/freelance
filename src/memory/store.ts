@@ -169,8 +169,13 @@ export class MemoryStore {
 
   /**
    * Validate a source file path against the source root. Returns the stored
-   * (relative) path and the resolved absolute path. Throws if the path
-   * escapes the source root.
+   * (relative) path and the resolved absolute path. Throws
+   * `SOURCE_OUTSIDE_ROOT` if the path escapes the source root.
+   *
+   * Shared by write paths (`emit`) and reads (`bySource`) so the
+   * "user-supplied file path → stored path" contract lives in one place
+   * and a request for `../../etc/passwd` becomes a structured error on
+   * reads too, not a silent empty match.
    */
   private prepareSourcePath(filePath: string): {
     storedPath: string;
@@ -560,9 +565,7 @@ export class MemoryStore {
     const shape: PropositionShape = options?.shape ?? "full";
     const includeOrphans = options?.includeOrphans ?? false;
 
-    const storedPath = path.isAbsolute(filePath)
-      ? path.relative(this.sourceRoot, filePath)
-      : filePath;
+    const { storedPath } = this.prepareSourcePath(filePath);
 
     // Mirror `browse`'s staleness filter: propositions whose declared
     // source bytes don't match disk/any live ref are hidden by default.
