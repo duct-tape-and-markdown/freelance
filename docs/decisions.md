@@ -117,6 +117,42 @@ The rationale is cumulative: small surface (one parser, one evaluator, bounded g
 
 See issue [#93](https://github.com/duct-tape-and-markdown/freelance/issues/93).
 
+### Source root binds to first graphsDir's parent
+
+Relative source paths in graph `sources:` bindings resolve against the **source root**, which defaults to the parent of the *first* graphsDir in the resolution cascade. Under multi-dir cascade (`./.freelance` + `~/.freelance` + workflow dirs), graphs in later dirs resolving their sources relative to their *own* dir get stale/missing reads — the loader doesn't rewrite per-graph.
+
+Workflows intended to ship in user-level or plugin directories must use absolute paths or set a shared source root via `--source-root <path>` (CLI) or `sourceRoot` on `composeRuntime`.
+
+**What would break if reversed:** per-graph source roots would let plugin authors ship workflows with sources co-located in the plugin directory, but introduces ambiguity when a user-level workflow references a project-level source file. The first-graphsDir rule is a single anchor; every graph author knows where their paths resolve from.
+
+Anchors: `src/graph-resolution.ts`, `src/sources.ts`, `src/compose.ts` (sourceRoot plumbing), README § "Workflow directories". Closes #98.
+
+### Subgraph traversal is a session-boundary crossing; returnMap is the explicit contract
+
+A subgraph push is a traversal-session boundary. `freelance inspect --detail history` treats the push as a boundary marker — context writes inside the subgraph are visible via the subgraph's own history, and values flow back to the parent *only* through the explicit `returnMap` declared on the subgraph node.
+
+Implicit context bleed (subgraph writes a key, parent reads it on resume) is not supported. Callers that want cross-boundary data pass it via `returnMap: { parentKey: childKey }`; the engine validates the shape and fails loudly on missing return keys.
+
+**What would break if reversed:** implicit bleed makes subgraphs non-reusable — a subgraph's internal context keys become an API the parent depends on. `returnMap` as the explicit contract means a subgraph can refactor its internals without breaking callers, and a parent knows exactly which keys it receives.
+
+Anchors: `src/engine/subgraph.ts` (push/pop + returnMap validation), `src/schema/graph-schema.ts` (SubgraphNode schema), `src/engine/engine.ts` (pop path). Closes #96.
+
+### Projection vocabulary is a deliberate three-way split
+
+Three projection flags, three non-overlapping axes — don't unify:
+
+- `--minimal` (bool) = response-size tier on the hot path (`advance`, `context set`, `inspect`)
+- `--fields <name>` (repeatable) = opt-in graph-piece projections on inspect (`currentNode | neighbors | contextSchema | definition`)
+- `--shape minimal|full` (enum) = memory-specific provenance detail level (`memory inspect`)
+
+They don't substitute. `advance --shape` and `memory inspect --minimal` both fail `INVALID_FLAG_VALUE`. SKILL.md teaches the one-sentence mental model; the flags map to different surfaces and different caller contracts.
+
+**Rejected proposal: unify on a single projection verb (e.g. `--shape` everywhere).** The three flags cover three axes: response-size tier, additive graph-piece projection, memory provenance detail. Collapsing them erases axis distinctions and breaks caller contracts — `memory_inspect` onEnter defaults to `shape: "minimal"` for response-ceiling reasons specific to memory; `--fields` on inspect must be repeatable because callers combine projections; `--minimal` is a bool on the hot path because that's what per-turn size-tier branching needs. Any future proposal to unify must first specify which of these three contracts it breaks and why the break is worth it.
+
+**What would break if reversed:** a single projection verb collapses three axes into one; callers lose the per-surface defaults and additivity they rely on.
+
+Anchors: `src/types.ts` (minimal response shapes), `src/memory/types.ts` (PropositionShape), `src/cli/output.ts`, SKILL.md § "Three projection verbs, three axes".
+
 ### Observable state transitions are durable before side effects
 
 Once an advance mutates `session.currentNode` past an edge, the traversal record is persisted **before** any code that can throw runs — specifically before `runArrivalHooks` fires onEnter hooks on the new node, and before the child-start onEnter fires on a subgraph push. Hook-collected context and meta writes persist on a second save after the hooks resolve.

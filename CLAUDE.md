@@ -52,13 +52,13 @@ npm publishing is **CI-driven by GitHub Releases** (`.github/workflows/publish.y
 Flow for a patch release (e.g. 1.3.2 → 1.3.3):
 
 1. Graduate `[Unreleased]` in `CHANGELOG.md` to `[<version>] - YYYY-MM-DD`. Leave a fresh empty `[Unreleased]` above it.
-2. `npm version patch --no-git-tag-version` — bumps `package.json` + `package-lock.json`, runs the `version` script which invokes `scripts/sync-plugin-version.mjs` to rewrite `plugin.json`, `marketplace.json`, and `plugins/freelance/.mcp.json` (exact pin `freelance-mcp@<version>`).
-3. The `version` script only `git add`s `plugin.json` — **manually stage the rest**: `git add CHANGELOG.md package.json package-lock.json .claude-plugin/marketplace.json plugins/freelance/.mcp.json`.
+2. `npm version patch --no-git-tag-version` — bumps `package.json` + `package-lock.json`, runs the `version` script which invokes `scripts/sync-plugin-version.mjs` to rewrite `plugin.json` and `marketplace.json`.
+3. The `version` script only `git add`s `plugin.json` — **manually stage the rest**: `git add CHANGELOG.md package.json package-lock.json .claude-plugin/marketplace.json`.
 4. `git commit -m "release: <version>"` and `git tag v<version>`.
 5. Push main + tag: `git push origin main v<version>`.
 6. `gh release create v<version> --title "v<version>" --notes "$(...)"` — CI workflow picks this up and publishes to npm.
 
-Why `.mcp.json` pins exactly (not `^<major>`): npx keys its `_npx/<hash>` cache by the raw spec string, so a range reuses any satisfying cached version and never re-resolves (npm/cli#7838, #6804). Exact pinning changes the cache key each release so `/plugin update` actually delivers the new server. See CHANGELOG [1.3.3] and the file-header comment in `scripts/sync-plugin-version.mjs`.
+Historical context: Why `.mcp.json` pins exactly (not `^<major>`): npx keys its `_npx/<hash>` cache by the raw spec string, so a range reuses any satisfying cached version and never re-resolves (npm/cli#7838, #6804). Exact pinning changes the cache key each release so `/plugin update` actually delivers the new server. See CHANGELOG [1.3.3] and the file-header comment in `scripts/sync-plugin-version.mjs`. The mechanism is inactive after MCP removal in #121.
 
 ## Code navigation
 
@@ -83,49 +83,33 @@ Schema: `workflows` (string[]), `memory.enabled` (bool), `memory.dir` (string), 
 
 Arrays concatenate across files. Scalars use highest-precedence value. Per-field CLI/env/config surface is documented in `src/config.ts` and in the README's Configuration section.
 
-### Graph Directory Resolution
+### Graph directory resolution
 
-Graphs can be loaded from multiple directories in cascading order (later directories shadow earlier ones):
+Graphs load from multiple directories in cascading order (later shadow earlier):
 
-**Automatic resolution** (no flags needed):
 1. `./.freelance` (project-level, if exists)
 2. `~/.freelance` (user-level, if exists)
-3. Additional dirs from `config.yml` / `config.local.yml` `workflows:` key
+3. Additional dirs from `workflows:` in `config.yml` / `config.local.yml`
 
-**Explicit directories** (CLI):
-```bash
-# Load from multiple directories (repeatable)
-freelance mcp --workflows ./.freelance --workflows ~/.freelance
-```
+Override automatic resolution with repeatable `--workflows <dir>` on any runtime verb.
 
 ### Commands
 
 ```bash
-# Validate graph definitions
-freelance validate ./path/to/graphs/
-
-# Visualize a graph
-freelance visualize ./graphs/my.workflow.yaml --format mermaid
-
-# Start standalone MCP server (auto-loads from ./graphs + ~/.freelance)
-freelance mcp
-
-# Start standalone with explicit directories
-freelance mcp --workflows ./graphs --workflows ~/.freelance
-
-# Project setup
-freelance init
+freelance status                                     # discover loaded graphs + active traversals
+freelance start <graphId>                            # begin a traversal
+freelance advance <edge>                             # step; emits JSON
+freelance inspect [<id>]                             # recover after compaction
+freelance validate ./path/to/graphs/                 # author-time check
+freelance visualize ./graphs/my.workflow.yaml        # JSON with mermaid inline
+freelance init                                       # project setup
 ```
 
-### Source Path Resolution
+All runtime verbs emit structured JSON with semantic exit codes. There is no long-running server process — see `docs/decisions.md` § "CLI is the execution surface for agents" and § "MCP server and tool surface deleted".
 
-Source bindings in graphs use relative paths (e.g. `docs/topics/training.md`). These resolve relative to the **source root**, which defaults to the parent of the first graphsDir:
+### Source path resolution
 
-- `./.freelance/` → source root is `./` (project root)
-- `../dev-docs/.freelance/` → source root is `../dev-docs/`
-- `~/.freelance/` → source root is `~/`
-
-Override with `--source-root <path>` (CLI) or `sourceRoot` (ServerOptions).
+Source bindings in graphs use relative paths; they resolve relative to the **source root**, which defaults to the parent of the first graphsDir. See `docs/decisions.md` § "Source root binds to first graphsDir's parent". Override with `--source-root <path>`.
 
 ## Conventions
 
@@ -164,7 +148,6 @@ Durable contracts surfaced across multiple features. If a new feature extends on
 - `src/builder.ts` — Programmatic workflow graph construction (GraphBuilder)
 - `src/config.ts` — Unified config loader (config.yml + config.local.yml schema, merging, writing); per-field CLI/env/config surface documented inline
 - `src/graph-resolution.ts` — Graph directory resolution and loading (env var, project, user, config cascading)
-- `src/server.ts` — MCP tool surface (traversal, guide, distill, sources, validate, memory); calls `composeRuntime` and registers tools
 - `src/cli/` — CLI subcommand handlers (init, validate, visualize, traversals, stateless, memory, config, output, setup)
   - `cli/program.ts` — Commander program construction (imported by `bin.ts`)
   - `cli/setup.ts` — `createTraversalStore` + `createMemoryStore`; layout helpers (`ensureFreelanceDir`, `resolveTraversalsDir`, `memoryDbPathFor`); `resolveMemoryConfig` with symmetric `--memory`/`--no-memory` precedence
