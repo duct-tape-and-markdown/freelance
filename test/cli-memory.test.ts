@@ -12,7 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { memoryEmit } from "../src/cli/memory.js";
+import { memoryEmit, runMemoryHandler } from "../src/cli/memory.js";
 import { openDatabase } from "../src/memory/db.js";
 import { MemoryStore } from "../src/memory/store.js";
 
@@ -50,7 +50,7 @@ function stdoutJson(): { isError?: boolean; error?: { code: string; message: str
 describe("memoryEmit shape validation", () => {
   it("rejects non-array top-level with INVALID_EMIT_SHAPE", () => {
     const file = writeEmitFile(JSON.stringify({ content: "x" }));
-    expect(() => memoryEmit(store, file)).toThrow("process.exit");
+    expect(() => runMemoryHandler(store, () => memoryEmit(store, file))).toThrow("process.exit");
 
     const out = stdoutJson();
     expect(out.isError).toBe(true);
@@ -59,7 +59,7 @@ describe("memoryEmit shape validation", () => {
 
   it("rejects null sources with INVALID_EMIT_SHAPE (not a runtime TypeError)", () => {
     const file = writeEmitFile(JSON.stringify([{ content: "x", entities: ["E"], sources: null }]));
-    expect(() => memoryEmit(store, file)).toThrow("process.exit");
+    expect(() => runMemoryHandler(store, () => memoryEmit(store, file))).toThrow("process.exit");
 
     const out = stdoutJson();
     expect(out.error?.code).toBe("INVALID_EMIT_SHAPE");
@@ -71,13 +71,13 @@ describe("memoryEmit shape validation", () => {
     const file = writeEmitFile(
       JSON.stringify([{ content: "x", entities: "Foo", sources: ["a.ts"] }]),
     );
-    expect(() => memoryEmit(store, file)).toThrow("process.exit");
+    expect(() => runMemoryHandler(store, () => memoryEmit(store, file))).toThrow("process.exit");
     expect(stdoutJson().error?.code).toBe("INVALID_EMIT_SHAPE");
   });
 
   it("rejects missing content with INVALID_EMIT_SHAPE", () => {
     const file = writeEmitFile(JSON.stringify([{ entities: ["Foo"], sources: ["a.ts"] }]));
-    expect(() => memoryEmit(store, file)).toThrow("process.exit");
+    expect(() => runMemoryHandler(store, () => memoryEmit(store, file))).toThrow("process.exit");
 
     const out = stdoutJson();
     expect(out.error?.code).toBe("INVALID_EMIT_SHAPE");
@@ -86,13 +86,13 @@ describe("memoryEmit shape validation", () => {
 
   it("rejects empty sources array (sources: min 1 invariant)", () => {
     const file = writeEmitFile(JSON.stringify([{ content: "x", entities: ["Foo"], sources: [] }]));
-    expect(() => memoryEmit(store, file)).toThrow("process.exit");
+    expect(() => runMemoryHandler(store, () => memoryEmit(store, file))).toThrow("process.exit");
     expect(stdoutJson().error?.code).toBe("INVALID_EMIT_SHAPE");
   });
 
   it("rejects empty entities array (entities: 1..4 invariant)", () => {
     const file = writeEmitFile(JSON.stringify([{ content: "x", entities: [], sources: ["a.ts"] }]));
-    expect(() => memoryEmit(store, file)).toThrow("process.exit");
+    expect(() => runMemoryHandler(store, () => memoryEmit(store, file))).toThrow("process.exit");
     expect(stdoutJson().error?.code).toBe("INVALID_EMIT_SHAPE");
   });
 
@@ -100,13 +100,45 @@ describe("memoryEmit shape validation", () => {
     const file = writeEmitFile(
       JSON.stringify([{ content: "x", entities: ["A", "B", "C", "D", "E"], sources: ["a.ts"] }]),
     );
-    expect(() => memoryEmit(store, file)).toThrow("process.exit");
+    expect(() => runMemoryHandler(store, () => memoryEmit(store, file))).toThrow("process.exit");
     expect(stdoutJson().error?.code).toBe("INVALID_EMIT_SHAPE");
   });
 
   it("still rejects non-JSON with INVALID_EMIT_JSON (syntax tier unchanged)", () => {
     const file = writeEmitFile("{ not json");
-    expect(() => memoryEmit(store, file)).toThrow("process.exit");
+    expect(() => runMemoryHandler(store, () => memoryEmit(store, file))).toThrow("process.exit");
     expect(stdoutJson().error?.code).toBe("INVALID_EMIT_JSON");
+  });
+});
+
+describe("runMemoryHandler", () => {
+  // The whole point of this wrapper (#153): `process.exit` inside
+  // `handleError` doesn't unwind `finally`, so any outer
+  // `try { ... } finally { store.close() }` wouldn't run on error paths.
+  // These tests lock in that the wrapper closes the store *before*
+  // handleError fires, on both error and success paths.
+  it("closes the store before process.exit on the error path", () => {
+    const closeSpy = vi.spyOn(store, "close");
+    const exitSpy = vi.spyOn(process, "exit");
+
+    expect(() =>
+      runMemoryHandler(store, () => {
+        throw new Error("boom");
+      }),
+    ).toThrow("process.exit");
+
+    expect(closeSpy).toHaveBeenCalled();
+    // Close must happen in the catch *before* handleError → process.exit.
+    const firstCloseOrder = closeSpy.mock.invocationCallOrder[0];
+    const firstExitOrder = exitSpy.mock.invocationCallOrder[0];
+    expect(firstCloseOrder).toBeLessThan(firstExitOrder);
+  });
+
+  it("closes the store on the success path too", () => {
+    const closeSpy = vi.spyOn(store, "close");
+    runMemoryHandler(store, () => {
+      /* no-op success */
+    });
+    expect(closeSpy).toHaveBeenCalled();
   });
 });

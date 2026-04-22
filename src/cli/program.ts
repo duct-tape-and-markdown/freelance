@@ -24,6 +24,7 @@ import {
   memoryReset,
   memorySearch,
   memoryStatus,
+  runMemoryHandler,
 } from "./memory.js";
 import { EXIT, fatal, outputJson, setCli } from "./output.js";
 import {
@@ -341,11 +342,7 @@ addWorkflowsOpt(
   memoryCmd.command("status").description("Show proposition and entity counts"),
 ).action((opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
-  try {
-    memoryStatus(store);
-  } finally {
-    store.close();
-  }
+  runMemoryHandler(store, () => memoryStatus(store));
 });
 
 addWorkflowsOpt(
@@ -362,11 +359,7 @@ addWorkflowsOpt(
     ),
 ).action((opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
-  try {
-    memoryBrowse(store, opts);
-  } finally {
-    store.close();
-  }
+  runMemoryHandler(store, () => memoryBrowse(store, opts));
 });
 
 addWorkflowsOpt(
@@ -378,11 +371,7 @@ addWorkflowsOpt(
     .option("--shape <shape>", 'Proposition shape: "full" (default) or "minimal"'),
 ).action((entity, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
-  try {
-    memoryInspect(store, entity, opts);
-  } finally {
-    store.close();
-  }
+  runMemoryHandler(store, () => memoryInspect(store, entity, opts));
 });
 
 addWorkflowsOpt(
@@ -392,11 +381,7 @@ addWorkflowsOpt(
     .option("--limit <n>", "Maximum results"),
 ).action((query, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
-  try {
-    memorySearch(store, query, opts);
-  } finally {
-    store.close();
-  }
+  runMemoryHandler(store, () => memorySearch(store, query, opts));
 });
 
 addWorkflowsOpt(
@@ -407,11 +392,7 @@ addWorkflowsOpt(
     .option("--offset <n>", "Skip first N neighbors"),
 ).action((entity, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
-  try {
-    memoryRelated(store, entity, opts);
-  } finally {
-    store.close();
-  }
+  runMemoryHandler(store, () => memoryRelated(store, entity, opts));
 });
 
 addWorkflowsOpt(
@@ -427,11 +408,7 @@ addWorkflowsOpt(
     ),
 ).action((file, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
-  try {
-    memoryBySource(store, file, opts);
-  } finally {
-    store.close();
-  }
+  runMemoryHandler(store, () => memoryBySource(store, file, opts));
 });
 
 addWorkflowsOpt(
@@ -440,11 +417,7 @@ addWorkflowsOpt(
     .description("Write propositions from JSON file (use - for stdin)"),
 ).action((file, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
-  try {
-    memoryEmit(store, file);
-  } finally {
-    store.close();
-  }
+  runMemoryHandler(store, () => memoryEmit(store, file));
 });
 
 addWorkflowsOpt(

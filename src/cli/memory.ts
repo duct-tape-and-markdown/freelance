@@ -21,12 +21,28 @@ import {
   parseIntArg,
 } from "./output.js";
 
-export function memoryStatus(store: MemoryStore): void {
+/**
+ * Close-before-`handleError` for the seven read-path memory verbs.
+ * Necessary because `handleError` → `process.exit` doesn't unwind
+ * `finally`, so any outer `finally { store.close() }` never ran on
+ * error and the WAL + SHM sidecars leaked on every error exit.
+ *
+ * `memoryPrune` + `memoryReset` bypass the wrapper — prune returns a
+ * plan + errorEnvelope in one payload and calls `process.exit`
+ * directly (not via throw); reset doesn't open a store.
+ */
+export function runMemoryHandler(store: MemoryStore, fn: () => void): void {
   try {
-    outputJson(store.status());
+    fn();
+    store.close();
   } catch (e) {
+    store.close();
     handleError(e);
   }
+}
+
+export function memoryStatus(store: MemoryStore): void {
+  outputJson(store.status());
 }
 
 export function memoryBrowse(
@@ -39,18 +55,14 @@ export function memoryBrowse(
     includeOrphans?: boolean;
   },
 ): void {
-  try {
-    const result = store.browse({
-      name: opts?.name,
-      kind: opts?.kind,
-      limit: parseIntArg(opts?.limit, "--limit"),
-      offset: parseIntArg(opts?.offset, "--offset"),
-      includeOrphans: opts?.includeOrphans,
-    });
-    outputJson(result);
-  } catch (e) {
-    handleError(e);
-  }
+  const result = store.browse({
+    name: opts?.name,
+    kind: opts?.kind,
+    limit: parseIntArg(opts?.limit, "--limit"),
+    offset: parseIntArg(opts?.offset, "--offset"),
+    includeOrphans: opts?.includeOrphans,
+  });
+  outputJson(result);
 }
 
 export function memoryInspect(
@@ -58,29 +70,21 @@ export function memoryInspect(
   entity: string,
   opts?: { limit?: string; offset?: string; shape?: string },
 ): void {
-  try {
-    outputJson(
-      store.inspect(entity, {
-        limit: parseIntArg(opts?.limit, "--limit"),
-        offset: parseIntArg(opts?.offset, "--offset"),
-        shape: parseShape(opts?.shape),
-      }),
-    );
-  } catch (e) {
-    handleError(e);
-  }
+  outputJson(
+    store.inspect(entity, {
+      limit: parseIntArg(opts?.limit, "--limit"),
+      offset: parseIntArg(opts?.offset, "--offset"),
+      shape: parseShape(opts?.shape),
+    }),
+  );
 }
 
 export function memorySearch(store: MemoryStore, query: string, opts?: { limit?: string }): void {
-  try {
-    outputJson(
-      store.search(query, {
-        limit: parseIntArg(opts?.limit, "--limit"),
-      }),
-    );
-  } catch (e) {
-    handleError(e);
-  }
+  outputJson(
+    store.search(query, {
+      limit: parseIntArg(opts?.limit, "--limit"),
+    }),
+  );
 }
 
 export function memoryRelated(
@@ -88,16 +92,12 @@ export function memoryRelated(
   entity: string,
   opts?: { limit?: string; offset?: string },
 ): void {
-  try {
-    outputJson(
-      store.related(entity, {
-        limit: parseIntArg(opts?.limit, "--limit"),
-        offset: parseIntArg(opts?.offset, "--offset"),
-      }),
-    );
-  } catch (e) {
-    handleError(e);
-  }
+  outputJson(
+    store.related(entity, {
+      limit: parseIntArg(opts?.limit, "--limit"),
+      offset: parseIntArg(opts?.offset, "--offset"),
+    }),
+  );
 }
 
 export function memoryBySource(
@@ -105,18 +105,14 @@ export function memoryBySource(
   filePath: string,
   opts?: { limit?: string; offset?: string; shape?: string; includeOrphans?: boolean },
 ): void {
-  try {
-    outputJson(
-      store.bySource(filePath, {
-        limit: parseIntArg(opts?.limit, "--limit"),
-        offset: parseIntArg(opts?.offset, "--offset"),
-        shape: parseShape(opts?.shape),
-        includeOrphans: opts?.includeOrphans,
-      }),
-    );
-  } catch (e) {
-    handleError(e);
-  }
+  outputJson(
+    store.bySource(filePath, {
+      limit: parseIntArg(opts?.limit, "--limit"),
+      offset: parseIntArg(opts?.offset, "--offset"),
+      shape: parseShape(opts?.shape),
+      includeOrphans: opts?.includeOrphans,
+    }),
+  );
 }
 
 // Unknown --shape values throw a caller-fixable error rather than
@@ -128,37 +124,33 @@ function parseShape(raw: string | undefined): PropositionShape | undefined {
 }
 
 export function memoryEmit(store: MemoryStore, file: string): void {
+  const raw = file === "-" ? fs.readFileSync(0, "utf-8") : fs.readFileSync(file, "utf-8");
+  const source = file === "-" ? "stdin" : file;
+
+  let parsed: unknown;
   try {
-    const raw = file === "-" ? fs.readFileSync(0, "utf-8") : fs.readFileSync(file, "utf-8");
-    const source = file === "-" ? "stdin" : file;
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new EngineError(`${source} must contain valid JSON: ${msg}`, EC.INVALID_EMIT_JSON);
-    }
-
-    // Zod at the boundary — the engine trusts `EmitProposition[]`, so
-    // shape validation has to live here or a malformed JSON payload
-    // (null sources, string entities, missing content, top-level
-    // non-array) becomes a generic TypeError mid-emit.
-    const shapeResult = EmitBatchSchema.safeParse(parsed);
-    if (!shapeResult.success) {
-      const issues = shapeResult.error.issues
-        .map((issue) => `  ${issue.path.join(".") || "<root>"}: ${issue.message}`)
-        .join("\n");
-      throw new EngineError(
-        `${source} does not match the EmitProposition shape:\n${issues}`,
-        EC.INVALID_EMIT_SHAPE,
-      );
-    }
-
-    outputJson(store.emit(shapeResult.data));
+    parsed = JSON.parse(raw);
   } catch (e) {
-    handleError(e);
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new EngineError(`${source} must contain valid JSON: ${msg}`, EC.INVALID_EMIT_JSON);
   }
+
+  // Zod at the boundary — the engine trusts `EmitProposition[]`, so
+  // shape validation has to live here or a malformed JSON payload
+  // (null sources, string entities, missing content, top-level
+  // non-array) becomes a generic TypeError mid-emit.
+  const shapeResult = EmitBatchSchema.safeParse(parsed);
+  if (!shapeResult.success) {
+    const issues = shapeResult.error.issues
+      .map((issue) => `  ${issue.path.join(".") || "<root>"}: ${issue.message}`)
+      .join("\n");
+    throw new EngineError(
+      `${source} does not match the EmitProposition shape:\n${issues}`,
+      EC.INVALID_EMIT_SHAPE,
+    );
+  }
+
+  outputJson(store.emit(shapeResult.data));
 }
 
 export function memoryPrune(

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`MemoryStore.close` no longer leaks WAL + SHM sidecars on error
+  exits (#153).** Every `freelance memory ...` verb except `prune` and
+  `reset` routed through `try { handler } finally { store.close() }`,
+  but `handleError` calls `process.exit` and `process.exit` does not
+  unwind `finally` — so the close ran only on success. New
+  `runMemoryHandler(store, fn)` wrapper in `src/cli/memory.ts` owns
+  the store lifetime for the seven read-path verbs (status, browse,
+  inspect, search, related, by-source, emit) and closes before
+  `handleError` on both success and error paths. The idempotence
+  guard on `MemoryStore.close` makes any surviving caller-side
+  `finally { store.close() }` a harmless no-op.
+
 ### Added
 
 - **Zod validation on the `memory emit` CLI boundary (#158).**
