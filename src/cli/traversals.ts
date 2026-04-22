@@ -281,7 +281,10 @@ export function traversalReset(
   opts?: { confirm?: boolean },
 ): void {
   if (!opts?.confirm) {
-    outputJson(errorEnvelope("CONFIRM_REQUIRED", "must pass --confirm to reset a traversal."));
+    outputJson({
+      ...errorEnvelope(EC.CONFIRM_REQUIRED, "must pass --confirm to reset a traversal."),
+      commandName: "reset",
+    });
     process.exit(EXIT.INVALID_INPUT);
   }
   try {
