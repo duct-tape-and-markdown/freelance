@@ -131,6 +131,49 @@ describe("MemoryStore", () => {
       expect(result.entities_created).toBe(2);
       expect(result.propositions[0].entities).toHaveLength(2);
     });
+
+    it("rolls back the whole batch when a later proposition references a missing source", () => {
+      // Partial emit (some rows committed, others aborted) breaks the
+      // "every prop in the batch has its full source set on success"
+      // invariant. The BEGIN/COMMIT wrapper around the loop rolls back
+      // EVERY row the batch wrote (propositions, proposition_sources,
+      // entities, about) when any prop throws.
+      writeFile(tmpDir, "a.ts", "class A {}");
+
+      expect(() =>
+        store.emit([
+          { content: "A exists.", entities: ["A"], sources: ["a.ts"] },
+          {
+            content: "B exists.",
+            entities: ["B"],
+            sources: ["a.ts", "missing.ts"],
+          },
+        ]),
+      ).toThrow(/Cannot read source file/);
+
+      // Close the store so we can re-open a sibling connection on the
+      // same db file and read out the raw row counts post-rollback.
+      const dbPath = path.join(tmpDir, "memory.db");
+      store.close();
+      const db = new DatabaseSync(dbPath);
+      try {
+        const propCount = (db.prepare("SELECT COUNT(*) as c FROM propositions").get() as {
+          c: number;
+        }).c;
+        const sourceCount = (
+          db.prepare("SELECT COUNT(*) as c FROM proposition_sources").get() as {
+            c: number;
+          }
+        ).c;
+        expect(propCount).toBe(0);
+        expect(sourceCount).toBe(0);
+      } finally {
+        db.close();
+      }
+
+      // Replace the closed store so afterEach's close() is a no-op.
+      store = makeMemoryStore(dbPath, tmpDir);
+    });
   });
 
   describe("entity resolution", () => {
@@ -369,6 +412,29 @@ describe("MemoryStore", () => {
       const minimal = store.bySource("auth.ts", { shape: "minimal" });
       const first = minimal.propositions[0] as Record<string, unknown>;
       expect(Object.keys(first).sort()).toEqual(["content", "id"]);
+    });
+
+    it("hides orphans by default, surfaces them with includeOrphans", () => {
+      // Emit against a file, then overwrite the file to break hash
+      // equivalence (content-drift staleness). Default lens hides the
+      // now-orphaned prop. `includeOrphans: true` surfaces it for
+      // audit paths. Mirrors browse's orphan lens.
+      writeFile(tmpDir, "drift.ts", "original");
+      store.emit([
+        { content: "Drift claim.", entities: ["Drift"], sources: ["drift.ts"] },
+      ]);
+
+      // Overwrite — disk hash no longer matches the proposition's
+      // stored source hash. Prop becomes stale.
+      writeFile(tmpDir, "drift.ts", "replaced");
+
+      const hidden = store.bySource("drift.ts");
+      expect(hidden.total).toBe(0);
+      expect(hidden.propositions).toHaveLength(0);
+
+      const surfaced = store.bySource("drift.ts", { includeOrphans: true });
+      expect(surfaced.total).toBe(1);
+      expect(surfaced.propositions).toHaveLength(1);
     });
   });
 
