@@ -45,7 +45,15 @@ export interface PruneResult {
   dry_run: boolean;
   rows_pruned: number;
   propositions_hard_deleted: number;
-  entities_orphaned: number;
+  /**
+   * Count of entity rows that transitioned to zero valid propositions
+   * *as a result of this prune*. Load-bearing tense: these entities
+   * aren't deleted — prune never GCs entity rows. The count tells the
+   * caller how many names flipped into the orphan-hidden default
+   * browse lens on this run. See `docs/decisions.md` § "Prune does
+   * not GC entities".
+   */
+  entities_now_orphaned: number;
   /** Distinct refs in the preserve set (SHAs they resolved to). */
   preserve_set: Array<{ ref: string; sha: string }>;
 }
@@ -106,7 +114,7 @@ export function prune(db: Db, sourceRoot: string, options: PruneOptions): PruneR
       dry_run: dryRun,
       rows_pruned: 0,
       propositions_hard_deleted: 0,
-      entities_orphaned: 0,
+      entities_now_orphaned: 0,
       preserve_set: resolved,
     };
   }
@@ -183,10 +191,10 @@ export function prune(db: Db, sourceRoot: string, options: PruneOptions): PruneR
       .map((r) => r.proposition_id);
   }
 
-  let entitiesOrphaned = 0;
+  let entitiesNowOrphaned = 0;
   if (hardDeletedPropIds.length > 0) {
     const placeholders = sqlPlaceholders(hardDeletedPropIds.length);
-    entitiesOrphaned = (
+    entitiesNowOrphaned = (
       db
         .prepare(
           `SELECT COUNT(*) as c FROM entities e
@@ -207,7 +215,7 @@ export function prune(db: Db, sourceRoot: string, options: PruneOptions): PruneR
     dry_run: dryRun,
     rows_pruned: victims.length,
     propositions_hard_deleted: hardDeletedPropIds.length,
-    entities_orphaned: entitiesOrphaned,
+    entities_now_orphaned: entitiesNowOrphaned,
     preserve_set: resolved,
   };
 

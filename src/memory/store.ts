@@ -228,57 +228,70 @@ export class MemoryStore {
       "INSERT OR IGNORE INTO proposition_sources (proposition_id, file_path, content_hash) VALUES (?, ?, ?)",
     );
 
-    for (const prop of propositions) {
-      const contentHash = hashPropContent(prop.content);
-      const newId = generateId();
-      const inserted = upsertProp.get(newId, prop.content, contentHash, now()) as
-        | { id: string }
-        | undefined;
+    // Atomically — partial emit (proposition rows with some but not all
+    // source attributions) is worse than no emit, because the caller
+    // expects every prop in the batch to have its full source set on
+    // success. Mirrors the prune and resetAll BEGIN/COMMIT/ROLLBACK
+    // pattern. Any throw inside the loop (missing source file,
+    // constraint violation) rolls back to pre-emit state.
+    this.db.exec("BEGIN");
+    try {
+      for (const prop of propositions) {
+        const contentHash = hashPropContent(prop.content);
+        const newId = generateId();
+        const inserted = upsertProp.get(newId, prop.content, contentHash, now()) as
+          | { id: string }
+          | undefined;
 
-      const propResult: EmitResult["propositions"][number] = {
-        id: "",
-        content: prop.content,
-        status: "created",
-        entities: [],
-      };
+        const propResult: EmitResult["propositions"][number] = {
+          id: "",
+          content: prop.content,
+          status: "created",
+          entities: [],
+        };
 
-      let propId: string;
-      if (inserted) {
-        propId = newId;
-        propResult.status = "created";
-        result.created++;
-      } else {
-        const existing = selectExistingProp.get(contentHash) as { id: string };
-        propId = existing.id;
-        propResult.status = "deduplicated";
-        result.deduplicated++;
-      }
-      propResult.id = propId;
-
-      // Per-proposition source attribution. Each source file is hashed fresh
-      // at emit time; if the file can't be read, the emit fails for this prop.
-      for (const sourcePath of prop.sources) {
-        const { storedPath, resolvedPath } = this.prepareSourcePath(sourcePath);
-        const hash = hashSourceFile(resolvedPath);
-        if (hash === null) {
-          throw new Error(`Cannot read source file "${sourcePath}" during emit.`);
-        }
-        insertPropSource.run(propId, storedPath, hash);
-      }
-
-      for (const entityName of prop.entities) {
-        const kind = prop.entityKinds?.[entityName];
-        const resolved = this.resolveEntity(entityName, kind, warnings);
-        propResult.entities.push(resolved);
-        insertAbout.run(propId, resolved.id);
-        if (resolved.resolution === "created") {
-          result.entities_created++;
+        let propId: string;
+        if (inserted) {
+          propId = newId;
+          propResult.status = "created";
+          result.created++;
         } else {
-          result.entities_resolved++;
+          const existing = selectExistingProp.get(contentHash) as { id: string };
+          propId = existing.id;
+          propResult.status = "deduplicated";
+          result.deduplicated++;
         }
-      }
+        propResult.id = propId;
 
-      result.propositions.push(propResult);
+        // Per-proposition source attribution. Each source file is hashed fresh
+        // at emit time; if the file can't be read, the emit fails for this prop.
+        for (const sourcePath of prop.sources) {
+          const { storedPath, resolvedPath } = this.prepareSourcePath(sourcePath);
+          const hash = hashSourceFile(resolvedPath);
+          if (hash === null) {
+            throw new Error(`Cannot read source file "${sourcePath}" during emit.`);
+          }
+          insertPropSource.run(propId, storedPath, hash);
+        }
+
+        for (const entityName of prop.entities) {
+          const kind = prop.entityKinds?.[entityName];
+          const resolved = this.resolveEntity(entityName, kind, warnings);
+          propResult.entities.push(resolved);
+          insertAbout.run(propId, resolved.id);
+          if (resolved.resolution === "created") {
+            result.entities_created++;
+          } else {
+            result.entities_resolved++;
+          }
+        }
+
+        result.propositions.push(propResult);
+      }
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
     }
 
     if (warnings.length > 0) {
@@ -527,23 +540,39 @@ export class MemoryStore {
 
   bySource(
     filePath: string,
-    options?: { limit?: number; offset?: number; shape?: PropositionShape },
+    options?: {
+      limit?: number;
+      offset?: number;
+      shape?: PropositionShape;
+      includeOrphans?: boolean;
+    },
   ): BySourceResult {
     const cache = createStalenessCache();
     const limit = clampLimit(options?.limit);
     const offset = clampOffset(options?.offset);
     const shape: PropositionShape = options?.shape ?? "full";
+    const includeOrphans = options?.includeOrphans ?? false;
 
     const storedPath = path.isAbsolute(filePath)
       ? path.relative(this.sourceRoot, filePath)
       : filePath;
+
+    // Mirror `browse`'s staleness filter: propositions whose declared
+    // source bytes don't match disk/any live ref are hidden by default.
+    // Caller opts in with includeOrphans to see orphans during audits.
+    // getStalePropositionIds materializes STALE_PROP_IDS_TABLE for the
+    // NOT EXISTS join below.
+    getStalePropositionIds(this.db, this.sourceRoot, cache);
+    const notStaleJoin = includeOrphans
+      ? ""
+      : ` AND NOT EXISTS (SELECT 1 FROM ${STALE_PROP_IDS_TABLE} _s WHERE _s.proposition_id = p.id)`;
 
     const total = (
       this.db
         .prepare(
           `SELECT COUNT(DISTINCT p.id) as c FROM propositions p
            JOIN proposition_sources ps ON p.id = ps.proposition_id
-           WHERE ps.file_path = ?`,
+           WHERE ps.file_path = ?${notStaleJoin}`,
         )
         .get(storedPath) as { c: number }
     ).c;
@@ -552,7 +581,7 @@ export class MemoryStore {
       .prepare(
         `SELECT DISTINCT p.* FROM propositions p
          JOIN proposition_sources ps ON p.id = ps.proposition_id
-         WHERE ps.file_path = ?
+         WHERE ps.file_path = ?${notStaleJoin}
          ORDER BY p.created_at DESC
          LIMIT ? OFFSET ?`,
       )

@@ -53,7 +53,12 @@ export interface HookMemoryAccess {
   related(entityIdOrName: string, options?: { limit?: number; offset?: number }): RelatedResult;
   bySource(
     filePath: string,
-    options?: { limit?: number; offset?: number; shape?: PropositionShape },
+    options?: {
+      limit?: number;
+      offset?: number;
+      shape?: PropositionShape;
+      includeOrphans?: boolean;
+    },
   ): BySourceResult;
   inspect(
     entityIdOrName: string,

@@ -102,7 +102,7 @@ export function memoryRelated(
 export function memoryBySource(
   store: MemoryStore,
   filePath: string,
-  opts?: { limit?: string; offset?: string; shape?: string },
+  opts?: { limit?: string; offset?: string; shape?: string; includeOrphans?: boolean },
 ): void {
   try {
     outputJson(
@@ -110,6 +110,7 @@ export function memoryBySource(
         limit: parseIntArg(opts?.limit, "--limit"),
         offset: parseIntArg(opts?.offset, "--offset"),
         shape: parseShape(opts?.shape),
+        includeOrphans: opts?.includeOrphans,
       }),
     );
   } catch (e) {
