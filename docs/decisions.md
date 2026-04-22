@@ -206,3 +206,35 @@ Single recovery verb across destructive ops means SKILL.md teaches "on `CONFIRM_
 **What would break if reversed:** dropping the `commandName` slot forces per-verb recovery templates in `RECOVERY`, which defeats the "teach once" property above.
 
 Anchors: `src/cli/program.ts` (flag registration), `src/cli/memory.ts` (`memoryPrune`, `memoryReset`), `src/cli/traversals.ts` (`traversalReset`), `src/error-codes.ts` (`CONFIRM_REQUIRED` + `RECOVERY[CONFIRM_REQUIRED]`).
+
+### Prune is content-reachability, not commit-reachability; schema unchanged
+
+The #80 design proposed capturing a `git_ref` on each `proposition_sources` row at emit time so prune could later ask "is the commit that produced this row still reachable?" Empirical work during implementation pivoted to **content-reachability**: "are these bytes live anywhere — disk or any declared-live ref?" No schema change; `content_hash` already carries the information.
+
+The pivot is forced by git's history-rewriting workflows. Rebase, squash-merge, and amend all *rewrite commit SHAs* while *preserving tree content*. A `git_ref` column captured at emit time would become unreachable after any of these, classifying live knowledge as stale. Content-reachability sidesteps the entire class by asking about bytes, not commits.
+
+**What would break if reversed:** re-adding a `git_ref` column re-introduces the rebase/squash/amend footgun. The column drifts out-of-sync with reality on every history rewrite, leaving the user to choose between "prune aggressively and lose knowledge" or "never prune and accumulate forever." Neither is acceptable.
+
+Anchors: `src/memory/prune.ts`, `src/memory/git.ts`, `docs/memory-intent.md` § "Knowledge is append-only across corpus frames". Commit `10beb0e` documents the pivot in its body despite a misleading subject line. Closes #80.
+
+### Prune does not GC entities — entity survival preserves branch-switch re-linkability
+
+`prune` never deletes entity rows. It removes stale `proposition_sources` rows (and, when an entity's last valid proposition goes, that entity becomes orphaned in the read-time filter sense) but the entity row survives. Prune output reports `entities_now_orphaned` — a count of entities that transitioned to zero valid propositions as a result of this prune — not `entities_orphaned` or `entities_pruned`; the tense is load-bearing.
+
+The rule is a direct consequence of `docs/memory-intent.md` § "Knowledge is append-only across corpus frames". An entity is a coordinate a proposition links to, not a fact in itself; deleting it would break re-linking when a reverted branch or future emit re-introduces propositions that cite the same name. The default orphan-hiding filter on `memory_browse` (`valid_proposition_count > 0`, `src/memory/store.ts`) is the *lens* that controls visibility; the row's continued existence is what makes the lens reversible.
+
+**What would break if reversed:** emit-time or prune-time entity GC collapses the multi-frame store into single-frame — branch switch, `git revert`, or a re-emit after temporary removal would have to *recreate* the entity, breaking any external reference (saved workflow context, agent transcript) that named it by id. Orphan accumulation is the cost; it's bounded by the fact that entities are small and name-deduped.
+
+Anchors: `src/memory/prune.ts`, `src/memory/store.ts`, `docs/memory-intent.md` § "Knowledge is append-only across corpus frames" and § "Not an emit-time garbage collector".
+
+### Memory emit attribution is emit-time, not transition-time
+
+`memory_emit` writes the proposition at the node the caller was on when emit fired, independent of any subsequent traversal move. A prop emitted at node N persists even if the caller's next `freelance advance` fails a gate (edge condition, wait, return schema, validation) or throws `HOOK_FAILED`. Memory writes are not part of the traversal transition — they are not rolled back when a later transition fails.
+
+The rationale is the append-only-across-corpus-frames contract from `docs/memory-intent.md`. A proposition captures *what the agent derived while reasoning at N*. That reasoning happened regardless of whether the agent successfully left N afterward. Coupling emit to "the next successful advance" would make the knowledge graph speculative on every workflow step and collide with § "The store is a passive sink" — the store does not track traversal outcomes and must not.
+
+This complements § "Observable state transitions are durable before side effects": traversal state is transitional and persists via log-then-apply; memory state is not transitional and persists on emit regardless of what happens next.
+
+**What would break if reversed:** any mechanism tying emit durability to transition success re-introduces speculative writes — the agent sees "emitted" but the row vanishes if the next advance blocks. Worse: a `HOOK_FAILED` on the next node swallows the emit the caller believed was durable.
+
+Anchors: `src/memory/store.ts` (emit is synchronous, transaction-scoped to the emit call alone, no traversal-id entanglement), `docs/memory-intent.md` § "Append-only across corpus frames", § "The store is a passive sink", § "Not an emit-time garbage collector".
