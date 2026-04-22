@@ -39,6 +39,8 @@ Inline WHY comments are fine when a reader scanning *this file* needs the contex
 
 The test: could a contributor refactoring a sibling file violate the invariant without reading this comment? If yes, it belongs in the decisions log, not buried as a comment in one file. Narrating what the code does, referencing the current task/PR, or summarizing obvious flow is never a valid comment — delete on sight.
 
+**After closing a batch of related issues on a shared rationale, scan whether the rationale belongs in the decisions log as a standalone entry.** Per-issue close comments are complete on their own terms but don't compound — the next contributor proposing a similar feature has no single anchor to cite. If the same posture appeared across three-plus closures (a common stop-line, a rejected anti-pattern, a named invariant), that's the signal to promote it to a decisions entry and cross-link the closures from it.
+
 ## Refactor backlog
 
 `/simplify` surfaces findings that aren't always in-scope to fix on the current PR. Anything you decide NOT to fix — out-of-scope, pre-existing, low impact on this path — append as a one-line entry to `docs/debt.md`: `<file>:<line> — <finding> — <rationale for skipping>`. Flat list, no categories, no status column; keep append cheap. Mark entries done by deleting them. Before opening a refactor PR, scan the file for candidates.
