@@ -116,8 +116,9 @@ export function validateExpressions(def: GraphDefinition, filePath: string): voi
           checkEnumCompliance(v.expr, enumMap, `[${filePath}] Node "${nodeId}": validation`);
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          throw new Error(
+          throw new EngineError(
             `[${filePath}] Node "${nodeId}": invalid validation expression "${v.expr}": ${msg}`,
+            EC.GRAPH_STRUCTURE_INVALID,
           );
         }
       }
@@ -134,8 +135,9 @@ export function validateExpressions(def: GraphDefinition, filePath: string): voi
             );
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            throw new Error(
+            throw new EngineError(
               `[${filePath}] Node "${nodeId}": edge "${edge.label}" has invalid condition "${edge.condition}": ${msg}`,
+              EC.GRAPH_STRUCTURE_INVALID,
             );
           }
         }
@@ -152,8 +154,9 @@ export function validateExpressions(def: GraphDefinition, filePath: string): voi
         );
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        throw new Error(
+        throw new EngineError(
           `[${filePath}] Node "${nodeId}": invalid subgraph condition "${node.subgraph.condition}": ${msg}`,
+          EC.GRAPH_STRUCTURE_INVALID,
         );
       }
     }
