@@ -32,7 +32,7 @@
 import path from "node:path";
 import { EC, EngineError } from "../errors.js";
 import { hashContent, hashSourceFile } from "../sources.js";
-import { type Db, sqlPlaceholders, withTransaction } from "./db.js";
+import { countQuery, type Db, sqlPlaceholders, withTransaction } from "./db.js";
 import { readBlobsAtRefs, resolveGitTopLevel, resolveRef } from "./git.js";
 
 export interface PruneOptions {
@@ -193,21 +193,20 @@ export function prune(db: Db, sourceRoot: string, options: PruneOptions): PruneR
   let entitiesNowOrphaned = 0;
   if (hardDeletedPropIds.length > 0) {
     const placeholders = sqlPlaceholders(hardDeletedPropIds.length);
-    entitiesNowOrphaned = (
-      db
-        .prepare(
-          `SELECT COUNT(*) as c FROM entities e
-           WHERE EXISTS (
-             SELECT 1 FROM about a
-             WHERE a.entity_id = e.id AND a.proposition_id IN (${placeholders})
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM about a
-             WHERE a.entity_id = e.id AND a.proposition_id NOT IN (${placeholders})
-           )`,
-        )
-        .get(...hardDeletedPropIds, ...hardDeletedPropIds) as { c: number }
-    ).c;
+    entitiesNowOrphaned = countQuery(
+      db,
+      `SELECT COUNT(*) FROM entities e
+       WHERE EXISTS (
+         SELECT 1 FROM about a
+         WHERE a.entity_id = e.id AND a.proposition_id IN (${placeholders})
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM about a
+         WHERE a.entity_id = e.id AND a.proposition_id NOT IN (${placeholders})
+       )`,
+      ...hardDeletedPropIds,
+      ...hardDeletedPropIds,
+    );
   }
 
   const result: PruneResult = {
