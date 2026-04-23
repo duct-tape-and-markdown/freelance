@@ -8,18 +8,19 @@
  */
 
 import type { Db } from "./db.js";
-import { STALE_PROP_IDS_TABLE } from "./staleness.js";
+import { notStaleExists } from "./staleness.js";
 import type { NeighborEntity, StatusResult } from "./types.js";
 
-// Every query below joins against `STALE_PROP_IDS_TABLE`. Callers
-// MUST invoke `materializeStalePropIds(db, stalePropIds)` on the
-// same db handle before any of these helpers runs — otherwise the
-// table reflects the previous read's stale set (or is empty on a
-// fresh connection) and the joins return wrong counts. The TEMP-TABLE
-// shape (vs spreading ids inline as `NOT IN (?, ?, …)`) keeps us
-// clear of SQLite's `SQLITE_MAX_VARIABLE_NUMBER` ceiling and lets
-// the prepared-statement cache reuse one SQL string across calls.
-const NOT_STALE_EXISTS_FILTER = `NOT EXISTS (SELECT 1 FROM ${STALE_PROP_IDS_TABLE} _s WHERE _s.proposition_id = a1.proposition_id)`;
+// Every query below joins against `STALE_PROP_IDS_TABLE` via
+// `notStaleExists`. Callers MUST invoke `materializeStalePropIds(db,
+// stalePropIds)` on the same db handle before any of these helpers
+// runs — otherwise the table reflects the previous read's stale set
+// (or is empty on a fresh connection) and the joins return wrong
+// counts. The TEMP-TABLE shape (vs spreading ids inline as
+// `NOT IN (?, ?, …)`) keeps us clear of SQLite's
+// `SQLITE_MAX_VARIABLE_NUMBER` ceiling and lets the prepared-statement
+// cache reuse one SQL string across calls.
+const NOT_STALE_EXISTS_FILTER = notStaleExists("a1.proposition_id");
 
 /**
  * Co-occurring entities for a given entity. Ranks by count of shared
