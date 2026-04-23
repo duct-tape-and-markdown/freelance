@@ -15,15 +15,15 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { EC, EngineError } from "../errors.js";
 import { hashSourceFile } from "../sources.js";
-import { type Db, sqlPlaceholders, withTransaction } from "./db.js";
+import { countQuery, type Db, sqlPlaceholders, withTransaction } from "./db.js";
 import { computeStatus, countNeighbors, countValidForEntity, getNeighbors } from "./enrichment.js";
 import { type PruneOptions, type PruneResult, prune as pruneExternal } from "./prune.js";
 import {
   createStalenessCache,
   getStalePropositionIds,
   isFileChanged,
-  materializeStalePropIds,
   notStaleExists,
+  primeStaleFilter,
   type StalenessCache,
 } from "./staleness.js";
 import type {
@@ -166,11 +166,8 @@ export class MemoryStore {
   }
 
   resetAll(): { deleted_propositions: number; deleted_entities: number } {
-    const propCount = (
-      this.db.prepare("SELECT COUNT(*) as c FROM propositions").get() as { c: number }
-    ).c;
-    const entCount = (this.db.prepare("SELECT COUNT(*) as c FROM entities").get() as { c: number })
-      .c;
+    const propCount = countQuery(this.db, "SELECT COUNT(*) FROM propositions");
+    const entCount = countQuery(this.db, "SELECT COUNT(*) FROM entities");
     // Order matters: propositions before entities so the FK cascade
     // on `about` and `proposition_sources` runs before entities are
     // gone. FTS clears via the `propositions_ad` trigger.
@@ -443,7 +440,7 @@ export class MemoryStore {
       whereParams.push(options.kind);
     }
 
-    materializeStalePropIds(this.db, getStalePropositionIds(this.db, this.sourceRoot, cache));
+    primeStaleFilter(this.db, this.sourceRoot, cache);
     const having = includeOrphans ? "" : "HAVING valid_count > 0";
 
     const selectExpr = `
@@ -456,11 +453,7 @@ export class MemoryStore {
       GROUP BY e.id
       ${having}`;
 
-    const total = (
-      this.db.prepare(`SELECT COUNT(*) as total FROM (${selectExpr})`).get(...whereParams) as {
-        total: number;
-      }
-    ).total;
+    const total = countQuery(this.db, `SELECT COUNT(*) FROM (${selectExpr})`, ...whereParams);
 
     const rows = this.db
       .prepare(`${selectExpr} ORDER BY e.created_at DESC LIMIT ? OFFSET ?`)
@@ -491,13 +484,11 @@ export class MemoryStore {
 
     // Total is computed over the full matching set — independent of
     // limit/offset — so the caller can decide whether to page further.
-    const total = (
-      this.db
-        .prepare(
-          "SELECT COUNT(*) as c FROM propositions p JOIN about a ON p.id = a.proposition_id WHERE a.entity_id = ?",
-        )
-        .get(entity.id) as { c: number }
-    ).c;
+    const total = countQuery(
+      this.db,
+      "SELECT COUNT(*) FROM propositions p JOIN about a ON p.id = a.proposition_id WHERE a.entity_id = ?",
+      entity.id,
+    );
 
     const propRows = this.db
       .prepare(
@@ -512,7 +503,7 @@ export class MemoryStore {
     // `valid_proposition_count` on the entity header reports the
     // entity-wide valid total (across the full, unpaginated set); the
     // paginated `propositions` list is just the current page.
-    materializeStalePropIds(this.db, getStalePropositionIds(this.db, this.sourceRoot, cache));
+    primeStaleFilter(this.db, this.sourceRoot, cache);
     const validCount = countValidForEntity(this.db, entity.id);
     const neighbors = getNeighbors(this.db, entity.id);
 
@@ -585,18 +576,16 @@ export class MemoryStore {
     // Mirror `browse`'s staleness filter: propositions whose declared
     // source bytes don't match disk/any live ref are hidden by default.
     // Caller opts in with includeOrphans to see orphans during audits.
-    materializeStalePropIds(this.db, getStalePropositionIds(this.db, this.sourceRoot, cache));
+    primeStaleFilter(this.db, this.sourceRoot, cache);
     const notStaleJoin = includeOrphans ? "" : ` AND ${notStaleExists("p.id")}`;
 
-    const total = (
-      this.db
-        .prepare(
-          `SELECT COUNT(DISTINCT p.id) as c FROM propositions p
-           JOIN proposition_sources ps ON p.id = ps.proposition_id
-           WHERE ps.file_path = ?${notStaleJoin}`,
-        )
-        .get(storedPath) as { c: number }
-    ).c;
+    const total = countQuery(
+      this.db,
+      `SELECT COUNT(DISTINCT p.id) FROM propositions p
+       JOIN proposition_sources ps ON p.id = ps.proposition_id
+       WHERE ps.file_path = ?${notStaleJoin}`,
+      storedPath,
+    );
 
     const propRows = this.db
       .prepare(
@@ -652,9 +641,8 @@ export class MemoryStore {
   }
 
   status(): StatusResult {
-    // computeStatus consumes the Set as a JS value, not via SQL join —
-    // the unique read path that doesn't need STALE_PROP_IDS_TABLE
-    // materialized. See `materializeStalePropIds` docstring.
+    // Skips `primeStaleFilter`: computeStatus reads the Set as a JS
+    // value and never joins against STALE_PROP_IDS_TABLE.
     const cache = createStalenessCache();
     const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
     return computeStatus(this.db, stalePropIds);
@@ -666,13 +654,13 @@ export class MemoryStore {
     const limit = clampLimit(options?.limit);
     const offset = clampOffset(options?.offset);
 
-    materializeStalePropIds(this.db, getStalePropositionIds(this.db, this.sourceRoot, cache));
+    primeStaleFilter(this.db, this.sourceRoot, cache);
     const validCount = countValidForEntity(this.db, entity.id);
-    const totalCount = (
-      this.db.prepare("SELECT COUNT(*) as c FROM about WHERE entity_id = ?").get(entity.id) as {
-        c: number;
-      }
-    ).c;
+    const totalCount = countQuery(
+      this.db,
+      "SELECT COUNT(*) FROM about WHERE entity_id = ?",
+      entity.id,
+    );
 
     const total = countNeighbors(this.db, entity.id);
     const rows = getNeighbors(this.db, entity.id, {

@@ -7,7 +7,7 @@
  * these helpers holding any state of their own.
  */
 
-import type { Db } from "./db.js";
+import { countQuery, type Db } from "./db.js";
 import { notStaleExists } from "./staleness.js";
 import type { NeighborEntity, StatusResult } from "./types.js";
 
@@ -75,36 +75,30 @@ export function getNeighbors(
  * to page, not how many are currently valid.
  */
 export function countNeighbors(db: Db, entityId: string): number {
-  return (
-    db
-      .prepare(
-        `SELECT COUNT(DISTINCT a2.entity_id) as c
-         FROM about a1
-         JOIN about a2 ON a1.proposition_id = a2.proposition_id
-         WHERE a1.entity_id = ? AND a2.entity_id != a1.entity_id`,
-      )
-      .get(entityId) as { c: number }
-  ).c;
+  return countQuery(
+    db,
+    `SELECT COUNT(DISTINCT a2.entity_id)
+     FROM about a1
+     JOIN about a2 ON a1.proposition_id = a2.proposition_id
+     WHERE a1.entity_id = ? AND a2.entity_id != a1.entity_id`,
+    entityId,
+  );
 }
 
 /** Count propositions about an entity that are currently valid. */
 export function countValidForEntity(db: Db, entityId: string): number {
-  return (
-    db
-      .prepare(
-        `SELECT COUNT(*) as c FROM about a1
-         WHERE a1.entity_id = ? AND ${NOT_STALE_EXISTS_FILTER}`,
-      )
-      .get(entityId) as { c: number }
-  ).c;
+  return countQuery(
+    db,
+    `SELECT COUNT(*) FROM about a1
+     WHERE a1.entity_id = ? AND ${NOT_STALE_EXISTS_FILTER}`,
+    entityId,
+  );
 }
 
 /** Aggregate status counts for memory_status. */
 export function computeStatus(db: Db, stalePropIds: Set<string>): StatusResult {
-  const totalProps = (db.prepare("SELECT COUNT(*) as c FROM propositions").get() as { c: number })
-    .c;
-
-  const totalEntities = (db.prepare("SELECT COUNT(*) as c FROM entities").get() as { c: number }).c;
+  const totalProps = countQuery(db, "SELECT COUNT(*) FROM propositions");
+  const totalEntities = countQuery(db, "SELECT COUNT(*) FROM entities");
 
   const validCount = stalePropIds.size === 0 ? totalProps : totalProps - stalePropIds.size;
 

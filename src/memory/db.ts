@@ -239,6 +239,22 @@ export function sqlPlaceholders(n: number): string {
 }
 
 /**
+ * Run a single-scalar `SELECT` (typically `COUNT(*)`) and return the
+ * value as a number. Picks the first column off the returned row so
+ * the SQL doesn't have to standardise on a particular alias. Throws
+ * if the first column isn't numeric — that's a typo in the caller's
+ * SQL, not a runtime miss to swallow.
+ */
+export function countQuery(db: Db, sql: string, ...params: unknown[]): number {
+  const row = db.prepare(sql).get(...params) as Record<string, unknown>;
+  const v = Object.values(row)[0];
+  if (typeof v !== "number") {
+    throw new Error(`countQuery expected numeric first column; got ${typeof v} from: ${sql}`);
+  }
+  return v;
+}
+
+/**
  * Run `fn` inside a SQLite transaction. Commits on return, rolls back
  * on throw. Sync-only — every current caller is sync (`prepare().run()`
  * / `prepare().get()`) and `node:sqlite` is sync top-to-bottom; matching

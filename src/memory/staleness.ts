@@ -125,6 +125,16 @@ export function notStaleExists(propIdExpr: string): string {
 }
 
 /**
+ * Compute the stale set and materialize it into `STALE_PROP_IDS_TABLE`
+ * in one call — use at every read that joins against the table.
+ * Callers consuming the Set as a JS value (no SQL join) should call
+ * `getStalePropositionIds` directly to skip the materialization.
+ */
+export function primeStaleFilter(db: Db, sourceRoot: string, cache: StalenessCache): void {
+  materializeStalePropIds(db, getStalePropositionIds(db, sourceRoot, cache));
+}
+
+/**
  * Populate `STALE_PROP_IDS_TABLE` on `db` so subsequent read queries
  * can join against it. Must be called before any helper in
  * `enrichment.ts` runs (every helper there assumes the table reflects
