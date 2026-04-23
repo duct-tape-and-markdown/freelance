@@ -38,11 +38,14 @@ export interface StateStore {
   /** Unconditional write. Use for first-time creation; prefer `putIfVersion` for updates. */
   put(record: TraversalRecord): void;
   /**
-   * Optimistic-concurrency write. Writes `record` iff the on-disk
-   * version still matches `expectedVersion`. Throws
-   * `EngineError(TRAVERSAL_CONFLICT)` otherwise. The caller passes the
-   * version it observed at load time; a mismatch means another writer
-   * raced between the caller's get() and this put().
+   * Optimistic-concurrency update. Writes `record` iff a record with
+   * the same id exists and its on-disk version still matches
+   * `expectedVersion`. Throws `EngineError(TRAVERSAL_CONFLICT)`
+   * otherwise — including when the record was deleted between the
+   * caller's load and this call. Use `put` for first-time creation;
+   * this method assumes the caller loaded a prior record and rejects
+   * the resurrection case where `freelance reset --confirm` races an
+   * in-flight advance.
    *
    * The supplied `record.version` is ignored on input — the store
    * always writes `expectedVersion + 1`. Returns the record actually
@@ -85,8 +88,11 @@ class InMemoryStateStore implements StateStore {
   }
   putIfVersion(record: TraversalRecord, expectedVersion: number): TraversalRecord {
     const current = this.records.get(record.id);
-    const currentVersion = current?.version ?? 0;
-    if (current && currentVersion !== expectedVersion) {
+    if (!current) {
+      throw new TraversalConflictError(record.id, expectedVersion, 0);
+    }
+    const currentVersion = current.version ?? 0;
+    if (currentVersion !== expectedVersion) {
       throw new TraversalConflictError(record.id, expectedVersion, currentVersion);
     }
     const next = { ...record, version: expectedVersion + 1 };
@@ -165,8 +171,11 @@ class JsonDirectoryStateStore implements StateStore {
     // workload (per-checkout tool, rare cross-process concurrency)
     // detection via TRAVERSAL_CONFLICT beats silent loss.
     const existing = this.get(record.id);
-    const current = existing?.version ?? 0;
-    if (existing && current !== expectedVersion) {
+    if (!existing) {
+      throw new TraversalConflictError(record.id, expectedVersion, 0);
+    }
+    const current = existing.version ?? 0;
+    if (current !== expectedVersion) {
       throw new TraversalConflictError(record.id, expectedVersion, current);
     }
     const next = { ...record, version: expectedVersion + 1 };
