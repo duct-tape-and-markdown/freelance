@@ -470,6 +470,24 @@ describe("MemoryStore", () => {
       expect(result.propositions).toHaveLength(1);
       expect(result.propositions[0].content).toContain("JWT");
     });
+
+    it("finds propositions after process restart (cross-connection FTS persistence)", () => {
+      // FTS5 external-content shadow tables persist on disk and the
+      // triggers keep them in sync — if a future change reintroduces a
+      // load-bearing rebuild dependency on every open, this test catches
+      // it.
+      writeFile(tmpDir, "a.ts", "x");
+      store.emit([
+        { content: "Auth validates JWT tokens.", entities: ["Auth"], sources: ["a.ts"] },
+      ]);
+      store.close();
+
+      const dbPath = path.join(tmpDir, "memory.db");
+      store = makeMemoryStore(dbPath, tmpDir);
+      const result = store.search("JWT");
+      expect(result.propositions).toHaveLength(1);
+      expect(result.propositions[0].content).toContain("JWT");
+    });
   });
 
   describe("status", () => {
@@ -1110,6 +1128,33 @@ describe("MemoryStore schema migration", () => {
       expect(cols.map((c) => c.name)).not.toContain("collection");
     } finally {
       second.close();
+    }
+  });
+
+  it("rebuilds FTS when propositions exist but the FTS index is empty", () => {
+    // A database created before FTS was populated by triggers (or with
+    // FTS dropped manually) — openDatabase detects the mismatch via
+    // empty propositions_fts_idx + non-empty propositions and rebuilds.
+    const dbPath = path.join(tmpDir, "memory.db");
+    const raw = new DatabaseSync(dbPath);
+    raw.exec(
+      "CREATE TABLE propositions (id TEXT PRIMARY KEY, content TEXT NOT NULL, content_hash TEXT NOT NULL, created_at TEXT NOT NULL)",
+    );
+    raw
+      .prepare("INSERT INTO propositions VALUES (?, ?, ?, ?)")
+      .run("p1", "Auth validates JWT tokens.", "h1", "2026-01-01T00:00:00Z");
+    raw.close();
+
+    const db = openDatabase(dbPath);
+    try {
+      const hits = db
+        .prepare(
+          "SELECT p.id FROM propositions p JOIN propositions_fts fts ON p.rowid = fts.rowid WHERE propositions_fts MATCH ?",
+        )
+        .all("JWT") as Array<{ id: string }>;
+      expect(hits.map((h) => h.id)).toEqual(["p1"]);
+    } finally {
+      db.close();
     }
   });
 
