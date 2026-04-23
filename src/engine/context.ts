@@ -143,35 +143,31 @@ function computeTurnWarning(nodeDef: NodeDefinition, turnCount: number): string 
   return `Turn budget reached (${turnCount}/${nodeDef.maxTurns}). Consider wrapping up and advancing to the next node.`;
 }
 
+/**
+ * Build the contextSet response. When `contextDelta` is supplied the
+ * caller is on the minimal hot path — the response carries the list of
+ * keys that changed instead of echoing the full context. When omitted
+ * it's the full path and `context` ships in full. Branching here
+ * (rather than in two paired builders) keeps the shared setup —
+ * validTransitions, turnCount, turnWarning — in one place; the diff
+ * between the two surfaces is one field.
+ */
 export function buildContextSetResult(
   session: SessionState,
   nodeDef: NodeDefinition,
-): ContextSetResult {
-  return {
-    status: "updated",
-    isError: false,
+  contextDelta?: readonly string[],
+): ContextSetResult | ContextSetMinimalResult {
+  const base = {
+    status: "updated" as const,
+    isError: false as const,
     currentNode: session.currentNode,
-    context: cloneContext(session.context),
     validTransitions: evaluateTransitions(nodeDef, session.context),
     turnCount: session.turnCount,
     turnWarning: computeTurnWarning(nodeDef, session.turnCount),
   };
-}
-
-export function buildContextSetMinimalResult(
-  session: SessionState,
-  nodeDef: NodeDefinition,
-  contextDelta: readonly string[],
-): ContextSetMinimalResult {
-  return {
-    status: "updated",
-    isError: false,
-    currentNode: session.currentNode,
-    contextDelta,
-    validTransitions: evaluateTransitions(nodeDef, session.context),
-    turnCount: session.turnCount,
-    turnWarning: computeTurnWarning(nodeDef, session.turnCount),
-  };
+  return contextDelta !== undefined
+    ? ({ ...base, contextDelta } satisfies ContextSetMinimalResult)
+    : ({ ...base, context: cloneContext(session.context) } satisfies ContextSetResult);
 }
 
 /**
@@ -279,72 +275,66 @@ function buildHistoryResult(
   };
 }
 
+/**
+ * Build the inspect response. `options.minimal` switches between the
+ * full and minimal position shapes; `detail: "history"` shares one
+ * builder across both modes — history is the recovery / audit path
+ * where stripping fields defeats the purpose. `fields` projections
+ * are honored on the full path only; they're ignored on minimal by
+ * design (the projection surface is for introspection, not the hot
+ * path that opts into minimal — see `ResponseMode` and issue #81).
+ *
+ * `historyOpts` are intentionally ignored for non-history detail —
+ * pagination and snapshot toggles have no meaning there.
+ */
 export function buildInspectResult(
   detail: "position" | "history",
   session: SessionState,
   def: GraphDefinition,
   stack: SessionState[],
-  fields: readonly InspectField[] = [],
-  historyOpts: InspectHistoryOptions = {},
-): InspectResult {
-  const projections = buildFieldProjections(fields, def, session.currentNode);
+  options: {
+    minimal?: boolean;
+    fields?: readonly InspectField[];
+    historyOpts?: InspectHistoryOptions;
+  } = {},
+): InspectResult | InspectMinimalResult {
+  const fields = options.fields ?? [];
+  const historyOpts = options.historyOpts ?? {};
+  const projections =
+    options.minimal === true ? undefined : buildFieldProjections(fields, def, session.currentNode);
 
   if (detail === "history") {
     return buildHistoryResult(session, historyOpts, projections);
   }
 
-  // historyOpts are intentionally ignored for non-history detail —
-  // pagination and snapshot toggles have no meaning here.
   const currentNodeDef = def.nodes[session.currentNode];
   const waitInfo = computeWaitInfo(session, currentNodeDef);
+  const transitions = evaluateTransitions(currentNodeDef, session.context);
+  const turnWarning = computeTurnWarning(currentNodeDef, session.turnCount);
 
-  return {
+  const base = {
     graphId: session.graphId,
-    graphName: def.name,
     currentNode: session.currentNode,
-    node: toNodeInfo(currentNodeDef),
-    validTransitions: evaluateTransitions(currentNodeDef, session.context),
-    context: cloneContext(session.context),
+    validTransitions: transitions,
     turnCount: session.turnCount,
-    turnWarning: computeTurnWarning(currentNodeDef, session.turnCount),
+    turnWarning,
     stackDepth: stack.length,
-    stack: buildStackView(stack),
-    ...(def.sources && def.sources.length > 0 ? { graphSources: def.sources } : {}),
     ...waitInfo,
-    ...projections,
-  } satisfies InspectPositionResult;
-}
+  };
 
-/**
- * Minimal counterpart to `buildInspectResult`. `detail: "history"`
- * reuses the same builder — history is the recovery / audit path.
- * `detail: "position"` projects down to the fields a mid-loop caller
- * actually reads. `fields` projections are ignored on minimal by
- * design — the projection surface is for introspection, not the hot
- * path that opts into minimal. See `ResponseMode` and issue #81.
- */
-export function buildInspectMinimalResult(
-  detail: "position" | "history",
-  session: SessionState,
-  def: GraphDefinition,
-  stack: SessionState[],
-  historyOpts: InspectHistoryOptions = {},
-): InspectMinimalResult {
-  if (detail === "history") {
-    return buildHistoryResult(session, historyOpts);
+  if (options.minimal === true) {
+    return base satisfies InspectPositionMinimalResult;
   }
 
-  const currentNodeDef = def.nodes[session.currentNode];
-  const waitInfo = computeWaitInfo(session, currentNodeDef);
   return {
-    graphId: session.graphId,
-    currentNode: session.currentNode,
-    validTransitions: evaluateTransitions(currentNodeDef, session.context),
-    turnCount: session.turnCount,
-    turnWarning: computeTurnWarning(currentNodeDef, session.turnCount),
-    stackDepth: stack.length,
-    ...waitInfo,
-  } satisfies InspectPositionMinimalResult;
+    ...base,
+    graphName: def.name,
+    node: toNodeInfo(currentNodeDef),
+    context: cloneContext(session.context),
+    stack: buildStackView(stack),
+    ...(def.sources && def.sources.length > 0 ? { graphSources: def.sources } : {}),
+    ...projections,
+  } satisfies InspectPositionResult;
 }
 
 function computeWaitInfo(
