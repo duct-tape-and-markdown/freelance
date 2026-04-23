@@ -14,29 +14,7 @@ import type { InspectHistoryOptions } from "../engine/context.js";
 import { EC, EngineError } from "../errors.js";
 import type { TraversalStore } from "../state/index.js";
 import type { InspectField, InspectPositionResult } from "../types.js";
-import { CliExit, EXIT, errorEnvelope, outputJson, parseIntArg } from "./output.js";
-
-/**
- * Shared primitive for CLI flags that accept `key=value` pairs. Splits on
- * the first `=`, validates a non-empty key, and throws with a consistent
- * error message across `--meta`, `--filter`, and `context set`. Callers
- * layer their own value handling on top (string-only for meta, JSON-
- * coerced for context).
- */
-function splitKeyValue(pair: string, flag: string): [string, string] {
-  const eqIdx = pair.indexOf("=");
-  if (eqIdx === -1) {
-    throw new EngineError(
-      `${flag} requires key=value pairs; got "${pair}"`,
-      EC.INVALID_KEY_VALUE_PAIR,
-    );
-  }
-  const key = pair.slice(0, eqIdx);
-  if (!key) {
-    throw new EngineError(`${flag} key is empty in "${pair}"`, EC.INVALID_KEY_VALUE_PAIR);
-  }
-  return [key, pair.slice(eqIdx + 1)];
-}
+import { CliExit, EXIT, errorEnvelope, outputJson, parseIntArg, splitKeyValue } from "./output.js";
 
 // Shared by `start` and `advance` for their `--context` JSON payload.
 function parseContextJson(raw: string): Record<string, unknown> {
