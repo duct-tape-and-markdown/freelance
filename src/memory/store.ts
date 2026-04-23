@@ -15,7 +15,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { EC, EngineError } from "../errors.js";
 import { hashSourceFile } from "../sources.js";
-import { type Db, withTransaction } from "./db.js";
+import { type Db, sqlPlaceholders, withTransaction } from "./db.js";
 import { computeStatus, countNeighbors, countValidForEntity, getNeighbors } from "./enrichment.js";
 import { type PruneOptions, type PruneResult, prune as pruneExternal } from "./prune.js";
 import {
@@ -23,7 +23,7 @@ import {
   getStalePropositionIds,
   isFileChanged,
   materializeStalePropIds,
-  STALE_PROP_IDS_TABLE,
+  notStaleExists,
   type StalenessCache,
 } from "./staleness.js";
 import type {
@@ -72,6 +72,28 @@ function generateId(): string {
 
 function now(): string {
   return new Date().toISOString();
+}
+
+/**
+ * Group bulk-fetched rows by `proposition_id` into a `Map<id, T[]>`,
+ * projecting each row to the value shape via `pick`. Local helper for
+ * `fetchSourcesByProp` / `fetchEntitiesByProp` — both run a single
+ * `IN (?, ?, …)` query and need the same per-prop bucketing.
+ */
+function groupByProp<R extends { proposition_id: string }, T>(
+  rows: readonly R[],
+  pick: (row: R) => T,
+): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const r of rows) {
+    let arr = out.get(r.proposition_id);
+    if (!arr) {
+      arr = [];
+      out.set(r.proposition_id, arr);
+    }
+    arr.push(pick(r));
+  }
+  return out;
 }
 
 /**
@@ -372,16 +394,23 @@ export class MemoryStore {
   // --- Entity lookup ---
 
   private findEntity(idOrName: string): EntityRow {
-    const entity =
-      (this.db.prepare("SELECT * FROM entities WHERE id = ?").get(idOrName) as
-        | EntityRow
-        | undefined) ??
-      (this.db.prepare("SELECT * FROM entities WHERE name = ?").get(idOrName) as
-        | EntityRow
-        | undefined) ??
-      (this.db
-        .prepare("SELECT * FROM entities WHERE LOWER(name) = ?")
-        .get(idOrName.toLowerCase()) as EntityRow | undefined);
+    // Precedence: id (PK) > exact name (`idx_entity_name`) >
+    // case-insensitive name (`idx_entity_name_lower`). All three OR
+    // arms are indexable so SQLite's OR-decomposition unions indexed
+    // lookups instead of scanning; the CASE in ORDER BY picks the
+    // winner when more than one matches.
+    const entity = this.db
+      .prepare(
+        `SELECT id, name, kind, created_at FROM entities
+         WHERE id = ?1 OR name = ?1 OR LOWER(name) = LOWER(?1)
+         ORDER BY CASE
+           WHEN id = ?1 THEN 0
+           WHEN name = ?1 THEN 1
+           ELSE 2
+         END
+         LIMIT 1`,
+      )
+      .get(idOrName) as EntityRow | undefined;
     if (!entity) {
       throw new EngineError(`Entity not found: ${idOrName}`, EC.ENTITY_NOT_FOUND);
     }
@@ -415,13 +444,12 @@ export class MemoryStore {
     }
 
     materializeStalePropIds(this.db, getStalePropositionIds(this.db, this.sourceRoot, cache));
-    const notStale = `NOT EXISTS (SELECT 1 FROM ${STALE_PROP_IDS_TABLE} _s WHERE _s.proposition_id = a.proposition_id)`;
     const having = includeOrphans ? "" : "HAVING valid_count > 0";
 
     const selectExpr = `
       SELECT e.*,
         COUNT(a.proposition_id) as proposition_count,
-        COUNT(CASE WHEN a.proposition_id IS NOT NULL AND ${notStale} THEN 1 END) as valid_count
+        COUNT(CASE WHEN a.proposition_id IS NOT NULL AND ${notStaleExists("a.proposition_id")} THEN 1 END) as valid_count
       FROM entities e
       LEFT JOIN about a ON e.id = a.entity_id
       WHERE ${where}
@@ -503,7 +531,10 @@ export class MemoryStore {
       };
     }
 
-    const propositions = propRows.map((p) => this.enrichProposition(p, cache));
+    const sourcesByProp = this.fetchSourcesByProp(propRows.map((p) => p.id));
+    const propositions = propRows.map((p) =>
+      this.enrichProposition(p, cache, sourcesByProp.get(p.id) ?? []),
+    );
 
     // Deduped source files across the entity's *full* proposition set
     // (not just the current page). Callers use this to size-check the
@@ -555,9 +586,7 @@ export class MemoryStore {
     // source bytes don't match disk/any live ref are hidden by default.
     // Caller opts in with includeOrphans to see orphans during audits.
     materializeStalePropIds(this.db, getStalePropositionIds(this.db, this.sourceRoot, cache));
-    const notStaleJoin = includeOrphans
-      ? ""
-      : ` AND NOT EXISTS (SELECT 1 FROM ${STALE_PROP_IDS_TABLE} _s WHERE _s.proposition_id = p.id)`;
+    const notStaleJoin = includeOrphans ? "" : ` AND ${notStaleExists("p.id")}`;
 
     const total = (
       this.db
@@ -579,10 +608,15 @@ export class MemoryStore {
       )
       .all(storedPath, limit, offset) as PropositionRow[];
 
-    const propositions =
-      shape === "minimal"
-        ? (propRows.map((p) => ({ id: p.id, content: p.content })) as MinimalProposition[])
-        : propRows.map((p) => this.enrichProposition(p, cache));
+    let propositions: MinimalProposition[] | PropositionInfo[];
+    if (shape === "minimal") {
+      propositions = propRows.map((p) => ({ id: p.id, content: p.content }) as MinimalProposition);
+    } else {
+      const sourcesByProp = this.fetchSourcesByProp(propRows.map((p) => p.id));
+      propositions = propRows.map((p) =>
+        this.enrichProposition(p, cache, sourcesByProp.get(p.id) ?? []),
+      );
+    }
 
     return {
       file_path: storedPath,
@@ -606,17 +640,13 @@ export class MemoryStore {
       )
       .all(sanitized, limit) as PropositionRow[];
 
-    const propositions = rows.map((p) => {
-      const enriched = this.enrichProposition(p, cache);
-      const entityRows = this.db
-        .prepare(
-          `SELECT e.id, e.name, e.kind FROM entities e
-         JOIN about a ON e.id = a.entity_id
-         WHERE a.proposition_id = ?`,
-        )
-        .all(p.id) as Array<{ id: string; name: string; kind: string | null }>;
-      return { ...enriched, entities: entityRows };
-    });
+    const propIds = rows.map((p) => p.id);
+    const sourcesByProp = this.fetchSourcesByProp(propIds);
+    const entitiesByProp = this.fetchEntitiesByProp(propIds);
+    const propositions = rows.map((p) => ({
+      ...this.enrichProposition(p, cache, sourcesByProp.get(p.id) ?? []),
+      entities: entitiesByProp.get(p.id) ?? [],
+    }));
 
     return { query, propositions };
   }
@@ -667,11 +697,58 @@ export class MemoryStore {
 
   // --- Proposition enrichment (stays on the class — called by every read) ---
 
-  private enrichProposition(row: PropositionRow, cache: StalenessCache): PropositionInfo {
-    const propSources = this.db
-      .prepare("SELECT file_path, content_hash FROM proposition_sources WHERE proposition_id = ?")
-      .all(row.id) as Array<{ file_path: string; content_hash: string }>;
+  /**
+   * Bulk-fetch `proposition_sources` rows for a list of proposition
+   * ids in one round-trip and group them by id. Replaces the per-row
+   * SELECT pattern that issued one query per returned proposition;
+   * with `MAX_PAGE_LIMIT = 200` the worst case was 200 round-trips
+   * per read. `propIds.length` is bounded by pagination well below
+   * SQLite's `SQLITE_MAX_VARIABLE_NUMBER` ceiling.
+   */
+  private fetchSourcesByProp(
+    propIds: readonly string[],
+  ): Map<string, Array<{ file_path: string; content_hash: string }>> {
+    if (propIds.length === 0) return new Map();
+    const rows = this.db
+      .prepare(
+        `SELECT proposition_id, file_path, content_hash
+         FROM proposition_sources
+         WHERE proposition_id IN (${sqlPlaceholders(propIds.length)})`,
+      )
+      .all(...propIds) as Array<{
+      proposition_id: string;
+      file_path: string;
+      content_hash: string;
+    }>;
+    return groupByProp(rows, (r) => ({ file_path: r.file_path, content_hash: r.content_hash }));
+  }
 
+  /** Search-side companion to `fetchSourcesByProp`. */
+  private fetchEntitiesByProp(
+    propIds: readonly string[],
+  ): Map<string, Array<{ id: string; name: string; kind: string | null }>> {
+    if (propIds.length === 0) return new Map();
+    const rows = this.db
+      .prepare(
+        `SELECT a.proposition_id, e.id, e.name, e.kind
+         FROM entities e
+         JOIN about a ON e.id = a.entity_id
+         WHERE a.proposition_id IN (${sqlPlaceholders(propIds.length)})`,
+      )
+      .all(...propIds) as Array<{
+      proposition_id: string;
+      id: string;
+      name: string;
+      kind: string | null;
+    }>;
+    return groupByProp(rows, (r) => ({ id: r.id, name: r.name, kind: r.kind }));
+  }
+
+  private enrichProposition(
+    row: PropositionRow,
+    cache: StalenessCache,
+    propSources: ReadonlyArray<{ file_path: string; content_hash: string }>,
+  ): PropositionInfo {
     const sourceFiles = propSources.map((sf) => ({
       path: sf.file_path,
       hash: sf.content_hash,

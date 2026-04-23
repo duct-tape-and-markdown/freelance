@@ -32,7 +32,7 @@
 import path from "node:path";
 import { EC, EngineError } from "../errors.js";
 import { hashContent, hashSourceFile } from "../sources.js";
-import { type Db, withTransaction } from "./db.js";
+import { type Db, sqlPlaceholders, withTransaction } from "./db.js";
 import { readBlobsAtRefs, resolveGitTopLevel, resolveRef } from "./git.js";
 
 export interface PruneOptions {
@@ -63,11 +63,6 @@ interface RowMeta {
   proposition_id: string;
   file_path: string;
   content_hash: string;
-}
-
-/** `"?, ?, ?"` for `n=3`. Used when binding variadic `IN (...)` clauses. */
-function sqlPlaceholders(n: number): string {
-  return Array(n).fill("?").join(",");
 }
 
 // Takes `db` + `sourceRoot` directly instead of a `MemoryStore`. Prune

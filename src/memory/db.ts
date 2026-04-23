@@ -56,6 +56,11 @@ CREATE TABLE IF NOT EXISTS entities (
   created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_name ON entities(name);
+-- Functional index on LOWER(name). Without it, findEntity's OR-of-
+-- three-predicates query (id, name, LOWER(name)) degrades to a full
+-- table scan: SQLite's OR-decomposition can union indexed lookups
+-- only when every arm is indexable.
+CREATE INDEX IF NOT EXISTS idx_entity_name_lower ON entities(LOWER(name));
 CREATE INDEX IF NOT EXISTS idx_entity_kind ON entities(kind);
 
 CREATE TABLE IF NOT EXISTS propositions (
@@ -226,6 +231,11 @@ export function retryOnSqliteBusy<T>(fn: () => T, context: string): T {
 
 export function openDatabase(dbPath: string): Db {
   return retryOnSqliteBusy(() => openDatabaseOnce(dbPath), dbPath);
+}
+
+/** `"?,?,?"` for `n=3`. Use to bind variadic `IN (…)` clauses. */
+export function sqlPlaceholders(n: number): string {
+  return Array(n).fill("?").join(",");
 }
 
 /**

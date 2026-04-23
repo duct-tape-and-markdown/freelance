@@ -111,6 +111,20 @@ export function getStalePropositionIds(
 }
 
 /**
+ * Build a `NOT EXISTS (… STALE_PROP_IDS_TABLE …)` SQL fragment keyed
+ * off the supplied proposition-id expression (e.g. `"a.proposition_id"`,
+ * `"p.id"`). Use everywhere a read needs to filter stale propositions
+ * out, so the table name + filter shape live in one place and the
+ * prepared-statement cache reuses one SQL string per call site.
+ *
+ * `propIdExpr` is interpolated raw into SQL — callers must pass a
+ * trusted literal SQL identifier, never user input.
+ */
+export function notStaleExists(propIdExpr: string): string {
+  return `NOT EXISTS (SELECT 1 FROM ${STALE_PROP_IDS_TABLE} _s WHERE _s.proposition_id = ${propIdExpr})`;
+}
+
+/**
  * Populate `STALE_PROP_IDS_TABLE` on `db` so subsequent read queries
  * can join against it. Must be called before any helper in
  * `enrichment.ts` runs (every helper there assumes the table reflects
