@@ -56,7 +56,7 @@ export function isFileChanged(
 }
 
 /**
- * Name of the TEMP TABLE populated by `getStalePropositionIds`. The
+ * Name of the TEMP TABLE populated by `materializeStalePropIds`. The
  * read-side queries in `enrichment.ts` + `store.ts` join against it
  * (`NOT EXISTS (SELECT 1 FROM _stale_prop_ids ...)`) instead of
  * spreading ids into a dynamically-sized `NOT IN (?, ?, ?, …)` clause,
@@ -64,10 +64,8 @@ export function isFileChanged(
  * large stale sets and churn the prepared-statement cache across
  * differently-sized stale sets.
  *
- * Population is coupled into `getStalePropositionIds` so downstream
- * readers can't forget to materialize. An empty table means "no stale
- * props" — `NOT EXISTS` returns TRUE for every row, which correctly
- * counts all propositions as valid.
+ * An empty table means "no stale props" — `NOT EXISTS` returns TRUE
+ * for every row, which correctly counts all propositions as valid.
  */
 export const STALE_PROP_IDS_TABLE = "_stale_prop_ids";
 
@@ -78,13 +76,16 @@ const STALE_PROP_BATCH_SIZE = 500;
 
 /**
  * Scan proposition_sources and return the set of propositions that have
- * at least one drifted source file. Uses the cache to avoid re-stating
- * files that multiple propositions share.
+ * at least one drifted source file. Pure — no side effects on the db
+ * handle. The cache amortizes hashSourceFile calls across propositions
+ * sharing source files within one operation.
  *
- * Side effect: materializes the stale set into `STALE_PROP_IDS_TABLE`
- * on the same connection so read queries can reference it. Every public
- * read on MemoryStore calls this once per operation, which keeps the
- * temp-table contents consistent with the Set returned here.
+ * Reads that join against `STALE_PROP_IDS_TABLE` must follow this with
+ * `materializeStalePropIds(db, stalePropIds)` to populate the temp
+ * table. Reads that consume the Set directly (notably `status()`) skip
+ * the materialization — the temp-table population is non-trivial work
+ * (DELETE plus batched INSERTs over the whole stale set) and pure
+ * waste when no join consumes it.
  */
 export function getStalePropositionIds(
   db: Db,
@@ -106,11 +107,16 @@ export function getStalePropositionIds(
       stale.add(proposition_id);
     }
   }
-  materializeStalePropIds(db, stale);
   return stale;
 }
 
-function materializeStalePropIds(db: Db, stalePropIds: Set<string>): void {
+/**
+ * Populate `STALE_PROP_IDS_TABLE` on `db` so subsequent read queries
+ * can join against it. Must be called before any helper in
+ * `enrichment.ts` runs (every helper there assumes the table reflects
+ * the current stale set).
+ */
+export function materializeStalePropIds(db: Db, stalePropIds: Set<string>): void {
   db.exec(
     `CREATE TEMP TABLE IF NOT EXISTS ${STALE_PROP_IDS_TABLE} (proposition_id TEXT PRIMARY KEY) WITHOUT ROWID`,
   );

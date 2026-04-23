@@ -15,13 +15,14 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { EC, EngineError } from "../errors.js";
 import { hashSourceFile } from "../sources.js";
-import type { Db } from "./db.js";
+import { type Db, withTransaction } from "./db.js";
 import { computeStatus, countNeighbors, countValidForEntity, getNeighbors } from "./enrichment.js";
 import { type PruneOptions, type PruneResult, prune as pruneExternal } from "./prune.js";
 import {
   createStalenessCache,
   getStalePropositionIds,
   isFileChanged,
+  materializeStalePropIds,
   STALE_PROP_IDS_TABLE,
   type StalenessCache,
 } from "./staleness.js";
@@ -148,20 +149,13 @@ export class MemoryStore {
     ).c;
     const entCount = (this.db.prepare("SELECT COUNT(*) as c FROM entities").get() as { c: number })
       .c;
-    // Atomically — partial reset (propositions gone but entities left
-    // orphaned) is worse than no reset, since the user now has stranded
-    // entity rows the normal flow can't reach. Mirrors the prune BEGIN/
-    // COMMIT/ROLLBACK pattern. `about` and `proposition_sources` cascade
-    // via FK on proposition delete; FTS via the `propositions_ad` trigger.
-    this.db.exec("BEGIN");
-    try {
+    // Order matters: propositions before entities so the FK cascade
+    // on `about` and `proposition_sources` runs before entities are
+    // gone. FTS clears via the `propositions_ad` trigger.
+    withTransaction(this.db, () => {
       this.db.exec("DELETE FROM propositions");
       this.db.exec("DELETE FROM entities");
-      this.db.exec("COMMIT");
-    } catch (e) {
-      this.db.exec("ROLLBACK");
-      throw e;
-    }
+    });
     return { deleted_propositions: propCount, deleted_entities: entCount };
   }
 
@@ -237,14 +231,10 @@ export class MemoryStore {
       "INSERT OR IGNORE INTO proposition_sources (proposition_id, file_path, content_hash) VALUES (?, ?, ?)",
     );
 
-    // Atomically — partial emit (proposition rows with some but not all
-    // source attributions) is worse than no emit, because the caller
-    // expects every prop in the batch to have its full source set on
-    // success. Mirrors the prune and resetAll BEGIN/COMMIT/ROLLBACK
-    // pattern. Any throw inside the loop (missing source file,
-    // constraint violation) rolls back to pre-emit state.
-    this.db.exec("BEGIN");
-    try {
+    // Caller expects every prop in the batch to have its full source
+    // set on success — a missing-source-file or constraint throw
+    // mid-loop must roll back, not leave half-attributed rows.
+    withTransaction(this.db, () => {
       for (const prop of propositions) {
         const contentHash = hashPropContent(prop.content);
         const newId = generateId();
@@ -300,11 +290,7 @@ export class MemoryStore {
 
         result.propositions.push(propResult);
       }
-      this.db.exec("COMMIT");
-    } catch (e) {
-      this.db.exec("ROLLBACK");
-      throw e;
-    }
+    });
 
     if (warnings.length > 0) {
       result.warnings = warnings;
@@ -428,9 +414,7 @@ export class MemoryStore {
       whereParams.push(options.kind);
     }
 
-    // getStalePropositionIds also materializes the set into STALE_PROP_IDS_TABLE
-    // for the NOT EXISTS join below.
-    getStalePropositionIds(this.db, this.sourceRoot, cache);
+    materializeStalePropIds(this.db, getStalePropositionIds(this.db, this.sourceRoot, cache));
     const notStale = `NOT EXISTS (SELECT 1 FROM ${STALE_PROP_IDS_TABLE} _s WHERE _s.proposition_id = a.proposition_id)`;
     const having = includeOrphans ? "" : "HAVING valid_count > 0";
 
@@ -500,7 +484,7 @@ export class MemoryStore {
     // `valid_proposition_count` on the entity header reports the
     // entity-wide valid total (across the full, unpaginated set); the
     // paginated `propositions` list is just the current page.
-    getStalePropositionIds(this.db, this.sourceRoot, cache);
+    materializeStalePropIds(this.db, getStalePropositionIds(this.db, this.sourceRoot, cache));
     const validCount = countValidForEntity(this.db, entity.id);
     const neighbors = getNeighbors(this.db, entity.id);
 
@@ -570,9 +554,7 @@ export class MemoryStore {
     // Mirror `browse`'s staleness filter: propositions whose declared
     // source bytes don't match disk/any live ref are hidden by default.
     // Caller opts in with includeOrphans to see orphans during audits.
-    // getStalePropositionIds materializes STALE_PROP_IDS_TABLE for the
-    // NOT EXISTS join below.
-    getStalePropositionIds(this.db, this.sourceRoot, cache);
+    materializeStalePropIds(this.db, getStalePropositionIds(this.db, this.sourceRoot, cache));
     const notStaleJoin = includeOrphans
       ? ""
       : ` AND NOT EXISTS (SELECT 1 FROM ${STALE_PROP_IDS_TABLE} _s WHERE _s.proposition_id = p.id)`;
@@ -640,6 +622,9 @@ export class MemoryStore {
   }
 
   status(): StatusResult {
+    // computeStatus consumes the Set as a JS value, not via SQL join —
+    // the unique read path that doesn't need STALE_PROP_IDS_TABLE
+    // materialized. See `materializeStalePropIds` docstring.
     const cache = createStalenessCache();
     const stalePropIds = getStalePropositionIds(this.db, this.sourceRoot, cache);
     return computeStatus(this.db, stalePropIds);
@@ -651,7 +636,7 @@ export class MemoryStore {
     const limit = clampLimit(options?.limit);
     const offset = clampOffset(options?.offset);
 
-    getStalePropositionIds(this.db, this.sourceRoot, cache);
+    materializeStalePropIds(this.db, getStalePropositionIds(this.db, this.sourceRoot, cache));
     const validCount = countValidForEntity(this.db, entity.id);
     const totalCount = (
       this.db.prepare("SELECT COUNT(*) as c FROM about WHERE entity_id = ?").get(entity.id) as {

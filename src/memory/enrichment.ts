@@ -11,12 +11,14 @@ import type { Db } from "./db.js";
 import { STALE_PROP_IDS_TABLE } from "./staleness.js";
 import type { NeighborEntity, StatusResult } from "./types.js";
 
-// Every query below assumes `materializeStalePropIds` has been called
-// on this db handle earlier in the same public read — the store does
-// this once per call right after `getStalePropositionIds`. The filter
-// joins against a shared TEMP TABLE instead of spreading ids inline as
-// parameters, which keeps us clear of SQLite's `SQLITE_MAX_VARIABLE_NUMBER`
-// ceiling and lets the prepared-statement cache reuse one SQL string.
+// Every query below joins against `STALE_PROP_IDS_TABLE`. Callers
+// MUST invoke `materializeStalePropIds(db, stalePropIds)` on the
+// same db handle before any of these helpers runs — otherwise the
+// table reflects the previous read's stale set (or is empty on a
+// fresh connection) and the joins return wrong counts. The TEMP-TABLE
+// shape (vs spreading ids inline as `NOT IN (?, ?, …)`) keeps us
+// clear of SQLite's `SQLITE_MAX_VARIABLE_NUMBER` ceiling and lets
+// the prepared-statement cache reuse one SQL string across calls.
 const NOT_STALE_EXISTS_FILTER = `NOT EXISTS (SELECT 1 FROM ${STALE_PROP_IDS_TABLE} _s WHERE _s.proposition_id = a1.proposition_id)`;
 
 /**

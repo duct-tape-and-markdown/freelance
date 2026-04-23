@@ -228,6 +228,25 @@ export function openDatabase(dbPath: string): Db {
   return retryOnSqliteBusy(() => openDatabaseOnce(dbPath), dbPath);
 }
 
+/**
+ * Run `fn` inside a SQLite transaction. Commits on return, rolls back
+ * on throw. Sync-only — every current caller is sync (`prepare().run()`
+ * / `prepare().get()`) and `node:sqlite` is sync top-to-bottom; matching
+ * that keeps failure modes symmetric and rules out an `await` inside a
+ * transaction interleaving with WAL checkpoint work.
+ */
+export function withTransaction<T>(db: Db, fn: () => T): T {
+  db.exec("BEGIN");
+  try {
+    const result = fn();
+    db.exec("COMMIT");
+    return result;
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+}
+
 function openDatabaseOnce(dbPath: string): Db {
   const inner = new DatabaseSync(dbPath);
   // busy_timeout must be set before journal_mode: switching to WAL takes
