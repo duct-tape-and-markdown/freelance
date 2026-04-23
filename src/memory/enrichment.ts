@@ -1,15 +1,14 @@
 /**
- * Query helpers for MemoryStore's read-side operations.
- *
- * Pure functions that take a database handle plus whatever pre-computed
- * staleness info the caller has, and return enriched query results.
- * Kept stateless so MemoryStore's public methods can orchestrate without
- * these helpers holding any state of their own.
+ * Read-side helpers for MemoryStore: scalar/aggregate queries, bulk
+ * fetches over a db handle, and pure projections from row + pre-fetched
+ * joins to the wire shape. Stateless — every input flows through
+ * parameters, including the staleness cache and source root that the
+ * projection helpers need.
  */
 
-import { countQuery, type Db } from "./db.js";
-import { notStaleExists } from "./staleness.js";
-import type { NeighborEntity, StatusResult } from "./types.js";
+import { countQuery, type Db, sqlPlaceholders } from "./db.js";
+import { isFileChanged, notStaleExists, type StalenessCache } from "./staleness.js";
+import type { NeighborEntity, PropositionInfo, PropositionRow, StatusResult } from "./types.js";
 
 // Every query below joins against `STALE_PROP_IDS_TABLE` via
 // `notStaleExists`. Callers MUST invoke `materializeStalePropIds(db,
@@ -108,4 +107,103 @@ export function computeStatus(db: Db, stalePropIds: Set<string>): StatusResult {
     stale_propositions: totalProps - validCount,
     total_entities: totalEntities,
   };
+}
+
+/**
+ * Bulk-fetch `proposition_sources` for a list of proposition ids and
+ * group by id. Replaces the per-row SELECT pattern (one query per
+ * returned proposition; up to MAX_PAGE_LIMIT round-trips per read).
+ * Caller-supplied `propIds` is bounded by pagination well below
+ * SQLite's `SQLITE_MAX_VARIABLE_NUMBER` ceiling.
+ */
+export function fetchSourcesByProp(
+  db: Db,
+  propIds: readonly string[],
+): Map<string, Array<{ file_path: string; content_hash: string }>> {
+  if (propIds.length === 0) return new Map();
+  const rows = db
+    .prepare(
+      `SELECT proposition_id, file_path, content_hash
+       FROM proposition_sources
+       WHERE proposition_id IN (${sqlPlaceholders(propIds.length)})`,
+    )
+    .all(...propIds) as Array<{
+    proposition_id: string;
+    file_path: string;
+    content_hash: string;
+  }>;
+  return groupByProp(rows, (r) => ({ file_path: r.file_path, content_hash: r.content_hash }));
+}
+
+/** Search-side companion to `fetchSourcesByProp`. */
+export function fetchEntitiesByProp(
+  db: Db,
+  propIds: readonly string[],
+): Map<string, Array<{ id: string; name: string; kind: string | null }>> {
+  if (propIds.length === 0) return new Map();
+  const rows = db
+    .prepare(
+      `SELECT a.proposition_id, e.id, e.name, e.kind
+       FROM entities e
+       JOIN about a ON e.id = a.entity_id
+       WHERE a.proposition_id IN (${sqlPlaceholders(propIds.length)})`,
+    )
+    .all(...propIds) as Array<{
+    proposition_id: string;
+    id: string;
+    name: string;
+    kind: string | null;
+  }>;
+  return groupByProp(rows, (r) => ({ id: r.id, name: r.name, kind: r.kind }));
+}
+
+/**
+ * Project a proposition row + its pre-fetched sources into the
+ * full-shape `PropositionInfo`. The staleness cache amortizes
+ * source-file hashing across propositions sharing the same files in
+ * one read.
+ */
+export function enrichProposition(
+  sourceRoot: string,
+  cache: StalenessCache,
+  row: PropositionRow,
+  propSources: ReadonlyArray<{ file_path: string; content_hash: string }>,
+): PropositionInfo {
+  const sourceFiles = propSources.map((sf) => ({
+    path: sf.file_path,
+    hash: sf.content_hash,
+    current_match: !isFileChanged(sourceRoot, cache, sf.file_path, sf.content_hash),
+  }));
+
+  const valid = sourceFiles.length === 0 || sourceFiles.every((sf) => sf.current_match);
+
+  return {
+    id: row.id,
+    content: row.content,
+    created_at: row.created_at,
+    valid,
+    source_files: sourceFiles,
+  };
+}
+
+/**
+ * Group bulk-fetched rows by `proposition_id` into a `Map<id, T[]>`,
+ * projecting each row to the value shape via `pick`. Local helper for
+ * `fetchSourcesByProp` / `fetchEntitiesByProp` — both run a single
+ * `IN (?, ?, …)` query and need the same per-prop bucketing.
+ */
+function groupByProp<R extends { proposition_id: string }, T>(
+  rows: readonly R[],
+  pick: (row: R) => T,
+): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const r of rows) {
+    let arr = out.get(r.proposition_id);
+    if (!arr) {
+      arr = [];
+      out.set(r.proposition_id, arr);
+    }
+    arr.push(pick(r));
+  }
+  return out;
 }
