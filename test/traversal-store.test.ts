@@ -625,6 +625,46 @@ describe("TraversalStore — stateless JSON", () => {
       }
     });
 
+    it.each([
+      ["json", () => path.join(tmpDir, "resurrection-json")],
+      [":memory:", () => ":memory:"],
+    ])("putIfVersion rejects resurrection of a deleted record (%s)", (_label, dirOrSentinel) => {
+      // Writer A loads, writer B deletes (e.g. `freelance reset
+      // --confirm`), writer A's saveEngine fires putIfVersion.
+      // Without the guard the write proceeds as a fresh create,
+      // silently undoing the operator's explicit clear. The check
+      // is on record existence, not `expectedVersion > 0`: the
+      // `version ?? 0` normalization for pre-1.4 records means
+      // `expectedVersion === 0` can legitimately come from a loaded
+      // legacy record, so zero is not a safe "is this a create"
+      // signal.
+      const backend = openStateStore(dirOrSentinel());
+      try {
+        for (const expectedVersion of [5, 0]) {
+          const record = {
+            id: `tr_ghost_v${expectedVersion}`,
+            stack: [],
+            graphId: "valid-simple",
+            currentNode: "start",
+            stackDepth: 0,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            version: expectedVersion,
+          };
+          try {
+            backend.putIfVersion(record, expectedVersion);
+            throw new Error("expected TRAVERSAL_CONFLICT, none thrown");
+          } catch (e) {
+            expect(e).toBeInstanceOf(EngineError);
+            expect((e as EngineError).code).toBe("TRAVERSAL_CONFLICT");
+          }
+          expect(backend.get(record.id)).toBeUndefined();
+        }
+      } finally {
+        backend.close();
+      }
+    });
+
     it("rejection in one advance doesn't poison subsequent calls on the same id", async () => {
       const t = await store.createTraversal("valid-simple");
       // First advance fails (no matching edge, no contextSet first).
