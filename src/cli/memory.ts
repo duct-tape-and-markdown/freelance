@@ -13,14 +13,7 @@ import { EC, EngineError } from "../errors.js";
 import { EmitBatchSchema } from "../memory/emit-schema.js";
 import type { MemoryStore } from "../memory/index.js";
 import type { PropositionShape } from "../memory/types.js";
-import {
-  CliExit,
-  EXIT,
-  errorEnvelope,
-  handleRuntimeError as handleError,
-  outputJson,
-  parseIntArg,
-} from "./output.js";
+import { CliExit, EXIT, errorEnvelope, outputJson, parseIntArg } from "./output.js";
 
 export function memoryStatus(store: MemoryStore): void {
   outputJson(store.status());
@@ -174,26 +167,24 @@ export function memoryPrune(
  */
 export function memoryReset(dbPath: string, opts: { confirm?: boolean }): void {
   if (!opts.confirm) {
-    outputJson({
-      ...errorEnvelope(
-        EC.CONFIRM_REQUIRED,
-        "memory reset requires --confirm (destructive: deletes memory.db + sidecars).",
-      ),
-      commandName: "memory reset",
-    });
-    process.exit(EXIT.INVALID_INPUT);
+    throw new CliExit(
+      {
+        ...errorEnvelope(
+          EC.CONFIRM_REQUIRED,
+          "memory reset requires --confirm (destructive: deletes memory.db + sidecars).",
+        ),
+        commandName: "memory reset",
+      },
+      EXIT.INVALID_INPUT,
+    );
   }
   const targets = [dbPath, `${dbPath}-shm`, `${dbPath}-wal`];
   const deleted: string[] = [];
-  try {
-    for (const f of targets) {
-      if (fs.existsSync(f)) {
-        fs.unlinkSync(f);
-        deleted.push(f);
-      }
+  for (const f of targets) {
+    if (fs.existsSync(f)) {
+      fs.unlinkSync(f);
+      deleted.push(f);
     }
-  } catch (e) {
-    handleError(e);
   }
   outputJson({ status: "reset", deleted, dbPath });
 }
