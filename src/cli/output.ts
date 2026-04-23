@@ -28,6 +28,28 @@ export function parseIntArg(raw: string | undefined, flag: string): number | und
 }
 
 /**
+ * Shared primitive for CLI flags that accept `key=value` pairs. Splits on
+ * the first `=`, validates a non-empty key, and throws with a consistent
+ * error message across `--meta`, `--filter`, and `context set`. Callers
+ * layer their own value handling on top (string-only for meta, JSON-
+ * coerced for context).
+ */
+export function splitKeyValue(pair: string, flag: string): [string, string] {
+  const eqIdx = pair.indexOf("=");
+  if (eqIdx === -1) {
+    throw new EngineError(
+      `${flag} requires key=value pairs; got "${pair}"`,
+      EC.INVALID_KEY_VALUE_PAIR,
+    );
+  }
+  const key = pair.slice(0, eqIdx);
+  if (!key) {
+    throw new EngineError(`${flag} key is empty in "${pair}"`, EC.INVALID_KEY_VALUE_PAIR);
+  }
+  return [key, pair.slice(eqIdx + 1)];
+}
+
+/**
  * Semantic exit codes. Consumed by the skill body (and any shell-driving
  * client) to branch on outcome without parsing stdout. Categorized by
  * "who can do something about this":

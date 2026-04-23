@@ -125,7 +125,7 @@ Durable contracts surfaced across multiple features. If a new feature extends on
 
 **Hook cross-layer capabilities flow through `runHooksFor` parameters, surfaced via optional `HookContext` fields.** Hooks can't import the store; host capabilities they need (memory reads, meta writes) are threaded as parameters through `engine.runHooksOnArrival` → `runHooksFor` → `HookContext`. `HookRunner` stays stateless — it holds configuration, not capabilities. Adding a new capability = add a parameter on `runHooksFor` and an optional field on `HookContext` (`src/engine/hooks.ts`). Don't open a back door by reaching into the store from inside a hook body.
 
-**`splitKeyValue` is the single CLI primitive for `key=value` flags.** `--meta`, `--filter`, and `context set` all parse `key=value` pairs. One helper in `src/cli/traversals.ts` splits on the first `=`, validates a non-empty key, and throws a consistent error. Value handling (string-only for meta, JSON-coerced for context, byte-capped for meta via `parseMetaPairs`) stays at the caller — domain-specific — but the split + empty-key guard is shared.
+**`splitKeyValue` is the single CLI primitive for `key=value` flags.** `--meta`, `--filter`, and `context set` all parse `key=value` pairs. One helper in `src/cli/output.ts` (co-located with `parseIntArg` and other cross-feature CLI primitives) splits on the first `=`, validates a non-empty key, and throws a consistent error. Value handling (string-only for meta, JSON-coerced for context, byte-capped for meta via `parseMetaPairs`) stays at the caller — domain-specific — but the split + empty-key guard is shared.
 
 ## Project structure
 
