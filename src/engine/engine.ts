@@ -19,9 +19,7 @@ import type {
 } from "../types.js";
 import {
   applyContextUpdates,
-  buildContextSetMinimalResult,
   buildContextSetResult,
-  buildInspectMinimalResult,
   buildInspectResult,
   type ContextCaps,
   DEFAULT_CONTEXT_CAPS,
@@ -473,10 +471,11 @@ export class GraphEngine {
     session.turnCount++;
 
     const nodeDef = def.nodes[session.currentNode];
-    if (options?.responseMode === "minimal") {
-      return buildContextSetMinimalResult(session, nodeDef, Object.keys(updates));
-    }
-    return buildContextSetResult(session, nodeDef);
+    return buildContextSetResult(
+      session,
+      nodeDef,
+      options?.responseMode === "minimal" ? Object.keys(updates) : undefined,
+    );
   }
 
   inspect(
@@ -487,10 +486,11 @@ export class GraphEngine {
   ): InspectResult | InspectMinimalResult {
     const session = this.requireSession();
     const def = this.currentGraphDef();
-    if (options?.responseMode === "minimal") {
-      return buildInspectMinimalResult(detail, session, def, this.stack, historyOpts);
-    }
-    return buildInspectResult(detail, session, def, this.stack, fields, historyOpts);
+    return buildInspectResult(detail, session, def, this.stack, {
+      minimal: options?.responseMode === "minimal",
+      fields,
+      historyOpts,
+    });
   }
 
   reset(): ResetResult {
