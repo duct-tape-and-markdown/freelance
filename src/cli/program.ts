@@ -426,7 +426,10 @@ addWorkflowsOpt(
   // Does NOT open the db — resolves the path from config and unlinks
   // the files directly. This is the recovery path for "old memory.db
   // schema is incompatible with the current build," which would
-  // otherwise block composeRuntime from opening the db at all.
+  // otherwise block composeRuntime from opening the db at all. No
+  // resource to dispose, but the wrapper still carries its weight:
+  // `CliExit` from the `--confirm` refusal and any `EngineError` from
+  // the unlink loop both route through the standard exit plumbing.
   const dirs = resolveGraphsDirs(opts.workflows);
   const fileConfig = loadConfigFromDirs(dirs);
   const memConfig = resolveMemoryConfig(dirs, {}, fileConfig);
@@ -434,7 +437,7 @@ addWorkflowsOpt(
     outputJson({ status: "noop", reason: "memory disabled in config" });
     return;
   }
-  memoryReset(memConfig.db, { confirm: opts.confirm });
+  runCliHandler({ close() {} }, () => memoryReset(memConfig.db, { confirm: opts.confirm }));
 });
 
 // --- Stateless commands ---
