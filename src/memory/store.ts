@@ -5,26 +5,37 @@
  * session state. Sources are attached per-proposition at emit time, so
  * staleness is computed per-proposition against the current filesystem.
  *
- * Read-side query helpers live in ./enrichment.ts (pure functions over a
- * db handle), and provenance staleness checking lives in ./staleness.ts
- * (per-call cache threaded through each public read so cache growth is
- * bounded to a single operation).
+ * Per-domain helpers are pure free functions over a db handle:
+ *  - ./entities.ts — entity lookup, resolution, kind reconciliation
+ *  - ./enrichment.ts — read-side query + projection helpers
+ *  - ./staleness.ts — provenance staleness checking
+ *
+ * MemoryStore is the orchestrator: holds the (lazy) db handle + source
+ * root, exposes the public API, and threads the helpers together.
  */
 
 import crypto from "node:crypto";
 import path from "node:path";
 import { EC, EngineError } from "../errors.js";
 import { hashSourceFile } from "../sources.js";
-import { countQuery, type Db, sqlPlaceholders, withTransaction } from "./db.js";
-import { computeStatus, countNeighbors, countValidForEntity, getNeighbors } from "./enrichment.js";
+import { countQuery, type Db, withTransaction } from "./db.js";
+import {
+  computeStatus,
+  countNeighbors,
+  countValidForEntity,
+  enrichProposition,
+  fetchEntitiesByProp,
+  fetchSourcesByProp,
+  getNeighbors,
+} from "./enrichment.js";
+import { findEntity, resolveEntity } from "./entities.js";
+import { generateId, now } from "./ids.js";
 import { type PruneOptions, type PruneResult, prune as pruneExternal } from "./prune.js";
 import {
   createStalenessCache,
   getStalePropositionIds,
-  isFileChanged,
   notStaleExists,
   primeStaleFilter,
-  type StalenessCache,
 } from "./staleness.js";
 import type {
   BrowseResult,
@@ -64,36 +75,6 @@ function clampLimit(requested: number | undefined): number {
 function clampOffset(requested: number | undefined): number {
   if (requested === undefined || requested < 0) return 0;
   return Math.trunc(requested);
-}
-
-function generateId(): string {
-  return crypto.randomUUID();
-}
-
-function now(): string {
-  return new Date().toISOString();
-}
-
-/**
- * Group bulk-fetched rows by `proposition_id` into a `Map<id, T[]>`,
- * projecting each row to the value shape via `pick`. Local helper for
- * `fetchSourcesByProp` / `fetchEntitiesByProp` — both run a single
- * `IN (?, ?, …)` query and need the same per-prop bucketing.
- */
-function groupByProp<R extends { proposition_id: string }, T>(
-  rows: readonly R[],
-  pick: (row: R) => T,
-): Map<string, T[]> {
-  const out = new Map<string, T[]>();
-  for (const r of rows) {
-    let arr = out.get(r.proposition_id);
-    if (!arr) {
-      arr = [];
-      out.set(r.proposition_id, arr);
-    }
-    arr.push(pick(r));
-  }
-  return out;
 }
 
 /**
@@ -178,8 +159,6 @@ export class MemoryStore {
     return { deleted_propositions: propCount, deleted_entities: entCount };
   }
 
-  // --- Source path resolution ---
-
   /**
    * Validate a source file path against the source root. Returns the stored
    * (relative) path and the resolved absolute path. Throws
@@ -216,8 +195,6 @@ export class MemoryStore {
 
     return { storedPath, resolvedPath };
   }
-
-  // --- Proposition emission ---
 
   emit(propositions: EmitProposition[]): EmitResult {
     const result: EmitResult = {
@@ -297,7 +274,7 @@ export class MemoryStore {
 
         for (const entityName of prop.entities) {
           const kind = prop.entityKinds?.[entityName];
-          const resolved = this.resolveEntity(entityName, kind, warnings);
+          const resolved = resolveEntity(this.db, entityName, kind, warnings);
           propResult.entities.push(resolved);
           insertAbout.run(propId, resolved.id);
           if (resolved.resolution === "created") {
@@ -316,105 +293,6 @@ export class MemoryStore {
     }
     return result;
   }
-
-  // --- Entity resolution ---
-
-  /**
-   * Resolve an entity by name with a provided kind, creating it if missing.
-   *
-   * Kind semantics:
-   * - If the entity doesn't exist: create it with the given kind.
-   * - If the entity exists with a null kind and a kind is provided:
-   *   backfill the kind.
-   * - If the entity exists with a non-null kind that differs from the
-   *   provided kind: keep the existing kind (first-wins) and push an
-   *   `entity_kind_conflict` warning for the caller. The store does not
-   *   reconcile — surfacing the conflict is the feature.
-   */
-  private resolveEntity(
-    name: string,
-    kind: string | undefined,
-    warnings: EmitWarning[],
-  ): { id: string; name: string; resolution: "exact" | "normalized" | "created" } {
-    const exact = this.db.prepare("SELECT id, name, kind FROM entities WHERE name = ?").get(name) as
-      | EntityRow
-      | undefined;
-    if (exact) {
-      this.reconcileKind(exact, kind, warnings);
-      return { id: exact.id, name: exact.name, resolution: "exact" };
-    }
-
-    const normalized = name.toLowerCase().trim();
-    const normMatch = this.db
-      .prepare("SELECT id, name, kind FROM entities WHERE LOWER(TRIM(name)) = ?")
-      .get(normalized) as EntityRow | undefined;
-    if (normMatch) {
-      this.reconcileKind(normMatch, kind, warnings);
-      return { id: normMatch.id, name: normMatch.name, resolution: "normalized" };
-    }
-
-    const id = generateId();
-    this.db
-      .prepare("INSERT INTO entities (id, name, kind, created_at) VALUES (?, ?, ?, ?)")
-      .run(id, name, kind ?? null, now());
-
-    return { id, name, resolution: "created" };
-  }
-
-  /**
-   * First-wins kind policy: if the existing entity has a kind that
-   * disagrees with the provided one, surface a warning but keep the
-   * stored kind. If the existing entity has no kind and one is
-   * provided, backfill. Either branch is a no-op when the caller
-   * didn't specify `kind`.
-   */
-  private reconcileKind(
-    existing: EntityRow,
-    kind: string | undefined,
-    warnings: EmitWarning[],
-  ): void {
-    if (!kind) return;
-    if (existing.kind && existing.kind !== kind) {
-      warnings.push({
-        type: "entity_kind_conflict",
-        entity: existing.name,
-        existingKind: existing.kind,
-        providedKind: kind,
-      });
-      return;
-    }
-    if (!existing.kind) {
-      this.db.prepare("UPDATE entities SET kind = ? WHERE id = ?").run(kind, existing.id);
-    }
-  }
-
-  // --- Entity lookup ---
-
-  private findEntity(idOrName: string): EntityRow {
-    // Precedence: id (PK) > exact name (`idx_entity_name`) >
-    // case-insensitive name (`idx_entity_name_lower`). All three OR
-    // arms are indexable so SQLite's OR-decomposition unions indexed
-    // lookups instead of scanning; the CASE in ORDER BY picks the
-    // winner when more than one matches.
-    const entity = this.db
-      .prepare(
-        `SELECT id, name, kind, created_at FROM entities
-         WHERE id = ?1 OR name = ?1 OR LOWER(name) = LOWER(?1)
-         ORDER BY CASE
-           WHEN id = ?1 THEN 0
-           WHEN name = ?1 THEN 1
-           ELSE 2
-         END
-         LIMIT 1`,
-      )
-      .get(idOrName) as EntityRow | undefined;
-    if (!entity) {
-      throw new EngineError(`Entity not found: ${idOrName}`, EC.ENTITY_NOT_FOUND);
-    }
-    return entity;
-  }
-
-  // --- Query operations ---
 
   browse(options?: {
     name?: string;
@@ -477,7 +355,7 @@ export class MemoryStore {
     options?: { limit?: number; offset?: number; shape?: PropositionShape },
   ): InspectResult {
     const cache = createStalenessCache();
-    const entity = this.findEntity(entityIdOrName);
+    const entity = findEntity(this.db, entityIdOrName);
     const limit = clampLimit(options?.limit);
     const offset = clampOffset(options?.offset);
     const shape: PropositionShape = options?.shape ?? "full";
@@ -522,9 +400,12 @@ export class MemoryStore {
       };
     }
 
-    const sourcesByProp = this.fetchSourcesByProp(propRows.map((p) => p.id));
+    const sourcesByProp = fetchSourcesByProp(
+      this.db,
+      propRows.map((p) => p.id),
+    );
     const propositions = propRows.map((p) =>
-      this.enrichProposition(p, cache, sourcesByProp.get(p.id) ?? []),
+      enrichProposition(this.sourceRoot, cache, p, sourcesByProp.get(p.id) ?? []),
     );
 
     // Deduped source files across the entity's *full* proposition set
@@ -601,9 +482,12 @@ export class MemoryStore {
     if (shape === "minimal") {
       propositions = propRows.map((p) => ({ id: p.id, content: p.content }) as MinimalProposition);
     } else {
-      const sourcesByProp = this.fetchSourcesByProp(propRows.map((p) => p.id));
+      const sourcesByProp = fetchSourcesByProp(
+        this.db,
+        propRows.map((p) => p.id),
+      );
       propositions = propRows.map((p) =>
-        this.enrichProposition(p, cache, sourcesByProp.get(p.id) ?? []),
+        enrichProposition(this.sourceRoot, cache, p, sourcesByProp.get(p.id) ?? []),
       );
     }
 
@@ -630,10 +514,10 @@ export class MemoryStore {
       .all(sanitized, limit) as PropositionRow[];
 
     const propIds = rows.map((p) => p.id);
-    const sourcesByProp = this.fetchSourcesByProp(propIds);
-    const entitiesByProp = this.fetchEntitiesByProp(propIds);
+    const sourcesByProp = fetchSourcesByProp(this.db, propIds);
+    const entitiesByProp = fetchEntitiesByProp(this.db, propIds);
     const propositions = rows.map((p) => ({
-      ...this.enrichProposition(p, cache, sourcesByProp.get(p.id) ?? []),
+      ...enrichProposition(this.sourceRoot, cache, p, sourcesByProp.get(p.id) ?? []),
       entities: entitiesByProp.get(p.id) ?? [],
     }));
 
@@ -650,7 +534,7 @@ export class MemoryStore {
 
   related(entityIdOrName: string, options?: { limit?: number; offset?: number }): RelatedResult {
     const cache = createStalenessCache();
-    const entity = this.findEntity(entityIdOrName);
+    const entity = findEntity(this.db, entityIdOrName);
     const limit = clampLimit(options?.limit);
     const offset = clampOffset(options?.offset);
 
@@ -680,77 +564,6 @@ export class MemoryStore {
       },
       neighbors,
       total,
-    };
-  }
-
-  // --- Proposition enrichment (stays on the class — called by every read) ---
-
-  /**
-   * Bulk-fetch `proposition_sources` rows for a list of proposition
-   * ids in one round-trip and group them by id. Replaces the per-row
-   * SELECT pattern that issued one query per returned proposition;
-   * with `MAX_PAGE_LIMIT = 200` the worst case was 200 round-trips
-   * per read. `propIds.length` is bounded by pagination well below
-   * SQLite's `SQLITE_MAX_VARIABLE_NUMBER` ceiling.
-   */
-  private fetchSourcesByProp(
-    propIds: readonly string[],
-  ): Map<string, Array<{ file_path: string; content_hash: string }>> {
-    if (propIds.length === 0) return new Map();
-    const rows = this.db
-      .prepare(
-        `SELECT proposition_id, file_path, content_hash
-         FROM proposition_sources
-         WHERE proposition_id IN (${sqlPlaceholders(propIds.length)})`,
-      )
-      .all(...propIds) as Array<{
-      proposition_id: string;
-      file_path: string;
-      content_hash: string;
-    }>;
-    return groupByProp(rows, (r) => ({ file_path: r.file_path, content_hash: r.content_hash }));
-  }
-
-  /** Search-side companion to `fetchSourcesByProp`. */
-  private fetchEntitiesByProp(
-    propIds: readonly string[],
-  ): Map<string, Array<{ id: string; name: string; kind: string | null }>> {
-    if (propIds.length === 0) return new Map();
-    const rows = this.db
-      .prepare(
-        `SELECT a.proposition_id, e.id, e.name, e.kind
-         FROM entities e
-         JOIN about a ON e.id = a.entity_id
-         WHERE a.proposition_id IN (${sqlPlaceholders(propIds.length)})`,
-      )
-      .all(...propIds) as Array<{
-      proposition_id: string;
-      id: string;
-      name: string;
-      kind: string | null;
-    }>;
-    return groupByProp(rows, (r) => ({ id: r.id, name: r.name, kind: r.kind }));
-  }
-
-  private enrichProposition(
-    row: PropositionRow,
-    cache: StalenessCache,
-    propSources: ReadonlyArray<{ file_path: string; content_hash: string }>,
-  ): PropositionInfo {
-    const sourceFiles = propSources.map((sf) => ({
-      path: sf.file_path,
-      hash: sf.content_hash,
-      current_match: !isFileChanged(this.sourceRoot, cache, sf.file_path, sf.content_hash),
-    }));
-
-    const valid = sourceFiles.length === 0 || sourceFiles.every((sf) => sf.current_match);
-
-    return {
-      id: row.id,
-      content: row.content,
-      created_at: row.created_at,
-      valid,
-      source_files: sourceFiles,
     };
   }
 }
