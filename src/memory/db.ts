@@ -173,6 +173,24 @@ function migrateDropMtimeColumn(db: Db): void {
 }
 
 /**
+ * FTS5 external-content shadow tables persist on disk; the
+ * `propositions_ai` / `propositions_ad` triggers keep them in sync.
+ * The one exception is a database that had `propositions` rows before
+ * the FTS table existed (or whose FTS was dropped) — `CREATE VIRTUAL
+ * TABLE IF NOT EXISTS` made an empty FTS table and the triggers will
+ * only fire on future inserts, not the existing rows. Detect that one
+ * case via an empty `propositions_fts_idx` against a non-empty
+ * `propositions` and rebuild once. Replaces the prior unconditional
+ * rebuild on every open, which paid O(rows × content-length)
+ * tokenization for nothing on the steady-state path.
+ */
+function migrateRebuildFtsIfEmpty(db: Db): void {
+  if (countQuery(db, "SELECT COUNT(*) FROM propositions_fts_idx") > 0) return;
+  if (countQuery(db, "SELECT COUNT(*) FROM propositions") === 0) return;
+  db.exec("INSERT INTO propositions_fts(propositions_fts) VALUES ('rebuild')");
+}
+
+/**
  * SQLITE_BUSY detection across node:sqlite's error shape. Matches both
  * "database is locked" (short timeout / immediate) and "database is
  * busy" (long-held writer) variants.
@@ -299,10 +317,7 @@ function openDatabaseOnce(dbPath: string): Db {
   // dormant — this drop just makes the schema deterministic across
   // freshly-opened databases.
   inner.exec("DROP TRIGGER IF EXISTS propositions_au");
-
-  // Rebuild FTS index on every open — external content tables don't persist
-  // their index across connections, so we rebuild to ensure search works.
-  db.exec("INSERT INTO propositions_fts(propositions_fts) VALUES ('rebuild')");
+  migrateRebuildFtsIfEmpty(db);
 
   return db;
 }
