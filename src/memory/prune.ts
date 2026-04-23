@@ -32,7 +32,7 @@
 import path from "node:path";
 import { EC, EngineError } from "../errors.js";
 import { hashContent, hashSourceFile } from "../sources.js";
-import type { Db } from "./db.js";
+import { type Db, withTransaction } from "./db.js";
 import { readBlobsAtRefs, resolveGitTopLevel, resolveRef } from "./git.js";
 
 export interface PruneOptions {
@@ -225,11 +225,9 @@ export function prune(db: Db, sourceRoot: string, options: PruneOptions): PruneR
 
   if (dryRun || victims.length === 0) return result;
 
-  // --- 6. Execute. Atomically — partial prune is worse than no prune. ---
   // Sources first, then orphaned propositions. `about` cascades via FK
   // on proposition delete; FTS via the `propositions_ad` trigger.
-  db.exec("BEGIN");
-  try {
+  withTransaction(db, () => {
     const delSource = db.prepare(
       "DELETE FROM proposition_sources WHERE proposition_id = ? AND file_path = ?",
     );
@@ -241,11 +239,7 @@ export function prune(db: Db, sourceRoot: string, options: PruneOptions): PruneR
         `DELETE FROM propositions WHERE id IN (${sqlPlaceholders(hardDeletedPropIds.length)})`,
       ).run(...hardDeletedPropIds);
     }
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
+  });
 
   return result;
 }
