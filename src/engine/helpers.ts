@@ -1,4 +1,13 @@
-import type { NodeDefinition, NodeInfo } from "../types.js";
+import type {
+  AdvanceSuccessMinimalResult,
+  AdvanceSuccessResult,
+  NodeDefinition,
+  NodeInfo,
+  SourceBinding,
+  SubgraphPushedInfo,
+  TransitionInfo,
+  WaitCondition,
+} from "../types.js";
 
 export function cloneContext(ctx: Record<string, unknown>): Record<string, unknown> {
   return structuredClone(ctx);
@@ -46,4 +55,56 @@ export function keysSince(
 export function mergeDelta(base: readonly string[], extra: readonly string[]): readonly string[] {
   if (extra.length === 0) return base;
   return [...new Set([...base, ...extra])];
+}
+
+/**
+ * Base fields every advance-success response shares, regardless of
+ * shape. Branch-specific optionals (subgraphPushed, returnedContext,
+ * waitingOn, etc.) sit here so each caller passes only the fields its
+ * branch uses; the helper spreads them through.
+ */
+export interface BaseAdvanceFields {
+  readonly status: AdvanceSuccessResult["status"];
+  readonly previousNode: string;
+  readonly edgeTaken: string;
+  readonly currentNode: string;
+  readonly validTransitions: readonly TransitionInfo[];
+  readonly subgraphPushed?: SubgraphPushedInfo;
+  readonly completedGraph?: string;
+  readonly returnedContext?: Readonly<Record<string, unknown>>;
+  readonly stackDepth?: number;
+  readonly resumedNode?: string;
+  readonly waitingOn?: readonly WaitCondition[];
+  readonly timeout?: string;
+  readonly timeoutAt?: string;
+  readonly traversalHistory?: readonly string[];
+}
+
+/**
+ * Shape-discriminated: minimal passes `contextDelta`; full passes
+ * `node` + `context` (+ optional `graphSources`). The two variants
+ * share no keys, so `"contextDelta" in mode` narrows cleanly.
+ */
+export type AdvanceResponseMode =
+  | { readonly contextDelta: readonly string[] }
+  | {
+      readonly node: NodeDefinition;
+      readonly context: Record<string, unknown>;
+      readonly graphSources?: readonly SourceBinding[];
+    };
+
+export function buildAdvanceSuccessResult(
+  base: BaseAdvanceFields,
+  mode: AdvanceResponseMode,
+): AdvanceSuccessResult | AdvanceSuccessMinimalResult {
+  if ("contextDelta" in mode) {
+    return { ...base, isError: false, contextDelta: mode.contextDelta };
+  }
+  return {
+    ...base,
+    isError: false,
+    node: toNodeInfo(mode.node),
+    context: cloneContext(mode.context),
+    ...(mode.graphSources?.length ? { graphSources: mode.graphSources } : {}),
+  };
 }
