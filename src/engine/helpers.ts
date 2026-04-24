@@ -1,4 +1,7 @@
+import type { GateBlockCode } from "../error-codes.js";
 import type {
+  AdvanceErrorMinimalResult,
+  AdvanceErrorResult,
   AdvanceSuccessMinimalResult,
   AdvanceSuccessResult,
   NodeDefinition,
@@ -104,6 +107,60 @@ export function buildAdvanceSuccessResult(
     ...base,
     isError: false,
     node: toNodeInfo(mode.node),
+    context: cloneContext(mode.context),
+    ...(mode.graphSources?.length ? { graphSources: mode.graphSources } : {}),
+  };
+}
+
+/**
+ * Base fields every gate-block error response shares. `reason`
+ * duplicates `error.message` for pre-#95 readers — see
+ * `AdvanceErrorResult`'s docstring. Mirrors `BaseAdvanceFields` for
+ * the success path.
+ */
+export interface BaseAdvanceErrorFields {
+  readonly code: GateBlockCode;
+  readonly message: string;
+  readonly currentNode: string;
+  readonly validTransitions: readonly TransitionInfo[];
+}
+
+/**
+ * Shape-discriminated: minimal passes `contextDelta`; full passes
+ * `context` (+ optional `graphSources`). Same discriminator pattern
+ * as `AdvanceResponseMode` for the success path.
+ */
+export type AdvanceErrorResponseMode =
+  | { readonly contextDelta: readonly string[] }
+  | {
+      readonly context: Record<string, unknown>;
+      readonly graphSources?: readonly SourceBinding[];
+    };
+
+/**
+ * Error-side twin of `buildAdvanceSuccessResult`. Gate-block
+ * responses match the thrown-error envelope (`isError: true` + `error:
+ * { code, message, kind }`) so the CLI writes one wire format for
+ * every advance failure — see issue #95 + `AdvanceErrorResult`'s
+ * docstring.
+ */
+export function buildAdvanceErrorResult(
+  base: BaseAdvanceErrorFields,
+  mode: AdvanceErrorResponseMode,
+): AdvanceErrorResult | AdvanceErrorMinimalResult {
+  const envelope = {
+    status: "error" as const,
+    isError: true as const,
+    error: { code: base.code, message: base.message, kind: "blocked" as const },
+    currentNode: base.currentNode,
+    reason: base.message,
+    validTransitions: base.validTransitions,
+  };
+  if ("contextDelta" in mode) {
+    return { ...envelope, contextDelta: mode.contextDelta };
+  }
+  return {
+    ...envelope,
     context: cloneContext(mode.context),
     ...(mode.graphSources?.length ? { graphSources: mode.graphSources } : {}),
   };
