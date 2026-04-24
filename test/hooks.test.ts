@@ -6,6 +6,7 @@ import { BUILTIN_HOOKS } from "../src/engine/builtin-hooks.js";
 import type { HookFn } from "../src/engine/hooks.js";
 import { HookRunner, resolveHookArgs } from "../src/engine/hooks.js";
 import { GraphEngine } from "../src/engine/index.js";
+import { EngineError } from "../src/errors.js";
 import type { HookResolutionMap } from "../src/hook-resolution.js";
 import { resolveGraphHooks, validateHookImports } from "../src/hook-resolution.js";
 import { loadGraphs, loadSingleGraph } from "../src/loader.js";
@@ -322,7 +323,25 @@ describe("hook runner — end-to-end via engine", () => {
     // Default runner (no overrides) → uses real BUILTIN_HOOKS, no memoryStore.
     const runner = new HookRunner({});
     const engine = new GraphEngine(graphs, { hookRunner: runner });
-    await expect(engine.start("builtin-no-store")).rejects.toThrow(/requires memory to be enabled/);
+    try {
+      await engine.start("builtin-no-store");
+      expect.fail("expected EngineError");
+    } catch (e) {
+      // HookRunner preserves EngineError codes thrown by built-ins
+      // instead of wrapping as HOOK_FAILED — lets the skill branch
+      // on the catalogued MEMORY_DISABLED recovery (point operator
+      // at config.yml) rather than the generic script-hook-blew-up
+      // fallback.
+      expect(e).toBeInstanceOf(EngineError);
+      expect((e as EngineError).code).toBe("MEMORY_DISABLED");
+      expect((e as EngineError).message).toMatch(/requires memory to be enabled/);
+      // Hook attribution still attaches on the pass-through path.
+      expect((e as EngineError).context?.hook).toEqual({
+        name: "memory_status",
+        nodeId: "start",
+        index: 0,
+      });
+    }
   });
 
   it("throws a clear error when script returns non-object", async () => {

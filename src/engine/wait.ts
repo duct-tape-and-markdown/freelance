@@ -33,7 +33,7 @@ export function evaluateWaitConditions(
 
 export function checkWaitTimeout(session: SessionState, nodeDef: NodeDefinition): boolean {
   if (!nodeDef.timeout || !session.waitArrivedAt) return false;
-  if (session.context._waitTimedOut === true) return true;
+  if (session.waitTimedOutAt) return true;
 
   const timeoutMs = parseDuration(nodeDef.timeout);
   if (timeoutMs === null) return false;
@@ -41,7 +41,7 @@ export function checkWaitTimeout(session: SessionState, nodeDef: NodeDefinition)
   const arrivedAt = new Date(session.waitArrivedAt).getTime();
   const now = Date.now();
   if (now >= arrivedAt + timeoutMs) {
-    session.context._waitTimedOut = true;
+    session.waitTimedOutAt = new Date(now).toISOString();
     return true;
   }
   return false;
