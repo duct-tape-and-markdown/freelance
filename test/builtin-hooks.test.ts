@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BUILTIN_HOOK_NAMES, BUILTIN_HOOKS, isBuiltinHook } from "../src/engine/builtin-hooks.js";
 import type { HookContext } from "../src/engine/hooks.js";
+import { EngineError } from "../src/errors.js";
 import { openDatabase } from "../src/memory/db.js";
 import { MemoryStore } from "../src/memory/store.js";
 
@@ -112,11 +113,16 @@ describe("memory_status built-in hook", () => {
     expect(result.total_propositions).toBe(0);
   });
 
-  it("throws a clear error when ctx.memory is undefined", async () => {
+  it("throws EngineError(MEMORY_DISABLED) when ctx.memory is undefined", async () => {
     const memoryStatus = BUILTIN_HOOKS.get("memory_status")!;
-    await expect(memoryStatus(makeCtx())).rejects.toThrow(
-      /memory_status.*requires memory to be enabled/,
-    );
+    try {
+      await memoryStatus(makeCtx());
+      expect.fail("expected EngineError");
+    } catch (e) {
+      expect(e).toBeInstanceOf(EngineError);
+      expect((e as EngineError).code).toBe("MEMORY_DISABLED");
+      expect((e as EngineError).message).toMatch(/requires memory to be enabled/);
+    }
   });
 });
 

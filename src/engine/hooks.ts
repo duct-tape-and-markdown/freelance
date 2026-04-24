@@ -188,6 +188,14 @@ export class HookRunner {
       try {
         result = await withTimeout(fn(hookCtx), this.hookTimeoutMs, resolved.call, nodeId);
       } catch (e) {
+        // Pass EngineError codes through (MEMORY_DISABLED, INTERNAL,
+        // etc.); wrapping as HOOK_FAILED would collapse the catalogued
+        // recovery. See docs/decisions.md § "Error envelope is the
+        // wire contract".
+        if (e instanceof EngineError) {
+          e.context = { ...e.context, hook: { name: resolved.call, nodeId, index: i } };
+          throw e;
+        }
         const message = e instanceof Error ? e.message : String(e);
         throw new EngineError(
           `onEnter hook "${resolved.call}" on node "${nodeId}" failed: ${message}`,

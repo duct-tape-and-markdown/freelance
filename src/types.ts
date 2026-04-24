@@ -350,6 +350,15 @@ export interface SessionState {
   turnCount: number;
   startedAt: string;
   waitArrivedAt?: string;
+  /**
+   * ISO timestamp of when `checkWaitTimeout` first observed that
+   * `waitArrivedAt + timeout` was in the past. Engine-internal —
+   * lives on SessionState rather than `context` so it doesn't ride
+   * the context wire (full-mode echoes) or slip past `strictContext`,
+   * byte caps, or the `contextHistory` audit trail. `waitStatus:
+   * "timed_out"` is the public signal.
+   */
+  waitTimedOutAt?: string;
 }
 
 // --- Traversal management types ---

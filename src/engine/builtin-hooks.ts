@@ -6,19 +6,22 @@
  * missing name fails the graph load, same as a missing script file.
  */
 
+import { EC, EngineError } from "../errors.js";
 import type { PropositionShape } from "../memory/types.js";
 import type { HookContext, HookFn, HookMemoryAccess } from "./hooks.js";
 
 /**
  * Guard: every built-in memory hook needs live memory access. If the
  * host wired a HookRunner without memory (memory off), fail at first
- * invocation with a message that points the user at the config switch.
+ * invocation with the catalogued `MEMORY_DISABLED` code so the skill's
+ * structured recovery fires (point operator at config.yml).
  */
 function requireMemory(ctx: HookContext, opName: string): HookMemoryAccess {
   if (!ctx.memory) {
-    throw new Error(
+    throw new EngineError(
       `Built-in hook "${opName}" on node "${ctx.nodeId}" requires memory to be enabled. ` +
         `Set memory.enabled: true in config.yml, or replace this hook with a local script.`,
+      EC.MEMORY_DISABLED,
     );
   }
   return ctx.memory;
@@ -205,9 +208,10 @@ const memoryBySource: HookFn = async (ctx) => {
 // collector which the store applies before persisting the record.
 const metaSet: HookFn = async (ctx) => {
   if (!ctx.setMeta) {
-    throw new Error(
+    throw new EngineError(
       `Built-in hook "meta_set" on node "${ctx.nodeId}" needs a meta collector — ` +
         `the host did not thread one. Internal bug; please report.`,
+      EC.INTERNAL,
     );
   }
   const updates: Record<string, string> = {};

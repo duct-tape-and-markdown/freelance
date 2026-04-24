@@ -237,7 +237,9 @@ describe("wait nodes — timeout", () => {
     // Inspect should show timed_out
     const inspect = engine.inspect("position") as InspectPositionResult;
     expect(inspect.waitStatus).toBe("timed_out");
-    expect(inspect.context._waitTimedOut).toBe(true);
+    // The timeout flag lives on SessionState (waitTimedOutAt), not in
+    // context — waitStatus is the public wire signal.
+    expect(inspect.context._waitTimedOut).toBeUndefined();
   });
 
   it("advance is unblocked after timeout", async () => {
@@ -260,7 +262,7 @@ describe("wait nodes — timeout", () => {
     }
   });
 
-  it("sets _waitTimedOut in context on timeout", async () => {
+  it("stamps waitTimedOutAt on SessionState when the timeout fires", async () => {
     const engine = makeEngine("valid-wait.workflow.yaml");
     await engine.start("valid-wait");
     await engine.advance("submitted");
@@ -270,10 +272,13 @@ describe("wait nodes — timeout", () => {
     stack[0].waitArrivedAt = new Date(Date.now() - 25 * 3600 * 1000).toISOString();
     engine.restoreStack(stack);
 
-    // Trigger timeout check via advance
-    engine.contextSet({ ciPassed: false, coverageReport: "n/a" });
-    await engine.advance("failed");
-    // _waitTimedOut should have been set — we advanced to fix-ci
+    // Inspect triggers checkWaitTimeout via computeWaitInfo
+    engine.inspect("position");
+    const after = engine.getStack();
+    expect(after[0].waitTimedOutAt).toBeDefined();
+    // Flag lives on SessionState, not context — confirms no bleed
+    // into the wire shape or past strictContext / caps / contextHistory.
+    expect(after[0].context._waitTimedOut).toBeUndefined();
   });
 
   it("does not timeout before duration elapses", async () => {
