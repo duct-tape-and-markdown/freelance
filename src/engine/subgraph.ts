@@ -1,18 +1,12 @@
 import { EC, EngineError } from "../errors.js";
 import { evaluate } from "../evaluator.js";
 import { resolveContextDefaults } from "../loader.js";
-import type {
-  AdvanceSuccessMinimalResult,
-  AdvanceSuccessResult,
-  NodeDefinition,
-  SessionState,
-  ValidatedGraph,
-} from "../types.js";
-import { cloneContext, keysSince, mergeDelta, toNodeInfo } from "./helpers.js";
+import type { NodeDefinition, SessionState, ValidatedGraph } from "../types.js";
+import { buildAdvanceSuccessResult, keysSince, mergeDelta } from "./helpers.js";
 import type { HookRunner, MetaCollector } from "./hooks.js";
 import { evaluateTransitions } from "./transitions.js";
 
-type SubgraphResult = AdvanceSuccessResult | AdvanceSuccessMinimalResult;
+type SubgraphResult = ReturnType<typeof buildAdvanceSuccessResult>;
 
 interface PushSubgraphArgs {
   stack: SessionState[];
@@ -70,28 +64,22 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Subgrap
       }
       const parentDef = parentGraph.definition;
       const validTransitions = evaluateTransitions(newNodeDef, parentSession.context);
-      if (minimal) {
-        return {
+      return buildAdvanceSuccessResult(
+        {
           status: "advanced",
-          isError: false,
           previousNode,
           edgeTaken: edge,
           currentNode: parentSession.currentNode,
           validTransitions,
-          contextDelta,
-        } satisfies AdvanceSuccessMinimalResult;
-      }
-      return {
-        status: "advanced",
-        isError: false,
-        previousNode,
-        edgeTaken: edge,
-        currentNode: parentSession.currentNode,
-        node: toNodeInfo(newNodeDef),
-        validTransitions,
-        context: cloneContext(parentSession.context),
-        ...(parentDef.sources?.length ? { graphSources: parentDef.sources } : {}),
-      };
+        },
+        minimal
+          ? { contextDelta }
+          : {
+              node: newNodeDef,
+              context: parentSession.context,
+              graphSources: parentDef.sources,
+            },
+      );
     }
   }
 
@@ -164,34 +152,28 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Subgrap
     stackDepth: stack.length,
   };
 
-  if (minimal) {
-    return {
+  return buildAdvanceSuccessResult(
+    {
       status: "advanced",
-      isError: false,
       previousNode,
       edgeTaken: edge,
       currentNode: childDef.startNode,
       subgraphPushed,
       validTransitions,
-      contextDelta: mergeDelta(
-        contextDelta,
-        keysSince(activeSession.contextHistory, childWritesBefore),
-      ),
-    } satisfies AdvanceSuccessMinimalResult;
-  }
-
-  return {
-    status: "advanced",
-    isError: false,
-    previousNode,
-    edgeTaken: edge,
-    currentNode: childDef.startNode,
-    subgraphPushed,
-    node: toNodeInfo(childStartNode),
-    validTransitions,
-    context: cloneContext(activeSession.context),
-    ...(childDef.sources?.length ? { graphSources: childDef.sources } : {}),
-  };
+    },
+    minimal
+      ? {
+          contextDelta: mergeDelta(
+            contextDelta,
+            keysSince(activeSession.contextHistory, childWritesBefore),
+          ),
+        }
+      : {
+          node: childStartNode,
+          context: activeSession.context,
+          graphSources: childDef.sources,
+        },
+  );
 }
 
 interface PopSubgraphArgs {
@@ -238,10 +220,9 @@ export function popSubgraph(args: PopSubgraphArgs): SubgraphResult {
 
   const validTransitions = evaluateTransitions(parentNodeDef, parentSession.context);
 
-  if (minimal) {
-    return {
+  return buildAdvanceSuccessResult(
+    {
       status: "subgraph_complete",
-      isError: false,
       previousNode,
       edgeTaken: edge,
       currentNode: parentSession.currentNode,
@@ -250,23 +231,15 @@ export function popSubgraph(args: PopSubgraphArgs): SubgraphResult {
       stackDepth: stack.length,
       resumedNode: parentSession.currentNode,
       validTransitions,
-      contextDelta: mergeDelta(contextDelta, Object.keys(returnedContext)),
-    } satisfies AdvanceSuccessMinimalResult;
-  }
-
-  return {
-    status: "subgraph_complete",
-    isError: false,
-    previousNode,
-    edgeTaken: edge,
-    currentNode: parentSession.currentNode,
-    completedGraph: completedGraphId,
-    returnedContext,
-    stackDepth: stack.length,
-    resumedNode: parentSession.currentNode,
-    node: toNodeInfo(parentNodeDef),
-    validTransitions,
-    context: cloneContext(parentSession.context),
-    ...(parentDef.sources?.length ? { graphSources: parentDef.sources } : {}),
-  };
+    },
+    minimal
+      ? {
+          contextDelta: mergeDelta(contextDelta, Object.keys(returnedContext)),
+        }
+      : {
+          node: parentNodeDef,
+          context: parentSession.context,
+          graphSources: parentDef.sources,
+        },
+  );
 }

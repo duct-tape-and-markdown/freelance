@@ -3,8 +3,6 @@ import { resolveContextDefaults } from "../loader.js";
 import type {
   AdvanceMinimalResult,
   AdvanceResult,
-  AdvanceSuccessMinimalResult,
-  AdvanceSuccessResult,
   ContextSetMinimalResult,
   ContextSetResult,
   GraphListResult,
@@ -35,7 +33,7 @@ import {
   checkWaitBlocking,
   type GateOptions,
 } from "./gates.js";
-import { cloneContext, keysSince, toNodeInfo } from "./helpers.js";
+import { buildAdvanceSuccessResult, cloneContext, keysSince, toNodeInfo } from "./helpers.js";
 import type { HookRunner, MetaCollector } from "./hooks.js";
 import { maybePushSubgraph, popSubgraph } from "./subgraph.js";
 import { evaluateTransitions } from "./transitions.js";
@@ -370,34 +368,25 @@ export class GraphEngine {
       const waitConditions = evaluateWaitConditions(newNodeDef.waitOn, session.context);
       const timeoutAt = computeTimeoutAt(session.waitArrivedAt, newNodeDef.timeout);
 
-      if (minimal) {
-        return {
+      return buildAdvanceSuccessResult(
+        {
           status: "waiting",
-          isError: false,
           previousNode,
           edgeTaken: edge,
           currentNode: session.currentNode,
           validTransitions,
-          contextDelta,
           waitingOn: waitConditions,
           ...(newNodeDef.timeout ? { timeout: newNodeDef.timeout } : {}),
           ...(timeoutAt ? { timeoutAt } : {}),
-        } satisfies AdvanceSuccessMinimalResult;
-      }
-      return {
-        status: "waiting",
-        isError: false,
-        previousNode,
-        edgeTaken: edge,
-        currentNode: session.currentNode,
-        node: toNodeInfo(newNodeDef),
-        validTransitions,
-        context: cloneContext(session.context),
-        waitingOn: waitConditions,
-        ...(newNodeDef.timeout ? { timeout: newNodeDef.timeout } : {}),
-        ...(timeoutAt ? { timeoutAt } : {}),
-        ...(def.sources?.length ? { graphSources: def.sources } : {}),
-      } satisfies AdvanceSuccessResult;
+        },
+        minimal
+          ? { contextDelta }
+          : {
+              node: newNodeDef,
+              context: session.context,
+              graphSources: def.sources,
+            },
+      );
     }
 
     // Standard advance or terminal
@@ -405,29 +394,23 @@ export class GraphEngine {
       ? [...session.history.map((h) => h.node), session.currentNode]
       : undefined;
 
-    const result: AdvanceSuccessResult | AdvanceSuccessMinimalResult = minimal
-      ? ({
-          status: isTerminal ? "complete" : "advanced",
-          isError: false,
-          previousNode,
-          edgeTaken: edge,
-          currentNode: session.currentNode,
-          validTransitions,
-          contextDelta,
-          ...(terminalHistory ? { traversalHistory: terminalHistory } : {}),
-        } satisfies AdvanceSuccessMinimalResult)
-      : ({
-          status: isTerminal ? "complete" : "advanced",
-          isError: false,
-          previousNode,
-          edgeTaken: edge,
-          currentNode: session.currentNode,
-          node: toNodeInfo(newNodeDef),
-          validTransitions,
-          context: cloneContext(session.context),
-          ...(terminalHistory ? { traversalHistory: terminalHistory } : {}),
-          ...(def.sources?.length ? { graphSources: def.sources } : {}),
-        } satisfies AdvanceSuccessResult);
+    const result = buildAdvanceSuccessResult(
+      {
+        status: isTerminal ? "complete" : "advanced",
+        previousNode,
+        edgeTaken: edge,
+        currentNode: session.currentNode,
+        validTransitions,
+        ...(terminalHistory ? { traversalHistory: terminalHistory } : {}),
+      },
+      minimal
+        ? { contextDelta }
+        : {
+            node: newNodeDef,
+            context: session.context,
+            graphSources: def.sources,
+          },
+    );
 
     // Root terminal GC: clear the stack so TraversalStore.saveEngine
     // deletes the persisted record. The response is already snapshotted
