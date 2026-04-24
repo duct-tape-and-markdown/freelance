@@ -10,6 +10,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { EC } from "../errors.js";
 import { loadSingleGraph } from "../loader.js";
 import type { GraphDefinition } from "../types.js";
 import { EXIT, fatal, outputJson } from "./output.js";
@@ -95,14 +96,14 @@ function loadDefinition(filePath: string): GraphDefinition {
   const resolved = path.resolve(filePath);
 
   if (!fs.existsSync(resolved)) {
-    fatal(`File not found: ${resolved}`, EXIT.NOT_FOUND, "FILE_NOT_FOUND");
+    fatal(`File not found: ${resolved}`, EXIT.NOT_FOUND, EC.FILE_NOT_FOUND);
   }
 
   if (!resolved.endsWith(".workflow.yaml")) {
     fatal(
       `File must have .workflow.yaml extension: ${path.basename(resolved)}`,
       EXIT.INVALID_INPUT,
-      "INVALID_EXTENSION",
+      EC.INVALID_EXTENSION,
     );
   }
 
@@ -113,7 +114,7 @@ function loadDefinition(filePath: string): GraphDefinition {
     fatal(
       `Failed to load graph: ${err instanceof Error ? err.message : err}`,
       EXIT.VALIDATION,
-      "GRAPH_LOAD_FAILED",
+      EC.GRAPH_LOAD_FAILED,
     );
   }
 }

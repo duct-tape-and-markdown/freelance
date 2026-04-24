@@ -12,6 +12,7 @@
 
 import path from "node:path";
 import { loadConfig, loadConfigFromDirs, updateLocalConfig } from "../config.js";
+import { EC } from "../errors.js";
 import { resolveGraphsDirs } from "../graph-resolution.js";
 import { EXIT, fatal, outputJson } from "./output.js";
 
@@ -41,7 +42,7 @@ export function configSetLocal(
     fatal(
       "No .freelance directory found. Run `freelance init` first.",
       EXIT.INVALID_INPUT,
-      "NO_FREELANCE_DIR",
+      EC.NO_FREELANCE_DIR,
     );
   }
 
@@ -70,7 +71,7 @@ export function configSetLocal(
       fatal(
         `memory.enabled must be "true" or "false", got "${value}"`,
         EXIT.INVALID_INPUT,
-        "INVALID_CONFIG_VALUE",
+        EC.INVALID_CONFIG_VALUE,
       );
     }
     const enabled = value === "true";
@@ -81,7 +82,7 @@ export function configSetLocal(
     fatal(
       `Unknown config key: ${key}. Supported: ${SETTABLE_KEYS.join(", ")}`,
       EXIT.INVALID_INPUT,
-      "UNKNOWN_CONFIG_KEY",
+      EC.UNKNOWN_CONFIG_KEY,
     );
   }
 

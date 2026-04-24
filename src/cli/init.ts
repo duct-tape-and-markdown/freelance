@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { EC } from "../errors.js";
 import { allClientChoices, type Client, clientDisplayName, detectClients } from "./clients.js";
 import { displayPath, EXIT, fatal, homeDir, info, outputJson } from "./output.js";
 import { ensureFreelanceDir } from "./setup.js";
@@ -337,7 +338,7 @@ export async function init(options: InitOptions): Promise<void> {
     const templateFile = path.join(templatesDir, `${starter}.workflow.yaml`);
 
     if (!fs.existsSync(templateFile)) {
-      fatal(`Template not found: ${starter}.workflow.yaml`, EXIT.NOT_FOUND, "TEMPLATE_NOT_FOUND");
+      fatal(`Template not found: ${starter}.workflow.yaml`, EXIT.NOT_FOUND, EC.TEMPLATE_NOT_FOUND);
     }
 
     const destFile = path.join(graphsDir, `${starter}.workflow.yaml`);
@@ -377,7 +378,7 @@ export async function init(options: InitOptions): Promise<void> {
   if (skillPath && !fs.existsSync(skillPath)) {
     const skillTemplate = path.join(templatesDir, "skills", "freelance", "SKILL.md");
     if (!fs.existsSync(skillTemplate)) {
-      fatal(`Skill template not found: ${skillTemplate}`, EXIT.NOT_FOUND, "TEMPLATE_NOT_FOUND");
+      fatal(`Skill template not found: ${skillTemplate}`, EXIT.NOT_FOUND, EC.TEMPLATE_NOT_FOUND);
     }
     fs.mkdirSync(path.dirname(skillPath), { recursive: true });
     fs.copyFileSync(skillTemplate, skillPath);
@@ -405,7 +406,7 @@ async function loadPrompts() {
           "  Install: npm install @inquirer/prompts\n" +
           "  Or skip prompts: freelance init --yes",
         EXIT.INTERNAL,
-        "MISSING_OPTIONAL_DEP",
+        EC.MISSING_OPTIONAL_DEP,
       );
     }
     throw e;

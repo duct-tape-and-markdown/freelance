@@ -528,7 +528,7 @@ program
       fatal(
         `Unknown shell: ${shell}. Supported: ${supported.join(", ")}`,
         EXIT.INVALID_INPUT,
-        "UNKNOWN_SHELL",
+        EC.UNKNOWN_SHELL,
       );
     }
     const completionFile = path.resolve(
@@ -540,7 +540,11 @@ program
       `freelance.${shell}`,
     );
     if (!fs.existsSync(completionFile)) {
-      fatal(`Completion file not found: ${completionFile}`, EXIT.NOT_FOUND, "COMPLETION_NOT_FOUND");
+      fatal(
+        `Completion file not found: ${completionFile}`,
+        EXIT.NOT_FOUND,
+        EC.COMPLETION_NOT_FOUND,
+      );
     }
     process.stdout.write(fs.readFileSync(completionFile, "utf-8"));
   });

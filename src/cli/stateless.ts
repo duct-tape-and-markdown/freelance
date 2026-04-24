@@ -23,7 +23,7 @@ import { EXIT, fatal, handleRuntimeError as handleError, outputJson } from "./ou
 export function guideShow(topic?: string): void {
   const result = getGuide(topic);
   if ("error" in result) {
-    fatal(result.error, EXIT.NOT_FOUND, "TOPIC_NOT_FOUND");
+    fatal(result.error, EXIT.NOT_FOUND, EC.TOPIC_NOT_FOUND);
   }
   outputJson(result);
 }
@@ -62,7 +62,7 @@ export function sourcesCheck(sourceOpts: SourceOptions, paths: string[]): void {
         fatal(
           `invalid format "${p}" — expected path:hash or path:section:hash`,
           EXIT.INVALID_INPUT,
-          "INVALID_SOURCE_FORMAT",
+          EC.INVALID_SOURCE_FORMAT,
         );
       }
     }
@@ -79,7 +79,7 @@ export function sourcesValidate(
 ): void {
   try {
     if (graphsDirs.length === 0) {
-      fatal("no graph directories found.", EXIT.NOT_FOUND, "NO_GRAPHS_DIR");
+      fatal("no graph directories found.", EXIT.NOT_FOUND, EC.NO_GRAPHS_DIR);
     }
 
     const fileMap = new Map<string, ReturnType<typeof loadSingleGraph>["definition"]>();
@@ -103,7 +103,7 @@ export function sourcesValidate(
       fatal(
         "no loadable *.workflow.yaml files in the configured graphs directories",
         EXIT.NOT_FOUND,
-        "NO_GRAPHS_LOADED",
+        EC.NO_GRAPHS_LOADED,
       );
     }
 

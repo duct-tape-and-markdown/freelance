@@ -143,9 +143,14 @@ function mergeConfigs(
     const baseMem = base.memory ?? {};
     // `keep` concatenates like top-level `workflows` so plugin/local
     // config can extend the preserve set without clobbering project
-    // defaults.
+    // defaults. Dedup on merge — refs match by exact string, so
+    // `[main]` + `[main]` yielded `[main, main]` previously and
+    // showed twice in `freelance config show`. Harmless at resolve
+    // time (same SHA), cosmetically ugly.
     const mergedPrune = overlay.memory.prune?.keep?.length
-      ? { keep: [...(baseMem.prune?.keep ?? []), ...overlay.memory.prune.keep] }
+      ? {
+          keep: [...new Set([...(baseMem.prune?.keep ?? []), ...overlay.memory.prune.keep])],
+        }
       : baseMem.prune;
     merged.memory = {
       ...baseMem,
