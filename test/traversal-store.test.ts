@@ -429,15 +429,18 @@ describe("TraversalStore — stateless JSON", () => {
   });
 
   describe("loadEngine orphan recovery hint (#136)", () => {
-    it("throws GRAPH_NOT_FOUND with a reset hint when the graph is gone", async () => {
+    it("throws TRAVERSAL_ORPHANED with envelopeSlots.traversalId when the graph is gone", async () => {
       const t = await store.createTraversal("valid-simple");
       const pruned = new Map(graphs);
       pruned.delete("valid-simple");
       store.updateGraphs(pruned);
 
+      // The catalog recovery verb is `reset {traversalId} --confirm`;
+      // the throw site supplies `traversalId` via envelopeSlots so the
+      // skill's interpolated render is a runnable command.
       await expect(store.advance(t.traversalId, "work-done")).rejects.toMatchObject({
-        code: "GRAPH_NOT_FOUND",
-        message: expect.stringContaining(`freelance reset ${t.traversalId} --confirm`),
+        code: "TRAVERSAL_ORPHANED",
+        context: { envelopeSlots: { traversalId: t.traversalId } },
       });
     });
 
@@ -628,7 +631,7 @@ describe("TraversalStore — stateless JSON", () => {
     it.each([
       ["json", () => path.join(tmpDir, "resurrection-json")],
       [":memory:", () => ":memory:"],
-    ])("putIfVersion rejects resurrection of a deleted record (%s)", (_label, dirOrSentinel) => {
+    ])("putIfVersion rejects resurrection of a deleted record with TRAVERSAL_NOT_FOUND (%s)", (_label, dirOrSentinel) => {
       // Writer A loads, writer B deletes (e.g. `freelance reset
       // --confirm`), writer A's saveEngine fires putIfVersion.
       // Without the guard the write proceeds as a fresh create,
@@ -638,6 +641,11 @@ describe("TraversalStore — stateless JSON", () => {
       // `expectedVersion === 0` can legitimately come from a loaded
       // legacy record, so zero is not a safe "is this a create"
       // signal.
+      //
+      // The wire-level code is TRAVERSAL_NOT_FOUND (kind: clear), not
+      // TRAVERSAL_CONFLICT (kind: retry): the dead handle isn't
+      // recoverable by retrying, so the skill drops it instead of
+      // looping. See #192 for the rationale.
       const backend = openStateStore(dirOrSentinel());
       try {
         for (const expectedVersion of [5, 0]) {
@@ -653,10 +661,10 @@ describe("TraversalStore — stateless JSON", () => {
           };
           try {
             backend.putIfVersion(record, expectedVersion);
-            throw new Error("expected TRAVERSAL_CONFLICT, none thrown");
+            throw new Error("expected TRAVERSAL_NOT_FOUND, none thrown");
           } catch (e) {
             expect(e).toBeInstanceOf(EngineError);
-            expect((e as EngineError).code).toBe("TRAVERSAL_CONFLICT");
+            expect((e as EngineError).code).toBe("TRAVERSAL_NOT_FOUND");
           }
           expect(backend.get(record.id)).toBeUndefined();
         }

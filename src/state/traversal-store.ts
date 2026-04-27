@@ -399,16 +399,15 @@ export class TraversalStore {
     if (ids.length === 1) return ids[0];
 
     // Ambiguous: only now do we need the full records to build a useful error.
-    const records = this.state.list();
-    const summary = records
-      .map((t) => {
-        const base = `${t.id} (${t.graphId} @ ${t.currentNode})`;
-        return t.meta ? `${base} ${JSON.stringify(t.meta)}` : base;
-      })
-      .join(", ");
+    // `state.list()` is sorted updatedAt-desc, so records[0] populates the
+    // `{traversalId}` slot in RECOVERY[AMBIGUOUS_TRAVERSAL].verb. `candidates`
+    // mirrors `freelance status`'s activeTraversals shape so a skill that
+    // parses one parses the other.
+    const candidates = this.state.list().map(recordToInfo);
     throw new EngineError(
-      `Multiple active traversals. Specify traversalId. Active: ${summary}`,
+      `Multiple active traversals (${candidates.length}). Specify --traversal <id>.`,
       EC.AMBIGUOUS_TRAVERSAL,
+      { envelopeSlots: { traversalId: candidates[0].traversalId, candidates } },
     );
   }
 
@@ -429,15 +428,16 @@ export class TraversalStore {
     }
 
     // Orphan check — the traversal record exists but its graph doesn't
-    // resolve. Throw GRAPH_NOT_FOUND here with a recovery hint rather
-    // than letting the engine throw the bare form from its own lookup;
-    // the hint tells the operator how to get unstuck (reset or restore).
+    // resolve. Throw TRAVERSAL_ORPHANED so the catalog's recoveryVerb
+    // (`reset {traversalId} --confirm`) renders to a runnable command;
+    // the start-typo case stays on GRAPH_NOT_FOUND (verb: null) because
+    // there's no stale state to clear there.
     if (!this.graphs.has(record.graphId)) {
       throw new EngineError(
         `Graph "${record.graphId}" not found. Traversal "${traversalId}" is orphaned — ` +
-          `its workflow yaml is missing, renamed, or failed to parse. Run ` +
-          `\`freelance reset ${traversalId} --confirm\` to clear it, or restore the graph yaml.`,
-        EC.GRAPH_NOT_FOUND,
+          `its workflow yaml is missing, renamed, or failed to parse.`,
+        EC.TRAVERSAL_ORPHANED,
+        { envelopeSlots: { traversalId } },
       );
     }
 
