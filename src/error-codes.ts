@@ -32,7 +32,18 @@ export const GATE_BLOCK_CODES = [
 export type GateBlockCode = (typeof GATE_BLOCK_CODES)[number];
 
 export const ENGINE_ERROR_CODES = {
-  NOT_FOUND: ["TRAVERSAL_NOT_FOUND", "GRAPH_NOT_FOUND", "EDGE_NOT_FOUND", "NO_TRAVERSAL"],
+  NOT_FOUND: [
+    "TRAVERSAL_NOT_FOUND",
+    "GRAPH_NOT_FOUND",
+    // Runtime orphan: traversal record exists but its graph yaml is
+    // missing/renamed/failed to parse. Distinct from GRAPH_NOT_FOUND
+    // (which fires on `start <typo>` where there's no stale state to
+    // clear) so the recovery verb can be `reset {traversalId} --confirm`
+    // instead of null. See traversal-store.ts loadEngine.
+    "TRAVERSAL_ORPHANED",
+    "EDGE_NOT_FOUND",
+    "NO_TRAVERSAL",
+  ],
   INVALID_INPUT: [
     "STRICT_CONTEXT_VIOLATION",
     "CONTEXT_VALUE_TOO_LARGE",
@@ -158,6 +169,7 @@ export function errorKind(code: string): ErrorKind {
 export const EC = {
   TRAVERSAL_NOT_FOUND: "TRAVERSAL_NOT_FOUND",
   GRAPH_NOT_FOUND: "GRAPH_NOT_FOUND",
+  TRAVERSAL_ORPHANED: "TRAVERSAL_ORPHANED",
   EDGE_NOT_FOUND: "EDGE_NOT_FOUND",
   NO_TRAVERSAL: "NO_TRAVERSAL",
   STRICT_CONTEXT_VIOLATION: "STRICT_CONTEXT_VIOLATION",
@@ -293,6 +305,7 @@ export const RECOVERY = {
   // NOT_FOUND — stale pointer, clear and continue
   TRAVERSAL_NOT_FOUND: { verb: null, kind: "clear" },
   GRAPH_NOT_FOUND: { verb: null, kind: "clear" },
+  TRAVERSAL_ORPHANED: { verb: "reset {traversalId} --confirm", kind: "clear" },
   EDGE_NOT_FOUND: { verb: null, kind: "clear" },
   NO_TRAVERSAL: { verb: "start {graphId}", kind: "fix-context" },
 
