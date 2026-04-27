@@ -86,6 +86,16 @@ Two adjacent mitigations travel with the lazy open: (a) `PRAGMA busy_timeout = 5
 
 See issue [#138](https://github.com/duct-tape-and-markdown/freelance/issues/138).
 
+### Memory directory creation lives in `buildMemoryStore`, never in `resolveMemoryConfig`
+
+`resolveMemoryConfig` (in `src/cli/setup.ts`) is pure: it returns the resolved db path without touching the filesystem. The `mkdirSync` for the parent directory lives inside `buildMemoryStore`'s thunk in `src/compose.ts`, so the dir is created exactly when (and only when) the SQLite handle is about to open.
+
+Any CLI verb that needs to *resolve* a path without *opening* the db must be free to do so without leaving artifacts behind. The motivating case is `freelance memory reset`: the recovery path for "old memory.db schema is incompatible with the current build" deliberately bypasses `composeRuntime` and unlinks the files directly. Pre-fix, `resolveMemoryConfig` performed an `mkdirSync` as a side effect of every config branch, so `memory reset --confirm` on a clean repo *created* the very `memory/` directory it had just unlinked.
+
+**What would break if reversed:** any future helper added to `setup.ts` that calls `mkdirSync` to "make sure the path is ready" re-introduces the same bug class. The invariant is not "memory reset is special" — it's "path resolution is pure; I/O is `composeRuntime`'s budget."
+
+See issue [#197](https://github.com/duct-tape-and-markdown/freelance/issues/197).
+
 ### Sealed memory workflows are runtime-injected freelance primitives
 
 `memory:compile` and `memory:recall` live in code (`src/memory/sealed.ts` + `src/memory/recollection.ts` + `src/memory/workflow.ts`) and are merged into the loaded graphs map at runtime via `mergeSealedGraphs`. Validate / visualize / sources_validate special-case their ids via `extraAvailableIds` so user workflows can reference them as subgraphs without seeing "unknown graph" errors at load time.

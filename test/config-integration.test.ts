@@ -60,11 +60,6 @@ describe("plugin hook flow", () => {
     const memConfig = resolveMemoryConfig([freelanceDir], {});
     expect(memConfig).not.toBeNull();
     expect(memConfig!.db).toBe(path.join(persistentDir, "memory.db"));
-
-    // Cleanup created dir
-    if (fs.existsSync(persistentDir)) {
-      fs.rmSync(persistentDir, { recursive: true, force: true });
-    }
   });
 
   it("set-local workflows is idempotent across multiple hook runs", () => {
@@ -109,11 +104,18 @@ describe("config + memory resolution", () => {
     const memConfig = resolveMemoryConfig([freelanceDir], { memoryDir: cliDir });
     expect(memConfig).not.toBeNull();
     expect(memConfig!.db).toBe(path.join(cliDir, "memory.db"));
+  });
 
-    // Cleanup created dirs
-    for (const d of [configDir, cliDir]) {
-      if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true });
-    }
+  it("resolveMemoryConfig does not create the memory directory", () => {
+    // decisions.md § "Memory directory creation lives in buildMemoryStore"
+    const freelanceDir = makeDir("mem-pure-");
+    const memDir = path.join(freelanceDir, "memory");
+
+    expect(fs.existsSync(memDir)).toBe(false);
+    const memConfig = resolveMemoryConfig([freelanceDir], {});
+    expect(memConfig).not.toBeNull();
+    expect(memConfig!.db).toBe(path.join(memDir, "memory.db"));
+    expect(fs.existsSync(memDir)).toBe(false);
   });
 
   it("CLI --memory overrides config.yml memory.enabled=false", () => {

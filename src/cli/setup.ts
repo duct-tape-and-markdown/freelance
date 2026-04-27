@@ -94,18 +94,13 @@ export function resolveTraversalsDir(graphsDirs: string[]): string {
 
 // --- Memory config resolution ---
 
-function ensureMemoryDir(dir: string): string {
-  const resolved = path.resolve(dir);
-  if (!fs.existsSync(resolved)) {
-    fs.mkdirSync(resolved, { recursive: true });
-  }
-  return path.join(resolved, "memory.db");
-}
-
 /**
  * Resolve the effective memory configuration from (a) CLI flags, (b)
  * a pre-loaded or freshly-loaded FreelanceConfig, and (c) the default
  * location under the first graphs directory.
+ *
+ * Pure — no filesystem writes. See `docs/decisions.md` § "Memory
+ * directory creation lives in `buildMemoryStore`".
  *
  * Precedence:
  *   - `opts.memory === false` (CLI `--no-memory`) → memory off
@@ -113,7 +108,7 @@ function ensureMemoryDir(dir: string): string {
  *   - otherwise on, with db path from (CLI `--memory-dir` > config `memory.dir` > default)
  *
  * The default is `<graphsDir>/memory/memory.db`, under the first
- * existing graphs directory. The `memory/` subdir is created lazily.
+ * graphs directory.
  */
 export function resolveMemoryConfig(
   graphsDirs: string[],
@@ -126,19 +121,11 @@ export function resolveMemoryConfig(
 
   if (cfg.memory.enabled === false && opts.memory !== true) return null;
 
-  let dbPath: string;
-  if (opts.memoryDir) {
-    dbPath = ensureMemoryDir(opts.memoryDir);
-  } else if (cfg.memory.dir) {
-    dbPath = ensureMemoryDir(cfg.memory.dir);
-  } else {
-    const graphsDir = graphsDirs[0] ?? ".freelance";
-    dbPath = ensureMemoryDir(memoryDirFor(graphsDir));
-  }
+  const dir = opts.memoryDir ?? cfg.memory.dir ?? memoryDirFor(graphsDirs[0] ?? ".freelance");
 
   return {
     enabled: true,
-    db: dbPath,
+    db: path.join(path.resolve(dir), "memory.db"),
   };
 }
 
@@ -150,26 +137,41 @@ interface CliSetupOptions {
   sourceRoot?: string;
 }
 
-interface CliSetup {
-  graphs: Map<string, ValidatedGraph>;
+/**
+ * Memory verbs operate on a flat namespace with no graph-id coupling,
+ * so workflow yaml parsing is unnecessary work for every `freelance
+ * memory <verb>` invocation. `MemorySetup` is the lean half of
+ * `CliSetup` — same path resolution + config, minus the graph parse.
+ */
+export interface MemorySetup {
   graphsDirs: string[];
   sourceRoot: string | undefined;
+  config: FreelanceConfig;
+}
+
+interface CliSetup extends MemorySetup {
+  graphs: Map<string, ValidatedGraph>;
   sourceOpts: SourceOptions;
   /** Non-fatal per-file load failures from graphsDirs; empty when all files parsed + validated. */
   loadErrors: readonly LoadError[];
 }
 
+/** Resolve dirs, sourceRoot, and config without parsing any workflow yaml. */
+export function loadMemorySetup(opts: CliSetupOptions): MemorySetup {
+  const graphsDirs = resolveGraphsDirs(opts.workflows);
+  const sourceRoot = resolveSourceRoot(graphsDirs, opts.sourceRoot);
+  const config = loadConfigFromDirs(graphsDirs);
+  return { graphsDirs, sourceRoot, config };
+}
+
 /** Load graphs and resolve directories for CLI commands. */
 export function loadGraphSetup(opts: CliSetupOptions): CliSetup {
-  const graphsDirs = resolveGraphsDirs(opts.workflows);
-  const { graphs, errors: loadErrors } = loadGraphsGraceful(graphsDirs);
-  const sourceRoot = resolveSourceRoot(graphsDirs, opts.sourceRoot);
-  const sectionResolver = (filePath: string, section: string) => extractSection(filePath, section);
+  const base = loadMemorySetup(opts);
+  const { graphs, errors: loadErrors } = loadGraphsGraceful(base.graphsDirs);
   return {
+    ...base,
     graphs,
-    graphsDirs,
-    sourceRoot,
-    sourceOpts: { resolver: sectionResolver, basePath: sourceRoot },
+    sourceOpts: { resolver: extractSection, basePath: base.sourceRoot },
     loadErrors,
   };
 }
@@ -188,19 +190,18 @@ export function createTraversalStore(opts: CliSetupOptions): {
   const graphsDir = setup.graphsDirs[0] ?? ".freelance";
   ensureFreelanceDir(graphsDir);
   const traversalsDir = resolveTraversalsDir(setup.graphsDirs);
-  const fileConfig = loadConfigFromDirs(setup.graphsDirs);
-  const memConfig = resolveMemoryConfig(setup.graphsDirs, {}, fileConfig);
+  const memConfig = resolveMemoryConfig(setup.graphsDirs, {}, setup.config);
 
   const runtime = composeRuntime({
     graphsDir,
     graphs: setup.graphs,
     stateDir: traversalsDir,
     sourceRoot: setup.sourceRoot,
-    sectionResolver: (filePath, section) => extractSection(filePath, section),
+    sectionResolver: extractSection,
     memory: memConfig,
-    maxDepth: opts.maxDepth ?? fileConfig.maxDepth ?? 5,
-    hookTimeoutMs: fileConfig.hooks.timeoutMs,
-    contextCaps: resolveContextCaps(fileConfig.context),
+    maxDepth: opts.maxDepth ?? setup.config.maxDepth ?? 5,
+    hookTimeoutMs: setup.config.hooks.timeoutMs,
+    contextCaps: resolveContextCaps(setup.config.context),
     loadErrors: setup.loadErrors,
   });
 
@@ -208,10 +209,12 @@ export function createTraversalStore(opts: CliSetupOptions): {
 }
 
 /** Create a MemoryStore for CLI memory commands. */
-export function createMemoryStore(opts: CliSetupOptions): { store: MemoryStore; setup: CliSetup } {
-  const setup = loadGraphSetup(opts);
-  const config = loadConfigFromDirs(setup.graphsDirs);
-  const memConfig = resolveMemoryConfig(setup.graphsDirs, {}, config);
+export function createMemoryStore(opts: CliSetupOptions): {
+  store: MemoryStore;
+  setup: MemorySetup;
+} {
+  const setup = loadMemorySetup(opts);
+  const memConfig = resolveMemoryConfig(setup.graphsDirs, {}, setup.config);
   if (!memConfig) {
     throw new EngineError(
       "Memory is disabled. Enable it in config.yml or remove --no-memory.",

@@ -26,9 +26,13 @@ import { openStateStore, TraversalStore } from "./state/index.js";
 import type { LoadError, ValidatedGraph } from "./types.js";
 
 // Thunk form: defers the SQLite open until first memory access. See
-// `docs/decisions.md` § "Memory database opens lazily on first access".
+// `docs/decisions.md` § "Memory database opens lazily on first access"
+// and § "Memory directory creation lives in buildMemoryStore".
 export function buildMemoryStore(memConfig: MemoryConfig, sourceRoot: string): MemoryStore {
-  return new MemoryStore(() => openDatabase(memConfig.db), sourceRoot);
+  return new MemoryStore(() => {
+    fs.mkdirSync(path.dirname(memConfig.db), { recursive: true });
+    return openDatabase(memConfig.db);
+  }, sourceRoot);
 }
 
 export interface ComposeConfig {

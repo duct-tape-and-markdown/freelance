@@ -161,10 +161,6 @@ describe("composeRuntime", () => {
   });
 
   it("builds a MemoryStore when memory is enabled", () => {
-    // openDatabase can create the .db file but not its parent dir —
-    // that's resolveMemoryConfig's job in the CLI path. Test mkdirs
-    // the parent directly to isolate composeRuntime.
-    fs.mkdirSync(path.join(tmpDir, "memory"), { recursive: true });
     const runtime = composeRuntime({
       graphs: emptyGraphs(),
       stateDir: ":memory:",
@@ -238,6 +234,19 @@ describe("buildMemoryStore", () => {
     const status = store.status();
     expect(status.total_propositions).toBe(0);
     expect(status.total_entities).toBe(0);
+    store.close();
+  });
+
+  it("creates the parent directory lazily on first db access", () => {
+    // Pins the invariant from decisions.md § "Memory directory creation
+    // lives in buildMemoryStore" — without this, a pure resolveMemoryConfig
+    // would have nowhere to mkdir, and openDatabase would fail.
+    const memDir = path.join(tmpDir, "nested", "memory");
+    expect(fs.existsSync(memDir)).toBe(false);
+    const store = buildMemoryStore({ enabled: true, db: path.join(memDir, "memory.db") }, tmpDir);
+    expect(fs.existsSync(memDir)).toBe(false);
+    store.status();
+    expect(fs.existsSync(memDir)).toBe(true);
     store.close();
   });
 });
