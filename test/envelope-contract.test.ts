@@ -162,11 +162,32 @@ describe("CLI error envelope — wire-level contract", () => {
     assertEnvelope(result, "INVALID_FLAG_VALUE");
   });
 
-  // AMBIGUOUS_TRAVERSAL is reachable today (when multiple traversals
-  // are active), but the task contract (#5) requires `candidates`
-  // on the envelope — that field arrives with PR C's recovery
-  // catalog work.
-  it.todo("AMBIGUOUS_TRAVERSAL carries candidates: Array<{traversalId, meta}> (PR C)");
+  it("AMBIGUOUS_TRAVERSAL carries candidates and a traversalId slot", () => {
+    // Two starts → two active traversals → resolveTraversalId throws ambiguous.
+    runCli(["start", "valid-simple"], tmpDir);
+    runCli(["start", "valid-simple"], tmpDir);
+    const result = runCli(["advance", "work-done"], tmpDir);
+    const envelope = assertEnvelope(result, "AMBIGUOUS_TRAVERSAL");
+    // `candidates` is the structured projection the skill picks from;
+    // `traversalId` is the most-recent record's id, supplied so
+    // RECOVERY[AMBIGUOUS_TRAVERSAL].verb's `{traversalId}` slot
+    // resolves to a runnable command rather than an unsubstituted
+    // template.
+    const root = envelope as Record<string, unknown>;
+    expect(Array.isArray(root.candidates)).toBe(true);
+    const candidates = root.candidates as Array<Record<string, unknown>>;
+    expect(candidates).toHaveLength(2);
+    for (const c of candidates) {
+      expect(typeof c.traversalId).toBe("string");
+      expect(c.graphId).toBe("valid-simple");
+      expect(typeof c.currentNode).toBe("string");
+    }
+    expect(typeof root.traversalId).toBe("string");
+    expect(candidates.some((c) => c.traversalId === root.traversalId)).toBe(true);
+    // `recoveryVerb` stays the literal catalog template — the skill
+    // interpolates `{traversalId}` against the root-level slot.
+    expect(envelope.error.recoveryVerb).toBe("advance --traversal {traversalId}");
+  });
 
   it("CONFIRM_REQUIRED — freelance reset without --confirm carries commandName", () => {
     // Also scaffold a traversal-of-one so `reset` reaches the
