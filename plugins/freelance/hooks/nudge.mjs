@@ -15,7 +15,7 @@
  * schema-compliant for every event.
  */
 
-import { execFileSync } from "node:child_process";
+import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,7 +32,17 @@ const pluginVersion = () => {
 
 const cliVersion = () => {
   try {
-    const out = execFileSync("freelance", ["--version"], {
+    // execSync (not execFileSync) so the spawn goes through the platform
+    // shell. On Windows npm installs three shims for a `bin` entry —
+    // `freelance` (sh script), `freelance.cmd`, `freelance.ps1` — but no
+    // `.exe`. Node's execFile via libuv either misses them entirely or
+    // trips CVE-2024-27980's BAT/CMD guard, so the missing-CLI nudge
+    // fires for every Windows user even when `freelance` resolves fine
+    // in their shell. cmd.exe (Node's default Windows shell) iterates
+    // PATHEXT and runs the `.cmd`. The string form sidesteps DEP0190
+    // (shell:true + args array deprecation in Node 24); hardcoded
+    // `--version` means no injection surface.
+    const out = execSync("freelance --version", {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 3000,

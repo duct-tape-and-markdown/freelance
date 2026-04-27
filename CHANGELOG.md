@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Plugin SessionStart nudge no longer false-positives on Windows.**
+  `plugins/freelance/hooks/nudge.mjs` probed the CLI with
+  `execFileSync("freelance", ["--version"])`. On Windows npm installs
+  three shims for a `bin` entry — `freelance` (extensionless sh
+  script), `freelance.cmd`, `freelance.ps1` — but no `.exe`. Node's
+  `execFile` via libuv either misses them entirely (ENOENT) or trips
+  CVE-2024-27980's BAT/CMD guard, so the missing-CLI install nudge
+  fired on every session for every Windows user even when `freelance`
+  resolved fine in their shell. Switched to `execSync("freelance
+  --version", ...)`, which routes through `cmd.exe` on Windows
+  (PATHEXT resolves `.cmd`) and `/bin/sh` on Unix (shebang dispatch
+  unchanged). Single-string form also sidesteps DEP0190 (Node 24's
+  `shell: true` + args-array deprecation). Hardcoded `--version`
+  means no injection surface.
+
 - **Close-before-exit extended to traversal verbs and memory prune
   (#153 follow-up).** The memory-only wrapper landed in #153 moved
   to `src/cli/output.ts` as `runCliHandler` / `runCliHandlerAsync`,
