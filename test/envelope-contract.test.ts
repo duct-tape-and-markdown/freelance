@@ -162,6 +162,15 @@ describe("CLI error envelope — wire-level contract", () => {
     assertEnvelope(result, "INVALID_FLAG_VALUE");
   });
 
+  it("INVALID_FLAG_VALUE — assertSafeId rejects --traversal with path traversal", () => {
+    // `resolveTraversalId` short-circuits on caller-supplied ids;
+    // the storage backend's `assertSafeId` is the boundary that
+    // catches `../foo`. Without an EngineError throw the failure
+    // collapses to INTERNAL.
+    const result = runCli(["advance", "--traversal", "../foo", "anything"], tmpDir);
+    assertEnvelope(result, "INVALID_FLAG_VALUE");
+  });
+
   // AMBIGUOUS_TRAVERSAL is reachable today (when multiple traversals
   // are active), but the task contract (#5) requires `candidates`
   // on the envelope — that field arrives with PR C's recovery

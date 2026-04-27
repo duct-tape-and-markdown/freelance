@@ -81,12 +81,15 @@ class InMemoryStateStore implements StateStore {
     return sortByUpdatedDesc([...this.records.values()]);
   }
   get(id: string): TraversalRecord | undefined {
+    assertSafeId(id);
     return this.records.get(id);
   }
   put(record: TraversalRecord): void {
+    assertSafeId(record.id);
     this.records.set(record.id, { ...record, version: (record.version ?? 0) + 1 });
   }
   putIfVersion(record: TraversalRecord, expectedVersion: number): TraversalRecord {
+    assertSafeId(record.id);
     const current = this.records.get(record.id);
     if (!current) {
       throw new TraversalConflictError(record.id, expectedVersion, 0);
@@ -100,14 +103,21 @@ class InMemoryStateStore implements StateStore {
     return next;
   }
   delete(id: string): void {
+    assertSafeId(id);
     this.records.delete(id);
   }
   close(): void {}
 }
 
+// Caller-supplied id boundary check. `--traversal "../foo"` short-circuits
+// `resolveTraversalId` and reaches the store directly; without this the
+// path-traversal attempt either escapes the traversals dir (json backend
+// without the guard) or silently succeeds (in-memory). Routing through
+// `INVALID_FLAG_VALUE` keeps the failure on the catalog's fix-context
+// branch instead of collapsing to INTERNAL via outputError's fallback.
 function assertSafeId(id: string): void {
   if (!id || id.includes("/") || id.includes("\\") || id.includes("..") || id.includes("\0")) {
-    throw new Error(`Invalid traversal id: ${JSON.stringify(id)}`);
+    throw new EngineError(`Invalid traversal id: ${JSON.stringify(id)}`, EC.INVALID_FLAG_VALUE);
   }
 }
 
