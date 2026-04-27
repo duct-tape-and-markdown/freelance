@@ -399,16 +399,16 @@ export class TraversalStore {
     if (ids.length === 1) return ids[0];
 
     // Ambiguous: only now do we need the full records to build a useful error.
-    const records = this.state.list();
-    const summary = records
-      .map((t) => {
-        const base = `${t.id} (${t.graphId} @ ${t.currentNode})`;
-        return t.meta ? `${base} ${JSON.stringify(t.meta)}` : base;
-      })
-      .join(", ");
+    // `state.list()` is sorted updatedAt-desc, so records[0] is the natural
+    // representative for the `{traversalId}` slot in RECOVERY[AMBIGUOUS_TRAVERSAL].verb.
+    // The skill picks differently using the structured `candidates` array.
+    // `candidates` mirrors `freelance status`'s activeTraversals shape so a
+    // skill that parses one parses the other.
+    const candidates = this.state.list().map(recordToInfo);
     throw new EngineError(
-      `Multiple active traversals. Specify traversalId. Active: ${summary}`,
+      `Multiple active traversals (${candidates.length}). Specify --traversal <id>.`,
       EC.AMBIGUOUS_TRAVERSAL,
+      { envelopeSlots: { traversalId: candidates[0].traversalId, candidates } },
     );
   }
 
