@@ -147,6 +147,22 @@ describe("CLI error envelope — wire-level contract", () => {
     assertEnvelope(result, "GRAPH_NOT_FOUND");
   });
 
+  it("TRAVERSAL_ORPHANED — advance after the graph yaml disappears", () => {
+    // Start a traversal, then delete the graph yaml so loadEngine's
+    // orphan check fires on the next advance. The catalog recoveryVerb
+    // is `reset {traversalId} --confirm`; the throw site supplies
+    // `traversalId` via envelopeSlots.
+    runCli(["start", "valid-simple"], tmpDir);
+    fs.rmSync(path.join(tmpDir, ".freelance", "valid-simple.workflow.yaml"));
+    const result = runCli(["advance", "work-done"], tmpDir);
+    const envelope = assertEnvelope(result, "TRAVERSAL_ORPHANED");
+    const root = envelope as Record<string, unknown>;
+    expect(typeof root.traversalId).toBe("string");
+    expect((root.traversalId as string).startsWith("tr_")).toBe(true);
+    expect(envelope.error.recoveryVerb).toBe("reset {traversalId} --confirm");
+    expect(envelope.error.recoveryKind).toBe("clear");
+  });
+
   it("INVALID_CONTEXT_JSON — freelance start --context <not-json>", () => {
     const result = runCli(["start", "--context", "not-json", "valid-simple"], tmpDir);
     assertEnvelope(result, "INVALID_CONTEXT_JSON");

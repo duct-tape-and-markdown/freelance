@@ -429,15 +429,18 @@ describe("TraversalStore — stateless JSON", () => {
   });
 
   describe("loadEngine orphan recovery hint (#136)", () => {
-    it("throws GRAPH_NOT_FOUND with a reset hint when the graph is gone", async () => {
+    it("throws TRAVERSAL_ORPHANED with envelopeSlots.traversalId when the graph is gone", async () => {
       const t = await store.createTraversal("valid-simple");
       const pruned = new Map(graphs);
       pruned.delete("valid-simple");
       store.updateGraphs(pruned);
 
+      // The catalog recovery verb is `reset {traversalId} --confirm`;
+      // the throw site supplies `traversalId` via envelopeSlots so the
+      // skill's interpolated render is a runnable command.
       await expect(store.advance(t.traversalId, "work-done")).rejects.toMatchObject({
-        code: "GRAPH_NOT_FOUND",
-        message: expect.stringContaining(`freelance reset ${t.traversalId} --confirm`),
+        code: "TRAVERSAL_ORPHANED",
+        context: { envelopeSlots: { traversalId: t.traversalId } },
       });
     });
 

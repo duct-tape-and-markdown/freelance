@@ -429,15 +429,16 @@ export class TraversalStore {
     }
 
     // Orphan check — the traversal record exists but its graph doesn't
-    // resolve. Throw GRAPH_NOT_FOUND here with a recovery hint rather
-    // than letting the engine throw the bare form from its own lookup;
-    // the hint tells the operator how to get unstuck (reset or restore).
+    // resolve. Throw TRAVERSAL_ORPHANED so the catalog's recoveryVerb
+    // (`reset {traversalId} --confirm`) renders to a runnable command;
+    // the start-typo case stays on GRAPH_NOT_FOUND (verb: null) because
+    // there's no stale state to clear there.
     if (!this.graphs.has(record.graphId)) {
       throw new EngineError(
         `Graph "${record.graphId}" not found. Traversal "${traversalId}" is orphaned — ` +
-          `its workflow yaml is missing, renamed, or failed to parse. Run ` +
-          `\`freelance reset ${traversalId} --confirm\` to clear it, or restore the graph yaml.`,
-        EC.GRAPH_NOT_FOUND,
+          `its workflow yaml is missing, renamed, or failed to parse.`,
+        EC.TRAVERSAL_ORPHANED,
+        { envelopeSlots: { traversalId } },
       );
     }
 
