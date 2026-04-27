@@ -7,7 +7,7 @@ import type {
   SessionState,
   SourceBinding,
 } from "../types.js";
-import { cloneContext } from "./helpers.js";
+import { buildAdvanceErrorResult } from "./helpers.js";
 import { validateReturnSchema } from "./returns.js";
 import { evaluateTransitions } from "./transitions.js";
 import { checkWaitTimeout, evaluateWaitConditions } from "./wait.js";
@@ -22,13 +22,9 @@ export interface GateOptions {
 }
 
 /**
- * Build the unified in-band gate-block envelope. Shape matches the
- * thrown-error envelope (`isError: true` + `error: { code, message,
- * kind }`) so the CLI writes one wire format for every advance
- * failure — see issue #95. `reason` duplicates `error.message` for
- * pre-#95 readers; new code should read `error.message`. The `minimal`
- * branch strips the full `context` echo but keeps the envelope so
- * error discrimination is wire-compatible with full mode (see #81).
+ * Build the unified in-band gate-block envelope. Computes
+ * `validTransitions` once (every gate checker would otherwise duplicate
+ * it) and delegates shape assembly to `buildAdvanceErrorResult`.
  */
 function makeAdvanceError(
   session: SessionState,
@@ -37,28 +33,17 @@ function makeAdvanceError(
   nodeDef: NodeDefinition,
   opts: GateOptions,
 ): GateBlockResult {
-  const validTransitions = evaluateTransitions(nodeDef, session.context);
-  if (opts.minimal) {
-    return {
-      status: "error",
-      isError: true,
-      error: { code, message, kind: "blocked" },
+  return buildAdvanceErrorResult(
+    {
+      code,
+      message,
       currentNode: session.currentNode,
-      reason: message,
-      validTransitions,
-      contextDelta: opts.contextDelta,
-    };
-  }
-  return {
-    status: "error",
-    isError: true,
-    error: { code, message, kind: "blocked" },
-    currentNode: session.currentNode,
-    reason: message,
-    validTransitions,
-    context: cloneContext(session.context),
-    ...(opts.graphSources?.length ? { graphSources: opts.graphSources } : {}),
-  };
+      validTransitions: evaluateTransitions(nodeDef, session.context),
+    },
+    opts.minimal
+      ? { contextDelta: opts.contextDelta }
+      : { context: session.context, graphSources: opts.graphSources },
+  );
 }
 
 /** Returns a gate-block result if wait conditions block advancement, null otherwise. */
