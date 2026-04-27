@@ -162,6 +162,15 @@ describe("CLI error envelope — wire-level contract", () => {
     assertEnvelope(result, "INVALID_FLAG_VALUE");
   });
 
+  it("INVALID_FLAG_VALUE — assertSafeId rejects --traversal with path traversal", () => {
+    // `resolveTraversalId` short-circuits on caller-supplied ids;
+    // the storage backend's `assertSafeId` is the boundary that
+    // catches `../foo`. Without an EngineError throw the failure
+    // collapses to INTERNAL.
+    const result = runCli(["advance", "--traversal", "../foo", "anything"], tmpDir);
+    assertEnvelope(result, "INVALID_FLAG_VALUE");
+  });
+
   it("AMBIGUOUS_TRAVERSAL carries candidates and a traversalId slot", () => {
     // Two starts → two active traversals → resolveTraversalId throws ambiguous.
     runCli(["start", "valid-simple"], tmpDir);
