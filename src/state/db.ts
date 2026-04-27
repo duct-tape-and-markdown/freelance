@@ -74,6 +74,12 @@ class TraversalConflictError extends EngineError {
   }
 }
 
+class TraversalDeletedMidWriteError extends EngineError {
+  constructor(id: string) {
+    super(`Traversal "${id}" not found (deleted between read and write).`, EC.TRAVERSAL_NOT_FOUND);
+  }
+}
+
 function sortByUpdatedDesc(records: TraversalRecord[]): TraversalRecord[] {
   return records.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
@@ -99,10 +105,7 @@ class InMemoryStateStore implements StateStore {
     assertSafeId(record.id);
     const current = this.records.get(record.id);
     if (!current) {
-      throw new EngineError(
-        `Traversal "${record.id}" not found (deleted between read and write).`,
-        EC.TRAVERSAL_NOT_FOUND,
-      );
+      throw new TraversalDeletedMidWriteError(record.id);
     }
     const currentVersion = current.version ?? 0;
     if (currentVersion !== expectedVersion) {
@@ -192,10 +195,7 @@ class JsonDirectoryStateStore implements StateStore {
     // detection via TRAVERSAL_CONFLICT beats silent loss.
     const existing = this.get(record.id);
     if (!existing) {
-      throw new EngineError(
-        `Traversal "${record.id}" not found (deleted between read and write).`,
-        EC.TRAVERSAL_NOT_FOUND,
-      );
+      throw new TraversalDeletedMidWriteError(record.id);
     }
     const current = existing.version ?? 0;
     if (current !== expectedVersion) {

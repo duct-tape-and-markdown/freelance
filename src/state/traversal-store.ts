@@ -399,11 +399,10 @@ export class TraversalStore {
     if (ids.length === 1) return ids[0];
 
     // Ambiguous: only now do we need the full records to build a useful error.
-    // `state.list()` is sorted updatedAt-desc, so records[0] is the natural
-    // representative for the `{traversalId}` slot in RECOVERY[AMBIGUOUS_TRAVERSAL].verb.
-    // The skill picks differently using the structured `candidates` array.
-    // `candidates` mirrors `freelance status`'s activeTraversals shape so a
-    // skill that parses one parses the other.
+    // `state.list()` is sorted updatedAt-desc, so records[0] populates the
+    // `{traversalId}` slot in RECOVERY[AMBIGUOUS_TRAVERSAL].verb. `candidates`
+    // mirrors `freelance status`'s activeTraversals shape so a skill that
+    // parses one parses the other.
     const candidates = this.state.list().map(recordToInfo);
     throw new EngineError(
       `Multiple active traversals (${candidates.length}). Specify --traversal <id>.`,
