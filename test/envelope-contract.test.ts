@@ -142,6 +142,17 @@ describe("CLI error envelope — wire-level contract", () => {
     assertEnvelope(result, "NO_TRAVERSAL");
   });
 
+  it("TRAVERSAL_NOT_FOUND — advance --traversal <unknown id>", () => {
+    // Distinct from NO_TRAVERSAL (none exist) and AMBIGUOUS_TRAVERSAL
+    // (multiple exist). recoveryKind: "clear" — skill drops the dead
+    // handle. Also covers the putIfVersion deleted-mid-flight path
+    // (#192) at the wire level: both produce the same code.
+    runCli(["start", "valid-simple"], tmpDir);
+    const result = runCli(["advance", "--traversal", "tr_deadbeef", "work-done"], tmpDir);
+    const envelope = assertEnvelope(result, "TRAVERSAL_NOT_FOUND");
+    expect(envelope.error.recoveryKind).toBe("clear");
+  });
+
   it("GRAPH_NOT_FOUND — freelance start <unknown-graph>", () => {
     const result = runCli(["start", "no-such-graph"], tmpDir);
     assertEnvelope(result, "GRAPH_NOT_FOUND");

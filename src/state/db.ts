@@ -40,12 +40,19 @@ export interface StateStore {
   /**
    * Optimistic-concurrency update. Writes `record` iff a record with
    * the same id exists and its on-disk version still matches
-   * `expectedVersion`. Throws `EngineError(TRAVERSAL_CONFLICT)`
-   * otherwise — including when the record was deleted between the
-   * caller's load and this call. Use `put` for first-time creation;
-   * this method assumes the caller loaded a prior record and rejects
-   * the resurrection case where `freelance reset --confirm` races an
-   * in-flight advance.
+   * `expectedVersion`. Two distinct failure shapes:
+   *
+   *   - missing record (deleted between read and write, e.g. via a
+   *     racing `reset --confirm`) → `EngineError(TRAVERSAL_NOT_FOUND)`,
+   *     `recoveryKind: "clear"`. The skill drops the dead handle.
+   *   - version drift (another writer bumped the version) →
+   *     `EngineError(TRAVERSAL_CONFLICT)` (TraversalConflictError),
+   *     `recoveryKind: "retry"`. The skill re-reads and retries.
+   *
+   * Use `put` for first-time creation; this method assumes the caller
+   * loaded a prior record and rejects the resurrection case (per #163)
+   * — the missing-record throw still blocks the write, just under a
+   * code whose recovery shape matches the actual situation.
    *
    * The supplied `record.version` is ignored on input — the store
    * always writes `expectedVersion + 1`. Returns the record actually
@@ -89,7 +96,10 @@ class InMemoryStateStore implements StateStore {
   putIfVersion(record: TraversalRecord, expectedVersion: number): TraversalRecord {
     const current = this.records.get(record.id);
     if (!current) {
-      throw new TraversalConflictError(record.id, expectedVersion, 0);
+      throw new EngineError(
+        `Traversal "${record.id}" not found (deleted between read and write).`,
+        EC.TRAVERSAL_NOT_FOUND,
+      );
     }
     const currentVersion = current.version ?? 0;
     if (currentVersion !== expectedVersion) {
@@ -172,7 +182,10 @@ class JsonDirectoryStateStore implements StateStore {
     // detection via TRAVERSAL_CONFLICT beats silent loss.
     const existing = this.get(record.id);
     if (!existing) {
-      throw new TraversalConflictError(record.id, expectedVersion, 0);
+      throw new EngineError(
+        `Traversal "${record.id}" not found (deleted between read and write).`,
+        EC.TRAVERSAL_NOT_FOUND,
+      );
     }
     const current = existing.version ?? 0;
     if (current !== expectedVersion) {
