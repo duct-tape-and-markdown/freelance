@@ -125,14 +125,12 @@ describe("traversalAdvance — unified error envelope on gate-block", () => {
         isError: true;
         status: string;
         error: { code: string; kind: string; message: string };
-        reason: string;
         validTransitions: unknown[];
       };
       expect(parsed.isError).toBe(true);
       expect(parsed.status).toBe("error");
       expect(parsed.error.code).toBe("EDGE_CONDITION_NOT_MET");
       expect(parsed.error.kind).toBe("blocked");
-      expect(parsed.error.message).toBe(parsed.reason);
       expect(parsed.validTransitions).toBeDefined();
       expect(exitSpy).toHaveBeenCalledWith(2); // EXIT.BLOCKED
     } finally {
@@ -601,7 +599,7 @@ describe("--minimal response projection (issue #81)", () => {
     }
   });
 
-  it("--minimal on a blocked advance keeps reason + validTransitions, drops context", async () => {
+  it("--minimal on a blocked advance keeps error + validTransitions, drops context", async () => {
     // valid-branching's choose-path decision has conditional-only edges;
     // without context.path set, every edge's condition evaluates false
     // and `advance go-left` fires checkEdgeCondition as a gate block.
@@ -621,7 +619,7 @@ describe("--minimal response projection (issue #81)", () => {
       ).rejects.toThrow("process.exit");
       const parsed = stdoutJson() as Record<string, unknown>;
       expect(parsed.isError).toBe(true);
-      expect(parsed).toHaveProperty("reason");
+      expect(parsed).toHaveProperty("error");
       expect(parsed).toHaveProperty("validTransitions");
       expect(parsed).toHaveProperty("contextDelta");
       expect(parsed).not.toHaveProperty("context");

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **`reason` field dropped from gate-block envelopes (#211).**
+  `AdvanceErrorResult` and `AdvanceErrorMinimalResult` no longer carry
+  `reason: string`. The field was a pre-#95 back-compat duplicate of
+  `error.message`, kept while the unified envelope shape stabilized.
+  The decisions log § "Error envelope is the wire contract" commits to
+  the post-#95 shape, so `reason` was dead wire weight on every blocked
+  advance. Read `error.message` instead.
+
 ### Fixed
 
 - **`freelance memory reset --confirm` no longer leaves an empty

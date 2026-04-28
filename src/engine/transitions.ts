@@ -1,4 +1,4 @@
-import { evaluate } from "../evaluator.js";
+import { evaluatePredicate } from "../evaluator.js";
 import type { NodeDefinition, TransitionInfo } from "../types.js";
 
 export function evaluateTransitions(
@@ -22,11 +22,7 @@ export function evaluateTransitions(
     if (e.default) {
       conditionMet = false;
     } else if (e.condition) {
-      try {
-        conditionMet = evaluate(e.condition, context);
-      } catch {
-        conditionMet = false;
-      }
+      conditionMet = evaluatePredicate(e.condition, context);
     } else {
       conditionMet = true;
     }

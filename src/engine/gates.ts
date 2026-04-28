@@ -1,5 +1,5 @@
 import type { GateBlockCode } from "../error-codes.js";
-import { evaluate } from "../evaluator.js";
+import { evaluatePredicate } from "../evaluator.js";
 import type {
   AdvanceErrorMinimalResult,
   AdvanceErrorResult,
@@ -100,13 +100,7 @@ export function checkValidations(
   if (!nodeDef.validations || nodeDef.validations.length === 0) return null;
 
   for (const v of nodeDef.validations) {
-    let result: boolean;
-    try {
-      result = evaluate(v.expr, session.context);
-    } catch {
-      result = false;
-    }
-    if (!result) {
+    if (!evaluatePredicate(v.expr, session.context)) {
       return makeAdvanceError(
         session,
         "VALIDATION_FAILED",
@@ -127,13 +121,7 @@ export function checkEdgeCondition(
   edgeLabel: string,
   opts: GateOptions,
 ): GateBlockResult | null {
-  let condMet: boolean;
-  try {
-    condMet = evaluate(edgeCondition, session.context);
-  } catch {
-    condMet = false;
-  }
-  if (condMet) return null;
+  if (evaluatePredicate(edgeCondition, session.context)) return null;
 
   return makeAdvanceError(
     session,

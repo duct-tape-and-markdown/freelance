@@ -65,8 +65,8 @@ describe("wait nodes — blocking advance", () => {
     const result = await engine.advance("proceed");
     expect(result.isError).toBe(true);
     if (result.isError) {
-      expect(result.reason).toContain("Waiting for external signals");
-      expect(result.reason).toContain("approved");
+      expect(result.error.message).toContain("Waiting for external signals");
+      expect(result.error.message).toContain("approved");
       expect(result.error.code).toBe("WAIT_BLOCKING");
       expect(result.error.kind).toBe("blocked");
     }
@@ -83,7 +83,7 @@ describe("wait nodes — blocking advance", () => {
     const result = await engine.advance("ready");
     expect(result.isError).toBe(true);
     if (result.isError) {
-      expect(result.reason).toContain("coverageReport");
+      expect(result.error.message).toContain("coverageReport");
     }
   });
 

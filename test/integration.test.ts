@@ -142,14 +142,14 @@ describe("Data pipeline — gate enforcement", () => {
     const fail1 = await engine.advance("verified");
     expect(fail1.isError).toBe(true);
     if (fail1.isError) {
-      expect(fail1.reason).toContain("verification failed");
+      expect(fail1.error.message).toContain("verification failed");
     }
 
     engine.contextSet({ verificationPassed: true });
     const fail2 = await engine.advance("verified");
     expect(fail2.isError).toBe(true);
     if (fail2.isError) {
-      expect(fail2.reason).toContain("Quality score");
+      expect(fail2.error.message).toContain("Quality score");
     }
 
     engine.contextSet({ qualityScore: 85 });
@@ -318,7 +318,7 @@ describe("Change request — gate failure and recovery loop", () => {
     const fail = await engine.advance("pass");
     expect(fail.isError).toBe(true);
     if (fail.isError) {
-      expect(fail.reason).toContain("Tests must pass");
+      expect(fail.error.message).toContain("Tests must pass");
     }
 
     // Fix the issue and pass the gate.
@@ -373,7 +373,7 @@ describe("Change request — validation blocks missing target branch", () => {
     const fail = await engine.advance("ready");
     expect(fail.isError).toBe(true);
     if (fail.isError) {
-      expect(fail.reason).toContain("Target branch must be set");
+      expect(fail.error.message).toContain("Target branch must be set");
     }
   });
 });

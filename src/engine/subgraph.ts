@@ -1,5 +1,5 @@
 import { EC, EngineError } from "../errors.js";
-import { evaluate } from "../evaluator.js";
+import { evaluatePredicate } from "../evaluator.js";
 import { resolveContextDefaults } from "../loader.js";
 import type { NodeDefinition, SessionState, ValidatedGraph } from "../types.js";
 import { buildAdvanceSuccessResult, keysSince, mergeDelta } from "./helpers.js";
@@ -51,13 +51,7 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Subgrap
   const subgraph = newNodeDef.subgraph!;
 
   if (subgraph.condition) {
-    let condMet: boolean;
-    try {
-      condMet = evaluate(subgraph.condition, parentSession.context);
-    } catch {
-      condMet = false;
-    }
-    if (!condMet) {
+    if (!evaluatePredicate(subgraph.condition, parentSession.context)) {
       const parentGraph = graphs.get(parentSession.graphId);
       if (!parentGraph) {
         throw new EngineError(`Graph "${parentSession.graphId}" not found`, EC.GRAPH_NOT_FOUND);
