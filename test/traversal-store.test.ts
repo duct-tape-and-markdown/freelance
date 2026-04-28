@@ -400,18 +400,25 @@ describe("TraversalStore — stateless JSON", () => {
     });
   });
 
+  // Reopen `store` against the same JSON directory with a different
+  // graphs map. Models the post-#127 reality: each CLI invocation
+  // constructs a fresh store from whatever graphs currently load,
+  // there is no watcher reconciling against active traversals.
+  function reopenWithGraphs(newGraphs: Map<string, ValidatedGraph>): void {
+    store.close();
+    store = new TraversalStore(openStateStore(path.join(tmpDir, "traversals")), newGraphs, {
+      hookRunner: new HookRunner(),
+    });
+  }
+
   describe("orphanedTraversals split (#136)", () => {
     it("splits traversals whose graph no longer loads into a distinct array", async () => {
       const t1 = await store.createTraversal("valid-simple");
       const t2 = await store.createTraversal("valid-branching");
 
-      // Simulate the yaml for one graph disappearing between CLI
-      // invocations — the store is constructed fresh each time, so
-      // this models the post-#127 reality (no watcher; each run loads
-      // graphs from disk).
       const pruned = new Map(graphs);
       pruned.delete("valid-simple");
-      store.updateGraphs(pruned);
+      reopenWithGraphs(pruned);
 
       const result = store.listGraphs();
       expect(result.activeTraversals).toHaveLength(1);
@@ -433,7 +440,7 @@ describe("TraversalStore — stateless JSON", () => {
       const t = await store.createTraversal("valid-simple");
       const pruned = new Map(graphs);
       pruned.delete("valid-simple");
-      store.updateGraphs(pruned);
+      reopenWithGraphs(pruned);
 
       // The catalog recovery verb is `reset {traversalId} --confirm`;
       // the throw site supplies `traversalId` via envelopeSlots so the
@@ -457,7 +464,7 @@ describe("TraversalStore — stateless JSON", () => {
       const t = await store.createTraversal("valid-simple");
       const pruned = new Map(graphs);
       pruned.delete("valid-simple");
-      store.updateGraphs(pruned);
+      reopenWithGraphs(pruned);
 
       const result = store.resetTraversal(t.traversalId);
       expect(result.status).toBe("reset");
@@ -485,36 +492,6 @@ describe("TraversalStore — stateless JSON", () => {
       const listed = store.listGraphs().graphs.map((g) => g.id);
       const expected = [...listed].sort();
       expect(listed).toEqual(expected);
-    });
-  });
-
-  describe("hasActiveTraversalForGraph", () => {
-    it("returns false when no traversals exist", async () => {
-      expect(store.hasActiveTraversalForGraph("valid-simple")).toBe(false);
-    });
-
-    it("returns true when a matching traversal exists", async () => {
-      await store.createTraversal("valid-simple");
-      expect(store.hasActiveTraversalForGraph("valid-simple")).toBe(true);
-      expect(store.hasActiveTraversalForGraph("valid-branching")).toBe(false);
-    });
-
-    it("accepts multiple graph IDs", async () => {
-      await store.createTraversal("valid-branching");
-      expect(store.hasActiveTraversalForGraph("valid-simple", "valid-branching")).toBe(true);
-      expect(store.hasActiveTraversalForGraph("nonexistent", "also-nonexistent")).toBe(false);
-    });
-
-    it("returns false after traversal is reset", async () => {
-      const t = await store.createTraversal("valid-simple");
-      expect(store.hasActiveTraversalForGraph("valid-simple")).toBe(true);
-      store.resetTraversal(t.traversalId);
-      expect(store.hasActiveTraversalForGraph("valid-simple")).toBe(false);
-    });
-
-    it("returns false for empty graphIds", async () => {
-      await store.createTraversal("valid-simple");
-      expect(store.hasActiveTraversalForGraph()).toBe(false);
     });
   });
 
