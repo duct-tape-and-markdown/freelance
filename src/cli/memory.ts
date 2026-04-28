@@ -13,7 +13,9 @@ import { EC, EngineError } from "../errors.js";
 import { EmitBatchSchema } from "../memory/emit-schema.js";
 import type { MemoryStore } from "../memory/index.js";
 import type { PropositionShape } from "../memory/types.js";
-import { CliExit, EXIT, errorEnvelope, outputJson, parseIntArg } from "./output.js";
+import { CliExit, EXIT, enumArg, errorEnvelope, outputJson, parseIntArg } from "./output.js";
+
+const SHAPES = ["minimal", "full"] as const satisfies readonly PropositionShape[];
 
 export function memoryStatus(store: MemoryStore): void {
   outputJson(store.status());
@@ -48,7 +50,7 @@ export function memoryInspect(
     store.inspect(entity, {
       limit: parseIntArg(opts?.limit, "--limit"),
       offset: parseIntArg(opts?.offset, "--offset"),
-      shape: parseShape(opts?.shape),
+      shape: enumArg(opts?.shape, SHAPES, "--shape"),
     }),
   );
 }
@@ -83,18 +85,10 @@ export function memoryBySource(
     store.bySource(filePath, {
       limit: parseIntArg(opts?.limit, "--limit"),
       offset: parseIntArg(opts?.offset, "--offset"),
-      shape: parseShape(opts?.shape),
+      shape: enumArg(opts?.shape, SHAPES, "--shape"),
       includeOrphans: opts?.includeOrphans,
     }),
   );
-}
-
-// Unknown --shape values throw a caller-fixable error rather than
-// silently falling back to default — catches typos at the CLI boundary.
-function parseShape(raw: string | undefined): PropositionShape | undefined {
-  if (raw === undefined) return undefined;
-  if (raw === "minimal" || raw === "full") return raw;
-  throw new EngineError(`--shape must be "minimal" or "full"; got "${raw}".`, EC.INVALID_SHAPE);
 }
 
 export function memoryEmit(store: MemoryStore, file: string): void {
@@ -167,15 +161,10 @@ export function memoryPrune(
  */
 export function memoryReset(dbPath: string, opts: { confirm?: boolean }): void {
   if (!opts.confirm) {
-    throw new CliExit(
-      {
-        ...errorEnvelope(
-          EC.CONFIRM_REQUIRED,
-          "memory reset requires --confirm (destructive: deletes memory.db + sidecars).",
-        ),
-        commandName: "memory reset",
-      },
-      EXIT.INVALID_INPUT,
+    throw new EngineError(
+      "memory reset requires --confirm (destructive: deletes memory.db + sidecars).",
+      EC.CONFIRM_REQUIRED,
+      { envelopeSlots: { commandName: "memory reset" } },
     );
   }
   const targets = [dbPath, `${dbPath}-shm`, `${dbPath}-wal`];

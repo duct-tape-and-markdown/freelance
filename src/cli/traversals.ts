@@ -14,7 +14,7 @@ import type { InspectHistoryOptions } from "../engine/context.js";
 import { EC, EngineError } from "../errors.js";
 import type { TraversalStore } from "../state/index.js";
 import type { InspectField, InspectPositionResult } from "../types.js";
-import { CliExit, EXIT, errorEnvelope, outputJson, parseIntArg, splitKeyValue } from "./output.js";
+import { CliExit, EXIT, outputJson, parseIntArg, splitKeyValue } from "./output.js";
 
 // Shared by `start` and `advance` for their `--context` JSON payload.
 function parseContextJson(raw: string): Record<string, unknown> {
@@ -197,27 +197,7 @@ export function traversalInspectActive(
   store: TraversalStore,
   opts?: { waitsOnly?: boolean },
 ): void {
-  const infos = store.listTraversals();
-  const entries: Array<Record<string, unknown>> = [];
-  for (const t of infos) {
-    const raw = store.inspect(t.traversalId, "position");
-    const pos = raw as { traversalId: string } & InspectPositionResult;
-    if (opts?.waitsOnly && pos.node.type !== "wait") continue;
-    entries.push({
-      traversalId: t.traversalId,
-      graphId: t.graphId,
-      currentNode: t.currentNode,
-      nodeType: pos.node.type,
-      description: pos.node.description ?? "",
-      lastUpdated: t.lastUpdated,
-      stackDepth: t.stackDepth,
-      ...(pos.waitStatus ? { waitStatus: pos.waitStatus } : {}),
-      ...(pos.waitingOn ? { waitingOn: pos.waitingOn } : {}),
-      ...(pos.timeout ? { timeout: pos.timeout } : {}),
-      ...(pos.timeoutAt ? { timeoutAt: pos.timeoutAt } : {}),
-    });
-  }
-  outputJson({ traversals: entries });
+  outputJson({ traversals: store.inspectActive(opts) });
 }
 
 export function traversalReset(
@@ -226,18 +206,9 @@ export function traversalReset(
   opts?: { confirm?: boolean },
 ): void {
   if (!opts?.confirm) {
-    // Main's envelope carries `commandName: "reset"` so the `{commandName}`
-    // slot in RECOVERY[CONFIRM_REQUIRED].verb renders correctly. Throw a
-    // CliExit instead of `outputJson + process.exit` so the wrapper
-    // closes the runtime before exit (#153 bug fixed the same way for
-    // memory-prune refusal).
-    throw new CliExit(
-      {
-        ...errorEnvelope(EC.CONFIRM_REQUIRED, "must pass --confirm to reset a traversal."),
-        commandName: "reset",
-      },
-      EXIT.INVALID_INPUT,
-    );
+    throw new EngineError("must pass --confirm to reset a traversal.", EC.CONFIRM_REQUIRED, {
+      envelopeSlots: { commandName: "reset" },
+    });
   }
   const id = store.resolveTraversalId(traversalId);
   const result = store.resetTraversal(id);

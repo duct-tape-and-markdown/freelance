@@ -10,12 +10,14 @@ import type { HookRunner } from "../engine/hooks.js";
 import { GraphEngine } from "../engine/index.js";
 import { EC, EngineError } from "../errors.js";
 import type {
+  ActiveTraversalEntry,
   AdvanceMinimalResult,
   AdvanceResult,
   ContextSetMinimalResult,
   ContextSetResult,
   InspectField,
   InspectMinimalResult,
+  InspectPositionResult,
   InspectResult,
   LoadError,
   ResetResult,
@@ -348,6 +350,47 @@ export class TraversalStore {
       options?.responseMode ? { responseMode: options.responseMode } : undefined,
     );
     return { traversalId, meta: record.meta ?? EMPTY_META, ...result };
+  }
+
+  /**
+   * Walk records once, hydrate each engine in place, and project the
+   * fields the `--active` listing surfaces. Avoids the N+1 disk read of
+   * `listTraversals()` followed by per-id `inspect()` (each `inspect`
+   * re-hits `state.get(id)` for a record `state.list()` already
+   * returned). Throws `TRAVERSAL_ORPHANED` on the first record whose
+   * graph isn't loaded — same shape as `loadEngine`.
+   */
+  inspectActive(opts?: { waitsOnly?: boolean }): readonly ActiveTraversalEntry[] {
+    const records = this.state.list();
+    const entries: ActiveTraversalEntry[] = [];
+    for (const record of records) {
+      if (!this.graphs.has(record.graphId)) {
+        throw new EngineError(
+          `Graph "${record.graphId}" not found. Traversal "${record.id}" is orphaned — ` +
+            `its workflow yaml is missing, renamed, or failed to parse.`,
+          EC.TRAVERSAL_ORPHANED,
+          { envelopeSlots: { traversalId: record.id } },
+        );
+      }
+      const engine = this.newEngine();
+      engine.restoreStack(record.stack);
+      const pos = engine.inspect("position") as InspectPositionResult;
+      if (opts?.waitsOnly && pos.node.type !== "wait") continue;
+      entries.push({
+        traversalId: record.id,
+        graphId: record.graphId,
+        currentNode: record.currentNode,
+        nodeType: pos.node.type,
+        description: pos.node.description ?? "",
+        lastUpdated: record.updatedAt,
+        stackDepth: record.stackDepth,
+        ...(pos.waitStatus !== undefined && { waitStatus: pos.waitStatus }),
+        ...(pos.waitingOn !== undefined && { waitingOn: pos.waitingOn }),
+        ...(pos.timeout !== undefined && { timeout: pos.timeout }),
+        ...(pos.timeoutAt !== undefined && { timeoutAt: pos.timeoutAt }),
+      });
+    }
+    return entries;
   }
 
   resetTraversal(traversalId: string): { traversalId: string } & ResetResult {

@@ -398,3 +398,23 @@ export interface TraversalListResult {
    */
   readonly orphanedTraversals?: readonly TraversalInfo[];
 }
+
+/**
+ * One entry returned by `TraversalStore.inspectActive` — a `TraversalInfo`
+ * augmented with the current node's `type` + `description` and any live
+ * wait state. Plugin hooks consume this to nudge the agent at wait
+ * nodes; surfaces `waitStatus` for "should I poll again?".
+ */
+export interface ActiveTraversalEntry {
+  readonly traversalId: string;
+  readonly graphId: string;
+  readonly currentNode: string;
+  readonly nodeType: NodeDefinition["type"];
+  readonly description: string;
+  readonly lastUpdated: string;
+  readonly stackDepth: number;
+  readonly waitStatus?: "waiting" | "ready" | "timed_out";
+  readonly waitingOn?: readonly WaitCondition[];
+  readonly timeout?: string;
+  readonly timeoutAt?: string;
+}
