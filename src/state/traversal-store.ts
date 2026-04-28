@@ -108,10 +108,6 @@ export class TraversalStore {
     this.state.close();
   }
 
-  updateGraphs(newGraphs: Map<string, ValidatedGraph>): void {
-    this.graphs = newGraphs;
-  }
-
   // --- Read operations ---
 
   listGraphs(): TraversalListResult {
@@ -150,13 +146,6 @@ export class TraversalStore {
 
   listTraversals(): TraversalInfo[] {
     return this.state.list().map(recordToInfo);
-  }
-
-  /** Check whether any active traversal belongs to one of the given graph IDs. */
-  hasActiveTraversalForGraph(...graphIds: string[]): boolean {
-    if (graphIds.length === 0) return false;
-    const targets = new Set(graphIds);
-    return this.state.list().some((r) => targets.has(r.graphId));
   }
 
   // --- Traversal operations ---

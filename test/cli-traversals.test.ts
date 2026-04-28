@@ -822,11 +822,16 @@ describe("traversalStatus orphanedTraversals surface (#136)", () => {
     const store = new TraversalStore(db, graphs, { maxDepth: 5, hookRunner: new HookRunner() });
     try {
       await store.createTraversal(loaded.id);
-      // Drop the graph from the map to simulate the yaml being
-      // removed/renamed between CLI invocations.
-      store.updateGraphs(new Map());
+      // Reconstruct the store with empty graphs against the same
+      // backing state — models the post-#127 reality where each CLI
+      // invocation loads graphs from disk and a yaml renamed/deleted
+      // between runs surfaces as an orphan.
+      const orphanedStore = new TraversalStore(db, new Map(), {
+        maxDepth: 5,
+        hookRunner: new HookRunner(),
+      });
 
-      traversalStatus(store);
+      traversalStatus(orphanedStore);
       const parsed = stdoutJson() as {
         activeTraversals: unknown[];
         orphanedTraversals?: Array<{ traversalId: string; graphId: string }>;
