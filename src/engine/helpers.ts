@@ -113,10 +113,8 @@ export function buildAdvanceSuccessResult(
 }
 
 /**
- * Base fields every gate-block error response shares. `reason`
- * duplicates `error.message` for pre-#95 readers — see
- * `AdvanceErrorResult`'s docstring. Mirrors `BaseAdvanceFields` for
- * the success path.
+ * Base fields every gate-block error response shares. Mirrors
+ * `BaseAdvanceFields` for the success path.
  */
 export interface BaseAdvanceErrorFields {
   readonly code: GateBlockCode;
@@ -153,7 +151,6 @@ export function buildAdvanceErrorResult(
     isError: true as const,
     error: { code: base.code, message: base.message, kind: "blocked" as const },
     currentNode: base.currentNode,
-    reason: base.message,
     validTransitions: base.validTransitions,
   };
   if ("contextDelta" in mode) {

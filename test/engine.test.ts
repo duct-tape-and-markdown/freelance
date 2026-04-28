@@ -137,7 +137,7 @@ describe("advance() — context updates persist on failure", () => {
     const result = await engine.advance("approved", { someKey: "persisted" });
     expect(result.isError).toBe(true);
     if (result.isError) {
-      expect(result.reason).toContain("Task must be started");
+      expect(result.error.message).toContain("Task must be started");
       expect(result.context.someKey).toBe("persisted");
     }
   });
@@ -172,7 +172,7 @@ describe("advance() — gate enforcement", () => {
     const result = await engine.advance("approved");
     expect(result.isError).toBe(true);
     if (result.isError) {
-      expect(result.reason).toContain("Task must be started");
+      expect(result.error.message).toContain("Task must be started");
       expect(result.currentNode).toBe("review");
     }
   });
@@ -216,7 +216,7 @@ describe("advance() — conditional edges", () => {
     const result = await engine.advance("go-right");
     expect(result.isError).toBe(true);
     if (result.isError) {
-      expect(result.reason).toContain("condition not met");
+      expect(result.error.message).toContain("condition not met");
     }
   });
 });
@@ -232,7 +232,6 @@ describe("advance() — unified error envelope", () => {
     if (result.isError) {
       expect(result.error.code).toBe("VALIDATION_FAILED");
       expect(result.error.kind).toBe("blocked");
-      expect(result.error.message).toBe(result.reason);
     }
   });
 

@@ -145,10 +145,9 @@ export interface AdvanceSuccessMinimalResult {
  * so a skill sees one unified error format: `{ isError: true, error: {
  * code, message, kind } }`. Blocked responses add `status: "error"`,
  * `currentNode`, `validTransitions`, and `context` so the caller can
- * pick a different edge or fix context and retry. `reason` duplicates
- * `error.message` for back-compat with pre-#95 readers; new code should
- * read `error.message`. See `error-codes.ts` for the `kind`
- * discriminator and issue #95 for the unification rationale.
+ * pick a different edge or fix context and retry. See `error-codes.ts`
+ * for the `kind` discriminator and issue #95 for the unification
+ * rationale.
  */
 export interface AdvanceErrorResult {
   readonly status: "error";
@@ -159,7 +158,6 @@ export interface AdvanceErrorResult {
     readonly kind: "blocked";
   };
   readonly currentNode: string;
-  readonly reason: string;
   readonly validTransitions: readonly TransitionInfo[];
   readonly context: Readonly<Record<string, unknown>>;
   readonly graphSources?: readonly SourceBinding[];
@@ -167,12 +165,12 @@ export interface AdvanceErrorResult {
 
 /**
  * Lean gate-blocked shape — `responseMode: "minimal"` counterpart to
- * `AdvanceErrorResult`. Keeps `reason` and `validTransitions` (the
- * caller needs both to fix and retry) but drops the full `context`
- * echo. `contextDelta` is included for symmetry with the success shape
- * — empty on pure gate blocks (wait/validation/return-schema/edge
- * condition don't write), populated only when the caller's
- * contextUpdates applied before a gate failed.
+ * `AdvanceErrorResult`. Keeps `validTransitions` (the caller needs it
+ * to fix and retry) but drops the full `context` echo. `contextDelta`
+ * is included for symmetry with the success shape — empty on pure gate
+ * blocks (wait/validation/return-schema/edge condition don't write),
+ * populated only when the caller's contextUpdates applied before a
+ * gate failed.
  */
 export interface AdvanceErrorMinimalResult {
   readonly status: "error";
@@ -183,7 +181,6 @@ export interface AdvanceErrorMinimalResult {
     readonly kind: "blocked";
   };
   readonly currentNode: string;
-  readonly reason: string;
   readonly validTransitions: readonly TransitionInfo[];
   readonly contextDelta: readonly string[];
 }

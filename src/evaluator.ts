@@ -506,3 +506,18 @@ export function evaluate(expr: string, context: Record<string, unknown>): boolea
   const parser = new Parser(tokens, context, expr);
   return parser.parse();
 }
+
+/**
+ * Predicate-site wrapper: any throw resolves to `false` so a malformed
+ * expression at runtime can't abort the advance. Use at gate checks,
+ * edge conditions, validation rules, and subgraph conditions — every
+ * site whose semantic contract is "no-pass on error". Validate-time
+ * enumeration that needs to surface a throw keeps using `evaluate`.
+ */
+export function evaluatePredicate(expr: string, context: Record<string, unknown>): boolean {
+  try {
+    return evaluate(expr, context);
+  } catch {
+    return false;
+  }
+}

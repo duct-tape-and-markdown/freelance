@@ -23,8 +23,8 @@ describe("return schema — engine validation", () => {
     const result = await engine.advance("done");
     expect(result.isError).toBe(true);
     if (result.isError) {
-      expect(result.reason).toContain("Return schema violation");
-      expect(result.reason).toContain("filesChanged");
+      expect(result.error.message).toContain("Return schema violation");
+      expect(result.error.message).toContain("filesChanged");
       expect(result.error.code).toBe("RETURN_SCHEMA_VIOLATION");
       expect(result.error.kind).toBe("blocked");
     }
@@ -41,9 +41,9 @@ describe("return schema — engine validation", () => {
     const result = await engine.advance("done");
     expect(result.isError).toBe(true);
     if (result.isError) {
-      expect(result.reason).toContain("filesChanged");
-      expect(result.reason).toContain("array");
-      expect(result.reason).toContain("string");
+      expect(result.error.message).toContain("filesChanged");
+      expect(result.error.message).toContain("array");
+      expect(result.error.message).toContain("string");
     }
   });
 
@@ -58,9 +58,9 @@ describe("return schema — engine validation", () => {
     const result = await engine.advance("done");
     expect(result.isError).toBe(true);
     if (result.isError) {
-      expect(result.reason).toContain("filesChanged");
-      expect(result.reason).toContain("item [1]");
-      expect(result.reason).toContain("string");
+      expect(result.error.message).toContain("filesChanged");
+      expect(result.error.message).toContain("item [1]");
+      expect(result.error.message).toContain("string");
     }
   });
 
@@ -76,8 +76,8 @@ describe("return schema — engine validation", () => {
     const result = await engine.advance("done");
     expect(result.isError).toBe(true);
     if (result.isError) {
-      expect(result.reason).toContain("scopeNotes");
-      expect(result.reason).toContain("string");
+      expect(result.error.message).toContain("scopeNotes");
+      expect(result.error.message).toContain("string");
     }
   });
 
@@ -138,10 +138,10 @@ describe("return schema — engine validation", () => {
     const result = await engine.advance("approved");
     expect(result.isError).toBe(true);
     if (result.isError) {
-      expect(result.reason).toContain("Return schema violation");
-      expect(result.reason).toContain("reviewPassed");
+      expect(result.error.message).toContain("Return schema violation");
+      expect(result.error.message).toContain("reviewPassed");
       // Should NOT mention the expression validation
-      expect(result.reason).not.toContain("Tests must be written");
+      expect(result.error.message).not.toContain("Tests must be written");
     }
   });
 
@@ -168,8 +168,8 @@ describe("return schema — engine validation", () => {
     const result = await engine.advance("done");
     expect(result.isError).toBe(true);
     if (result.isError) {
-      expect(result.reason).toContain("metrics");
-      expect(result.reason).toContain("object");
+      expect(result.error.message).toContain("metrics");
+      expect(result.error.message).toContain("object");
     }
   });
 
@@ -184,7 +184,7 @@ describe("return schema — engine validation", () => {
     const result = await engine.advance("done");
     expect(result.isError).toBe(true);
     if (result.isError) {
-      expect(result.reason).toContain("filesChanged");
+      expect(result.error.message).toContain("filesChanged");
     }
   });
 
@@ -205,8 +205,8 @@ describe("return schema — engine validation", () => {
     const result = await engine.advance("approved");
     expect(result.isError).toBe(true);
     if (result.isError) {
-      expect(result.reason).toContain("reviewComments");
-      expect(result.reason).toContain("item [1]");
+      expect(result.error.message).toContain("reviewComments");
+      expect(result.error.message).toContain("item [1]");
     }
   });
 });

@@ -33,7 +33,13 @@ import {
   checkWaitBlocking,
   type GateOptions,
 } from "./gates.js";
-import { buildAdvanceSuccessResult, cloneContext, keysSince, toNodeInfo } from "./helpers.js";
+import {
+  type AdvanceResponseMode,
+  buildAdvanceSuccessResult,
+  cloneContext,
+  keysSince,
+  toNodeInfo,
+} from "./helpers.js";
 import type { HookRunner, MetaCollector } from "./hooks.js";
 import { maybePushSubgraph, popSubgraph } from "./subgraph.js";
 import { evaluateTransitions } from "./transitions.js";
@@ -359,8 +365,10 @@ export class GraphEngine {
     await this.runHooksOnArrival(session, graph, options?.metaCollector);
 
     const { previousNode, edge, writesBefore, minimal, newNodeDef, isTerminal, isWait } = commit;
-    const contextDelta = minimal ? keysSince(session.contextHistory, writesBefore) : [];
     const validTransitions = evaluateTransitions(newNodeDef, session.context);
+    const mode: AdvanceResponseMode = minimal
+      ? { contextDelta: keysSince(session.contextHistory, writesBefore) }
+      : { node: newNodeDef, context: session.context, graphSources: def.sources };
 
     // Wait node arrival
     if (isWait && newNodeDef.waitOn) {
@@ -379,13 +387,7 @@ export class GraphEngine {
           ...(newNodeDef.timeout ? { timeout: newNodeDef.timeout } : {}),
           ...(timeoutAt ? { timeoutAt } : {}),
         },
-        minimal
-          ? { contextDelta }
-          : {
-              node: newNodeDef,
-              context: session.context,
-              graphSources: def.sources,
-            },
+        mode,
       );
     }
 
@@ -403,13 +405,7 @@ export class GraphEngine {
         validTransitions,
         ...(terminalHistory ? { traversalHistory: terminalHistory } : {}),
       },
-      minimal
-        ? { contextDelta }
-        : {
-            node: newNodeDef,
-            context: session.context,
-            graphSources: def.sources,
-          },
+      mode,
     );
 
     // Root terminal GC: clear the stack so TraversalStore.saveEngine
@@ -498,21 +494,15 @@ export class GraphEngine {
     };
     this.stack = [];
 
-    if (clearedStack.length > 1) {
-      return {
-        status: "reset",
-        previousGraph: prev.graphId,
-        previousNode: prev.node,
-        message: `Traversal stack cleared (${clearedStack.length} graphs). Call freelance_start to begin a new workflow.`,
-        clearedStack,
-      } satisfies ResetResult;
-    }
-
+    const isMulti = clearedStack.length > 1;
     return {
       status: "reset",
       previousGraph: prev.graphId,
       previousNode: prev.node,
-      message: "Traversal cleared. Call freelance_start to begin a new workflow.",
+      message: isMulti
+        ? `Traversal stack cleared (${clearedStack.length} graphs). Call freelance_start to begin a new workflow.`
+        : "Traversal cleared. Call freelance_start to begin a new workflow.",
+      ...(isMulti ? { clearedStack } : {}),
     } satisfies ResetResult;
   }
 

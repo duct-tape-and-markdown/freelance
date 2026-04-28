@@ -103,7 +103,7 @@ describe("advance({ responseMode: 'minimal' }) — success shape", () => {
 });
 
 describe("advance({ responseMode: 'minimal' }) — gate-blocked shape", () => {
-  it("omits context, keeps reason + validTransitions + contextDelta", async () => {
+  it("omits context, keeps error.message + validTransitions + contextDelta", async () => {
     const engine = makeEngine("valid-simple.workflow.yaml");
     await engine.start("valid-simple");
     await engine.advance("work-done"); // at gate; taskStarted still false
@@ -113,7 +113,7 @@ describe("advance({ responseMode: 'minimal' }) — gate-blocked shape", () => {
     if (!r.isError) return;
 
     expect(r.status).toBe("error");
-    expect(r.reason).toContain("Task must be started");
+    expect(r.error.message).toContain("Task must be started");
     expect(r.currentNode).toBe("review");
     expect(r.validTransitions).toBeDefined();
     // Caller-side write landed before the gate tripped — surface it.
@@ -140,8 +140,6 @@ describe("advance({ responseMode: 'minimal' }) — gate-blocked shape", () => {
       message: expect.stringContaining("Task must be started"),
       kind: "blocked",
     });
-    // reason is retained as a back-compat mirror of error.message.
-    expect(r.reason).toBe(r.error.message);
   });
 
   it("blocked minimal with no caller writes has empty contextDelta", async () => {
