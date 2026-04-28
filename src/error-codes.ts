@@ -63,7 +63,6 @@ export const ENGINE_ERROR_CODES = {
     "INVALID_EMIT_JSON",
     "INVALID_EMIT_SHAPE",
     "INVALID_META",
-    "INVALID_SHAPE",
     "INVALID_FLAG_VALUE",
   ],
   BLOCKED: ["NO_EDGES", "STACK_DEPTH_EXCEEDED", "DATABASE_BUSY", ...GATE_BLOCK_CODES],
@@ -184,7 +183,6 @@ export const EC = {
   INVALID_EMIT_JSON: "INVALID_EMIT_JSON",
   INVALID_EMIT_SHAPE: "INVALID_EMIT_SHAPE",
   INVALID_META: "INVALID_META",
-  INVALID_SHAPE: "INVALID_SHAPE",
   INVALID_FLAG_VALUE: "INVALID_FLAG_VALUE",
   NO_EDGES: "NO_EDGES",
   STACK_DEPTH_EXCEEDED: "STACK_DEPTH_EXCEEDED",
@@ -322,7 +320,6 @@ export const RECOVERY = {
   INVALID_EMIT_JSON: { verb: "memory emit", kind: "fix-context" },
   INVALID_EMIT_SHAPE: { verb: "memory emit", kind: "fix-context" },
   INVALID_META: { verb: "advance", kind: "fix-context" },
-  INVALID_SHAPE: { verb: "advance", kind: "fix-context" },
   INVALID_FLAG_VALUE: { verb: null, kind: "fix-context" },
 
   // BLOCKED — traversal state fine, fix context and re-advance

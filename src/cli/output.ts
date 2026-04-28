@@ -28,6 +28,28 @@ export function parseIntArg(raw: string | undefined, flag: string): number | und
 }
 
 /**
+ * Shared primitive for CLI enum flags. Validates `raw` against `choices`
+ * and throws `INVALID_FLAG_VALUE` on miss so a typo fails loudly at the
+ * CLI boundary instead of silently falling back to a default. Used at
+ * sites where commander's built-in `.choices()` doesn't apply — flags
+ * with a custom `argParser` (e.g. accumulators) or values plumbed
+ * through helper code before the option is constructed. Same exit code
+ * and undefined-on-empty handling as `parseIntArg`.
+ */
+export function enumArg<T extends string>(
+  raw: string | undefined,
+  choices: readonly T[],
+  flag: string,
+): T | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  if ((choices as readonly string[]).includes(raw)) return raw as T;
+  throw new EngineError(
+    `${flag} must be one of ${choices.join(", ")}; got "${raw}".`,
+    EC.INVALID_FLAG_VALUE,
+  );
+}
+
+/**
  * Shared primitive for CLI flags that accept `key=value` pairs. Splits on
  * the first `=`, validates a non-empty key, and throws with a consistent
  * error message across `--meta`, `--filter`, and `context set`. Callers

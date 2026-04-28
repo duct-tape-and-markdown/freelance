@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { Command, Option } from "commander";
-import { EC, EngineError } from "../errors.js";
+import { EC } from "../errors.js";
 import { INSPECT_FIELDS } from "../types.js";
 import { VERSION } from "../version.js";
 import { catalog } from "./catalog.js";
@@ -23,7 +23,15 @@ import {
   memorySearch,
   memoryStatus,
 } from "./memory.js";
-import { EXIT, fatal, outputJson, runCliHandler, runCliHandlerAsync, setCli } from "./output.js";
+import {
+  EXIT,
+  enumArg,
+  fatal,
+  outputJson,
+  runCliHandler,
+  runCliHandlerAsync,
+  setCli,
+} from "./output.js";
 import {
   createMemoryStore,
   createTraversalStore,
@@ -260,16 +268,11 @@ addWorkflowsOpt(
       "--fields <name>",
       `Additive projections (repeatable; choices: ${INSPECT_FIELDS.join(", ")}). Works with --detail position or history.`,
       (value: string, previous?: string[]) => {
-        // Validate here — commander's .choices() is bypassed by a custom
-        // argParser, so enum validation has to live alongside the
-        // accumulator. INVALID_FLAG_VALUE keeps this on the same exit
-        // path as --limit/--offset typos.
-        if (!(INSPECT_FIELDS as readonly string[]).includes(value)) {
-          throw new EngineError(
-            `--fields must be one of ${INSPECT_FIELDS.join(", ")}; got "${value}".`,
-            EC.INVALID_FLAG_VALUE,
-          );
-        }
+        // commander's `.choices()` is bypassed by a custom argParser;
+        // call enumArg for the throw-on-invalid side effect (the
+        // coerced return is unused — the accumulator stores the raw
+        // string).
+        enumArg(value, INSPECT_FIELDS, "--fields");
         return previous ? [...previous, value] : [value];
       },
     )
