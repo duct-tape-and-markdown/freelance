@@ -27,68 +27,60 @@ function requireMemory(ctx: HookContext, opName: string): HookMemoryAccess {
   return ctx.memory;
 }
 
-function optionalString(args: Record<string, unknown>, key: string): string | undefined {
+type Guard<T> = (v: unknown) => v is T;
+
+const isString: Guard<string> = (v): v is string => typeof v === "string";
+const isNonEmptyString: Guard<string> = (v): v is string => typeof v === "string" && v.length > 0;
+const isInt: Guard<number> = (v): v is number =>
+  typeof v === "number" && Number.isFinite(v) && Number.isInteger(v);
+const isBool: Guard<boolean> = (v): v is boolean => typeof v === "boolean";
+const isShape: Guard<PropositionShape> = (v): v is PropositionShape =>
+  v === "minimal" || v === "full";
+
+/**
+ * Reads `args[key]`. `null`/`undefined` returns undefined; anything
+ * else must satisfy `guard` or throws with a uniform message. `desc`
+ * fills the "must be ${desc}" slot — caller chooses the wording.
+ *
+ * Note: the optional-shape's "or null" wording lives at the call site
+ * because nullability is per-helper convention, not part of the guard.
+ */
+function optional<T>(
+  args: Record<string, unknown>,
+  key: string,
+  guard: Guard<T>,
+  desc: string,
+): T | undefined {
   const v = args[key];
   if (v === undefined || v === null) return undefined;
-  if (typeof v !== "string") {
+  if (!guard(v)) {
     throw new TypeError(
-      `Hook arg "${key}" must be a string or null; got ${typeof v} (${JSON.stringify(v)})`,
-    );
-  }
-  return v;
-}
-
-function optionalInt(args: Record<string, unknown>, key: string): number | undefined {
-  const v = args[key];
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== "number" || !Number.isFinite(v) || !Number.isInteger(v)) {
-    throw new TypeError(
-      `Hook arg "${key}" must be an integer; got ${typeof v} (${JSON.stringify(v)})`,
-    );
-  }
-  return v;
-}
-
-function optionalBool(args: Record<string, unknown>, key: string): boolean | undefined {
-  const v = args[key];
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== "boolean") {
-    throw new TypeError(
-      `Hook arg "${key}" must be a boolean; got ${typeof v} (${JSON.stringify(v)})`,
-    );
-  }
-  return v;
-}
-
-function requireString(args: Record<string, unknown>, key: string): string {
-  const v = args[key];
-  if (typeof v !== "string" || v.length === 0) {
-    throw new TypeError(
-      `Hook arg "${key}" is required and must be a non-empty string; got ${typeof v} (${JSON.stringify(v)})`,
+      `Hook arg "${key}" must be ${desc}; got ${typeof v} (${JSON.stringify(v)})`,
     );
   }
   return v;
 }
 
 /**
- * Parse `shape` hook arg to the store's `PropositionShape` union.
- *
- * Hooks default to `"minimal"` — the warm-path delta-check use case only
- * needs claim text, and the full PropositionInfo payload (per-file
- * hashes, mtimes, validity flags, source arrays, `created_at`) was
- * blowing `freelance advance` responses past 50 KB on multi-file
- * on-enter hooks (see issue #87). Callers that genuinely need
- * provenance can pass `shape: "full"` explicitly.
+ * Reads `args[key]` and asserts it satisfies `guard` (covering
+ * missing/null/wrong-type in one branch). `desc` fills the "must be
+ * ${desc}" slot.
  */
-function optionalShape(args: Record<string, unknown>, key: string): PropositionShape | undefined {
+function required<T>(args: Record<string, unknown>, key: string, guard: Guard<T>, desc: string): T {
   const v = args[key];
-  if (v === undefined || v === null) return undefined;
-  if (v === "minimal" || v === "full") return v;
-  throw new TypeError(
-    `Hook arg "${key}" must be "minimal" or "full"; got ${typeof v} (${JSON.stringify(v)})`,
-  );
+  if (!guard(v)) {
+    throw new TypeError(
+      `Hook arg "${key}" is required and must be ${desc}; got ${typeof v} (${JSON.stringify(v)})`,
+    );
+  }
+  return v;
 }
 
+/**
+ * `paths: string[]` — bespoke because element-level validation isn't
+ * captured by a single guard; building an `arrayOf(guard)` factory for
+ * one call site would be more scaffold than the inline check.
+ */
 function requireStringArray(args: Record<string, unknown>, key: string): string[] {
   const v = args[key];
   if (!Array.isArray(v)) {
@@ -115,45 +107,49 @@ const memoryBrowse: HookFn = async (ctx) => {
   const memory = requireMemory(ctx, "memory_browse");
   return {
     ...memory.browse({
-      name: optionalString(ctx.args, "name"),
-      kind: optionalString(ctx.args, "kind"),
-      limit: optionalInt(ctx.args, "limit"),
-      offset: optionalInt(ctx.args, "offset"),
-      includeOrphans: optionalBool(ctx.args, "includeOrphans"),
+      name: optional(ctx.args, "name", isString, "a string or null"),
+      kind: optional(ctx.args, "kind", isString, "a string or null"),
+      limit: optional(ctx.args, "limit", isInt, "an integer"),
+      offset: optional(ctx.args, "offset", isInt, "an integer"),
+      includeOrphans: optional(ctx.args, "includeOrphans", isBool, "a boolean"),
     }),
   };
 };
 
 const memorySearch: HookFn = async (ctx) => {
   const memory = requireMemory(ctx, "memory_search");
-  const query = requireString(ctx.args, "query");
+  const query = required(ctx.args, "query", isNonEmptyString, "a non-empty string");
   return {
     ...memory.search(query, {
-      limit: optionalInt(ctx.args, "limit"),
+      limit: optional(ctx.args, "limit", isInt, "an integer"),
     }),
   };
 };
 
 const memoryRelated: HookFn = async (ctx) => {
   const memory = requireMemory(ctx, "memory_related");
-  const entity = requireString(ctx.args, "entity");
+  const entity = required(ctx.args, "entity", isNonEmptyString, "a non-empty string");
   return {
     ...memory.related(entity, {
-      limit: optionalInt(ctx.args, "limit"),
-      offset: optionalInt(ctx.args, "offset"),
+      limit: optional(ctx.args, "limit", isInt, "an integer"),
+      offset: optional(ctx.args, "offset", isInt, "an integer"),
     }),
   };
 };
 
+// `shape` defaults to `"minimal"` in hooks: the warm-path delta-check
+// only needs claim text, and the full PropositionInfo payload (per-file
+// hashes, validity flags, source arrays, `created_at`) blew `freelance
+// advance` responses past 50 KB on multi-file on-enter hooks (see #87).
+// Callers that genuinely need provenance pass `shape: "full"` explicitly.
 const memoryInspect: HookFn = async (ctx) => {
   const memory = requireMemory(ctx, "memory_inspect");
-  const entity = requireString(ctx.args, "entity");
-  // `shape` defaults to `"minimal"` in hooks — see optionalShape for why.
+  const entity = required(ctx.args, "entity", isNonEmptyString, "a non-empty string");
   return {
     ...memory.inspect(entity, {
-      limit: optionalInt(ctx.args, "limit"),
-      offset: optionalInt(ctx.args, "offset"),
-      shape: optionalShape(ctx.args, "shape") ?? "minimal",
+      limit: optional(ctx.args, "limit", isInt, "an integer"),
+      offset: optional(ctx.args, "offset", isInt, "an integer"),
+      shape: optional(ctx.args, "shape", isShape, '"minimal" or "full"') ?? "minimal",
     }),
   };
 };
@@ -181,7 +177,7 @@ const memoryBySource: HookFn = async (ctx) => {
   const memory = requireMemory(ctx, "memory_by_source");
   const paths = requireStringArray(ctx.args, "paths");
   const capped = paths.slice(0, MAX_BY_SOURCE_PATHS);
-  const perPathLimit = optionalInt(ctx.args, "limit");
+  const perPathLimit = optional(ctx.args, "limit", isInt, "an integer");
   const priorKnowledgeByPath: Record<string, PriorKnowledgeEntry[]> = {};
   for (const p of capped) {
     // Always ask the store for the minimal shape — the wire contract

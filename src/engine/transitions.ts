@@ -38,10 +38,7 @@ export function evaluateTransitions(
     };
   });
 
-  const anyConditionalMet = results.some(
-    (r) =>
-      !r.isDefault && r.conditionMet && node.edges!.find((e) => e.label === r.label)?.condition,
-  );
+  const anyConditionalMet = results.some((r) => !r.isDefault && r.conditionMet && r.condition);
 
   for (const r of results) {
     if (r.isDefault) {
