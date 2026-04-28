@@ -1,4 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { FreelanceConfig } from "../src/config.js";
+
+// Typed against the real interface so a schema change breaks the
+// mock instead of letting it rot under structural-typing optionality.
+const STUB_CONFIG: FreelanceConfig = {
+  workflows: [],
+  memory: {},
+  hooks: {},
+  context: {},
+  sources: [],
+};
 
 // Mock heavy dependencies
 vi.mock("../src/cli/validate.js", () => ({ validate: vi.fn() }));
@@ -40,13 +51,20 @@ vi.mock("../src/cli/setup.js", () => ({
   })),
   createMemoryStore: vi.fn(() => ({
     store: { close: vi.fn() },
-    setup: { graphsDirs: [], sourceOpts: {} },
+    setup: { graphsDirs: [], sourceRoot: undefined, config: STUB_CONFIG },
   })),
   loadGraphSetup: vi.fn(() => ({
     graphs: new Map(),
     graphsDirs: [],
     sourceRoot: undefined,
     sourceOpts: {},
+    config: STUB_CONFIG,
+    loadErrors: [],
+  })),
+  loadMemorySetup: vi.fn(() => ({
+    graphsDirs: [],
+    sourceRoot: undefined,
+    config: STUB_CONFIG,
   })),
   ensureFreelanceDir: vi.fn((dir: string) => dir),
   resolveTraversalsDir: vi.fn(() => ":memory:"),

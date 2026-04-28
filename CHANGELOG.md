@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`freelance memory reset --confirm` no longer leaves an empty
+  `memory/` directory behind (#197).** `resolveMemoryConfig` in
+  `src/cli/setup.ts` was a path resolver that performed `mkdirSync`
+  as a side effect on every config branch. The `memory reset` handler
+  deliberately bypasses `composeRuntime` (the recovery path for "old
+  memory.db schema is incompatible with the current build"), but
+  still went through `resolveMemoryConfig` — so reset-on-clean-repo
+  *created* the directory it had just unlinked. `resolveMemoryConfig`
+  is now pure; the parent-directory mkdir lives inside
+  `buildMemoryStore`'s lazy thunk in `src/compose.ts`, where opening
+  the SQLite handle happens anyway. Codified in `docs/decisions.md` §
+  "Memory directory creation lives in `buildMemoryStore`".
+
+### Changed
+
+- **Memory CLI verbs no longer parse every workflow yaml on startup
+  (#198).** `createMemoryStore` (`src/cli/setup.ts`) ran through
+  `loadGraphSetup` → `loadGraphsGraceful`, which walks every
+  `.workflow.yaml` under the resolved graphs directories and parses +
+  Zod-validates each one. Memory commands operate on a flat namespace
+  with no graph-id coupling, so they only need `graphsDirs +
+  sourceRoot + config`. New `loadMemorySetup` provides exactly that;
+  every `freelance memory <verb>` skips graph parsing. Cost reduction
+  scales with `graphsDirs × graphs per dir`. `loadGraphSetup` is now
+  a thin wrapper that adds graph parsing + `sourceOpts` on top of
+  `loadMemorySetup`, so config also threads through `CliSetup`,
+  killing a duplicate `loadConfigFromDirs` call in
+  `createTraversalStore`.
+
 - **Plugin SessionStart nudge no longer false-positives on Windows.**
   `plugins/freelance/hooks/nudge.mjs` probed the CLI with
   `execFileSync("freelance", ["--version"])`. On Windows npm installs

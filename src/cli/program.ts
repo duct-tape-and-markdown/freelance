@@ -7,9 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { Command, Option } from "commander";
-import { loadConfigFromDirs } from "../config.js";
 import { EC, EngineError } from "../errors.js";
-import { resolveGraphsDirs } from "../graph-resolution.js";
 import { INSPECT_FIELDS } from "../types.js";
 import { VERSION } from "../version.js";
 import { catalog } from "./catalog.js";
@@ -30,6 +28,7 @@ import {
   createMemoryStore,
   createTraversalStore,
   loadGraphSetup,
+  loadMemorySetup,
   resolveMemoryConfig,
 } from "./setup.js";
 import { distillRun, guideShow, sourcesCheck, sourcesHash, sourcesValidate } from "./stateless.js";
@@ -407,11 +406,9 @@ addWorkflowsOpt(
     .option("--dry-run", "Show what would be pruned without deleting")
     .option("--confirm", "Execute the prune (required unless --dry-run)"),
 ).action((opts) => {
-  const dirs = resolveGraphsDirs(opts.workflows);
-  const fileConfig = loadConfigFromDirs(dirs);
+  const { store, setup } = createMemoryStore({ workflows: opts.workflows });
   // CLI --keep concatenates on top of memory.prune.keep in config.
-  const mergedKeep = [...(fileConfig.memory.prune?.keep ?? []), ...(opts.keep ?? [])];
-  const { store } = createMemoryStore({ workflows: opts.workflows });
+  const mergedKeep = [...(setup.config.memory.prune?.keep ?? []), ...(opts.keep ?? [])];
   runCliHandler(store, () =>
     memoryPrune(store, { keep: mergedKeep, dryRun: opts.dryRun, confirm: opts.confirm }),
   );
@@ -430,9 +427,8 @@ addWorkflowsOpt(
   // resource to dispose, but the wrapper still carries its weight:
   // `CliExit` from the `--confirm` refusal and any `EngineError` from
   // the unlink loop both route through the standard exit plumbing.
-  const dirs = resolveGraphsDirs(opts.workflows);
-  const fileConfig = loadConfigFromDirs(dirs);
-  const memConfig = resolveMemoryConfig(dirs, {}, fileConfig);
+  const setup = loadMemorySetup({ workflows: opts.workflows });
+  const memConfig = resolveMemoryConfig(setup.graphsDirs, {}, setup.config);
   if (!memConfig) {
     outputJson({ status: "noop", reason: "memory disabled in config" });
     return;
