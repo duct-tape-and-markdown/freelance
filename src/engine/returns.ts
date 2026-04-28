@@ -22,6 +22,20 @@ function actualType(value: unknown): string {
   return typeof value;
 }
 
+function validateField(key: string, field: ReturnField, value: unknown): string | null {
+  if (!checkType(value, field.type)) {
+    return `key "${key}" expected type "${field.type}" but got "${actualType(value)}"`;
+  }
+  if (field.type === "array" && field.items && Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      if (!checkType(value[i], field.items)) {
+        return `key "${key}" array item [${i}] expected type "${field.items}" but got "${actualType(value[i])}"`;
+      }
+    }
+  }
+  return null;
+}
+
 export function validateReturnSchema(
   returns: NonNullable<NodeDefinition["returns"]>,
   context: Record<string, unknown>,
@@ -31,34 +45,16 @@ export function validateReturnSchema(
       if (!(key in context) || context[key] === undefined) {
         return `required key "${key}" (type: ${field.type}) is missing from context`;
       }
-      const value = context[key];
-      if (!checkType(value, field.type)) {
-        return `key "${key}" expected type "${field.type}" but got "${actualType(value)}"`;
-      }
-      if (field.type === "array" && field.items && Array.isArray(value)) {
-        for (let i = 0; i < value.length; i++) {
-          if (!checkType(value[i], field.items)) {
-            return `key "${key}" array item [${i}] expected type "${field.items}" but got "${actualType(value[i])}"`;
-          }
-        }
-      }
+      const violation = validateField(key, field, context[key]);
+      if (violation) return violation;
     }
   }
 
   if (returns.optional) {
     for (const [key, field] of Object.entries(returns.optional)) {
       if (!(key in context) || context[key] === undefined) continue;
-      const value = context[key];
-      if (!checkType(value, field.type)) {
-        return `key "${key}" expected type "${field.type}" but got "${actualType(value)}"`;
-      }
-      if (field.type === "array" && field.items && Array.isArray(value)) {
-        for (let i = 0; i < value.length; i++) {
-          if (!checkType(value[i], field.items)) {
-            return `key "${key}" array item [${i}] expected type "${field.items}" but got "${actualType(value[i])}"`;
-          }
-        }
-      }
+      const violation = validateField(key, field, context[key]);
+      if (violation) return violation;
     }
   }
 

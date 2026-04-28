@@ -7,9 +7,8 @@ import type {
   SessionState,
   SourceBinding,
 } from "../types.js";
-import { buildAdvanceErrorResult } from "./helpers.js";
+import { buildAdvanceSnapshot } from "./helpers.js";
 import { validateReturnSchema } from "./returns.js";
-import { evaluateTransitions } from "./transitions.js";
 import { checkWaitTimeout, evaluateWaitConditions } from "./wait.js";
 
 export type GateBlockResult = AdvanceErrorResult | AdvanceErrorMinimalResult;
@@ -22,9 +21,11 @@ export interface GateOptions {
 }
 
 /**
- * Build the unified in-band gate-block envelope. Computes
- * `validTransitions` once (every gate checker would otherwise duplicate
- * it) and delegates shape assembly to `buildAdvanceErrorResult`.
+ * Build the unified in-band gate-block envelope. The shared
+ * `{currentNode, validTransitions, context | contextDelta}` snapshot
+ * comes from `buildAdvanceSnapshot` so the same shape ships on
+ * post-transition hook throws (see `captureHookFailureEnvelope`); only
+ * the error envelope and optional `graphSources` are layered here.
  */
 function makeAdvanceError(
   session: SessionState,
@@ -33,17 +34,21 @@ function makeAdvanceError(
   nodeDef: NodeDefinition,
   opts: GateOptions,
 ): GateBlockResult {
-  return buildAdvanceErrorResult(
-    {
-      code,
-      message,
-      currentNode: session.currentNode,
-      validTransitions: evaluateTransitions(nodeDef, session.context),
-    },
-    opts.minimal
-      ? { contextDelta: opts.contextDelta }
-      : { context: session.context, graphSources: opts.graphSources },
+  const snapshot = buildAdvanceSnapshot(
+    session,
+    nodeDef,
+    opts.minimal ? { contextDelta: opts.contextDelta } : { full: true },
   );
+  const envelope = {
+    status: "error" as const,
+    isError: true as const,
+    error: { code, message, kind: "blocked" as const },
+    ...snapshot,
+  };
+  if ("context" in snapshot && opts.graphSources?.length) {
+    return { ...envelope, graphSources: opts.graphSources };
+  }
+  return envelope;
 }
 
 /** Returns a gate-block result if wait conditions block advancement, null otherwise. */

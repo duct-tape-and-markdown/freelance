@@ -1,16 +1,15 @@
-import type { GateBlockCode } from "../error-codes.js";
 import type {
-  AdvanceErrorMinimalResult,
-  AdvanceErrorResult,
   AdvanceSuccessMinimalResult,
   AdvanceSuccessResult,
   NodeDefinition,
   NodeInfo,
+  SessionState,
   SourceBinding,
   SubgraphPushedInfo,
   TransitionInfo,
   WaitCondition,
 } from "../types.js";
+import { evaluateTransitions } from "./transitions.js";
 
 export function cloneContext(ctx: Record<string, unknown>): Record<string, unknown> {
   return structuredClone(ctx);
@@ -113,52 +112,56 @@ export function buildAdvanceSuccessResult(
 }
 
 /**
- * Base fields every gate-block error response shares. Mirrors
- * `BaseAdvanceFields` for the success path.
+ * Mode discriminator for `buildAdvanceSnapshot`. Mirrors the
+ * success-side `AdvanceResponseMode`: minimal passes a pre-computed
+ * `contextDelta`, full requests a fresh clone of `session.context`.
  */
-export interface BaseAdvanceErrorFields {
-  readonly code: GateBlockCode;
-  readonly message: string;
-  readonly currentNode: string;
-  readonly validTransitions: readonly TransitionInfo[];
-}
+export type AdvanceSnapshotMode =
+  | { readonly contextDelta: readonly string[] }
+  | { readonly full: true };
 
 /**
- * Shape-discriminated: minimal passes `contextDelta`; full passes
- * `context` (+ optional `graphSources`). Same discriminator pattern
- * as `AdvanceResponseMode` for the success path.
+ * Shared advance-failure snapshot fields — `currentNode`,
+ * `validTransitions`, and `context | contextDelta`. The bundle a
+ * skill needs to recover from any advance failure (gate-block or
+ * post-transition hook throw).
  */
-export type AdvanceErrorResponseMode =
-  | { readonly contextDelta: readonly string[] }
+export type AdvanceSnapshot =
   | {
-      readonly context: Record<string, unknown>;
-      readonly graphSources?: readonly SourceBinding[];
+      readonly currentNode: string;
+      readonly validTransitions: readonly TransitionInfo[];
+      readonly contextDelta: readonly string[];
+    }
+  | {
+      readonly currentNode: string;
+      readonly validTransitions: readonly TransitionInfo[];
+      readonly context: Readonly<Record<string, unknown>>;
     };
 
 /**
- * Error-side twin of `buildAdvanceSuccessResult`. Gate-block
- * responses match the thrown-error envelope (`isError: true` + `error:
- * { code, message, kind }`) so the CLI writes one wire format for
- * every advance failure — see issue #95 + `AdvanceErrorResult`'s
- * docstring.
+ * Single source for the advance-failure snapshot. Owned here so
+ * gate-block builders (`makeAdvanceError`) and hook-throw envelope
+ * attachment (`captureHookFailureEnvelope`) emit the same shape — a
+ * future field on the recover-or-stop bundle lands on both paths.
+ * Computes `validTransitions` once against the post-transition node;
+ * skills read it on every advance failure to pick the next move.
  */
-export function buildAdvanceErrorResult(
-  base: BaseAdvanceErrorFields,
-  mode: AdvanceErrorResponseMode,
-): AdvanceErrorResult | AdvanceErrorMinimalResult {
-  const envelope = {
-    status: "error" as const,
-    isError: true as const,
-    error: { code: base.code, message: base.message, kind: "blocked" as const },
-    currentNode: base.currentNode,
-    validTransitions: base.validTransitions,
-  };
+export function buildAdvanceSnapshot(
+  session: SessionState,
+  nodeDef: NodeDefinition,
+  mode: AdvanceSnapshotMode,
+): AdvanceSnapshot {
+  const validTransitions = evaluateTransitions(nodeDef, session.context);
   if ("contextDelta" in mode) {
-    return { ...envelope, contextDelta: mode.contextDelta };
+    return {
+      currentNode: session.currentNode,
+      validTransitions,
+      contextDelta: mode.contextDelta,
+    };
   }
   return {
-    ...envelope,
-    context: cloneContext(mode.context),
-    ...(mode.graphSources?.length ? { graphSources: mode.graphSources } : {}),
+    currentNode: session.currentNode,
+    validTransitions,
+    context: cloneContext(session.context),
   };
 }
