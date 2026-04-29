@@ -2,7 +2,7 @@ import { EC, EngineError } from "../errors.js";
 import { evaluatePredicate } from "../evaluator.js";
 import { resolveContextDefaults } from "../loader.js";
 import type { NodeDefinition, SessionState, ValidatedGraph } from "../types.js";
-import { buildAdvanceSuccessResult, keysSince, mergeDelta } from "./helpers.js";
+import { buildAdvanceSuccessResult, keysSince, mergeDelta, requireGraph } from "./helpers.js";
 import type { HookRunner, MetaCollector } from "./hooks.js";
 import { evaluateTransitions } from "./transitions.js";
 
@@ -52,10 +52,7 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Subgrap
 
   if (subgraph.condition) {
     if (!evaluatePredicate(subgraph.condition, parentSession.context)) {
-      const parentGraph = graphs.get(parentSession.graphId);
-      if (!parentGraph) {
-        throw new EngineError(`Graph "${parentSession.graphId}" not found`, EC.GRAPH_NOT_FOUND);
-      }
+      const parentGraph = requireGraph(graphs, parentSession.graphId);
       const parentDef = parentGraph.definition;
       const validTransitions = evaluateTransitions(newNodeDef, parentSession.context);
       return buildAdvanceSuccessResult(
@@ -84,14 +81,7 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Subgrap
     );
   }
 
-  const childGraph = graphs.get(subgraph.graphId);
-  if (!childGraph) {
-    throw new EngineError(
-      `Subgraph '${subgraph.graphId}' not found in loaded graphs.`,
-      EC.GRAPH_NOT_FOUND,
-    );
-  }
-
+  const childGraph = requireGraph(graphs, subgraph.graphId);
   const childDef = childGraph.definition;
   const childContext: Record<string, unknown> = {
     ...resolveContextDefaults(childDef.context ?? {}),
@@ -187,10 +177,7 @@ export function popSubgraph(args: PopSubgraphArgs): SubgraphResult {
   stack.pop();
 
   const parentSession = stack[stack.length - 1];
-  const parentGraph = graphs.get(parentSession.graphId);
-  if (!parentGraph) {
-    throw new EngineError(`Graph "${parentSession.graphId}" not found`, EC.GRAPH_NOT_FOUND);
-  }
+  const parentGraph = requireGraph(graphs, parentSession.graphId);
   const parentDef = parentGraph.definition;
   const parentNodeDef = parentDef.nodes[parentSession.currentNode];
   const subgraphDef = parentNodeDef.subgraph!;

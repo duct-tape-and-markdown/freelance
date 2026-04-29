@@ -41,6 +41,7 @@ import {
   buildAdvanceSuccessResult,
   cloneContext,
   keysSince,
+  requireGraph,
   toNodeInfo,
 } from "./helpers.js";
 import type { HookRunner, MetaCollector } from "./hooks.js";
@@ -150,10 +151,7 @@ export class GraphEngine {
       );
     }
 
-    const graph = this.graphs.get(graphId);
-    if (!graph) {
-      throw new EngineError(`Graph "${graphId}" not found`, EC.GRAPH_NOT_FOUND);
-    }
+    const graph = requireGraph(this.graphs, graphId);
 
     const def = graph.definition;
     const defaults = resolveContextDefaults(def.context ?? {});
@@ -568,14 +566,7 @@ export class GraphEngine {
   }
 
   private currentGraph(): ValidatedGraph {
-    const graph = this.graphs.get(this.activeSession().graphId);
-    if (!graph) {
-      throw new EngineError(
-        `Graph "${this.activeSession().graphId}" not found`,
-        EC.GRAPH_NOT_FOUND,
-      );
-    }
-    return graph;
+    return requireGraph(this.graphs, this.activeSession().graphId);
   }
 
   private currentGraphDef() {
