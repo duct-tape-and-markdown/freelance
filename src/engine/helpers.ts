@@ -13,16 +13,6 @@ import type {
 } from "../types.js";
 import { evaluateTransitions } from "./transitions.js";
 
-/**
- * Single source for the GRAPH_NOT_FOUND throw shape. Both the engine
- * orchestrator (`start`, `currentGraph`) and subgraph push/pop look up
- * a `graphId` in the loaded map, throw on miss, and continue with the
- * narrowed `ValidatedGraph` — the helper folds that 3-line pattern
- * into a one-liner. The wire-contract message + future envelope-slot
- * enrichment (e.g. `availableGraphIds` for near-match recovery) land
- * in one place. The orphaned-traversal split (#191 → `TRAVERSAL_ORPHANED`)
- * addressed the wire side; this is its throw-site dual.
- */
 export function requireGraph(
   graphs: ReadonlyMap<string, ValidatedGraph>,
   graphId: string,

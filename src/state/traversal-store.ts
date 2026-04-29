@@ -346,8 +346,8 @@ export class TraversalStore {
    * fields the `--active` listing surfaces. Avoids the N+1 disk read of
    * `listTraversals()` followed by per-id `inspect()` (each `inspect`
    * re-hits `state.get(id)` for a record `state.list()` already
-   * returned). Throws `TRAVERSAL_ORPHANED` via `throwOrphaned` on the
-   * first record whose graph isn't loaded — shared with `loadEngine`.
+   * returned). Throws `TRAVERSAL_ORPHANED` on the first record whose
+   * graph isn't loaded — shared with `loadEngine`.
    */
   inspectActive(opts?: { waitsOnly?: boolean }): readonly ActiveTraversalEntry[] {
     const records = this.state.list();
@@ -464,15 +464,6 @@ export class TraversalStore {
     return { engine, record };
   }
 
-  /**
-   * Single source for the TRAVERSAL_ORPHANED throw shape. Called from
-   * `loadEngine` (advance/inspect/contextSet/metaSet entry) and
-   * `inspectActive` (`--active` listing walk). Keying `traversalId`
-   * off `record.id` rules out the parameter/field divergence both
-   * call sites used to carry — the recovery-verb template
-   * (`reset {traversalId} --confirm`) and any future envelope-slot
-   * enrichment now land in one place.
-   */
   private throwOrphaned(record: TraversalRecord): never {
     throw new EngineError(
       `Graph "${record.graphId}" not found. Traversal "${record.id}" is orphaned — ` +
