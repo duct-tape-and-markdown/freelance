@@ -227,12 +227,22 @@ const metaSet: HookFn = async (ctx) => {
   return {};
 };
 
-export const BUILTIN_HOOKS: ReadonlyMap<string, HookFn> = new Map<string, HookFn>([
-  ["memory_status", memoryStatus],
-  ["memory_browse", memoryBrowse],
-  ["memory_search", memorySearch],
-  ["memory_related", memoryRelated],
-  ["memory_inspect", memoryInspect],
-  ["memory_by_source", memoryBySource],
-  ["meta_set", metaSet],
-]);
+export const BUILTIN_HOOKS = {
+  memory_status: memoryStatus,
+  memory_browse: memoryBrowse,
+  memory_search: memorySearch,
+  memory_related: memoryRelated,
+  memory_inspect: memoryInspect,
+  memory_by_source: memoryBySource,
+  meta_set: metaSet,
+} as const satisfies Record<string, HookFn>;
+
+export type BuiltinHookName = keyof typeof BUILTIN_HOOKS;
+
+/** Test-time partial override of built-ins. Same shape used by HookRunner and test helpers. */
+export type BuiltinHookOverrides = Partial<Record<BuiltinHookName, HookFn>>;
+
+export const isBuiltinHookName = (s: string): s is BuiltinHookName => s in BUILTIN_HOOKS;
+
+/** Comma-joined registered built-in names for "unknown built-in: registered are [...]" error hints. */
+export const formatBuiltinHookNames = (): string => Object.keys(BUILTIN_HOOKS).join(", ");

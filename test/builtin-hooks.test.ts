@@ -21,9 +21,7 @@ function makeCtx(overrides: Partial<HookContext> = {}): HookContext {
 describe("meta_set built-in hook", () => {
   it("forwards every arg as a meta update via the host-provided collector", async () => {
     const collected: Record<string, string>[] = [];
-    const metaSet = BUILTIN_HOOKS.get("meta_set");
-    expect(metaSet).toBeDefined();
-    const result = await metaSet!(
+    const result = await BUILTIN_HOOKS.meta_set(
       makeCtx({
         args: { externalKey: "DEV-1234", branch: "feature/x" },
         setMeta: (u) => collected.push(u),
@@ -34,21 +32,21 @@ describe("meta_set built-in hook", () => {
   });
 
   it("rejects non-string arg values (e.g. unresolved context paths)", async () => {
-    const metaSet = BUILTIN_HOOKS.get("meta_set")!;
+    const metaSet = BUILTIN_HOOKS.meta_set;
     await expect(
       metaSet(makeCtx({ args: { externalKey: 1234 }, setMeta: () => {} })),
     ).rejects.toThrow(/must resolve to a string/);
   });
 
   it("requires at least one arg", async () => {
-    const metaSet = BUILTIN_HOOKS.get("meta_set")!;
+    const metaSet = BUILTIN_HOOKS.meta_set;
     await expect(metaSet(makeCtx({ args: {}, setMeta: () => {} }))).rejects.toThrow(
       /at least one key=value/,
     );
   });
 
   it("throws if no collector is threaded (host bug)", async () => {
-    const metaSet = BUILTIN_HOOKS.get("meta_set")!;
+    const metaSet = BUILTIN_HOOKS.meta_set;
     await expect(metaSet(makeCtx({ args: { x: "y" } }))).rejects.toThrow(/meta collector/);
   });
 });
@@ -68,9 +66,7 @@ describe("memory_status built-in hook", () => {
   });
 
   it("returns status shape from a live MemoryStore", async () => {
-    const memoryStatus = BUILTIN_HOOKS.get("memory_status");
-    expect(memoryStatus).toBeDefined();
-    const result = await memoryStatus!(makeCtx({ memory: store }));
+    const result = await BUILTIN_HOOKS.memory_status(makeCtx({ memory: store }));
 
     expect(result).toHaveProperty("total_propositions", 0);
     expect(result).toHaveProperty("valid_propositions", 0);
@@ -79,7 +75,7 @@ describe("memory_status built-in hook", () => {
   });
 
   it("passes an explicit collection arg through", async () => {
-    const memoryStatus = BUILTIN_HOOKS.get("memory_status")!;
+    const memoryStatus = BUILTIN_HOOKS.memory_status;
     const result = await memoryStatus(makeCtx({ args: { collection: "default" }, memory: store }));
 
     expect(result.total_propositions).toBe(0);
@@ -89,14 +85,14 @@ describe("memory_status built-in hook", () => {
     // The optionalCollection helper normalizes "" → undefined so that
     // sealed workflows with a default-empty context field don't hit the
     // store with a literal empty collection name.
-    const memoryStatus = BUILTIN_HOOKS.get("memory_status")!;
+    const memoryStatus = BUILTIN_HOOKS.memory_status;
     const result = await memoryStatus(makeCtx({ args: { collection: "" }, memory: store }));
 
     expect(result.total_propositions).toBe(0);
   });
 
   it("throws EngineError(MEMORY_DISABLED) when ctx.memory is undefined", async () => {
-    const memoryStatus = BUILTIN_HOOKS.get("memory_status")!;
+    const memoryStatus = BUILTIN_HOOKS.memory_status;
     try {
       await memoryStatus(makeCtx());
       expect.fail("expected EngineError");
@@ -123,9 +119,7 @@ describe("memory_browse built-in hook", () => {
   });
 
   it("returns browse shape from a live MemoryStore", async () => {
-    const memoryBrowse = BUILTIN_HOOKS.get("memory_browse");
-    expect(memoryBrowse).toBeDefined();
-    const result = await memoryBrowse!(makeCtx({ memory: store }));
+    const result = await BUILTIN_HOOKS.memory_browse(makeCtx({ memory: store }));
 
     expect(result).toHaveProperty("entities");
     expect(Array.isArray(result.entities)).toBe(true);
@@ -134,7 +128,7 @@ describe("memory_browse built-in hook", () => {
   });
 
   it("threads name/kind/limit/offset args through", async () => {
-    const memoryBrowse = BUILTIN_HOOKS.get("memory_browse")!;
+    const memoryBrowse = BUILTIN_HOOKS.memory_browse;
     const result = await memoryBrowse(
       makeCtx({
         args: { name: "Foo", kind: "class", limit: 10, offset: 0 },
@@ -146,21 +140,21 @@ describe("memory_browse built-in hook", () => {
   });
 
   it("throws a clear error when ctx.memory is undefined", async () => {
-    const memoryBrowse = BUILTIN_HOOKS.get("memory_browse")!;
+    const memoryBrowse = BUILTIN_HOOKS.memory_browse;
     await expect(memoryBrowse(makeCtx())).rejects.toThrow(
       /memory_browse.*requires memory to be enabled/,
     );
   });
 
   it("rejects non-integer limit arg", async () => {
-    const memoryBrowse = BUILTIN_HOOKS.get("memory_browse")!;
+    const memoryBrowse = BUILTIN_HOOKS.memory_browse;
     await expect(memoryBrowse(makeCtx({ args: { limit: 1.5 }, memory: store }))).rejects.toThrow(
       /limit.*must be an integer/,
     );
   });
 
   it("accepts null args as undefined", async () => {
-    const memoryBrowse = BUILTIN_HOOKS.get("memory_browse")!;
+    const memoryBrowse = BUILTIN_HOOKS.memory_browse;
     const result = await memoryBrowse(
       makeCtx({
         args: { name: null, kind: null, limit: null, offset: null },
@@ -205,7 +199,7 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
 
   describe("memory_search", () => {
     it("returns search shape from a live MemoryStore", async () => {
-      const memorySearch = BUILTIN_HOOKS.get("memory_search")!;
+      const memorySearch = BUILTIN_HOOKS.memory_search;
       const result = await memorySearch(makeCtx({ args: { query: "Biome" }, memory: store }));
 
       expect(result).toHaveProperty("query", "Biome");
@@ -214,7 +208,7 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
     });
 
     it("threads limit + collection args through", async () => {
-      const memorySearch = BUILTIN_HOOKS.get("memory_search")!;
+      const memorySearch = BUILTIN_HOOKS.memory_search;
       const result = await memorySearch(
         makeCtx({
           args: { query: "Biome", limit: 5, collection: "default" },
@@ -225,14 +219,14 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
     });
 
     it("throws when ctx.memory is undefined", async () => {
-      const memorySearch = BUILTIN_HOOKS.get("memory_search")!;
+      const memorySearch = BUILTIN_HOOKS.memory_search;
       await expect(memorySearch(makeCtx({ args: { query: "x" } }))).rejects.toThrow(
         /memory_search.*requires memory to be enabled/,
       );
     });
 
     it("rejects missing query arg", async () => {
-      const memorySearch = BUILTIN_HOOKS.get("memory_search")!;
+      const memorySearch = BUILTIN_HOOKS.memory_search;
       await expect(memorySearch(makeCtx({ memory: store }))).rejects.toThrow(
         /query.*non-empty string/,
       );
@@ -241,7 +235,7 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
 
   describe("memory_related", () => {
     it("returns related shape from a live MemoryStore", async () => {
-      const memoryRelated = BUILTIN_HOOKS.get("memory_related")!;
+      const memoryRelated = BUILTIN_HOOKS.memory_related;
       const result = await memoryRelated(makeCtx({ args: { entity: "Biome" }, memory: store }));
 
       expect(result).toHaveProperty("entity");
@@ -250,7 +244,7 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
     });
 
     it("threads limit/offset args and exposes total", async () => {
-      const memoryRelated = BUILTIN_HOOKS.get("memory_related")!;
+      const memoryRelated = BUILTIN_HOOKS.memory_related;
       const result = await memoryRelated(
         makeCtx({ args: { entity: "Biome", limit: 10, offset: 0 }, memory: store }),
       );
@@ -258,14 +252,14 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
     });
 
     it("throws when ctx.memory is undefined", async () => {
-      const memoryRelated = BUILTIN_HOOKS.get("memory_related")!;
+      const memoryRelated = BUILTIN_HOOKS.memory_related;
       await expect(memoryRelated(makeCtx({ args: { entity: "Biome" } }))).rejects.toThrow(
         /memory_related.*requires memory to be enabled/,
       );
     });
 
     it("rejects missing entity arg", async () => {
-      const memoryRelated = BUILTIN_HOOKS.get("memory_related")!;
+      const memoryRelated = BUILTIN_HOOKS.memory_related;
       await expect(memoryRelated(makeCtx({ memory: store }))).rejects.toThrow(
         /entity.*non-empty string/,
       );
@@ -278,7 +272,7 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
       // default trims propositions to `{id, content}` (no source_files)
       // to keep advance responses under the 50 KB ceiling. Callers that
       // need provenance pass `shape: "full"` explicitly.
-      const memoryInspect = BUILTIN_HOOKS.get("memory_inspect")!;
+      const memoryInspect = BUILTIN_HOOKS.memory_inspect;
       const result = await memoryInspect(makeCtx({ args: { entity: "Biome" }, memory: store }));
 
       expect(result).toHaveProperty("entity");
@@ -295,7 +289,7 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
     });
 
     it("returns full shape with source_files when shape: full is passed", async () => {
-      const memoryInspect = BUILTIN_HOOKS.get("memory_inspect")!;
+      const memoryInspect = BUILTIN_HOOKS.memory_inspect;
       const result = await memoryInspect(
         makeCtx({ args: { entity: "Biome", shape: "full" }, memory: store }),
       );
@@ -307,7 +301,7 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
     });
 
     it("threads limit/offset args through", async () => {
-      const memoryInspect = BUILTIN_HOOKS.get("memory_inspect")!;
+      const memoryInspect = BUILTIN_HOOKS.memory_inspect;
       const result = await memoryInspect(
         makeCtx({ args: { entity: "Biome", limit: 5, offset: 0 }, memory: store }),
       );
@@ -317,14 +311,14 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
     });
 
     it("rejects invalid shape arg", async () => {
-      const memoryInspect = BUILTIN_HOOKS.get("memory_inspect")!;
+      const memoryInspect = BUILTIN_HOOKS.memory_inspect;
       await expect(
         memoryInspect(makeCtx({ args: { entity: "Biome", shape: "bogus" }, memory: store })),
       ).rejects.toThrow(/shape.*minimal.*full/);
     });
 
     it("throws when ctx.memory is undefined", async () => {
-      const memoryInspect = BUILTIN_HOOKS.get("memory_inspect")!;
+      const memoryInspect = BUILTIN_HOOKS.memory_inspect;
       await expect(memoryInspect(makeCtx({ args: { entity: "Biome" } }))).rejects.toThrow(
         /memory_inspect.*requires memory to be enabled/,
       );
@@ -333,7 +327,7 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
 
   describe("memory_by_source", () => {
     it("returns priorKnowledgeByPath keyed by each path", async () => {
-      const memoryBySource = BUILTIN_HOOKS.get("memory_by_source")!;
+      const memoryBySource = BUILTIN_HOOKS.memory_by_source;
       const result = await memoryBySource(
         makeCtx({ args: { paths: [sourcePath] }, memory: store }),
       );
@@ -347,7 +341,7 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
     });
 
     it("returns empty array entries for unknown paths", async () => {
-      const memoryBySource = BUILTIN_HOOKS.get("memory_by_source")!;
+      const memoryBySource = BUILTIN_HOOKS.memory_by_source;
       const result = await memoryBySource(
         makeCtx({ args: { paths: ["does-not-exist.md"] }, memory: store }),
       );
@@ -358,7 +352,7 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
     it("always returns minimal { id, content } on the wire", async () => {
       // The wire contract is fixed at { id, content } — no provenance
       // on this path, no shape arg to override. Keeps the 50 KB ceiling.
-      const memoryBySource = BUILTIN_HOOKS.get("memory_by_source")!;
+      const memoryBySource = BUILTIN_HOOKS.memory_by_source;
       const result = await memoryBySource(
         makeCtx({ args: { paths: [sourcePath] }, memory: store }),
       );
@@ -368,7 +362,7 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
     });
 
     it("caps paths at 50 and reports truncation", async () => {
-      const memoryBySource = BUILTIN_HOOKS.get("memory_by_source")!;
+      const memoryBySource = BUILTIN_HOOKS.memory_by_source;
       const manyPaths = Array.from({ length: 75 }, (_, i) => `f${i}.md`);
       const result = await memoryBySource(makeCtx({ args: { paths: manyPaths }, memory: store }));
 
@@ -377,14 +371,14 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
     });
 
     it("throws when ctx.memory is undefined", async () => {
-      const memoryBySource = BUILTIN_HOOKS.get("memory_by_source")!;
+      const memoryBySource = BUILTIN_HOOKS.memory_by_source;
       await expect(memoryBySource(makeCtx({ args: { paths: [sourcePath] } }))).rejects.toThrow(
         /memory_by_source.*requires memory to be enabled/,
       );
     });
 
     it("rejects non-array paths arg", async () => {
-      const memoryBySource = BUILTIN_HOOKS.get("memory_by_source")!;
+      const memoryBySource = BUILTIN_HOOKS.memory_by_source;
       await expect(
         memoryBySource(makeCtx({ args: { paths: "single.md" }, memory: store })),
       ).rejects.toThrow(/paths.*string array/);

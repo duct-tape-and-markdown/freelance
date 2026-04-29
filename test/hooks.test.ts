@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { BUILTIN_HOOKS } from "../src/engine/builtin-hooks.js";
+import { BUILTIN_HOOKS, type BuiltinHookOverrides } from "../src/engine/builtin-hooks.js";
 import type { HookFn } from "../src/engine/hooks.js";
 import { HookRunner, resolveHookArgs } from "../src/engine/hooks.js";
 import { GraphEngine } from "../src/engine/index.js";
@@ -31,12 +31,10 @@ function stageFixture(
   return { graphs: loadGraphs(tmpDir), tmpDir };
 }
 
-function makeRunner(overrides: Record<string, HookFn> = {}, hookTimeoutMs?: number): HookRunner {
+function makeRunner(overrides: BuiltinHookOverrides = {}, hookTimeoutMs?: number): HookRunner {
   // Memory store is optional; fixtures in this file only exercise
   // user-script hooks or hand-stubbed built-ins, so we leave it off.
-  const merged = new Map<string, HookFn>(BUILTIN_HOOKS);
-  for (const [k, v] of Object.entries(overrides)) merged.set(k, v);
-  return new HookRunner({ builtinHooks: merged, hookTimeoutMs });
+  return new HookRunner({ builtinHooks: { ...BUILTIN_HOOKS, ...overrides }, hookTimeoutMs });
 }
 
 describe("resolveHookArgs", () => {
