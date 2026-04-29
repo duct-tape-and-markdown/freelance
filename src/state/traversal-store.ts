@@ -346,21 +346,14 @@ export class TraversalStore {
    * fields the `--active` listing surfaces. Avoids the N+1 disk read of
    * `listTraversals()` followed by per-id `inspect()` (each `inspect`
    * re-hits `state.get(id)` for a record `state.list()` already
-   * returned). Throws `TRAVERSAL_ORPHANED` on the first record whose
-   * graph isn't loaded — same shape as `loadEngine`.
+   * returned). Throws `TRAVERSAL_ORPHANED` via `throwOrphaned` on the
+   * first record whose graph isn't loaded — shared with `loadEngine`.
    */
   inspectActive(opts?: { waitsOnly?: boolean }): readonly ActiveTraversalEntry[] {
     const records = this.state.list();
     const entries: ActiveTraversalEntry[] = [];
     for (const record of records) {
-      if (!this.graphs.has(record.graphId)) {
-        throw new EngineError(
-          `Graph "${record.graphId}" not found. Traversal "${record.id}" is orphaned — ` +
-            `its workflow yaml is missing, renamed, or failed to parse.`,
-          EC.TRAVERSAL_ORPHANED,
-          { envelopeSlots: { traversalId: record.id } },
-        );
-      }
+      if (!this.graphs.has(record.graphId)) this.throwOrphaned(record);
       const engine = this.newEngine();
       engine.restoreStack(record.stack);
       const pos = engine.inspect("position") as InspectPositionResult;
@@ -464,18 +457,29 @@ export class TraversalStore {
     // (`reset {traversalId} --confirm`) renders to a runnable command;
     // the start-typo case stays on GRAPH_NOT_FOUND (verb: null) because
     // there's no stale state to clear there.
-    if (!this.graphs.has(record.graphId)) {
-      throw new EngineError(
-        `Graph "${record.graphId}" not found. Traversal "${traversalId}" is orphaned — ` +
-          `its workflow yaml is missing, renamed, or failed to parse.`,
-        EC.TRAVERSAL_ORPHANED,
-        { envelopeSlots: { traversalId } },
-      );
-    }
+    if (!this.graphs.has(record.graphId)) this.throwOrphaned(record);
 
     const engine = this.newEngine();
     engine.restoreStack(record.stack);
     return { engine, record };
+  }
+
+  /**
+   * Single source for the TRAVERSAL_ORPHANED throw shape. Called from
+   * `loadEngine` (advance/inspect/contextSet/metaSet entry) and
+   * `inspectActive` (`--active` listing walk). Keying `traversalId`
+   * off `record.id` rules out the parameter/field divergence both
+   * call sites used to carry — the recovery-verb template
+   * (`reset {traversalId} --confirm`) and any future envelope-slot
+   * enrichment now land in one place.
+   */
+  private throwOrphaned(record: TraversalRecord): never {
+    throw new EngineError(
+      `Graph "${record.graphId}" not found. Traversal "${record.id}" is orphaned — ` +
+        `its workflow yaml is missing, renamed, or failed to parse.`,
+      EC.TRAVERSAL_ORPHANED,
+      { envelopeSlots: { traversalId: record.id } },
+    );
   }
 
   private saveEngine(record: TraversalRecord, engine: GraphEngine): void {
