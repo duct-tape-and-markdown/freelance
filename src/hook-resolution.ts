@@ -17,7 +17,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { BUILTIN_HOOKS } from "./engine/builtin-hooks.js";
+import {
+  type BuiltinHookName,
+  formatBuiltinHookNames,
+  isBuiltinHookName,
+} from "./engine/builtin-hooks.js";
 import type { GraphDefinition } from "./schema/graph-schema.js";
 
 /**
@@ -41,7 +45,7 @@ function scriptsAllowed(): boolean {
 }
 
 export type ResolvedHook =
-  | { readonly kind: "builtin"; readonly call: string; readonly name: string }
+  | { readonly kind: "builtin"; readonly call: string; readonly name: BuiltinHookName }
   | { readonly kind: "script"; readonly call: string; readonly absolutePath: string };
 
 export type HookResolutionMap = ReadonlyMap<string, readonly ResolvedHook[]>;
@@ -119,10 +123,10 @@ export function resolveBuiltinOnlyHooks(def: GraphDefinition): HookResolutionMap
         );
         continue;
       }
-      if (!BUILTIN_HOOKS.has(call)) {
+      if (!isBuiltinHookName(call)) {
         errors.push(
           `Node "${nodeId}", onEnter[${i}]: unknown built-in hook "${call}". ` +
-            `Registered built-ins: [${[...BUILTIN_HOOKS.keys()].join(", ")}]`,
+            `Registered built-ins: [${formatBuiltinHookNames()}]`,
         );
         continue;
       }
@@ -155,10 +159,10 @@ function resolveOneHook(call: string, graphDir: string): ResolvedHook | string {
   const looksLikePath = isRelativePath || call.startsWith("/") || call.includes("/");
 
   if (!looksLikePath) {
-    if (!BUILTIN_HOOKS.has(call)) {
+    if (!isBuiltinHookName(call)) {
       return (
         `unknown built-in hook "${call}". Registered built-ins: ` +
-        `[${[...BUILTIN_HOOKS.keys()].join(", ")}]. ` +
+        `[${formatBuiltinHookNames()}]. ` +
         `For a local script, use a relative path like "./scripts/${call}.js".`
       );
     }
