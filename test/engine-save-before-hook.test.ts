@@ -12,8 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { BUILTIN_HOOKS } from "../src/engine/builtin-hooks.js";
-import type { HookFn } from "../src/engine/hooks.js";
+import { BUILTIN_HOOKS, type BuiltinHookOverrides } from "../src/engine/builtin-hooks.js";
 import { HookRunner } from "../src/engine/hooks.js";
 import { EC, EngineError } from "../src/errors.js";
 import { loadGraphs } from "../src/loader.js";
@@ -92,10 +91,8 @@ function stageGraphWithMultiHook(tmpDir: string): Map<string, ValidatedGraph> {
   return loadGraphs(tmpDir);
 }
 
-function makeRunner(overrides: Record<string, HookFn>): HookRunner {
-  const merged = new Map<string, HookFn>(BUILTIN_HOOKS);
-  for (const [k, v] of Object.entries(overrides)) merged.set(k, v);
-  return new HookRunner({ builtinHooks: merged });
+function makeRunner(overrides: BuiltinHookOverrides): HookRunner {
+  return new HookRunner({ builtinHooks: { ...BUILTIN_HOOKS, ...overrides } });
 }
 
 describe("save-before-hook invariant (PR D)", () => {

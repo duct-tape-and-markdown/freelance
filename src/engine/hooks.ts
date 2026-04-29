@@ -22,7 +22,7 @@ import type {
   StatusResult,
 } from "../memory/types.js";
 import type { GraphDefinition, SessionState } from "../types.js";
-import { BUILTIN_HOOKS } from "./builtin-hooks.js";
+import { BUILTIN_HOOKS, type BuiltinHookOverrides } from "./builtin-hooks.js";
 import {
   applyContextUpdates,
   type ContextCaps,
@@ -114,8 +114,12 @@ export interface HookRunnerOptions {
    */
   readonly memory?: HookMemoryAccess;
   readonly hookTimeoutMs?: number;
-  /** Test override. Falls back to the package's BUILTIN_HOOKS map. */
-  readonly builtinHooks?: ReadonlyMap<string, HookFn>;
+  /**
+   * Test override. Falls back to the package's BUILTIN_HOOKS. Partial
+   * injection is supported — the runtime `if (!fn)` lookup at
+   * `loadHookFn` is the safety net for the partial-injection case.
+   */
+  readonly builtinHooks?: BuiltinHookOverrides;
   /**
    * Byte caps enforced on hook return values before they merge into
    * session context. Defaults to `DEFAULT_CONTEXT_CAPS`.
@@ -126,7 +130,7 @@ export interface HookRunnerOptions {
 export class HookRunner {
   private readonly memory?: HookMemoryAccess;
   private readonly hookTimeoutMs: number;
-  private readonly builtinHooks: ReadonlyMap<string, HookFn>;
+  private readonly builtinHooks: BuiltinHookOverrides;
   private readonly contextCaps: ContextCaps;
 
   constructor(options: HookRunnerOptions = {}) {
@@ -237,11 +241,11 @@ export class HookRunner {
   private async loadHookFn(resolved: ResolvedHook, nodeId: string, index: number): Promise<HookFn> {
     const hookCtx = { name: resolved.call, nodeId, index };
     if (resolved.kind === "builtin") {
-      const fn = this.builtinHooks.get(resolved.name);
+      const fn = this.builtinHooks[resolved.name];
       if (!fn) {
         throw new EngineError(
           `Built-in hook "${resolved.name}" referenced by node "${nodeId}" is not registered. ` +
-            `Available built-ins: [${[...this.builtinHooks.keys()].join(", ")}]`,
+            `Available built-ins: [${Object.keys(this.builtinHooks).join(", ")}]`,
           EC.HOOK_BUILTIN_MISSING,
           { hook: hookCtx },
         );

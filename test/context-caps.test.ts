@@ -193,7 +193,7 @@ describe("HookRunner cap enforcement", () => {
     const bigString = "x".repeat(100);
     const runner = new HookRunner({
       contextCaps: tinyCaps,
-      builtinHooks: new Map([["memory_status", async () => ({ blowup: bigString })]]),
+      builtinHooks: { memory_status: async () => ({ blowup: bigString }) },
     });
     const engine = new GraphEngine(graphs, {
       hookRunner: runner,
@@ -209,17 +209,14 @@ describe("HookRunner cap enforcement", () => {
     // Each value fits per-value cap individually but cumulatively blows total.
     const runner = new HookRunner({
       contextCaps: tinyCaps,
-      builtinHooks: new Map([
-        [
-          "memory_status",
-          async () => ({
-            a: "x".repeat(40),
-            b: "y".repeat(40),
-            c: "z".repeat(40),
-            d: "q".repeat(40),
-          }),
-        ],
-      ]),
+      builtinHooks: {
+        memory_status: async () => ({
+          a: "x".repeat(40),
+          b: "y".repeat(40),
+          c: "z".repeat(40),
+          d: "q".repeat(40),
+        }),
+      },
     });
     const engine = new GraphEngine(graphs, {
       hookRunner: runner,
@@ -234,7 +231,7 @@ describe("HookRunner cap enforcement", () => {
     const graphs = loadFixtures("hook-context-return.workflow.yaml");
     const runner = new HookRunner({
       contextCaps: tinyCaps,
-      builtinHooks: new Map([["memory_status", async () => ({ ok: "small" })]]),
+      builtinHooks: { memory_status: async () => ({ ok: "small" }) },
     });
     const engine = new GraphEngine(graphs, {
       hookRunner: runner,
