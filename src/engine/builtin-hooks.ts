@@ -236,9 +236,3 @@ export const BUILTIN_HOOKS: ReadonlyMap<string, HookFn> = new Map<string, HookFn
   ["memory_by_source", memoryBySource],
   ["meta_set", metaSet],
 ]);
-
-export const BUILTIN_HOOK_NAMES: ReadonlySet<string> = new Set(BUILTIN_HOOKS.keys());
-
-export function isBuiltinHook(name: string): boolean {
-  return BUILTIN_HOOKS.has(name);
-}

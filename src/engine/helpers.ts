@@ -1,3 +1,4 @@
+import { EC, EngineError } from "../errors.js";
 import type {
   AdvanceSuccessMinimalResult,
   AdvanceSuccessResult,
@@ -7,9 +8,21 @@ import type {
   SourceBinding,
   SubgraphPushedInfo,
   TransitionInfo,
+  ValidatedGraph,
   WaitCondition,
 } from "../types.js";
 import { evaluateTransitions } from "./transitions.js";
+
+export function requireGraph(
+  graphs: ReadonlyMap<string, ValidatedGraph>,
+  graphId: string,
+): ValidatedGraph {
+  const graph = graphs.get(graphId);
+  if (!graph) {
+    throw new EngineError(`Graph "${graphId}" not found`, EC.GRAPH_NOT_FOUND);
+  }
+  return graph;
+}
 
 export function cloneContext(ctx: Record<string, unknown>): Record<string, unknown> {
   return structuredClone(ctx);

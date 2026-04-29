@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { BUILTIN_HOOK_NAMES, BUILTIN_HOOKS, isBuiltinHook } from "../src/engine/builtin-hooks.js";
+import { BUILTIN_HOOKS } from "../src/engine/builtin-hooks.js";
 import type { HookContext } from "../src/engine/hooks.js";
 import { EngineError } from "../src/errors.js";
 import { openDatabase } from "../src/memory/db.js";
@@ -17,24 +17,6 @@ function makeCtx(overrides: Partial<HookContext> = {}): HookContext {
     ...overrides,
   };
 }
-
-describe("BUILTIN_HOOK_NAMES + isBuiltinHook", () => {
-  it("names set matches BUILTIN_HOOKS keys", () => {
-    expect([...BUILTIN_HOOK_NAMES].sort()).toEqual([...BUILTIN_HOOKS.keys()].sort());
-  });
-
-  it("isBuiltinHook true for registered names, false otherwise", () => {
-    expect(isBuiltinHook("memory_status")).toBe(true);
-    expect(isBuiltinHook("memory_browse")).toBe(true);
-    expect(isBuiltinHook("memory_search")).toBe(true);
-    expect(isBuiltinHook("memory_related")).toBe(true);
-    expect(isBuiltinHook("memory_inspect")).toBe(true);
-    expect(isBuiltinHook("memory_by_source")).toBe(true);
-    expect(isBuiltinHook("meta_set")).toBe(true);
-    expect(isBuiltinHook("memory_emit")).toBe(false);
-    expect(isBuiltinHook("not-a-hook")).toBe(false);
-  });
-});
 
 describe("meta_set built-in hook", () => {
   it("forwards every arg as a meta update via the host-provided collector", async () => {
