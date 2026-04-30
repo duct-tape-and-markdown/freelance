@@ -389,6 +389,7 @@ export class GraphEngine {
           ...(timeoutAt ? { timeoutAt } : {}),
         },
         mode,
+        session,
       );
     }
 
@@ -407,6 +408,7 @@ export class GraphEngine {
         ...(terminalHistory ? { traversalHistory: terminalHistory } : {}),
       },
       mode,
+      session,
     );
 
     // Root terminal GC: clear the stack so TraversalStore.saveEngine

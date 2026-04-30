@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`advance` omits `node` (NodeInfo) on re-arrival in full mode
+  (#227).** When `currentNode` already appears as a prior departure
+  point in `session.history` — cycles, self-loops, retry-after-block —
+  the response drops `node.instructions`, `suggestedTools`, and
+  `sources`. Agents recall them from earlier transcript or run
+  `freelance inspect` to resync. First arrival still carries the full
+  blob; `start`, `inspect`, and minimal-mode behavior are unchanged.
+  Type shape: `AdvanceSuccessResult.node` is now optional.
+
 ### Removed
 
 - **`reason` field dropped from gate-block envelopes (#211).**

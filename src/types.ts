@@ -93,7 +93,13 @@ export interface AdvanceSuccessResult {
   readonly previousNode: string;
   readonly edgeTaken: string;
   readonly currentNode: string;
-  readonly node: NodeInfo;
+  /**
+   * Full `NodeInfo` on first arrival to a node this traversal; absent on
+   * re-arrival (cycles, self-loops, retry-after-block, subgraph push).
+   * Agents recall instructions from earlier transcript or run
+   * `freelance inspect` after compaction. See issue #227.
+   */
+  readonly node?: NodeInfo;
   readonly validTransitions: readonly TransitionInfo[];
   readonly context: Readonly<Record<string, unknown>>;
   readonly traversalHistory?: readonly string[];

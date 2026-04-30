@@ -134,6 +134,8 @@ freelance inspect [<traversalId>] --fields currentNode --fields neighbors
 
 Use it on the steady-state loop once you've seen the node's `instructions` at least once and you're just picking edges. Drop `--minimal` (or call `freelance inspect`) to resync to the full shape after compaction or when you land on a new node you haven't seen yet.
 
+Even without `--minimal`, full-mode `advance` omits `node` on **re-arrival** to a node you've already visited this traversal (cycles, retry-after-block). Recall instructions from earlier transcript or run `freelance inspect` to resync; first arrival to a fresh node always carries `node`. Since `node` may be absent, always pick edges from the `validTransitions` array on the response — every label, target, condition, `conditionMet`, description, and `nextStepHint` is there. Don't grep the workflow YAML; the wire response is the source of truth.
+
 ### Three projection verbs, three axes
 
 - Response size → `--minimal` (bool, hot-path verbs: `advance`, `context set`, `inspect`)

@@ -108,17 +108,28 @@ export type AdvanceResponseMode =
       readonly graphSources?: readonly SourceBinding[];
     };
 
+/**
+ * `session` carries the elision rule: in full mode, the `node` blob is
+ * dropped from the response when `base.currentNode` already appears as
+ * a prior departure point in `session.history` — i.e., the agent has
+ * stood on this node and moved off before. The agent recalls
+ * NodeInfo from earlier transcript or runs `freelance inspect` to
+ * resync after compaction. Minimal mode never carries `node`. See
+ * issue #227.
+ */
 export function buildAdvanceSuccessResult(
   base: BaseAdvanceFields,
   mode: AdvanceResponseMode,
+  session: SessionState,
 ): AdvanceSuccessResult | AdvanceSuccessMinimalResult {
   if ("contextDelta" in mode) {
     return { ...base, isError: false, contextDelta: mode.contextDelta };
   }
+  const reArrival = session.history.some((h) => h.node === base.currentNode);
   return {
     ...base,
     isError: false,
-    node: toNodeInfo(mode.node),
+    ...(reArrival ? {} : { node: toNodeInfo(mode.node) }),
     context: cloneContext(mode.context),
     ...(mode.graphSources?.length ? { graphSources: mode.graphSources } : {}),
   };
