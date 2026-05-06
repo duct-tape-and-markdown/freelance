@@ -234,7 +234,7 @@ export class TraversalStore {
       // See docs/decisions.md § "Observable state transitions are
       // durable before side effects".
       const commit = engine.advanceTransition(edge, contextUpdates, {
-        ...(options?.responseMode ? { responseMode: options.responseMode } : {}),
+        responseMode: options?.responseMode,
       });
       this.saveEngine(record, engine);
 
@@ -255,15 +255,15 @@ export class TraversalStore {
         // gate-block response — HOOK_FAILED callers are in the same
         // state. The hook attribution on `context.hook` is already set
         // by the hook runner.
-        if (e instanceof EngineError) {
-          const minimal = options?.responseMode === "minimal";
-          const writesBefore =
-            commit.kind === "standard" || commit.kind === "subgraph-push"
-              ? commit.writesBefore
-              : undefined;
+        //
+        // `kind !== "early"` is sound because runArrivalHooks returns
+        // early commits synchronously without firing hooks — the catch
+        // only sees standard / subgraph-push, both of which carry
+        // `writesBefore: number`.
+        if (e instanceof EngineError && commit.kind !== "early") {
           const extras = engine.captureHookFailureEnvelope({
-            minimal,
-            ...(writesBefore !== undefined && { writesBefore }),
+            minimal: options?.responseMode === "minimal",
+            writesBefore: commit.writesBefore,
           });
           if (extras) {
             e.context = { ...e.context, envelopeSlots: extras };
@@ -288,10 +288,7 @@ export class TraversalStore {
     options?: { responseMode?: ResponseMode },
   ): { traversalId: string } & (ContextSetResult | ContextSetMinimalResult) {
     const { engine, record } = this.loadEngine(traversalId);
-    const result = engine.contextSet(
-      updates,
-      options?.responseMode ? { responseMode: options.responseMode } : undefined,
-    );
+    const result = engine.contextSet(updates, { responseMode: options?.responseMode });
     this.saveEngine(record, engine);
     return { traversalId, ...result };
   }
@@ -332,12 +329,9 @@ export class TraversalStore {
     | InspectMinimalResult
   ) {
     const { engine, record } = this.loadEngine(traversalId);
-    const result = engine.inspect(
-      detail,
-      fields,
-      historyOpts,
-      options?.responseMode ? { responseMode: options.responseMode } : undefined,
-    );
+    const result = engine.inspect(detail, fields, historyOpts, {
+      responseMode: options?.responseMode,
+    });
     return { traversalId, meta: record.meta ?? EMPTY_META, ...result };
   }
 

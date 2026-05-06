@@ -18,7 +18,7 @@ import {
   hashSources,
   validateGraphSources,
 } from "../sources.js";
-import { EXIT, fatal, handleRuntimeError as handleError, outputJson } from "./output.js";
+import { EXIT, fatal, handleRuntimeError, outputJson } from "./output.js";
 
 export function guideShow(topic?: string): void {
   const result = getGuide(topic);
@@ -45,7 +45,7 @@ export function sourcesHash(sourceOpts: SourceOptions, paths: string[]): void {
     });
     outputJson(hashSources(sources, sourceOpts));
   } catch (e) {
-    handleError(e);
+    handleRuntimeError(e);
   }
 }
 
@@ -68,7 +68,7 @@ export function sourcesCheck(sourceOpts: SourceOptions, paths: string[]): void {
     }
     outputJson(checkSourcesDetailed(sources, sourceOpts));
   } catch (e) {
-    handleError(e);
+    handleRuntimeError(e);
   }
 }
 
@@ -127,6 +127,6 @@ export function sourcesValidate(
 
     outputJson({ valid: drift.length === 0, graphsChecked: targets.length, drift });
   } catch (e) {
-    handleError(e);
+    handleRuntimeError(e);
   }
 }

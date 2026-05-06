@@ -56,7 +56,7 @@ export function isFileChanged(
 }
 
 /**
- * Name of the TEMP TABLE populated by `materializeStalePropIds`. The
+ * Name of the TEMP TABLE populated by `primeStaleFilter`. The
  * read-side queries in `enrichment.ts` + `store.ts` join against it
  * (`NOT EXISTS (SELECT 1 FROM _stale_prop_ids ...)`) instead of
  * spreading ids into a dynamically-sized `NOT IN (?, ?, ?, …)` clause,
@@ -80,11 +80,11 @@ const STALE_PROP_BATCH_SIZE = 500;
  * handle. The cache amortizes hashSourceFile calls across propositions
  * sharing source files within one operation.
  *
- * Reads that join against `STALE_PROP_IDS_TABLE` must follow this with
- * `materializeStalePropIds(db, stalePropIds)` to populate the temp
- * table. Reads that consume the Set directly (notably `status()`) skip
- * the materialization — the temp-table population is non-trivial work
- * (DELETE plus batched INSERTs over the whole stale set) and pure
+ * Reads that join against `STALE_PROP_IDS_TABLE` go through
+ * `primeStaleFilter` to compute the set and populate the temp table in
+ * one call. Reads that consume the Set directly (notably `status()`)
+ * call this helper alone — the temp-table population is non-trivial
+ * work (DELETE plus batched INSERTs over the whole stale set) and pure
  * waste when no join consumes it.
  */
 export function getStalePropositionIds(
@@ -134,13 +134,7 @@ export function primeStaleFilter(db: Db, sourceRoot: string, cache: StalenessCac
   materializeStalePropIds(db, getStalePropositionIds(db, sourceRoot, cache));
 }
 
-/**
- * Populate `STALE_PROP_IDS_TABLE` on `db` so subsequent read queries
- * can join against it. Must be called before any helper in
- * `enrichment.ts` runs (every helper there assumes the table reflects
- * the current stale set).
- */
-export function materializeStalePropIds(db: Db, stalePropIds: Set<string>): void {
+function materializeStalePropIds(db: Db, stalePropIds: Set<string>): void {
   db.exec(
     `CREATE TEMP TABLE IF NOT EXISTS ${STALE_PROP_IDS_TABLE} (proposition_id TEXT PRIMARY KEY) WITHOUT ROWID`,
   );

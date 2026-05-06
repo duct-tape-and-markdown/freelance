@@ -16,7 +16,7 @@ import type {
   StackEntry,
   WaitCondition,
 } from "../types.js";
-import { cloneContext, toNodeInfo } from "./helpers.js";
+import { toNodeInfo } from "./helpers.js";
 import { evaluateTransitions } from "./transitions.js";
 import { checkWaitTimeout, computeTimeoutAt, evaluateWaitConditions } from "./wait.js";
 
@@ -167,7 +167,7 @@ export function buildContextSetResult(
   };
   return contextDelta !== undefined
     ? ({ ...base, contextDelta } satisfies ContextSetMinimalResult)
-    : ({ ...base, context: cloneContext(session.context) } satisfies ContextSetResult);
+    : ({ ...base, context: structuredClone(session.context) } satisfies ContextSetResult);
 }
 
 /**
@@ -330,7 +330,7 @@ export function buildInspectResult(
     ...base,
     graphName: def.name,
     node: toNodeInfo(currentNodeDef),
-    context: cloneContext(session.context),
+    context: structuredClone(session.context),
     stack: buildStackView(stack),
     ...(def.sources && def.sources.length > 0 ? { graphSources: def.sources } : {}),
     ...projections,

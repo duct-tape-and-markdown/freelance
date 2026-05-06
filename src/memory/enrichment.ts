@@ -11,11 +11,11 @@ import { isFileChanged, notStaleExists, type StalenessCache } from "./staleness.
 import type { NeighborEntity, PropositionInfo, PropositionRow, StatusResult } from "./types.js";
 
 // Every query below joins against `STALE_PROP_IDS_TABLE` via
-// `notStaleExists`. Callers MUST invoke `materializeStalePropIds(db,
-// stalePropIds)` on the same db handle before any of these helpers
-// runs — otherwise the table reflects the previous read's stale set
-// (or is empty on a fresh connection) and the joins return wrong
-// counts. The TEMP-TABLE shape (vs spreading ids inline as
+// `notStaleExists`. Callers MUST invoke `primeStaleFilter(db,
+// sourceRoot, cache)` on the same db handle before any of these
+// helpers runs — otherwise the table reflects the previous read's
+// stale set (or is empty on a fresh connection) and the joins return
+// wrong counts. The TEMP-TABLE shape (vs spreading ids inline as
 // `NOT IN (?, ?, …)`) keeps us clear of SQLite's
 // `SQLITE_MAX_VARIABLE_NUMBER` ceiling and lets the prepared-statement
 // cache reuse one SQL string across calls.

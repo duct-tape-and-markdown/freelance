@@ -24,10 +24,6 @@ export function requireGraph(
   return graph;
 }
 
-export function cloneContext(ctx: Record<string, unknown>): Record<string, unknown> {
-  return structuredClone(ctx);
-}
-
 export function toNodeInfo(node: NodeDefinition): NodeInfo {
   return {
     type: node.type,
@@ -119,7 +115,7 @@ export function buildAdvanceSuccessResult(
     ...base,
     isError: false,
     node: toNodeInfo(mode.node),
-    context: cloneContext(mode.context),
+    context: structuredClone(mode.context),
     ...(mode.graphSources?.length ? { graphSources: mode.graphSources } : {}),
   };
 }
@@ -175,6 +171,6 @@ export function buildAdvanceSnapshot(
   return {
     currentNode: session.currentNode,
     validTransitions,
-    context: cloneContext(session.context),
+    context: structuredClone(session.context),
   };
 }

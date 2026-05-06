@@ -39,7 +39,6 @@ import {
   type AdvanceSnapshotMode,
   buildAdvanceSnapshot,
   buildAdvanceSuccessResult,
-  cloneContext,
   keysSince,
   requireGraph,
   toNodeInfo,
@@ -186,7 +185,7 @@ export class GraphEngine {
       currentNode: def.startNode,
       node: toNodeInfo(node),
       validTransitions: evaluateTransitions(node, session.context),
-      context: cloneContext(session.context),
+      context: structuredClone(session.context),
       ...(def.sources && def.sources.length > 0 ? { graphSources: def.sources } : {}),
     } satisfies StartResult;
   }
@@ -275,7 +274,7 @@ export class GraphEngine {
       node: previousNode,
       edge,
       timestamp: new Date().toISOString(),
-      contextSnapshot: cloneContext(session.context),
+      contextSnapshot: structuredClone(session.context),
     });
     session.currentNode = edgeDef.target;
     session.turnCount = 0;

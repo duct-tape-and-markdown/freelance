@@ -14,7 +14,7 @@ import path from "node:path";
 import { loadConfig, loadConfigFromDirs, updateLocalConfig } from "../config.js";
 import { EC } from "../errors.js";
 import { resolveGraphsDirs } from "../graph-resolution.js";
-import { EXIT, fatal, outputJson } from "./output.js";
+import { EXIT, fatal, info, outputJson } from "./output.js";
 
 // --- config show ---
 
@@ -60,9 +60,7 @@ export function configSetLocal(
     updateLocalConfig(freelanceDir, (config) => {
       const existing = config.memory?.dir;
       if (existing && existing !== resolved) {
-        process.stderr.write(
-          `Warning: memory.dir already set to ${existing}, overwriting with ${resolved}\n`,
-        );
+        info(`Warning: memory.dir already set to ${existing}, overwriting with ${resolved}`);
       }
       return { ...config, memory: { ...config.memory, dir: resolved } };
     });
