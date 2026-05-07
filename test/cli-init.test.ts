@@ -84,9 +84,9 @@ describe("CLI init", () => {
     await init(defaults({ starter: "none" }));
     const entries = fs.readdirSync(path.join(workDir, ".freelance")).sort();
     // config.yml is a schema reference for memory.collections;
-    // .gitignore is dropped by ensureFreelanceDir. "starter=none" only
-    // skips the workflow graph file itself.
-    expect(entries).toEqual([".gitignore", "config.yml"]);
+    // .gitignore + .gitattributes are dropped by ensureFreelanceDir.
+    // "starter=none" only skips the workflow graph file itself.
+    expect(entries).toEqual([".gitattributes", ".gitignore", "config.yml"]);
     expect(entries.some((e) => e.endsWith(".workflow.yaml"))).toBe(false);
   });
 
