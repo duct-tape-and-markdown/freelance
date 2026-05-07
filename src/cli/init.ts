@@ -322,13 +322,19 @@ export async function init(options: InitOptions): Promise<void> {
     filesCreated.push(graphsDir);
   }
 
-  // 1b. Drop the runtime .gitignore eagerly (marker-gated upsert, safe
-  // to call repeatedly — see ensureGitignore in setup.ts).
+  // 1b. Drop the runtime `.gitignore` and `.gitattributes` eagerly
+  // (marker-gated upserts, safe to call repeatedly — see
+  // `ensureFreelanceDir` in setup.ts).
   const ignorePath = path.join(graphsDir, ".gitignore");
+  const attrPath = path.join(graphsDir, ".gitattributes");
   const ignorePreexisted = fs.existsSync(ignorePath);
+  const attrPreexisted = fs.existsSync(attrPath);
   ensureFreelanceDir(graphsDir);
   if (!ignorePreexisted && fs.existsSync(ignorePath)) {
     filesCreated.push(ignorePath);
+  }
+  if (!attrPreexisted && fs.existsSync(attrPath)) {
+    filesCreated.push(attrPath);
   }
 
   const templatesDir = getTemplatesDir();

@@ -19,6 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`.freelance/.gitattributes` now generated alongside `.gitignore`
+  to pin EOL to LF.** Without it, Windows clones with
+  `core.autocrlf=true` (the platform default) rewrite the working-tree
+  copy of `.freelance/.gitignore` to CRLF on checkout while the index
+  stays LF, producing a phantom diff that blocks workspace-cleanliness
+  gates in tooling that wraps Freelance. `ensureFreelanceDir` now
+  upserts `.gitattributes` (`* eol=lf`) using the same marker-gated
+  pattern as `.gitignore`; user-authored files (no marker) are left
+  alone.
+
 - **`freelance memory reset --confirm` no longer leaves an empty
   `memory/` directory behind (#197).** `resolveMemoryConfig` in
   `src/cli/setup.ts` was a path resolver that performed `mkdirSync`
