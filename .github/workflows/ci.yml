@@ -40,8 +40,14 @@ jobs:
           node dist/bin.js visualize ./test/fixtures-valid/valid-simple.workflow.yaml --format mermaid
 
       - name: arethetypeswrong
+        # Use the pinned local install (devDependency), NOT `npx -y`. attw's
+        # tarball reader keeps only the last fflate Gunzip chunk; fflate 0.8.3
+        # made Gunzip emit a trailing empty chunk, so a fresh npx pull decodes
+        # the tarball to empty and crashes ("Cannot read properties of
+        # undefined (reading 'filename')"). package.json pins attw's fflate to
+        # 0.8.2 via `overrides`; running the local binary honors that pin.
         run: >-
-          npx -y @arethetypeswrong/cli
+          npx attw
           --ignore-rules cjs-resolves-to-esm no-resolution
           --pack .
 

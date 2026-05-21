@@ -62,6 +62,11 @@
     "url": "https://github.com/duct-tape-and-markdown/freelance/issues"
   },
   "license": "MIT",
+  "overrides": {
+    "@arethetypeswrong/core": {
+      "fflate": "0.8.2"
+    }
+  },
   "dependencies": {
     "@dagrejs/graphlib": "^4.0.1",
     "commander": "^14.0.3",
@@ -77,6 +82,7 @@
     "pre-commit": "npx biome check --no-errors-on-unmatched"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.2",
     "@biomejs/biome": "2.4.15",
     "@types/js-yaml": "^4.0.9",
     "@types/mdast": "^4.0.4",

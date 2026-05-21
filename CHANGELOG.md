@@ -19,6 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **CI `arethetypeswrong` step no longer crashes on every PR.** attw keeps
+  only the last fflate `Gunzip` chunk when decompressing the package
+  tarball; fflate 0.8.3 started emitting a trailing empty chunk, so attw
+  decoded the tarball to empty and crashed with `Cannot read properties
+  of undefined (reading 'filename')` — failing CI on the base, independent
+  of any diff. `@arethetypeswrong/cli` is now a pinned devDependency with
+  `fflate` overridden to 0.8.2, and the CI step runs the local binary so
+  the override applies. See decisions log § "`arethetypeswrong` runs from
+  a pinned local install".
+
 - **`.freelance/.gitattributes` now generated alongside `.gitignore`
   to pin EOL to LF.** Without it, Windows clones with
   `core.autocrlf=true` (the platform default) rewrite the working-tree
