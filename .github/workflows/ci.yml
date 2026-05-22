@@ -40,18 +40,15 @@ jobs:
           node dist/bin.js visualize ./test/fixtures-valid/valid-simple.workflow.yaml --format mermaid
 
       - name: arethetypeswrong
-        run: >-
-          npx -y @arethetypeswrong/cli
-          --ignore-rules cjs-resolves-to-esm no-resolution
-          --pack .
+        run: node scripts/attw-check.mjs
 
       - name: Pack
         id: pack
         run: |
           # --ignore-scripts so the `prepare` lifecycle (simple-git-hooks setup)
           # doesn't pollute stdout when we capture the tarball filename.
-          # Runs AFTER attw: attw --pack . deletes the tarball it creates during
-          # cleanup, which would also wipe ours since they share a filename.
+          # Runs AFTER attw-check: it packs + deletes a same-named tarball during
+          # its run, which would also wipe ours since they share a filename.
           npm pack --ignore-scripts --silent > /dev/null
           echo "tarball=$(ls freelance-mcp-*.tgz | head -1)" >> "$GITHUB_OUTPUT"
 

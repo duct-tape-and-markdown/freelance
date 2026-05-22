@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **CI `arethetypeswrong` gate no longer crashes on every run.** The
+  step ran `npx -y @arethetypeswrong/cli --pack .`, which re-resolves to
+  the latest attw each run. attw (≤0.18.2) with fflate 0.8.3 on Node
+  22/24 keeps only the last fflate `Gunzip` chunk during tarball
+  extraction, and fflate emits a trailing empty chunk on this Node — so
+  attw crashed with `Cannot read properties of undefined (reading
+  'filename')` for every package, turning main and all open PRs red. The
+  check now runs from pinned `@arethetypeswrong/core` +
+  `@andrewbranch/untar.js` devDependencies via `scripts/attw-check.mjs`,
+  which decompresses with node's `zlib.gunzipSync` and runs the same
+  `checkPackage`. See decisions.md § "CI must not depend on unpinned npx
+  tools".
+
 ### Removed
 
 - **`reason` field dropped from gate-block envelopes (#211).**
