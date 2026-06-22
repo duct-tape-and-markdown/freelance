@@ -130,7 +130,7 @@ Durable contracts surfaced across multiple features. If a new feature extends on
 ## Project structure
 
 - `src/schema/` — Zod schemas for graph definitions (single source of truth for types + validation)
-- `src/evaluator.ts` — Expression evaluator for edge conditions and validations; exports `CONTEXT_PATH_PATTERN` + `resolveContextPath` for hook arg resolution
+- `src/evaluator.ts` — Expression evaluator for edge conditions and validations; exports `CONTEXT_PATH_PATTERN` + `resolveContextRef` for hook arg resolution
 - `src/loader.ts` — YAML graph loader with structural validation; threads `resolveGraphHooks` results into `ValidatedGraph.hookResolutions`
 - `src/hook-resolution.ts` — Load-time hook path resolver: classifies `onEnter[].call` as built-in name or local script path, stats scripts, merges into the `ValidatedGraph`
 - `src/compose.ts` — **Composition root.** Single `composeRuntime` factory that wires state backend → memory store → hook runner → traversal store and returns a `Runtime` with an idempotent `close()`. Also owns `buildMemoryStore` (shared with CLI memory commands) and `migrateLegacyLayout` (transparent `.state/` → flat layout migration). Both `src/server.ts` and `src/cli/setup.ts` call `composeRuntime`.

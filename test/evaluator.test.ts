@@ -163,6 +163,12 @@ describe("evaluate — error cases", () => {
   it("empty expression", () => {
     expect(() => evaluate("", {})).toThrow(EvaluatorError);
   });
+  it("rejects empty path segments from consecutive dots (#282)", () => {
+    // Previously these tokenized cleanly and resolved to null at runtime,
+    // silently masking the typo. Now they fail at tokenize time.
+    expect(() => evaluate("context..foo == 1", { foo: 1 })).toThrow(/empty path segment/);
+    expect(() => evaluate("context.foo..bar == 1", {})).toThrow(/empty path segment/);
+  });
 });
 
 describe("evaluate — whitespace handling", () => {

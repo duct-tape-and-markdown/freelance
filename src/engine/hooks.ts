@@ -10,7 +10,7 @@
 
 import { pathToFileURL } from "node:url";
 import { EC, EngineError } from "../errors.js";
-import { CONTEXT_PATH_PATTERN, resolveContextPath } from "../evaluator.js";
+import { resolveContextRef } from "../evaluator.js";
 import type { HookResolutionMap, ResolvedHook } from "../hook-resolution.js";
 import type {
   BrowseResult,
@@ -279,7 +279,7 @@ export class HookRunner {
 }
 
 /**
- * Walk raw arg values; strings matching CONTEXT_PATH_PATTERN get
+ * Walk raw arg values; strings addressing a `context.foo` path get
  * resolved against live context, everything else passes through. Does
  * not recurse into nested objects/arrays — if authors ever need that,
  * add it with a test case, not speculatively.
@@ -290,11 +290,7 @@ export function resolveHookArgs(
 ): Record<string, unknown> {
   const resolved: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(args)) {
-    if (typeof value === "string" && CONTEXT_PATH_PATTERN.test(value)) {
-      resolved[key] = resolveContextPath(context, value);
-    } else {
-      resolved[key] = value;
-    }
+    resolved[key] = resolveContextRef(context, value);
   }
   return resolved;
 }

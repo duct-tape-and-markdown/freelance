@@ -186,6 +186,16 @@ function tokenize(expr: string): Token[] {
       } else if (BUILTIN_FUNCTIONS.has(ident)) {
         tokens.push({ type: "FUNCTION", value: ident, pos: start });
       } else if (ident.startsWith("context.")) {
+        // Reject empty path segments from consecutive dots — `context..foo`
+        // or `context.foo..bar` would otherwise tokenize cleanly and
+        // resolve to null at runtime, masking the typo (#282).
+        if (contextPathSegments(ident).some((seg) => seg.length === 0)) {
+          throw new EvaluatorError(
+            `Malformed context path '${ident}' at position ${start}: empty path segment (check for consecutive dots).`,
+            expr,
+            start,
+          );
+        }
         tokens.push({ type: "PROPERTY", value: ident, pos: start });
       } else {
         throw new EvaluatorError(
@@ -338,16 +348,25 @@ class Parser {
   }
 
   private resolveProperty(path: string): unknown {
-    // path is "context.foo.bar" — skip the "context." prefix
-    return walkContextSegments(this.context, path.slice("context.".length).split("."));
+    return walkContextSegments(this.context, contextPathSegments(path));
   }
+}
+
+/**
+ * Strip the mandatory `context.` prefix from a PROPERTY path and split
+ * into segments. The single place the prefix convention is encoded —
+ * shared by the parser's property resolver, `resolveContextRef`, and
+ * `extractPropertyComparisons` (which re-joins for its enum lookup).
+ */
+function contextPathSegments(path: string): string[] {
+  return path.slice("context.".length).split(".");
 }
 
 /**
  * Walk a pre-split dotted path against a context object. Missing or
  * non-object intermediates short-circuit to null so callers can treat
  * "absent" and "explicit null" uniformly. Shared by the expression
- * parser's property resolver and the public resolveContextPath below.
+ * parser's property resolver and the public resolveContextRef below.
  */
 function walkContextSegments(context: Record<string, unknown>, segments: string[]): unknown {
   let current: unknown = context;
@@ -387,23 +406,26 @@ function toBool(val: unknown): boolean {
   return true;
 }
 
+// Numeric comparison operators. Each requires both operands to be
+// numbers; a non-number operand makes the comparison false (a missing
+// context path resolves to null, so `context.count > 3` is false until
+// the count is set). Equality (`==`/`!=`) is handled separately because
+// it's type-agnostic.
+const NUMERIC_OPS: Record<string, (a: number, b: number) => boolean> = {
+  ">": (a, b) => a > b,
+  "<": (a, b) => a < b,
+  ">=": (a, b) => a >= b,
+  "<=": (a, b) => a <= b,
+};
+
 function compare(left: unknown, op: string, right: unknown): boolean {
-  switch (op) {
-    case "==":
-      return left === right;
-    case "!=":
-      return left !== right;
-    case ">":
-      return typeof left === "number" && typeof right === "number" ? left > right : false;
-    case "<":
-      return typeof left === "number" && typeof right === "number" ? left < right : false;
-    case ">=":
-      return typeof left === "number" && typeof right === "number" ? left >= right : false;
-    case "<=":
-      return typeof left === "number" && typeof right === "number" ? left <= right : false;
-    default:
-      return false;
+  if (op === "==") return left === right;
+  if (op === "!=") return left !== right;
+  const numOp = NUMERIC_OPS[op];
+  if (numOp) {
+    return typeof left === "number" && typeof right === "number" ? numOp(left, right) : false;
   }
+  return false;
 }
 
 /**
@@ -454,12 +476,12 @@ export function extractPropertyComparisons(expr: string): Array<{
 
     // context.X == 'value'
     if (a.type === "PROPERTY" && b.type === "STRING") {
-      const prop = (a.value as string).replace(/^context\./, "");
+      const prop = contextPathSegments(a.value as string).join(".");
       results.push({ property: prop, operator: op.value as string, literal: b.value as string });
     }
     // 'value' == context.X
     if (a.type === "STRING" && b.type === "PROPERTY") {
-      const prop = (b.value as string).replace(/^context\./, "");
+      const prop = contextPathSegments(b.value as string).join(".");
       results.push({ property: prop, operator: op.value as string, literal: a.value as string });
     }
   }
@@ -477,20 +499,19 @@ export const CONTEXT_PATH_PATTERN =
   /^context\.[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$/;
 
 /**
- * Resolve a `context.foo.bar` path against a live context object.
- * Returns null for missing or non-object intermediates so callers can
- * treat "absent" and "explicit null" uniformly. Throws if the path
- * string doesn't match CONTEXT_PATH_PATTERN.
+ * If `value` is a string addressing a context path (`context.foo[.bar]`),
+ * resolve it against `context`; otherwise return it unchanged. The single
+ * site that recognizes the `context.` reference convention for hook args:
+ * the CONTEXT_PATH_PATTERN test that decides "reference vs literal" and the
+ * resolution live together, so there's no separate caller pre-check plus a
+ * re-validating guard that can never fire (#279).
+ *
+ * Returns null for missing or non-object intermediates so callers treat
+ * "absent" and "explicit null" uniformly.
  */
-export function resolveContextPath(context: Record<string, unknown>, path: string): unknown {
-  if (!CONTEXT_PATH_PATTERN.test(path)) {
-    throw new EvaluatorError(
-      `Invalid context path "${path}"; expected format "context.foo[.bar...]"`,
-      path,
-      0,
-    );
-  }
-  return walkContextSegments(context, path.slice("context.".length).split("."));
+export function resolveContextRef(context: Record<string, unknown>, value: unknown): unknown {
+  if (typeof value !== "string" || !CONTEXT_PATH_PATTERN.test(value)) return value;
+  return walkContextSegments(context, contextPathSegments(value));
 }
 
 /**
