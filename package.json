@@ -69,7 +69,7 @@
   },
   "dependencies": {
     "@dagrejs/graphlib": "^4.0.1",
-    "commander": "^14.0.3",
+    "commander": "^15.0.0",
     "js-yaml": "^4.1.0",
     "remark-parse": "^11.0.0",
     "unified": "^11.0.5",
