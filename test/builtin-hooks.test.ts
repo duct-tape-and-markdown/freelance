@@ -38,6 +38,13 @@ describe("meta_set built-in hook", () => {
     ).rejects.toThrow(/must resolve to a string/);
   });
 
+  it("arg-validation failures throw EngineError with HOOK_BAD_ARGS, not a bare TypeError (#247)", async () => {
+    const metaSet = BUILTIN_HOOKS.meta_set;
+    const promise = metaSet(makeCtx({ args: { externalKey: 1234 }, setMeta: () => {} }));
+    await expect(promise).rejects.toBeInstanceOf(EngineError);
+    await expect(promise).rejects.toMatchObject({ code: "HOOK_BAD_ARGS" });
+  });
+
   it("requires at least one arg", async () => {
     const metaSet = BUILTIN_HOOKS.meta_set;
     await expect(metaSet(makeCtx({ args: {}, setMeta: () => {} }))).rejects.toThrow(
@@ -180,16 +187,13 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
     store = new MemoryStore(openDatabase(path.join(tmpDir, "memory.db")), tmpDir);
     sourcePath = "fixture.md";
     fs.writeFileSync(path.join(tmpDir, sourcePath), "# fixture\nBiome formats the repo.\n");
-    store.emit(
-      [
-        {
-          content: "Biome formats and lints the freelance repo.",
-          entities: ["Biome", "freelance"],
-          sources: [sourcePath],
-        },
-      ],
-      "default",
-    );
+    store.emit([
+      {
+        content: "Biome formats and lints the freelance repo.",
+        entities: ["Biome", "freelance"],
+        sources: [sourcePath],
+      },
+    ]);
   });
 
   afterEach(() => {

@@ -6,6 +6,7 @@
  * and graphlib topology checks.
  */
 
+import { EC, EngineError } from "./errors.js";
 import { resolveBuiltinOnlyHooks } from "./hook-resolution.js";
 import { validateAndBuild } from "./loader.js";
 import type { EdgeDefinition, GraphDefinition, NodeDefinition } from "./schema/graph-schema.js";
@@ -97,7 +98,10 @@ export class GraphBuilder {
    */
   build(): ValidatedGraph {
     if (this.startNodeId === null) {
-      throw new Error(`GraphBuilder "${this.id}": no nodes added`);
+      throw new EngineError(
+        `GraphBuilder "${this.id}": no nodes added`,
+        EC.GRAPH_STRUCTURE_INVALID,
+      );
     }
 
     // Convert NodeInput map to the schema's record format
@@ -152,7 +156,10 @@ export class GraphBuilder {
       const errors = parseResult.error.issues
         .map((issue) => `  ${issue.path.join(".")}: ${issue.message}`)
         .join("\n");
-      throw new Error(`GraphBuilder "${this.id}" validation failed:\n${errors}`);
+      throw new EngineError(
+        `GraphBuilder "${this.id}" validation failed:\n${errors}`,
+        EC.GRAPH_STRUCTURE_INVALID,
+      );
     }
 
     const definition: GraphDefinition = parseResult.data;

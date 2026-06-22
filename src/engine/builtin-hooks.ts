@@ -27,6 +27,11 @@ function requireMemory(ctx: HookContext, opName: string): HookMemoryAccess {
   return ctx.memory;
 }
 
+/** Throw an arg-validation failure with the catalogued HOOK_BAD_ARGS code. */
+function badArg(message: string): never {
+  throw new EngineError(message, EC.HOOK_BAD_ARGS);
+}
+
 type Guard<T> = (v: unknown) => v is T;
 
 const isString: Guard<string> = (v): v is string => typeof v === "string";
@@ -54,9 +59,7 @@ function optional<T>(
   const v = args[key];
   if (v === undefined || v === null) return undefined;
   if (!guard(v)) {
-    throw new TypeError(
-      `Hook arg "${key}" must be ${desc}; got ${typeof v} (${JSON.stringify(v)})`,
-    );
+    badArg(`Hook arg "${key}" must be ${desc}; got ${typeof v} (${JSON.stringify(v)})`);
   }
   return v;
 }
@@ -69,7 +72,7 @@ function optional<T>(
 function required<T>(args: Record<string, unknown>, key: string, guard: Guard<T>, desc: string): T {
   const v = args[key];
   if (!guard(v)) {
-    throw new TypeError(
+    badArg(
       `Hook arg "${key}" is required and must be ${desc}; got ${typeof v} (${JSON.stringify(v)})`,
     );
   }
@@ -84,15 +87,13 @@ function required<T>(args: Record<string, unknown>, key: string, guard: Guard<T>
 function requireStringArray(args: Record<string, unknown>, key: string): string[] {
   const v = args[key];
   if (!Array.isArray(v)) {
-    throw new TypeError(
+    badArg(
       `Hook arg "${key}" is required and must be a string array; got ${typeof v} (${JSON.stringify(v)})`,
     );
   }
   for (const item of v) {
     if (typeof item !== "string") {
-      throw new TypeError(
-        `Hook arg "${key}" must contain only strings; got element ${JSON.stringify(item)}`,
-      );
+      badArg(`Hook arg "${key}" must contain only strings; got element ${JSON.stringify(item)}`);
     }
   }
   return v as string[];
@@ -213,7 +214,7 @@ const metaSet: HookFn = async (ctx) => {
   const updates: Record<string, string> = {};
   for (const [key, value] of Object.entries(ctx.args)) {
     if (typeof value !== "string") {
-      throw new TypeError(
+      badArg(
         `meta_set arg "${key}" must resolve to a string; got ${typeof value} (${JSON.stringify(value)}). ` +
           `If sourcing from context, check that the referenced field is a string.`,
       );
@@ -221,7 +222,7 @@ const metaSet: HookFn = async (ctx) => {
     updates[key] = value;
   }
   if (Object.keys(updates).length === 0) {
-    throw new Error(`meta_set on node "${ctx.nodeId}" requires at least one key=value pair`);
+    badArg(`meta_set on node "${ctx.nodeId}" requires at least one key=value pair`);
   }
   ctx.setMeta(updates);
   return {};

@@ -23,15 +23,7 @@ import {
   memorySearch,
   memoryStatus,
 } from "./memory.js";
-import {
-  EXIT,
-  enumArg,
-  fatal,
-  outputJson,
-  runCliHandler,
-  runCliHandlerAsync,
-  setCli,
-} from "./output.js";
+import { enumArg, fatal, outputJson, runCliHandler, runCliHandlerAsync, setCli } from "./output.js";
 import {
   createMemoryStore,
   createTraversalStore,
@@ -144,8 +136,15 @@ program
     "--base-path <path>",
     "Base path for resolving source references (default: parent of graph directory)",
   )
-  .action((directory, opts) => {
-    validate(directory, {
+  // `validate` is async; the action must await it so an unexpected
+  // mid-execution throw (findGraphFiles, validateHookImports,
+  // getDetailedDrift, fs.writeFileSync under --fix) rejects parseAsync's
+  // promise and routes through bin.ts's `handleRuntimeError` as a proper
+  // error envelope — instead of floating as an unhandled rejection that
+  // bypasses the JSON contract (#229). Expected per-file failures stay in
+  // the `ValidateResult.errors` report; only exceptional throws envelope.
+  .action(async (directory, opts) => {
+    await validate(directory, {
       checkSources: opts.sources || opts.fix,
       fix: opts.fix,
       basePath: opts.basePath,
@@ -524,11 +523,7 @@ program
   .action((shell) => {
     const supported = ["bash", "zsh", "fish"];
     if (!supported.includes(shell)) {
-      fatal(
-        `Unknown shell: ${shell}. Supported: ${supported.join(", ")}`,
-        EXIT.INVALID_INPUT,
-        EC.UNKNOWN_SHELL,
-      );
+      fatal(`Unknown shell: ${shell}. Supported: ${supported.join(", ")}`, EC.UNKNOWN_SHELL);
     }
     const completionFile = path.resolve(
       path.dirname(new URL(import.meta.url).pathname),
@@ -539,11 +534,7 @@ program
       `freelance.${shell}`,
     );
     if (!fs.existsSync(completionFile)) {
-      fatal(
-        `Completion file not found: ${completionFile}`,
-        EXIT.NOT_FOUND,
-        EC.COMPLETION_NOT_FOUND,
-      );
+      fatal(`Completion file not found: ${completionFile}`, EC.COMPLETION_NOT_FOUND);
     }
     process.stdout.write(fs.readFileSync(completionFile, "utf-8"));
   });

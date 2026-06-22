@@ -146,7 +146,7 @@ export class GraphEngine {
   ): Promise<StartResult> {
     if (this.stack.length > 0) {
       throw new EngineError(
-        "A traversal is already active. Call reset() first.",
+        "A traversal is already active. Reset it before starting another.",
         EC.TRAVERSAL_ACTIVE,
       );
     }
@@ -412,7 +412,7 @@ export class GraphEngine {
     // Root terminal GC: clear the stack so TraversalStore.saveEngine
     // deletes the persisted record. The response is already snapshotted
     // above — context, traversalHistory, and node info survive the pop.
-    // Post-hoc inspect via freelance_inspect is lost, but a completed
+    // Post-hoc inspect via freelance inspect is lost, but a completed
     // traversalId is a dead handle anyway. Subgraph terminals are handled
     // earlier in this function via popSubgraph and don't reach here.
     if (isTerminal && this.stack.length === 1) {
@@ -501,8 +501,8 @@ export class GraphEngine {
       previousGraph: prev.graphId,
       previousNode: prev.node,
       message: isMulti
-        ? `Traversal stack cleared (${clearedStack.length} graphs). Call freelance_start to begin a new workflow.`
-        : "Traversal cleared. Call freelance_start to begin a new workflow.",
+        ? `Traversal stack cleared (${clearedStack.length} graphs). Call freelance start to begin a new workflow.`
+        : "Traversal cleared. Call freelance start to begin a new workflow.",
       ...(isMulti ? { clearedStack } : {}),
     } satisfies ResetResult;
   }

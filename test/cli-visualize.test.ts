@@ -2,7 +2,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mapEngineErrorToExit } from "../src/cli/output.js";
 import { visualize } from "../src/cli/visualize.js";
+import { EngineError } from "../src/errors.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
@@ -139,11 +141,23 @@ describe("CLI visualize", () => {
     expect(result.dot).toContain('style="bold"');
   });
 
-  it("exits with VALIDATION (3) for valid extension but invalid content", () => {
+  it("throws GRAPH_STRUCTURE_INVALID (catalog exit 3) for valid extension but invalid content", () => {
     const tmpFile = path.join(makeTmpDir(), "broken.workflow.yaml");
     fs.writeFileSync(tmpFile, "this is not valid graph yaml at all");
-    expect(() => visualize(tmpFile, { format: "mermaid" })).toThrow("process.exit");
-    expect(exitSpy).toHaveBeenCalledWith(3);
+    // visualize no longer self-flattens every load failure to
+    // GRAPH_LOAD_FAILED + a forced exit 3 (the #335 divergence). It lets
+    // loadSingleGraph's catalogued error propagate to bin.ts's
+    // handleRuntimeError. A schema-invalid file is GRAPH_STRUCTURE_INVALID,
+    // whose catalog exit is still 3 — the VALIDATION semantic is preserved,
+    // now sourced from the catalog rather than a hand-passed exit arg.
+    try {
+      visualize(tmpFile, { format: "mermaid" });
+      expect.unreachable("visualize should throw on invalid graph content");
+    } catch (e) {
+      expect(e).toBeInstanceOf(EngineError);
+      expect((e as EngineError).code).toBe("GRAPH_STRUCTURE_INVALID");
+      expect(mapEngineErrorToExit((e as EngineError).code)).toBe(3);
+    }
   });
 
   it("writes DOT format to file with --output", () => {

@@ -1,3 +1,5 @@
+import { EC, EngineError } from "./errors.js";
+
 export const GUIDE_TOPICS = [
   "basics",
   "conventions",
@@ -624,17 +626,34 @@ export function getGuideTopics(): string[] {
   return [...GUIDE_TOPICS];
 }
 
-export function getGuide(topic?: string): { content: string } | { error: string } {
+function isGuideTopic(topic: string): topic is GuideTopic {
+  return (GUIDE_TOPICS as readonly string[]).includes(topic);
+}
+
+/**
+ * Discovery (no topic) returns the structured `topics` array alongside
+ * the markdown blob so an agent can enumerate topics without parsing
+ * prose (#304). A specific topic returns its `content`. An unknown
+ * topic throws `TOPIC_NOT_FOUND` with the valid list carried in
+ * `envelopeSlots.availableTopics` — recovery data lives in the envelope,
+ * never in `error.message` prose (#305).
+ */
+export function getGuide(
+  topic?: string,
+): { topics: string[]; content: string } | { topic: GuideTopic; content: string } {
   if (!topic) {
     const catalog = GUIDE_TOPICS.map((t) => `- ${t}`).join("\n");
     return {
+      topics: [...GUIDE_TOPICS],
       content: `# Freelance Graph Authoring Guide\n\nAvailable topics:\n${catalog}\n\nCall freelance guide with a topic to read it.`,
     };
   }
 
-  if (!GUIDE_TOPICS.includes(topic as GuideTopic)) {
-    return { error: `Unknown topic "${topic}". Available: ${GUIDE_TOPICS.join(", ")}` };
+  if (!isGuideTopic(topic)) {
+    throw new EngineError(`Unknown guide topic "${topic}".`, EC.TOPIC_NOT_FOUND, {
+      envelopeSlots: { availableTopics: [...GUIDE_TOPICS] },
+    });
   }
 
-  return { content: GUIDE_CONTENT[topic as GuideTopic] };
+  return { topic, content: GUIDE_CONTENT[topic] };
 }

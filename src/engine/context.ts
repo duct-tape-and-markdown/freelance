@@ -47,7 +47,7 @@ export function applyContextUpdates(session: SessionState, updates: Record<strin
 /**
  * Size caps on context writes. See `enforceContextCaps` for the check
  * path. A bad write (from a misbehaving hook or a runaway
- * `freelance_context_set`) persists server-side and echoes in every
+ * `freelance context set`) persists server-side and echoes in every
  * subsequent response — caps prevent the blowup from ever landing.
  */
 export interface ContextCaps {

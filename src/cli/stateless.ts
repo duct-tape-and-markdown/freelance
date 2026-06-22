@@ -18,13 +18,10 @@ import {
   hashSources,
   validateGraphSources,
 } from "../sources.js";
-import { EXIT, fatal, handleRuntimeError as handleError, outputJson } from "./output.js";
+import { fatal, handleRuntimeError as handleError, outputJson } from "./output.js";
 
 export function guideShow(topic?: string): void {
   const result = getGuide(topic);
-  if ("error" in result) {
-    fatal(result.error, EXIT.NOT_FOUND, EC.TOPIC_NOT_FOUND);
-  }
   outputJson(result);
 }
 
@@ -61,7 +58,6 @@ export function sourcesCheck(sourceOpts: SourceOptions, paths: string[]): void {
       } else {
         fatal(
           `invalid format "${p}" — expected path:hash or path:section:hash`,
-          EXIT.INVALID_INPUT,
           EC.INVALID_SOURCE_FORMAT,
         );
       }
@@ -79,7 +75,7 @@ export function sourcesValidate(
 ): void {
   try {
     if (graphsDirs.length === 0) {
-      fatal("no graph directories found.", EXIT.NOT_FOUND, EC.NO_GRAPHS_DIR);
+      fatal("no graph directories found.", EC.NO_GRAPHS_DIR);
     }
 
     const fileMap = new Map<string, ReturnType<typeof loadSingleGraph>["definition"]>();
@@ -98,11 +94,10 @@ export function sourcesValidate(
 
     if (targets.length === 0) {
       if (graphId) {
-        fatal(`graph not found: ${graphId}`, EXIT.NOT_FOUND, EC.GRAPH_NOT_FOUND);
+        fatal(`graph not found: ${graphId}`, EC.GRAPH_NOT_FOUND);
       }
       fatal(
         "no loadable *.workflow.yaml files in the configured graphs directories",
-        EXIT.NOT_FOUND,
         EC.NO_GRAPHS_LOADED,
       );
     }

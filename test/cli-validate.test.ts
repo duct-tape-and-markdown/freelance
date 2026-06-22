@@ -208,6 +208,25 @@ nodes:
       expect(result.fixed).toBeGreaterThan(0);
     });
 
+    it("propagates an unexpected mid-execution throw instead of swallowing it (#229)", async () => {
+      const dir = tmpDir();
+      const docContent = "# Doc\n\nFixed content.\n";
+      fs.writeFileSync(path.join(dir, "doc.md"), docContent);
+      writeGraphWithSources(dir, "0000000000000000");
+
+      // Simulate an IO failure on the --fix rewrite. The throw must
+      // propagate (so the awaited action routes it through
+      // handleRuntimeError as an error envelope), NOT vanish into the
+      // ValidateResult report or get masked as a "process.exit".
+      vi.spyOn(fs, "writeFileSync").mockImplementation(() => {
+        throw new Error("EACCES: simulated read-only filesystem");
+      });
+
+      await expect(validate(dir, { checkSources: true, fix: true, basePath: dir })).rejects.toThrow(
+        "EACCES: simulated read-only filesystem",
+      );
+    });
+
     it("--fix skips FILE_NOT_FOUND sources", async () => {
       const dir = tmpDir();
       writeGraphWithSources(dir, "0000000000000000");

@@ -110,7 +110,7 @@ export const graphDefinitionSchema = z.object({
   strictContext: z.boolean().optional().default(false),
   nodes: z.record(z.string(), nodeDefinitionSchema),
   sources: z.array(sourceBindingSchema).optional(),
-  // Meta keys a caller must supply at freelance_start (or that the start
+  // Meta keys a caller must supply at freelance start (or that the start
   // node's onEnter hooks must set) before the traversal is accepted. Use
   // this for workflows bound to an external entity — e.g. `[externalKey]`
   // for ticket-driven delivery workflows. Freelance still never interprets

@@ -35,8 +35,32 @@ import type { ValidatedGraph } from "./types.js";
  */
 export function loadSingleGraph(filePath: string): { id: string } & ValidatedGraph {
   const resolved = path.resolve(filePath);
-  const content = fs.readFileSync(resolved, "utf-8");
-  const parsed = yaml.load(content);
+
+  let content: string;
+  try {
+    content = fs.readFileSync(resolved, "utf-8");
+  } catch (err) {
+    // ENOENT → the file the operator named doesn't exist (exit 4);
+    // any other read failure (permissions, I/O) is structural (exit 1).
+    // Without this, a raw fs error would collapse to INTERNAL.
+    const code =
+      (err as NodeJS.ErrnoException).code === "ENOENT" ? EC.FILE_NOT_FOUND : EC.GRAPH_LOAD_FAILED;
+    throw new EngineError(`Cannot read graph file ${resolved}: ${(err as Error).message}`, code);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(content);
+  } catch (err) {
+    // A YAML syntax error means the *.workflow.yaml file is malformed —
+    // an authoring-time failure (exit 3), same category as schema
+    // validation below. Without this, js-yaml's YAMLException collapses
+    // to INTERNAL (#273).
+    throw new EngineError(
+      `YAML parse failed for ${resolved}:\n  ${(err as Error).message}`,
+      EC.GRAPH_STRUCTURE_INVALID,
+    );
+  }
 
   const parseResult = graphDefinitionSchema.safeParse(parsed);
   if (!parseResult.success) {

@@ -39,10 +39,10 @@ export const compileMessages = {
         "- context.entities (from memory_browse, up to 50) — the existing entity vocabulary. Orphan entities (valid_proposition_count: 0, every linked proposition is stale) are filtered out so the names here reflect what current sources support. Skim these names; they are what the compiling node will steer toward when it plans hubs.\n" +
         "- context.priorKnowledgeByPath (from memory_by_source) — propositions already known per file in context.filesReadPaths (each entry is { id, content } — no hashes, no timestamps; content is what you need to judge overlap). See the graph-aware reading section below.\n\n" +
         "## Warm start — if you already know which files you want to compile\n" +
-        "Pass them as `initialContext.filesReadPaths` when calling freelance_start. The onEnter hooks fire AFTER initialContext is applied, so priorKnowledgeByPath is populated on your very first arrival — no wasted lap. Without initialContext, filesReadPaths starts empty and the first arrival's priorKnowledgeByPath is `{}`; hooks only re-fire on node arrival, so setting filesReadPaths via freelance_context_set does NOT re-query memory_by_source until you loop back through compiling/evaluating and land on exploring a second time.\n\n" +
+        "Pass them as `initialContext.filesReadPaths` when calling freelance start. The onEnter hooks fire AFTER initialContext is applied, so priorKnowledgeByPath is populated on your very first arrival — no wasted lap. Without initialContext, filesReadPaths starts empty and the first arrival's priorKnowledgeByPath is `{}`; hooks only re-fire on node arrival, so setting filesReadPaths via freelance context set does NOT re-query memory_by_source until you loop back through compiling/evaluating and land on exploring a second time.\n\n" +
         "## What this node does\n" +
         "Read files related to the compilation query using your native Read tool. " +
-        "After each read, call freelance_context_set to append the file path to " +
+        "After each read, call freelance context set to append the file path to " +
         "context.filesReadPaths. The path list is your working set — when you emit " +
         "propositions in the next node, you'll cite sources from this list. memory_emit " +
         "hashes each cited source file at emit time for per-proposition provenance, so " +
@@ -58,7 +58,7 @@ export const compileMessages = {
         "- Emit only DELTAS: claims the file actually says that the existing propositions " +
         "do not already capture.\n\n" +
         "## Warm exit — zero-delta shortcut\n" +
-        "If every file in priorKnowledgeByPath is already comprehensively covered (nothing to emit), take the `warm-exit` edge directly from here to `evaluating` — pass `{ coverageSatisfied: true }` in the same freelance_advance call. This skips compiling/memory_emit entirely. It's the right path when a prior compile run already covered the same files and the sources haven't drifted since. A one-step warm exit costs one tool call instead of the 2–3 it takes to loop through the normal compiling path.\n\n" +
+        "If every file in priorKnowledgeByPath is already comprehensively covered (nothing to emit), take the `warm-exit` edge directly from here to `evaluating` — pass `{ coverageSatisfied: true }` in the same freelance advance call. This skips compiling/memory_emit entirely. It's the right path when a prior compile run already covered the same files and the sources haven't drifted since. A one-step warm exit costs one tool call instead of the 2–3 it takes to loop through the normal compiling path.\n\n" +
         "If context.priorKnowledgePathsTruncated is true, the path list exceeded the 50-path " +
         "cap and not every file was checked — fall back to manual judgment for the unchecked tail.",
     },
@@ -136,7 +136,7 @@ export const recallMessages = {
         "Catalog what's already known from those inspects — the propositions and the source_files lists. " +
         "Update context.recalledEntities (the count you actually inspected) and context.recalledPropositions (sum across the inspects).\n\n" +
         "## Warm exit — memory already covers the query\n" +
-        "If the recalled propositions comprehensively answer the query — no gaps, no need to re-read sources to find new facts — take the `warm-exit` edge directly to `evaluating`. Pass `{ coverageSatisfied: true }` in the same freelance_advance call. This skips sourcing/comparing/filling entirely; the evaluating node will confirm and route to complete. Use this when the existing memory is sufficient.\n\n" +
+        "If the recalled propositions comprehensively answer the query — no gaps, no need to re-read sources to find new facts — take the `warm-exit` edge directly to `evaluating`. Pass `{ coverageSatisfied: true }` in the same freelance advance call. This skips sourcing/comparing/filling entirely; the evaluating node will confirm and route to complete. Use this when the existing memory is sufficient.\n\n" +
         "Otherwise, take the `recalled` edge — the sourcing node will read the source_files from your inspects to check for gaps.",
     },
     sourcing: {
@@ -145,7 +145,7 @@ export const recallMessages = {
         "Read the source files identified during recall (from source_files on each entity's inspect response). " +
         "If recall found no prior knowledge, read sources relevant to the query on your own. " +
         "Focus on understanding what the sources say about the query subject matter — " +
-        "not on indexing the files themselves. After each read, call freelance_context_set " +
+        "not on indexing the files themselves. After each read, call freelance context set " +
         "to append the file path to context.sourcesReadPaths. The path list is your " +
         "working set — when you fill gaps in the next nodes, cite sources from this list " +
         "(memory_emit hashes them at emit time).",

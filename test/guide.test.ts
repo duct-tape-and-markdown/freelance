@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { EngineError } from "../src/errors.js";
 import { GUIDE_TOPICS, getGuide, getGuideTopics } from "../src/guide.js";
 
-describe("freelance_guide", () => {
+describe("freelance guide", () => {
   it("getGuideTopics returns all topics", () => {
     const topics = getGuideTopics();
     expect(topics).toHaveLength(GUIDE_TOPICS.length);
@@ -13,42 +14,43 @@ describe("freelance_guide", () => {
     expect(topics).toContain("anti-patterns");
   });
 
-  it("getGuide with no topic returns catalog", () => {
+  it("getGuide with no topic returns catalog with a structured topic list", () => {
     const result = getGuide();
-    expect("content" in result).toBe(true);
-    if ("content" in result) {
+    expect("topics" in result).toBe(true);
+    if ("topics" in result) {
+      // #304: agents enumerate topics from the structured array, not by
+      // parsing the markdown blob.
+      expect(result.topics).toEqual([...GUIDE_TOPICS]);
       expect(result.content).toContain("Available topics");
-      for (const topic of GUIDE_TOPICS) {
-        expect(result.content).toContain(topic);
-      }
     }
   });
 
   it("getGuide with valid topic returns content", () => {
     const result = getGuide("basics");
     expect("content" in result).toBe(true);
-    if ("content" in result) {
-      expect(result.content).toContain("Graph Basics");
-      expect(result.content).toContain("freelance status");
-    }
+    expect(result.content).toContain("Graph Basics");
+    expect(result.content).toContain("freelance status");
   });
 
-  it("getGuide with unknown topic returns error", () => {
-    const result = getGuide("nonexistent");
-    expect("error" in result).toBe(true);
-    if ("error" in result) {
-      expect(result.error).toContain("nonexistent");
-      expect(result.error).toContain("Available");
+  it("getGuide with unknown topic throws TOPIC_NOT_FOUND with topics in envelopeSlots", () => {
+    // #305/#306: throws a catalogued EngineError; the valid-topic list
+    // lives in envelopeSlots, not baked into error.message prose.
+    try {
+      getGuide("nonexistent");
+      expect.unreachable("getGuide should throw on an unknown topic");
+    } catch (e) {
+      expect(e).toBeInstanceOf(EngineError);
+      const err = e as EngineError;
+      expect(err.code).toBe("TOPIC_NOT_FOUND");
+      expect(err.message).toContain("nonexistent");
+      expect(err.context?.envelopeSlots?.availableTopics).toEqual([...GUIDE_TOPICS]);
     }
   });
 
   it("each topic has non-empty content", () => {
     for (const topic of GUIDE_TOPICS) {
       const result = getGuide(topic);
-      expect("content" in result, `${topic} should return content`).toBe(true);
-      if ("content" in result) {
-        expect(result.content.length, `${topic} should have content`).toBeGreaterThan(50);
-      }
+      expect(result.content.length, `${topic} should have content`).toBeGreaterThan(50);
     }
   });
 });

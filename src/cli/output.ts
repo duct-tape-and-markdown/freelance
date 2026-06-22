@@ -338,20 +338,22 @@ export function error(msg: string): void {
 }
 
 /**
- * Emit a structured fatal error to stdout and exit with the given code.
- * Shape matches `outputError`: `{ isError: true, error: { code,
- * message, kind } }`. Callers pass an exit code that categorizes the
- * failure (see EXIT) and a `code` from the engine catalog — no default,
- * so every call site picks a specific code (the previous `"FATAL"`
- * default hid novel failures behind a generic string). `kind` is
- * derived via `errorKind` — any `fatal()`-produced error whose code
- * isn't in `ENGINE_ERROR_CODES.BLOCKED` falls through to
- * `"structural"`, which is the right default for authoring-time and
- * setup failures.
+ * Emit a structured fatal error to stdout and exit. Shape matches
+ * `outputError`: `{ isError: true, error: { code, message, kind } }`.
+ * The exit code is derived from `code` via `mapEngineErrorToExit` — the
+ * catalog is the single source of truth, so a `fatal()` call can't emit
+ * an envelope whose `error.code` category disagrees with the shell's
+ * exit number (the divergence #335: `visualize` emitted
+ * `GRAPH_LOAD_FAILED` — catalog exit 1 — with an explicit exit 3).
+ * `kind` is likewise derived via `errorKind`.
+ *
+ * Equivalent to `handleRuntimeError(new EngineError(msg, code))` minus
+ * the test sentinel re-throw; kept as the ergonomic form for inline CLI
+ * checks not wrapped in `runCliHandler`.
  */
-export function fatal(msg: string, exitCode: number, code: EngineErrorCode): never {
+export function fatal(msg: string, code: EngineErrorCode): never {
   outputJson(errorEnvelope(code, msg));
-  process.exit(exitCode);
+  process.exit(mapEngineErrorToExit(code));
 }
 
 /** Resolve the user's home directory. */

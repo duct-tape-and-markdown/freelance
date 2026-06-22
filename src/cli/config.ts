@@ -14,7 +14,7 @@ import path from "node:path";
 import { loadConfig, loadConfigFromDirs, updateLocalConfig } from "../config.js";
 import { EC } from "../errors.js";
 import { resolveGraphsDirs } from "../graph-resolution.js";
-import { EXIT, fatal, outputJson } from "./output.js";
+import { fatal, outputJson } from "./output.js";
 
 // --- config show ---
 
@@ -39,11 +39,7 @@ export function configSetLocal(
 ): void {
   const dirs = resolveGraphsDirs(opts.workflows);
   if (dirs.length === 0) {
-    fatal(
-      "No .freelance directory found. Run `freelance init` first.",
-      EXIT.INVALID_INPUT,
-      EC.NO_FREELANCE_DIR,
-    );
+    fatal("No .freelance directory found. Run `freelance init` first.", EC.NO_FREELANCE_DIR);
   }
 
   const freelanceDir = dirs[0];
@@ -68,11 +64,7 @@ export function configSetLocal(
     });
   } else if (key === "memory.enabled") {
     if (value !== "true" && value !== "false") {
-      fatal(
-        `memory.enabled must be "true" or "false", got "${value}"`,
-        EXIT.INVALID_INPUT,
-        EC.INVALID_CONFIG_VALUE,
-      );
+      fatal(`memory.enabled must be "true" or "false", got "${value}"`, EC.INVALID_CONFIG_VALUE);
     }
     const enabled = value === "true";
     updateLocalConfig(freelanceDir, (config) => {
@@ -81,7 +73,6 @@ export function configSetLocal(
   } else {
     fatal(
       `Unknown config key: ${key}. Supported: ${SETTABLE_KEYS.join(", ")}`,
-      EXIT.INVALID_INPUT,
       EC.UNKNOWN_CONFIG_KEY,
     );
   }
