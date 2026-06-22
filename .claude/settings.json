@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '%s\\n' 'Code navigation: prefer the LSP tool (goToDefinition, findReferences, hover, workspaceSymbol, call hierarchy) and ast-grep (`sg run -p <pattern> -l ts src/`) over plain Grep for TypeScript exploration and refactors. See CLAUDE.md > Code navigation.'"
+          }
+        ]
+      }
+    ]
+  }
+}
