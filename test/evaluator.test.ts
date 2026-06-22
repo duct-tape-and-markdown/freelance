@@ -171,6 +171,18 @@ describe("evaluate — error cases", () => {
   });
 });
 
+describe("evaluate — AST cache is context-independent (#285)", () => {
+  it("re-evaluates a cached expression against fresh context each call", () => {
+    const expr = "context.count > 3 && context.flag == true";
+    // First call parses + caches the tree; subsequent calls reuse it.
+    expect(evaluate(expr, { count: 5, flag: true })).toBe(true);
+    // Different context through the same cached AST — no stale capture.
+    expect(evaluate(expr, { count: 1, flag: true })).toBe(false);
+    expect(evaluate(expr, { count: 5, flag: false })).toBe(false);
+    expect(evaluate(expr, { count: 5, flag: true })).toBe(true);
+  });
+});
+
 describe("evaluate — whitespace handling", () => {
   it("extra whitespace", () => {
     expect(evaluate("  context.value  ==  true  ", { value: true })).toBe(true);

@@ -214,14 +214,31 @@ function tokenize(expr: string): Token[] {
   return tokens;
 }
 
-// --- Parser / Evaluator ---
+// --- AST ---
+
+/**
+ * Parsed expression tree. Context-independent: a given expression string
+ * parses to one immutable `Ast` (cached in `astCache`) and is re-evaluated
+ * against fresh context on every advance — no re-tokenize, no re-parse
+ * per evaluation (#285). Expressions are pure (property reads + literal
+ * comparisons, no side effects), so lazily evaluating the tree gives the
+ * same result the old fused parse-and-eval produced eagerly.
+ */
+type Ast =
+  | { kind: "lit"; value: string | number | boolean | null }
+  | { kind: "prop"; path: string }
+  | { kind: "not"; operand: Ast }
+  | { kind: "logic"; op: "&&" | "||"; left: Ast; right: Ast }
+  | { kind: "compare"; op: string; left: Ast; right: Ast }
+  | { kind: "call"; name: string; arg: Ast };
+
+// --- Parser (token stream → Ast; no evaluation) ---
 
 class Parser {
   private pos = 0;
 
   constructor(
     private tokens: Token[],
-    private context: Record<string, unknown>,
     private expr: string,
   ) {}
 
@@ -235,8 +252,8 @@ class Parser {
     return t;
   }
 
-  parse(): boolean {
-    const result = this.parseOrExpr();
+  parse(): Ast {
+    const ast = this.parseOrExpr();
     if (this.peek().type !== "EOF") {
       const t = this.peek();
       throw new EvaluatorError(
@@ -245,54 +262,53 @@ class Parser {
         t.pos,
       );
     }
-    return toBool(result);
+    return ast;
   }
 
-  private parseOrExpr(): unknown {
+  private parseOrExpr(): Ast {
     let left = this.parseAndExpr();
     while (this.peek().type === "LOGIC" && this.peek().value === "||") {
       this.advance();
       const right = this.parseAndExpr();
-      if (!toBool(left)) left = right; // short-circuit: keep left if truthy
+      left = { kind: "logic", op: "||", left, right };
     }
     return left;
   }
 
-  private parseAndExpr(): unknown {
+  private parseAndExpr(): Ast {
     let left = this.parseNotExpr();
     while (this.peek().type === "LOGIC" && this.peek().value === "&&") {
       this.advance();
       const right = this.parseNotExpr();
-      if (toBool(left)) left = right; // short-circuit: keep left if falsy
+      left = { kind: "logic", op: "&&", left, right };
     }
     return left;
   }
 
-  private parseNotExpr(): unknown {
+  private parseNotExpr(): Ast {
     if (this.peek().type === "NOT") {
       this.advance();
-      const val = this.parseNotExpr();
-      return !toBool(val);
+      return { kind: "not", operand: this.parseNotExpr() };
     }
     return this.parseComparison();
   }
 
-  private parseComparison(): unknown {
+  private parseComparison(): Ast {
     const left = this.parseValue();
     if (this.peek().type === "OP") {
       const op = this.advance().value as string;
       const right = this.parseValue();
-      return compare(left, op, right);
+      return { kind: "compare", op, left, right };
     }
     return left;
   }
 
-  private parseValue(): unknown {
+  private parseValue(): Ast {
     const t = this.peek();
 
     if (t.type === "LPAREN") {
       this.advance();
-      const val = this.parseOrExpr();
+      const inner = this.parseOrExpr();
       if (this.peek().type !== "RPAREN") {
         throw new EvaluatorError(
           `Expected ')' at position ${this.peek().pos}`,
@@ -301,17 +317,17 @@ class Parser {
         );
       }
       this.advance();
-      return val;
+      return inner;
     }
 
     if (t.type === "STRING" || t.type === "NUMBER" || t.type === "BOOLEAN" || t.type === "NULL") {
       this.advance();
-      return t.value;
+      return { kind: "lit", value: t.value };
     }
 
     if (t.type === "PROPERTY") {
       this.advance();
-      return this.resolveProperty(t.value as string);
+      return { kind: "prop", path: t.value as string };
     }
 
     if (t.type === "FUNCTION") {
@@ -333,7 +349,7 @@ class Parser {
         );
       }
       this.advance();
-      return callFunction(t.value as string, arg);
+      return { kind: "call", name: t.value as string, arg };
     }
 
     if (t.type === "EOF") {
@@ -346,10 +362,49 @@ class Parser {
       t.pos,
     );
   }
+}
 
-  private resolveProperty(path: string): unknown {
-    return walkContextSegments(this.context, contextPathSegments(path));
+/**
+ * Evaluate a parsed tree against a context object. Logic nodes
+ * short-circuit; since expressions are side-effect-free the result is
+ * identical to evaluating both arms eagerly.
+ */
+function evalAst(node: Ast, context: Record<string, unknown>): unknown {
+  switch (node.kind) {
+    case "lit":
+      return node.value;
+    case "prop":
+      return walkContextSegments(context, contextPathSegments(node.path));
+    case "not":
+      return !toBool(evalAst(node.operand, context));
+    case "logic": {
+      const left = evalAst(node.left, context);
+      if (node.op === "||") return toBool(left) ? left : evalAst(node.right, context);
+      return toBool(left) ? evalAst(node.right, context) : left;
+    }
+    case "compare":
+      return compare(evalAst(node.left, context), node.op, evalAst(node.right, context));
+    case "call":
+      return callFunction(node.name, evalAst(node.arg, context));
   }
+}
+
+// Expression strings come from graph definitions (finite), so this memo is
+// bounded by the number of distinct expressions across loaded graphs — no
+// eviction needed. Validating an expression at load warms the cache for
+// the advances that later evaluate it.
+const astCache = new Map<string, Ast>();
+
+function parseToAst(expr: string): Ast {
+  const trimmed = expr.trim();
+  if (trimmed.length === 0) {
+    throw new EvaluatorError("Empty expression", expr, 0);
+  }
+  const cached = astCache.get(trimmed);
+  if (cached) return cached;
+  const ast = new Parser(tokenize(trimmed), trimmed).parse();
+  astCache.set(trimmed, ast);
+  return ast;
 }
 
 /**
@@ -434,16 +489,10 @@ function compare(left: unknown, op: string, right: unknown): boolean {
  * Used at graph load time to catch typos early.
  */
 export function validateExpression(expr: string): void {
-  const trimmed = expr.trim();
-  if (trimmed.length === 0) {
-    throw new EvaluatorError("Empty expression", expr, 0);
-  }
-  // Tokenize to catch lexical errors, then parse with an empty context
-  // to catch structural errors. Property access resolves to null against
-  // empty context, which is fine — we're checking syntax, not semantics.
-  const tokens = tokenize(trimmed);
-  const parser = new Parser(tokens, {}, expr);
-  parser.parse();
+  // parseToAst tokenizes + parses (and caches the tree, warming it for
+  // the advances that later evaluate this expression). Throws on lexical
+  // or structural errors; no evaluation needed to check syntax.
+  parseToAst(expr);
 }
 
 /**
@@ -519,13 +568,7 @@ export function resolveContextRef(context: Record<string, unknown>, value: unkno
  * Throws EvaluatorError on syntax errors.
  */
 export function evaluate(expr: string, context: Record<string, unknown>): boolean {
-  const trimmed = expr.trim();
-  if (trimmed.length === 0) {
-    throw new EvaluatorError("Empty expression", expr, 0);
-  }
-  const tokens = tokenize(trimmed);
-  const parser = new Parser(tokens, context, expr);
-  return parser.parse();
+  return toBool(evalAst(parseToAst(expr), context));
 }
 
 /**
