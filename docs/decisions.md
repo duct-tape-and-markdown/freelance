@@ -29,6 +29,16 @@ The rationale is a token budget asymmetry. Any mechanism that ships a fixed per-
 
 See issue [#99](https://github.com/duct-tape-and-markdown/freelance/issues/99) for the decision record.
 
+### Each runtime verb has one identity; `advance` writes, `inspect` reads
+
+A corollary of the committed verb surface above: a verb does one thing, and argument presence does not fork its meaning. `freelance advance` used to reinterpret a *missing* edge as a read-only probe returning `{ traversalId, validTransitions }` (#258) — so the same verb meant "move" or "describe" depending on whether an edge was passed. That is removed: a missing edge is now an `INVALID_INPUT` error like any other missing required argument, and `inspect --minimal` is the read surface for previewing `validTransitions` (it returns a strict superset — `currentNode`, `turnCount`, wait info — that the probe dropped).
+
+The agent-efficiency framing matters here because the agent is the *only* CLI consumer (human ergonomics are a no-op): the worry was added round-trips. The opposite holds — every `start` and `advance` response already carries the node's `validTransitions` (plus instructions/sources), so the loop is read-response → pick-edge → advance with **no** separate preview call. `inspect --minimal` is only for re-checking state after a compaction or out-of-band change. SKILL.md (both byte-identical copies) teaches this.
+
+**What would break if reversed:** a verb whose contract forks on argument presence forces every caller (skill, shell script) to special-case "advance with no edge is a no-op," and undercuts `inspect --minimal`'s reason for existing as the lean read surface (#81).
+
+Anchors: `src/cli/traversals.ts` (`traversalAdvance`), `src/engine/context.ts` (minimal inspect), SKILL.md § the loop. Closes #258.
+
 ### MCP server and tool surface deleted
 
 The MCP server (`src/server.ts`), all `freelance_*` / `memory_*` MCP tools, `plugins/freelance/.mcp.json`, and the `freelance mcp` subcommand are gone. The skill + CLI path above is now the only execution surface.

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runCliHandler, runCliHandlerAsync, setCli } from "../src/cli/output.js";
+import { intOption, runCliHandler, setCli } from "../src/cli/output.js";
 import {
   traversalAdvance,
   traversalContextSet,
@@ -87,7 +87,7 @@ describe("traversalStart", () => {
     const store = createTestStore();
     try {
       await expect(
-        runCliHandlerAsync(store, () => traversalStart(store, "nonexistent-graph")),
+        runCliHandler(store, () => traversalStart(store, "nonexistent-graph")),
       ).rejects.toThrow("process.exit");
       const parsed = stdoutJson() as {
         isError: true;
@@ -97,6 +97,31 @@ describe("traversalStart", () => {
       expect(parsed.error.code).toBe("GRAPH_NOT_FOUND");
       expect(parsed.error.kind).toBe("structural");
       expect(exitSpy).toHaveBeenCalledWith(4); // EXIT.NOT_FOUND
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("traversalAdvance — missing edge is an input error (#258)", () => {
+  // The covert no-edge probe (which returned { traversalId,
+  // validTransitions }) was removed: validTransitions already ride on
+  // every start/advance response, and `inspect --minimal` covers the
+  // re-check case. A bare `advance` is now rejected like any other
+  // missing required argument.
+  it("errors with INVALID_FLAG_VALUE / EXIT 5 when no edge is given", async () => {
+    const store = createTestStore();
+    try {
+      const graphId = store.listGraphs().graphs[0]?.id;
+      if (!graphId) return;
+      const { traversalId } = await store.createTraversal(graphId);
+      await expect(
+        runCliHandler(store, () => traversalAdvance(store, undefined, { traversal: traversalId })),
+      ).rejects.toThrow("process.exit");
+      const parsed = stdoutJson() as { isError: true; error: { code: string } };
+      expect(parsed.isError).toBe(true);
+      expect(parsed.error.code).toBe("INVALID_FLAG_VALUE");
+      expect(exitSpy).toHaveBeenCalledWith(5); // EXIT.INVALID_INPUT
     } finally {
       store.close();
     }
@@ -116,9 +141,7 @@ describe("traversalAdvance — unified error envelope on gate-block", () => {
       stdoutSpy.mockClear();
 
       await expect(
-        runCliHandlerAsync(store, () =>
-          traversalAdvance(store, "go-left", { traversal: traversalId }),
-        ),
+        runCliHandler(store, () => traversalAdvance(store, "go-left", { traversal: traversalId })),
       ).rejects.toThrow("process.exit");
 
       const parsed = stdoutJson() as {
@@ -180,9 +203,9 @@ describe("traversalContextSet", () => {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await store.createTraversal(graphId);
-      expect(() =>
+      await expect(
         runCliHandler(store, () => traversalContextSet(store, ["noequalssign"])),
-      ).toThrow("process.exit");
+      ).rejects.toThrow("process.exit");
       const parsed = stdoutJson() as { isError: true; error: { code: string } };
       expect(parsed.isError).toBe(true);
       expect(parsed.error.code).toBe("INVALID_KEY_VALUE_PAIR");
@@ -290,7 +313,7 @@ describe("traversalStart --meta", () => {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await expect(
-        runCliHandlerAsync(store, () =>
+        runCliHandler(store, () =>
           traversalStart(store, graphId, undefined, { meta: ["noequalssign"] }),
         ),
       ).rejects.toThrow("process.exit");
@@ -306,7 +329,7 @@ describe("traversalStart --meta", () => {
       if (!graphId) return;
       const oversizedKey = "k".repeat(257);
       await expect(
-        runCliHandlerAsync(store, () =>
+        runCliHandler(store, () =>
           traversalStart(store, graphId, undefined, { meta: [`${oversizedKey}=x`] }),
         ),
       ).rejects.toThrow("process.exit");
@@ -325,7 +348,7 @@ describe("traversalStart --meta", () => {
       if (!graphId) return;
       const oversizedValue = "v".repeat(4097);
       await expect(
-        runCliHandlerAsync(store, () =>
+        runCliHandler(store, () =>
           traversalStart(store, graphId, undefined, { meta: [`k=${oversizedValue}`] }),
         ),
       ).rejects.toThrow("process.exit");
@@ -361,7 +384,7 @@ describe("traversalStart --meta", () => {
       // only 2050 JS string length. Confirms we cap on Buffer.byteLength.
       const multibyte = "🎯".repeat(1025);
       await expect(
-        runCliHandlerAsync(store, () =>
+        runCliHandler(store, () =>
           traversalStart(store, graphId, undefined, { meta: [`k=${multibyte}`] }),
         ),
       ).rejects.toThrow("process.exit");
@@ -374,13 +397,13 @@ describe("traversalStart --meta", () => {
 });
 
 describe("traversalStatus --filter enforces the same meta caps (#62)", () => {
-  it("rejects --filter value over the cap — caps are symmetric", () => {
+  it("rejects --filter value over the cap — caps are symmetric", async () => {
     const store = createTestStore();
     try {
       const oversized = "v".repeat(4097);
-      expect(() =>
+      await expect(
         runCliHandler(store, () => traversalStatus(store, { filter: [`k=${oversized}`] })),
-      ).toThrow("process.exit");
+      ).rejects.toThrow("process.exit");
       const parsed = stdoutJson() as { error?: { code?: string } };
       expect(parsed.error?.code).toBe("INVALID_META");
     } finally {
@@ -485,9 +508,9 @@ describe("traversalMetaSet", () => {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await store.createTraversal(graphId);
-      expect(() => runCliHandler(store, () => traversalMetaSet(store, ["noequalssign"]))).toThrow(
-        "process.exit",
-      );
+      await expect(
+        runCliHandler(store, () => traversalMetaSet(store, ["noequalssign"])),
+      ).rejects.toThrow("process.exit");
     } finally {
       store.close();
     }
@@ -499,7 +522,9 @@ describe("traversalMetaSet", () => {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await store.createTraversal(graphId);
-      expect(() => runCliHandler(store, () => traversalMetaSet(store, []))).toThrow("process.exit");
+      await expect(runCliHandler(store, () => traversalMetaSet(store, []))).rejects.toThrow(
+        "process.exit",
+      );
     } finally {
       store.close();
     }
@@ -613,7 +638,7 @@ describe("--minimal response projection (issue #81)", () => {
       await store.advance(traversalId, "initialized");
       stdoutSpy.mockClear();
       await expect(
-        runCliHandlerAsync(store, () =>
+        runCliHandler(store, () =>
           traversalAdvance(store, "go-left", { traversal: traversalId, minimal: true }),
         ),
       ).rejects.toThrow("process.exit");
@@ -630,12 +655,12 @@ describe("--minimal response projection (issue #81)", () => {
 });
 
 describe("traversalReset", () => {
-  it("errors without --confirm (CONFIRM_REQUIRED / EXIT 5)", () => {
+  it("errors without --confirm (CONFIRM_REQUIRED / EXIT 5)", async () => {
     const store = createTestStore();
     try {
-      expect(() => runCliHandler(store, () => traversalReset(store, undefined, {}))).toThrow(
-        "process.exit",
-      );
+      await expect(
+        runCliHandler(store, () => traversalReset(store, undefined, {})),
+      ).rejects.toThrow("process.exit");
       const parsed = stdoutJson() as {
         isError: true;
         error: { code: string; kind: string };
@@ -689,7 +714,7 @@ describe("traversalInspect options (#122)", () => {
       const graphId = store.listGraphs().graphs[0]?.id;
       if (!graphId) return;
       await store.createTraversal(graphId);
-      traversalInspect(store, undefined, "history", { limit: "3", offset: "0" });
+      traversalInspect(store, undefined, "history", { limit: 3, offset: 0 });
       const parsed = stdoutJson() as {
         traversalHistory: unknown[];
         totalSteps: number;
@@ -732,48 +757,20 @@ describe("traversalInspect options (#122)", () => {
     }
   });
 
-  it("emits INVALID_FLAG_VALUE on non-integer --limit", async () => {
-    const store = createTestStore();
-    try {
-      const graphId = store.listGraphs().graphs[0]?.id;
-      if (!graphId) return;
-      await store.createTraversal(graphId);
-      expect(() =>
-        runCliHandler(store, () => traversalInspect(store, undefined, "history", { limit: "abc" })),
-      ).toThrow("process.exit");
-      const parsed = stdoutJson() as {
-        isError: true;
-        error: { code: string; kind: string };
-      };
-      expect(parsed.isError).toBe(true);
-      expect(parsed.error.code).toBe("INVALID_FLAG_VALUE");
-      expect(parsed.error.kind).toBe("structural");
-      expect(exitSpy).toHaveBeenCalledWith(5); // EXIT.INVALID_INPUT
-    } finally {
-      store.close();
-    }
+  // Post-#232, --limit/--offset are validated by the commander argParser
+  // (`intOption` → `parseIntArg`) at parse time, not inside the handler;
+  // the handler now receives a `number`. Assert the parser throws
+  // INVALID_FLAG_VALUE on malformed input.
+  it("intOption rejects a non-integer --limit with INVALID_FLAG_VALUE", () => {
+    expect(() => intOption("--limit")("abc")).toThrow(
+      expect.objectContaining({ code: "INVALID_FLAG_VALUE" }),
+    );
   });
 
-  it("emits INVALID_FLAG_VALUE on non-integer --offset", async () => {
-    const store = createTestStore();
-    try {
-      const graphId = store.listGraphs().graphs[0]?.id;
-      if (!graphId) return;
-      await store.createTraversal(graphId);
-      expect(() =>
-        runCliHandler(store, () =>
-          traversalInspect(store, undefined, "history", { offset: "1.5" }),
-        ),
-      ).toThrow("process.exit");
-      const parsed = stdoutJson() as {
-        isError: true;
-        error: { code: string };
-      };
-      expect(parsed.error.code).toBe("INVALID_FLAG_VALUE");
-      expect(exitSpy).toHaveBeenCalledWith(5);
-    } finally {
-      store.close();
-    }
+  it("intOption rejects a non-integer --offset with INVALID_FLAG_VALUE", () => {
+    expect(() => intOption("--offset")("1.5")).toThrow(
+      expect.objectContaining({ code: "INVALID_FLAG_VALUE" }),
+    );
   });
 });
 

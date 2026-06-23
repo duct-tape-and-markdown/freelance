@@ -35,6 +35,10 @@ vi.mock("../src/cli/memory.js", () => ({
   memoryRelated: vi.fn(),
   memoryBySource: vi.fn(),
   memoryEmit: vi.fn(),
+  memoryPrune: vi.fn(),
+  memoryReset: vi.fn(),
+  // program.ts imports SHAPES for the `--shape` enumOption argParser.
+  SHAPES: ["minimal", "full"],
 }));
 vi.mock("../src/cli/stateless.js", () => ({
   guideShow: vi.fn(),

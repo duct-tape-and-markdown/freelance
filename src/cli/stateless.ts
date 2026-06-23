@@ -13,7 +13,7 @@ import { getGuide } from "../guide.js";
 import { findGraphFiles, loadSingleGraph } from "../loader.js";
 import type { SourceOptions } from "../sources.js";
 import { checkSourcesDetailed, collectGraphDrift, hashSources } from "../sources.js";
-import { fatal, handleRuntimeError as handleError, outputJson } from "./output.js";
+import { fatal, outputJson } from "./output.js";
 
 /**
  * Parse a colon-delimited source spec with explicit arity. One helper
@@ -50,28 +50,24 @@ export function distillRun(opts?: { mode?: string }): void {
   outputJson(getDistillPrompt(mode));
 }
 
+// Source handlers throw (fatal/EngineError) on failure; `program.ts`
+// wraps each call in `runCliHandler` so the throw routes through the
+// shared `CliExit` / error-envelope plumbing instead of an in-handler
+// try/catch (#230).
 export function sourcesHash(sourceOpts: SourceOptions, paths: string[]): void {
-  try {
-    const sources = paths.map((p) => {
-      const { path, section } = parseSourceSpec(p, false);
-      return { path, section };
-    });
-    outputJson(hashSources(sources, sourceOpts));
-  } catch (e) {
-    handleError(e);
-  }
+  const sources = paths.map((p) => {
+    const { path, section } = parseSourceSpec(p, false);
+    return { path, section };
+  });
+  outputJson(hashSources(sources, sourceOpts));
 }
 
 export function sourcesCheck(sourceOpts: SourceOptions, paths: string[]): void {
-  try {
-    const sources = paths.map((p) => {
-      const { path, section, hash } = parseSourceSpec(p, true);
-      return { path, section, hash: hash! };
-    });
-    outputJson(checkSourcesDetailed(sources, sourceOpts));
-  } catch (e) {
-    handleError(e);
-  }
+  const sources = paths.map((p) => {
+    const { path, section, hash } = parseSourceSpec(p, true);
+    return { path, section, hash: hash! };
+  });
+  outputJson(checkSourcesDetailed(sources, sourceOpts));
 }
 
 export function sourcesValidate(
@@ -79,42 +75,38 @@ export function sourcesValidate(
   sourceOpts: SourceOptions,
   graphId?: string,
 ): void {
-  try {
-    if (graphsDirs.length === 0) {
-      fatal("no graph directories found.", EC.NO_GRAPHS_DIR);
-    }
-
-    const fileMap = new Map<string, ReturnType<typeof loadSingleGraph>["definition"]>();
-    for (const dir of graphsDirs) {
-      for (const filePath of findGraphFiles(dir)) {
-        try {
-          const loaded = loadSingleGraph(filePath);
-          fileMap.set(loaded.id, loaded.definition);
-        } catch {
-          // Skip files that fail to load
-        }
-      }
-    }
-
-    const targets = graphId ? (fileMap.has(graphId) ? [graphId] : []) : [...fileMap.keys()];
-
-    if (targets.length === 0) {
-      if (graphId) {
-        fatal(`graph not found: ${graphId}`, EC.GRAPH_NOT_FOUND);
-      }
-      fatal(
-        "no loadable *.workflow.yaml files in the configured graphs directories",
-        EC.NO_GRAPHS_LOADED,
-      );
-    }
-
-    const drift = collectGraphDrift(
-      targets.map((id) => [id, fileMap.get(id)!] as const),
-      sourceOpts,
-    );
-
-    outputJson({ valid: drift.length === 0, graphsChecked: targets.length, drift });
-  } catch (e) {
-    handleError(e);
+  if (graphsDirs.length === 0) {
+    fatal("no graph directories found.", EC.NO_GRAPHS_DIR);
   }
+
+  const fileMap = new Map<string, ReturnType<typeof loadSingleGraph>["definition"]>();
+  for (const dir of graphsDirs) {
+    for (const filePath of findGraphFiles(dir)) {
+      try {
+        const loaded = loadSingleGraph(filePath);
+        fileMap.set(loaded.id, loaded.definition);
+      } catch {
+        // Skip files that fail to load
+      }
+    }
+  }
+
+  const targets = graphId ? (fileMap.has(graphId) ? [graphId] : []) : [...fileMap.keys()];
+
+  if (targets.length === 0) {
+    if (graphId) {
+      fatal(`graph not found: ${graphId}`, EC.GRAPH_NOT_FOUND);
+    }
+    fatal(
+      "no loadable *.workflow.yaml files in the configured graphs directories",
+      EC.NO_GRAPHS_LOADED,
+    );
+  }
+
+  const drift = collectGraphDrift(
+    targets.map((id) => [id, fileMap.get(id)!] as const),
+    sourceOpts,
+  );
+
+  outputJson({ valid: drift.length === 0, graphsChecked: targets.length, drift });
 }

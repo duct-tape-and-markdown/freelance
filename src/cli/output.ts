@@ -10,6 +10,9 @@ import {
   type RecoveryKind,
 } from "../error-codes.js";
 import { EngineError } from "../errors.js";
+import type { MemoryStore } from "../memory/index.js";
+import type { TraversalStore } from "../state/index.js";
+import { createMemoryStore, createTraversalStore } from "./setup.js";
 
 /**
  * Parse a repeated `parseInt(opts.foo, 10)` pattern into a single call-site
@@ -186,9 +189,8 @@ export function handleRuntimeError(e: unknown): never {
  * + a specific exit code — not a simple error envelope. Examples:
  * `memory prune --confirm`-less refusal (plan + errorEnvelope
  * combined), `traversal advance` in-band BLOCKED (full advance result
- * with validTransitions). `runCliHandler` / `runCliHandlerAsync` catch
- * this, close the disposable, write the payload, and exit with the
- * code.
+ * with validTransitions). `runCliHandler` catches this, closes the
+ * disposable, writes the payload, and exits with the code.
  *
  * Single-envelope failures use `EngineError` + `handleRuntimeError`
  * instead — this class is only for the dual-payload cases that
@@ -205,6 +207,14 @@ export class CliExit extends Error {
 }
 
 /**
+ * Disposable sentinel for handlers that own no closeable resource —
+ * stateless verbs (`sources hash/check/validate`) and `memory reset`
+ * (which deliberately never opens a store). They still wrap in
+ * `runCliHandler` for the shared `CliExit` / error-envelope routing.
+ */
+export const NO_DISPOSABLE: { close(): void } = { close() {} };
+
+/**
  * Wrap a CLI handler whose resources need closing before
  * `handleRuntimeError` / `CliExit` exit the process. `process.exit`
  * doesn't unwind `finally`, so an outer `try { fn() } finally {
@@ -215,25 +225,15 @@ export class CliExit extends Error {
  * closes on success, on thrown errors, and on `CliExit` — all before
  * `process.exit`, so callers of `runCliHandler` can drop the surrounding
  * try/finally in `program.ts`.
+ *
+ * `fn` may be sync or async — the wrapper always `await`s it, which is a
+ * no-op on a synchronous return. One wrapper covers both shapes, so
+ * sync action thunks and async ones (`traversalStart`, `traversalAdvance`)
+ * use the same name.
  */
-export function runCliHandler(disposable: { close(): void }, fn: () => void): void {
-  try {
-    fn();
-    disposable.close();
-  } catch (e) {
-    disposable.close();
-    if (e instanceof CliExit) {
-      outputJson(e.payload);
-      process.exit(e.exitCode);
-    }
-    handleRuntimeError(e);
-  }
-}
-
-/** Async variant of `runCliHandler` for `traversalStart` / `traversalAdvance` etc. */
-export async function runCliHandlerAsync(
+export async function runCliHandler(
   disposable: { close(): void },
-  fn: () => Promise<void>,
+  fn: () => void | Promise<void>,
 ): Promise<void> {
   try {
     await fn();
@@ -246,6 +246,61 @@ export async function runCliHandlerAsync(
     }
     handleRuntimeError(e);
   }
+}
+
+/**
+ * Wire-up for a `freelance <traversal verb>`: build the traversal store
+ * from `opts.workflows`, then run the handler under `runCliHandler` so
+ * the runtime closes on every exit path. Collapses the per-verb
+ * boilerplate in `program.ts` to a single call. Verbs needing extra
+ * setup (sourceRoot, a single graph) stay inline rather than growing a
+ * flag here.
+ */
+export function runTraversalVerb(
+  opts: { workflows?: string[] },
+  fn: (store: TraversalStore) => void | Promise<void>,
+): Promise<void> {
+  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
+  return runCliHandler(runtime, () => fn(store));
+}
+
+/**
+ * Wire-up for a `freelance memory <verb>`: build the memory store from
+ * `opts.workflows` and run the handler under `runCliHandler`. The store
+ * itself is the disposable. `memory reset` deliberately stays out — it
+ * is the schema-incompat recovery path and can't open a live store (see
+ * its wiring in `program.ts`).
+ */
+export function runMemoryVerb(
+  opts: { workflows?: string[] },
+  fn: (store: MemoryStore) => void | Promise<void>,
+): Promise<void> {
+  const { store } = createMemoryStore({ workflows: opts.workflows });
+  return runCliHandler(store, () => fn(store));
+}
+
+/**
+ * Commander argParser adapter for integer flags. Returns a
+ * `(value: string) => number | undefined` that delegates to
+ * `parseIntArg`, so `--limit`/`--offset` validate (throw
+ * `INVALID_FLAG_VALUE` on a non-integer) at parse time and the handler
+ * receives a `number`, not a raw string.
+ */
+export function intOption(flag: string): (value: string) => number | undefined {
+  return (value: string) => parseIntArg(value, flag);
+}
+
+/**
+ * Commander argParser adapter for enum flags. Returns a
+ * `(value: string) => T | undefined` that delegates to `enumArg`, so a
+ * typo fails loudly at parse time and the handler receives the narrowed
+ * literal type.
+ */
+export function enumOption<T extends string>(
+  flag: string,
+  choices: readonly T[],
+): (value: string) => T | undefined {
+  return (value: string) => enumArg(value, choices, flag);
 }
 
 /**

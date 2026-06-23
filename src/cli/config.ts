@@ -30,7 +30,42 @@ export function configShow(opts: { workflows?: string | string[] }): void {
 
 // --- config set-local ---
 
-const SETTABLE_KEYS = ["workflows", "memory.dir", "memory.enabled"] as const;
+// Per-key setter: each owns its own parse + validate + update against
+// config.local.yml. Replaces the if/else chain; `SETTABLE_KEYS` is
+// derived from these keys so the unknown-key error stays in sync.
+const SETTERS: Record<string, (freelanceDir: string, value: string) => void> = {
+  workflows(freelanceDir, value) {
+    const resolved = path.resolve(value);
+    updateLocalConfig(freelanceDir, (config) => {
+      const existing = config.workflows ?? [];
+      if (existing.includes(resolved)) return config; // idempotent
+      return { ...config, workflows: [...existing, resolved] };
+    });
+  },
+  "memory.dir"(freelanceDir, value) {
+    const resolved = path.resolve(value);
+    updateLocalConfig(freelanceDir, (config) => {
+      const existing = config.memory?.dir;
+      if (existing && existing !== resolved) {
+        process.stderr.write(
+          `Warning: memory.dir already set to ${existing}, overwriting with ${resolved}\n`,
+        );
+      }
+      return { ...config, memory: { ...config.memory, dir: resolved } };
+    });
+  },
+  "memory.enabled"(freelanceDir, value) {
+    if (value !== "true" && value !== "false") {
+      fatal(`memory.enabled must be "true" or "false", got "${value}"`, EC.INVALID_CONFIG_VALUE);
+    }
+    const enabled = value === "true";
+    updateLocalConfig(freelanceDir, (config) => {
+      return { ...config, memory: { ...config.memory, enabled } };
+    });
+  },
+};
+
+const SETTABLE_KEYS = Object.keys(SETTERS);
 
 export function configSetLocal(
   key: string,
@@ -44,38 +79,14 @@ export function configSetLocal(
 
   const freelanceDir = dirs[0];
 
-  if (key === "workflows") {
-    const resolved = path.resolve(value);
-    updateLocalConfig(freelanceDir, (config) => {
-      const existing = config.workflows ?? [];
-      if (existing.includes(resolved)) return config; // idempotent
-      return { ...config, workflows: [...existing, resolved] };
-    });
-  } else if (key === "memory.dir") {
-    const resolved = path.resolve(value);
-    updateLocalConfig(freelanceDir, (config) => {
-      const existing = config.memory?.dir;
-      if (existing && existing !== resolved) {
-        process.stderr.write(
-          `Warning: memory.dir already set to ${existing}, overwriting with ${resolved}\n`,
-        );
-      }
-      return { ...config, memory: { ...config.memory, dir: resolved } };
-    });
-  } else if (key === "memory.enabled") {
-    if (value !== "true" && value !== "false") {
-      fatal(`memory.enabled must be "true" or "false", got "${value}"`, EC.INVALID_CONFIG_VALUE);
-    }
-    const enabled = value === "true";
-    updateLocalConfig(freelanceDir, (config) => {
-      return { ...config, memory: { ...config.memory, enabled } };
-    });
-  } else {
+  const setter = SETTERS[key];
+  if (!setter) {
     fatal(
       `Unknown config key: ${key}. Supported: ${SETTABLE_KEYS.join(", ")}`,
       EC.UNKNOWN_CONFIG_KEY,
     );
   }
+  setter(freelanceDir, value);
 
   outputJson(loadConfig(freelanceDir));
 }

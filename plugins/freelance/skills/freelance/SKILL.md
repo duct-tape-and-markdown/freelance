@@ -65,7 +65,7 @@ Every `advance`, `context set`, and `inspect` response has the same shape as `st
 
 Repeat until you reach a terminal node (`status: "complete"`).
 
-To preview the current node's edges without advancing, call `freelance advance` with no edge — the response returns `{ traversalId, validTransitions }` only.
+You usually do **not** need a separate preview call. Every `start` and `advance` response already carries the current node's `validTransitions` (plus `instructions` and `sources`), so the loop is read-response → pick-edge → advance with no extra round trip. For a read-only edge preview after a compaction or an out-of-band change, use `freelance inspect --minimal`; do not call `advance` with no edge.
 
 ## Output conventions
 
