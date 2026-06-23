@@ -1,6 +1,6 @@
 import { EC, EngineError } from "../errors.js";
 import { evaluatePredicate } from "../evaluator.js";
-import { resolveContextDefaults } from "../loader.js";
+import { resolveContextDefaults } from "../schema/graph-schema.js";
 import type { NodeDefinition, SessionState, ValidatedGraph } from "../types.js";
 import { buildAdvanceSuccessResult, keysSince, mergeDelta, requireGraph } from "./helpers.js";
 import type { HookRunner, MetaCollector } from "./hooks.js";

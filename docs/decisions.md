@@ -67,6 +67,14 @@ Historical note (closed by #121 and #90): an MCP-server era `onConfigChange` han
 
 See issue [#91](https://github.com/duct-tape-and-markdown/freelance/issues/91).
 
+### Library code returns diagnostics as data; the CLI owns the output stream
+
+Functions exported from `src/core/index.ts` (the public lib surface) must not write to `process.stderr`/`stdout` — they return warnings/errors as data and let the caller decide where they go. The choice of stream (and whether `--quiet` suppresses it) belongs at the CLI boundary, not inside a library function a consumer can't silence without monkey-patching. `loadGraphs` used to `process.stderr.write` a "N graph(s) failed validation" warning; that's removed (#276). The multi-file loaders now route through one `collectGraphs` core that returns `{ graphs, errors }` (including shadowing as a warning entry), and `loadGraphsCollecting` — the production path via `loadGraphsGraceful` — surfaces that data; `loadGraphs` keeps only its fail-loud throw (nothing loaded, or a cross-graph structural error).
+
+**What would break if reversed:** a lib function emitting to stderr re-creates the asymmetry where the same logical event ("some graph failed to validate") prints from one loader and is returned as data from another, and gives lib consumers noise they can't gate. The open sibling #235 (`config set-local memory.dir` writing to stderr, bypassing `info()`/`--quiet`) is the CLI-side instance of the same posture.
+
+Anchors: `src/loader.ts` (`collectGraphs`, `loadGraphs`, `loadGraphsCollecting`), `src/core/index.ts`. Closes #276 (and #274/#278 consolidation: three multi-file loaders → one core + two dispositions; the unused `loadGraphsLayered` is deleted).
+
 ### Hook trust model: built-ins curated, script hooks full-privilege, sandbox deferred
 
 `onEnter` hooks have two tiers with deliberately different trust postures:

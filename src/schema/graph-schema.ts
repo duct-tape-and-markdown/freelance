@@ -100,6 +100,18 @@ export function isContextFieldDescriptor(v: unknown): v is ContextFieldDescripto
   );
 }
 
+/**
+ * Resolve context field descriptors to their default values.
+ * Plain scalars pass through unchanged; descriptors are replaced by their default.
+ */
+export function resolveContextDefaults(context: Record<string, unknown>): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(context)) {
+    resolved[key] = isContextFieldDescriptor(value) ? (value.default ?? null) : value;
+  }
+  return resolved;
+}
+
 export const graphDefinitionSchema = z.object({
   id: z.string(),
   version: z.string(),

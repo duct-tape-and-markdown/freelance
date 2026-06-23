@@ -6,11 +6,10 @@ import {
   findGraphFiles,
   loadGraphs,
   loadGraphsCollecting,
-  loadGraphsLayered,
-  resolveContextDefaults,
   validateCrossGraphRefs,
 } from "../src/loader.js";
 import { getSealedGraphs, SEALED_GRAPH_IDS } from "../src/memory/sealed.js";
+import { resolveContextDefaults } from "../src/schema/graph-schema.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
@@ -161,7 +160,7 @@ describe("loadGraphs — edge cases", () => {
     fs.rmSync(emptyDir, { recursive: true, force: true });
   });
 
-  it("warns on partial failures but loads valid graphs", () => {
+  it("loads valid graphs on partial failure without writing to stderr (#276)", () => {
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "partial-fail-"));
     // Copy one valid and one invalid
@@ -176,7 +175,9 @@ describe("loadGraphs — edge cases", () => {
     const graphs = loadGraphs(tmpDir);
     expect(graphs.size).toBe(1);
     expect(graphs.has("valid-simple")).toBe(true);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("failed validation"));
+    // loadGraphs is public lib API and must not emit stderr — partial-failure
+    // detail is available via loadGraphsCollecting instead.
+    expect(stderrSpy).not.toHaveBeenCalled();
     stderrSpy.mockRestore();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -261,103 +262,6 @@ describe("loadGraphs — recursive loading", () => {
     expect(graphs.has("valid-simple")).toBe(true);
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-});
-
-describe("loadGraphsLayered", () => {
-  it("throws when given empty directories array", () => {
-    expect(() => loadGraphsLayered([])).toThrow(/No graph directories provided/i);
-  });
-
-  it("loads graphs from a single directory", () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-single-"));
-    fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(tmpDir, "valid-simple.workflow.yaml"),
-    );
-    const graphs = loadGraphsLayered([tmpDir]);
-    expect(graphs.size).toBe(1);
-    expect(graphs.has("valid-simple")).toBe(true);
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("later directory shadows earlier one (same graph id)", () => {
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    const dir1 = fs.mkdtempSync(path.join(os.tmpdir(), "layered-1-"));
-    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "layered-2-"));
-    // Both have valid-simple — dir2 should shadow dir1
-    fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(dir1, "valid-simple.workflow.yaml"),
-    );
-    fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(dir2, "valid-simple.workflow.yaml"),
-    );
-    const graphs = loadGraphsLayered([dir1, dir2]);
-    expect(graphs.size).toBe(1);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("shadows"));
-    stderrSpy.mockRestore();
-    fs.rmSync(dir1, { recursive: true, force: true });
-    fs.rmSync(dir2, { recursive: true, force: true });
-  });
-
-  it("skips non-existent directories with warning", () => {
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    const dir1 = fs.mkdtempSync(path.join(os.tmpdir(), "layered-real-"));
-    fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(dir1, "valid-simple.workflow.yaml"),
-    );
-    const graphs = loadGraphsLayered(["/tmp/nonexistent-xyz", dir1]);
-    expect(graphs.size).toBe(1);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("does not exist"));
-    stderrSpy.mockRestore();
-    fs.rmSync(dir1, { recursive: true, force: true });
-  });
-
-  it("skips empty directories with warning", () => {
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-empty-"));
-    const validDir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-valid-"));
-    fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(validDir, "valid-simple.workflow.yaml"),
-    );
-    const graphs = loadGraphsLayered([emptyDir, validDir]);
-    expect(graphs.size).toBe(1);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("no *.workflow.yaml"));
-    stderrSpy.mockRestore();
-    fs.rmSync(emptyDir, { recursive: true, force: true });
-    fs.rmSync(validDir, { recursive: true, force: true });
-  });
-
-  it("throws when no valid graphs found in any directory", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-allfail-"));
-    fs.copyFileSync(
-      path.join(FIXTURES_DIR, "invalid-orphan.workflow.yaml"),
-      path.join(dir, "invalid-orphan.workflow.yaml"),
-    );
-    expect(() => loadGraphsLayered([dir])).toThrow(/No valid graphs found/i);
-    fs.rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("warns about validation failures in individual directories", () => {
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-mixed-"));
-    fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(dir, "valid-simple.workflow.yaml"),
-    );
-    fs.copyFileSync(
-      path.join(FIXTURES_DIR, "invalid-orphan.workflow.yaml"),
-      path.join(dir, "invalid-orphan.workflow.yaml"),
-    );
-    const graphs = loadGraphsLayered([dir]);
-    expect(graphs.size).toBe(1);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("failed validation"));
-    stderrSpy.mockRestore();
-    fs.rmSync(dir, { recursive: true, force: true });
   });
 });
 
@@ -459,6 +363,29 @@ describe("loadGraphsCollecting", () => {
     const { graphs, errors } = loadGraphsCollecting(["/nonexistent/path"]);
     expect(graphs.size).toBe(0);
     expect(errors).toHaveLength(0);
+  });
+
+  it("reports a shadowing id across two dirs as a warning entry (#278)", () => {
+    const dir1 = fs.mkdtempSync(path.join(os.tmpdir(), "collecting-shadow-1-"));
+    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "collecting-shadow-2-"));
+    // Both define valid-simple — the later dir shadows the earlier one.
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(dir1, "valid-simple.workflow.yaml"),
+    );
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(dir2, "valid-simple.workflow.yaml"),
+    );
+    try {
+      const { graphs, errors } = loadGraphsCollecting([dir1, dir2]);
+      expect(graphs.size).toBe(1);
+      expect(graphs.has("valid-simple")).toBe(true);
+      expect(errors.some((e) => /shadows an earlier definition/.test(e.message))).toBe(true);
+    } finally {
+      fs.rmSync(dir1, { recursive: true, force: true });
+      fs.rmSync(dir2, { recursive: true, force: true });
+    }
   });
 });
 

@@ -1,5 +1,5 @@
 import { EC, EngineError } from "../errors.js";
-import { resolveContextDefaults } from "../loader.js";
+import { resolveContextDefaults } from "../schema/graph-schema.js";
 import type {
   AdvanceMinimalResult,
   AdvanceResult,
