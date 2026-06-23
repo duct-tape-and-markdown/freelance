@@ -16,7 +16,7 @@ import type {
   StackEntry,
   WaitCondition,
 } from "../types.js";
-import { cloneContext, toNodeInfo } from "./helpers.js";
+import { toNodeInfo, withGraphSources } from "./helpers.js";
 import { evaluateTransitions } from "./transitions.js";
 import { checkWaitTimeout, computeTimeoutAt, evaluateWaitConditions } from "./wait.js";
 
@@ -31,9 +31,28 @@ import { checkWaitTimeout, computeTimeoutAt, evaluateWaitConditions } from "./wa
  */
 export type ResponseMode = "full" | "minimal";
 
+/**
+ * The single definition of "what counts as a context write": a key
+ * whose value is `undefined` is not a write at all. This mirrors how
+ * JSON serialization drops missing keys — `enforceContextCaps` already
+ * skips undefined values (they serialize to nothing), `wait.ts` /
+ * `returns.ts` already read an undefined key as absent, so stripping
+ * here makes `applyContextUpdates`, contextHistory/contextDelta, and the
+ * clone/inspect echo agree: undefined = not set. This is NOT a deletion
+ * feature — an undefined value is simply skipped, never removing an
+ * existing key.
+ */
+function omitUndefined(updates: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(updates)) {
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
+}
+
 export function applyContextUpdates(session: SessionState, updates: Record<string, unknown>): void {
   const timestamp = new Date().toISOString();
-  for (const [key, value] of Object.entries(updates)) {
+  for (const [key, value] of Object.entries(omitUndefined(updates))) {
     session.context[key] = value;
     session.contextHistory.push({
       key,
@@ -88,6 +107,16 @@ export function resolveContextCaps(partial?: {
  * `undefined` values serialize to nothing (JSON.stringify returns
  * undefined) — we treat them as no-ops rather than errors so the shape
  * matches how JSON serialization already handles missing keys.
+ *
+ * Per-advance, context is walked three times — the cap byte-measure
+ * here (JSON.stringify), the response deep-clone (structuredClone in
+ * the builders), and the stack persist (JSON.stringify in the state
+ * store). These are NOT collapsible: they run at different times over
+ * different data (incoming updates vs. post-write context vs. the whole
+ * stack) for different purposes (reject-on-overflow vs. wire-isolation
+ * vs. durability). Folding them would couple unrelated lifecycles for
+ * no real win — the work is bounded by maxTotalBytes (64KB) and
+ * low-severity. Left independent on purpose.
  */
 export function enforceContextCaps(
   currentContext: Readonly<Record<string, unknown>>,
@@ -167,7 +196,7 @@ export function buildContextSetResult(
   };
   return contextDelta !== undefined
     ? ({ ...base, contextDelta } satisfies ContextSetMinimalResult)
-    : ({ ...base, context: cloneContext(session.context) } satisfies ContextSetResult);
+    : ({ ...base, context: structuredClone(session.context) } satisfies ContextSetResult);
 }
 
 /**
@@ -327,12 +356,16 @@ export function buildInspectResult(
   }
 
   return {
-    ...base,
-    graphName: def.name,
-    node: toNodeInfo(currentNodeDef),
-    context: cloneContext(session.context),
-    stack: buildStackView(stack),
-    ...(def.sources && def.sources.length > 0 ? { graphSources: def.sources } : {}),
+    ...withGraphSources(
+      {
+        ...base,
+        graphName: def.name,
+        node: toNodeInfo(currentNodeDef),
+        context: structuredClone(session.context),
+        stack: buildStackView(stack),
+      },
+      def.sources,
+    ),
     ...projections,
   } satisfies InspectPositionResult;
 }

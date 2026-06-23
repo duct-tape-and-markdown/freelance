@@ -65,11 +65,7 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Subgrap
         },
         minimal
           ? { contextDelta }
-          : {
-              node: newNodeDef,
-              context: parentSession.context,
-              graphSources: parentDef.sources,
-            },
+          : { node: newNodeDef, context: parentSession.context, graphSources: parentDef.sources },
       );
     }
   }
@@ -152,11 +148,7 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Subgrap
             keysSince(activeSession.contextHistory, childWritesBefore),
           ),
         }
-      : {
-          node: childStartNode,
-          context: activeSession.context,
-          graphSources: childDef.sources,
-        },
+      : { node: childStartNode, context: activeSession.context, graphSources: childDef.sources },
   );
 }
 
@@ -217,10 +209,6 @@ export function popSubgraph(args: PopSubgraphArgs): SubgraphResult {
       ? {
           contextDelta: mergeDelta(contextDelta, Object.keys(returnedContext)),
         }
-      : {
-          node: parentNodeDef,
-          context: parentSession.context,
-          graphSources: parentDef.sources,
-        },
+      : { node: parentNodeDef, context: parentSession.context, graphSources: parentDef.sources },
   );
 }

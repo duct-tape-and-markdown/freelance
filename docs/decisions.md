@@ -75,6 +75,26 @@ Functions exported from `src/core/index.ts` (the public lib surface) must not wr
 
 Anchors: `src/loader.ts` (`collectGraphs`, `loadGraphs`, `loadGraphsCollecting`), `src/core/index.ts`. Closes #276 (and #274/#278 consolidation: three multi-file loaders → one core + two dispositions; the unused `loadGraphsLayered` is deleted).
 
+### An `undefined` context write is a no-op; all surfaces agree "undefined = not set"
+
+A context write of `{ key: undefined }` (from `contextUpdates`, `context set`, or a hook return) is stripped at a single write seam (`omitUndefined`, consumed by `applyContextUpdates` in `src/engine/context.ts`) before it is materialized. The key is never assigned to `session.context`, never recorded in `contextHistory`, never surfaced in `contextDelta`, and never echoed by the clone/inspect path. This was previously inconsistent (#301): `enforceContextCaps`, `evaluateWaitConditions`, and `validateReturnSchema` treated `undefined` as absent (matching JSON missing-key semantics, which the cap code documented), but `applyContextUpdates` materialized it as a present key with value `undefined` — so the same advance's wait/return gate saw the key as unset while `contextDelta` reported it written and `inspect` echoed it present.
+
+There is now one definition of "what counts as a context write," and all six surfaces (caps, apply, history/delta, clone/inspect, wait, return) agree. `undefined` is *skip*, not *delete* — there is deliberately no key-deletion-via-undefined feature; if true deletion is ever needed it must be an explicit mechanism, not value coercion.
+
+**What would break if reversed:** materializing `undefined` re-opens the split where a gate considers a key unsatisfied while the wire reports it written — the exact divergence #301 documents.
+
+Anchors: `src/engine/context.ts` (`omitUndefined`, `applyContextUpdates`). Closes #301.
+
+### `contextCaps` is single-sourced; the engine asserts the engine/runner coupling
+
+Byte caps on context writes are enforced at two sites — `GraphEngine` for caller writes, `HookRunner` for hook-return writes — and per the hook convention caps are *configuration* the `HookRunner` holds (not a `runHooksFor` capability). That leaves the two enforcement sites each holding their own `ContextCaps`, kept equal only because `composeRuntime` is the single fan-out that passes one resolved value to both. A direct construction (`new GraphEngine(...)` + `new HookRunner(...)`, a supported path) could set them to different values, silently accepting or rejecting an identical-size write based purely on whether a caller or a hook produced it.
+
+Three changes close this (#302): the default lives in one resolver (`resolveContextCaps`, used by both); `HookRunner` exposes its resolved caps via a `resolvedContextCaps` getter; and `GraphEngine`'s constructor asserts the injected runner's caps deep-equal its own, throwing `EngineError`/`INTERNAL` on divergence. The coupling fails loud at the point the two objects are combined instead of mis-capping at runtime.
+
+**What would break if reversed:** dropping the assert lets engine-caps and runner-caps diverge undetected, making cap enforcement depend on the write's origin — observable as inconsistent gate behavior, not a clean error.
+
+Anchors: `src/engine/engine.ts` (constructor assert), `src/engine/hooks.ts` (`resolvedContextCaps`), `src/engine/context.ts` (`resolveContextCaps`), `src/compose.ts` (single fan-out). Closes #302.
+
 ### Hook trust model: built-ins curated, script hooks full-privilege, sandbox deferred
 
 `onEnter` hooks have two tiers with deliberately different trust postures:

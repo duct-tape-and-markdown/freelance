@@ -20,11 +20,11 @@ import {
   buildContextSetResult,
   buildInspectResult,
   type ContextCaps,
-  DEFAULT_CONTEXT_CAPS,
   enforceContextCaps,
   enforceStrictContext,
   type InspectHistoryOptions,
   type ResponseMode,
+  resolveContextCaps,
 } from "./context.js";
 import {
   checkEdgeCondition,
@@ -39,10 +39,10 @@ import {
   type AdvanceSnapshotMode,
   buildAdvanceSnapshot,
   buildAdvanceSuccessResult,
-  cloneContext,
   keysSince,
   requireGraph,
   toNodeInfo,
+  withGraphSources,
 } from "./helpers.js";
 import type { HookRunner, MetaCollector } from "./hooks.js";
 import { maybePushSubgraph, popSubgraph } from "./subgraph.js";
@@ -110,6 +110,10 @@ export interface GraphEngineOptions {
    * `advance`'s contextUpdates, and `contextSet`. Hook return values
    * are capped inside the HookRunner so the runner owns that path
    * end-to-end. Defaults to `DEFAULT_CONTEXT_CAPS` when omitted.
+   *
+   * Hard contract: engine caps === hook-runner caps. composeRuntime is
+   * the single fan-out that passes one ContextCaps to both; GraphEngine
+   * asserts the coupling at construction (see constructor).
    */
   contextCaps?: ContextCaps;
 }
@@ -126,7 +130,30 @@ export class GraphEngine {
   ) {
     this.maxDepth = options.maxDepth ?? 5;
     this.hookRunner = options.hookRunner;
-    this.contextCaps = options.contextCaps ?? DEFAULT_CONTEXT_CAPS;
+    // resolveContextCaps is the single fallback definition (shared with
+    // HookRunner) so both default identically.
+    this.contextCaps = resolveContextCaps(options.contextCaps);
+
+    // Hard contract: engine caps === hook-runner caps. composeRuntime is
+    // the single fan-out that passes one ContextCaps to both; assert it
+    // here so a divergent DIRECT construction fails loud at the point the
+    // two objects are combined, rather than silently mis-capping (the
+    // caller path enforces engine caps, the hook-return path enforces the
+    // runner's — they must agree).
+    const runnerCaps = this.hookRunner.resolvedContextCaps;
+    if (
+      runnerCaps.maxValueBytes !== this.contextCaps.maxValueBytes ||
+      runnerCaps.maxTotalBytes !== this.contextCaps.maxTotalBytes
+    ) {
+      throw new EngineError(
+        `Context-cap divergence: GraphEngine caps ` +
+          `(maxValueBytes=${this.contextCaps.maxValueBytes}, maxTotalBytes=${this.contextCaps.maxTotalBytes}) ` +
+          `differ from the injected HookRunner's caps ` +
+          `(maxValueBytes=${runnerCaps.maxValueBytes}, maxTotalBytes=${runnerCaps.maxTotalBytes}). ` +
+          `Construct both through composeRuntime, which is the single fan-out for one ContextCaps.`,
+        EC.INTERNAL,
+      );
+    }
   }
 
   list(): GraphListResult {
@@ -186,8 +213,8 @@ export class GraphEngine {
       currentNode: def.startNode,
       node: toNodeInfo(node),
       validTransitions: evaluateTransitions(node, session.context),
-      context: cloneContext(session.context),
-      ...(def.sources && def.sources.length > 0 ? { graphSources: def.sources } : {}),
+      context: structuredClone(session.context),
+      ...withGraphSources({}, def.sources),
     } satisfies StartResult;
   }
 
@@ -275,7 +302,7 @@ export class GraphEngine {
       node: previousNode,
       edge,
       timestamp: new Date().toISOString(),
-      contextSnapshot: cloneContext(session.context),
+      contextSnapshot: structuredClone(session.context),
     });
     session.currentNode = edgeDef.target;
     session.turnCount = 0;
@@ -369,7 +396,9 @@ export class GraphEngine {
     const validTransitions = evaluateTransitions(newNodeDef, session.context);
     const mode: AdvanceResponseMode = minimal
       ? { contextDelta: keysSince(session.contextHistory, writesBefore) }
-      : { node: newNodeDef, context: session.context, graphSources: def.sources };
+      : // graphSources rides through raw — buildAdvanceSuccessResult's
+        // withGraphSources is the single gate that omits it when empty.
+        { node: newNodeDef, context: session.context, graphSources: def.sources };
 
     // Wait node arrival
     if (isWait && newNodeDef.waitOn) {
@@ -451,11 +480,14 @@ export class GraphEngine {
     session.turnCount++;
 
     const nodeDef = def.nodes[session.currentNode];
-    return buildContextSetResult(
-      session,
-      nodeDef,
-      options?.responseMode === "minimal" ? Object.keys(updates) : undefined,
-    );
+    // Minimal contextDelta lists only keys that were actually written —
+    // undefined values are no-ops (see omitUndefined in context.ts), so
+    // they must not surface here either.
+    const contextDelta =
+      options?.responseMode === "minimal"
+        ? Object.keys(updates).filter((k) => updates[k] !== undefined)
+        : undefined;
+    return buildContextSetResult(session, nodeDef, contextDelta);
   }
 
   inspect(
@@ -534,14 +566,31 @@ export class GraphEngine {
               ? keysSince(session.contextHistory, opts.writesBefore)
               : [],
         }
-      : { full: true };
+      : // graphSources rides through raw — buildAdvanceSnapshot's
+        // withGraphSources is the single gate that omits it when empty.
+        { full: true, graphSources: def.sources };
     return buildAdvanceSnapshot(session, nodeDef, mode);
   }
 
   // --- Serialization (for persistence) ---
+  //
+  // getStack returns the live array (no clone): every consumer either
+  // JSON.stringifies it synchronously (JsonDirectoryStateStore.put) or
+  // re-isolates on the next load via restoreStack's clone. Nothing reads
+  // or mutates the returned array across an await without going through
+  // restoreStack, so the JSON round-trip / restore-clone breaks every
+  // alias that could matter.
+  //
+  // restoreStack KEEPS a clone: the in-memory StateStore backend does a
+  // shallow spread on put and returns the stored record verbatim on get,
+  // so it does NOT serialize the stack. Without this clone, a hydrated
+  // engine would share its `this.stack` with the store's retained record,
+  // and an in-place mutation before save (or a mid-advance throw) would
+  // leak into the persisted record with no isolation. One clone on the
+  // load seam is sufficient to isolate both backends.
 
   getStack(): SessionState[] {
-    return structuredClone(this.stack);
+    return this.stack;
   }
 
   restoreStack(stack: SessionState[]): void {

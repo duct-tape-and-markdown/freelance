@@ -37,18 +37,18 @@ function makeAdvanceError(
   const snapshot = buildAdvanceSnapshot(
     session,
     nodeDef,
-    opts.minimal ? { contextDelta: opts.contextDelta } : { full: true },
+    opts.minimal
+      ? { contextDelta: opts.contextDelta }
+      : { full: true, graphSources: opts.graphSources },
   );
-  const envelope = {
+  // `graphSources` (when full-shape + non-empty) already rides on
+  // `snapshot` via `withGraphSources` — no re-check here.
+  return {
     status: "error" as const,
     isError: true as const,
     error: { code, message, kind: "blocked" as const },
     ...snapshot,
   };
-  if ("context" in snapshot && opts.graphSources?.length) {
-    return { ...envelope, graphSources: opts.graphSources };
-  }
-  return envelope;
 }
 
 /** Returns a gate-block result if wait conditions block advancement, null otherwise. */

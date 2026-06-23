@@ -185,6 +185,10 @@ export function composeRuntime(config: ComposeConfig): Runtime {
     memoryStore = buildMemoryStore(config.memory, config.sourceRoot);
   }
 
+  // Hard contract: engine caps === hook-runner caps. composeRuntime is
+  // the single fan-out — the SAME config.contextCaps reaches the
+  // HookRunner here and the GraphEngine (via TraversalStore below), and
+  // GraphEngine asserts the two resolve equal at construction.
   const hookRunner = new HookRunner({
     memory: memoryStore,
     hookTimeoutMs: config.hookTimeoutMs,

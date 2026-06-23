@@ -7,44 +7,40 @@ export function evaluateTransitions(
 ): TransitionInfo[] {
   if (!node.edges) return [];
 
-  interface MutableTransition {
-    label: string;
-    target: string;
-    condition?: string;
-    description?: string;
-    nextStepHint?: string;
-    conditionMet: boolean;
-    isDefault: boolean;
-  }
+  // Single allocation: build the wire-shape results directly, tracking
+  // default-edge positions and whether any conditional edge fired in a
+  // parallel pass. Default edges get conditionMet=false here, then a
+  // final loop flips them to !anyConditionalMet — no transient field to
+  // strip and no second .map().
+  const results: { -readonly [K in keyof TransitionInfo]: TransitionInfo[K] }[] = [];
+  const defaultIndices: number[] = [];
+  let anyConditionalMet = false;
 
-  const results: MutableTransition[] = node.edges.map((e) => {
+  node.edges.forEach((e, i) => {
     let conditionMet: boolean;
     if (e.default) {
       conditionMet = false;
+      defaultIndices.push(i);
     } else if (e.condition) {
       conditionMet = evaluatePredicate(e.condition, context);
+      if (conditionMet) anyConditionalMet = true;
     } else {
       conditionMet = true;
     }
 
-    return {
+    results.push({
       label: e.label,
       target: e.target,
       ...(e.condition ? { condition: e.condition } : {}),
       ...(e.description ? { description: e.description } : {}),
       ...(e.nextStepHint ? { nextStepHint: e.nextStepHint } : {}),
       conditionMet,
-      isDefault: !!e.default,
-    };
+    });
   });
 
-  const anyConditionalMet = results.some((r) => !r.isDefault && r.conditionMet && r.condition);
-
-  for (const r of results) {
-    if (r.isDefault) {
-      r.conditionMet = !anyConditionalMet;
-    }
+  for (const i of defaultIndices) {
+    results[i].conditionMet = !anyConditionalMet;
   }
 
-  return results.map(({ isDefault, ...rest }): TransitionInfo => rest);
+  return results;
 }
