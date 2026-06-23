@@ -270,6 +270,31 @@ Post-#74 the `mtime_ms` column was neither written nor read — drift detection 
 
 Anchors: `src/memory/db.ts`, `src/memory/sources.ts`.
 
+### Read-time staleness is scoped to the query's reachable propositions
+
+Every filtering memory read used to compute staleness over the **entire** `proposition_sources` table — `readFileSync` + SHA-256 of every distinct source file in the DB — regardless of how narrow the query was (#314). Since the DB opens lazily and every `freelance` verb is a fresh process (§ "Memory database opens lazily on first access"), there is no cross-call amortization: each `memory inspect SomeEntity` re-paid the full O(distinct-source-files) hash cost from cold. That scales with total corpus — the exact dimension memory-intent.md stakes the product on.
+
+`getStalePropositionIds` / `primeStaleFilter` now take an optional `scope?: { sql; params }`. The scan becomes `… FROM proposition_sources WHERE proposition_id IN (<scope.sql>)`; absent a scope it is byte-identical to the old full scan. The staleness predicate is unchanged — `isFileChanged` still re-hashes the file on disk and compares to the stored `content_hash`. The hash stays the **sole authoritative frame selector**; no mtime, no flag, no schema change. Per-path scopes: `inspect`/`related` = the entity's props (`about WHERE entity_id=?`), `bySource` = props citing the file, `browse` *with* a name/kind filter = props of matching entities, `search` = the FTS match set. `status` and **unfiltered** `browse` stay corpus-wide.
+
+Two load-bearing rules a future contributor must not break:
+
+1. **Scope by `proposition_id`, never by `file_path` on the outer scan.** The scope subquery picks proposition ids; the scan then pulls *all* source rows for those props. A proposition sourced from a clean file A and a drifted file B must still read stale when queried via A — file_path-scoping the outer scan would mark it valid.
+2. **A scope MUST be a superset of the domain its count ranges over.** `valid_proposition_count` is an entity-wide total, not page-scoped. An empty `_stale_prop_ids` slot is read as *valid* (`notStaleExists` returns TRUE), so under-scoping silently *inflates* valid counts with no error. `_stale_prop_ids` now means "stale within this read's scope"; each public read owns exactly one scope per call and materializes immediately before the joins that consume it. The per-path scoped-vs-full-scan equality test is the only guard against a future scope being narrowed too far.
+
+A persistent advisory `(size,mtime)→hash` cache (the one design that could also speed unfiltered `browse`/`status`) was **deferred** — it reintroduces read-path write contention and a `valid_count` correctness residual on mtime collisions, and doesn't decouple cost from corpus size. Revisit only if profiling shows those two corpus-wide paths dominate (tracked in `docs/debt.md`).
+
+**What would break if reversed:** unscoping returns every selective read to O(corpus) cold-start hashing; file_path-scoping or under-scoping silently corrupts `valid_proposition_count` rather than failing.
+
+Anchors: `src/memory/staleness.ts` (`getStalePropositionIds`, `primeStaleFilter`, scope param), `src/memory/store.ts` (per-path scopes), `src/memory/enrichment.ts` (one-scope-per-call header note). Closes #314.
+
+### `memory search` observes the paginated-read contract
+
+`search()` was the outlier among the paginated reads — it bypassed `clampLimit`, skipped the stale filter, returned no `total`, and took no `shape` (#316, #237). memory-intent.md ("Orphan hiding is a lens") explicitly names "the analogous filters on `memory_search`, `memory_inspect`" as part of the default orphan-hiding lens, so the divergence was a drift from stated intent, not a deliberate exception. `search` now: clamps `limit` to the shared `[1, MAX_PAGE_LIMIT]` ceiling; hides stale rows **by default** via a stale filter *scoped to the FTS match set* (the #314 mechanism), with `includeOrphans` to opt in; returns `total` (respecting the same filter as the page) so truncation is observable; and threads `shape`, defaulting to `full` for CLI parity and `minimal` for the `memory_search` built-in hook (the #87 response-size precedent the other `memory_*` built-ins already follow).
+
+**What would break if reversed:** an unbounded `search` limit escapes the response-size ceiling on a verb the sealed `memory:recall` workflow drives; a missing `total` makes silent truncation unobservable to an agent deciding whether recall is complete.
+
+Anchors: `src/memory/store.ts` (`search`), `src/engine/builtin-hooks.ts` (`memory_search` minimal default), `src/cli/program.ts` (--limit help). Builds on § "Projection vocabulary is a deliberate three-way split". Closes #316, #237.
+
 ### Recovery lives in `envelopeSlots`, never in `error.message`
 
 The wire contract (§ "Error envelope is the wire contract") says `recoveryVerb` is a literal CLI template, interpolated against root-level slots the throw site populates via `EngineError.context.envelopeSlots`. The corollary: a throw site whose recovery requires a parameter (a traversalId to reset, a graphId to restart, a list of candidates to choose among) MUST populate the matching slot. Recovery instructions in `error.message` prose — `"Run \`freelance reset <id> --confirm\`"` baked into the message string — fail the contract: the skill renders the template by literal field lookup, has no parser for the prose, and falls back to surfacing the message verbatim or asking the operator. Either way, the catalog template stops being load-bearing.

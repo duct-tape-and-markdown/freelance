@@ -55,10 +55,16 @@ export function memoryInspect(
   );
 }
 
-export function memorySearch(store: MemoryStore, query: string, opts?: { limit?: string }): void {
+export function memorySearch(
+  store: MemoryStore,
+  query: string,
+  opts?: { limit?: string; shape?: string; includeOrphans?: boolean },
+): void {
   outputJson(
     store.search(query, {
       limit: parseIntArg(opts?.limit, "--limit"),
+      shape: enumArg(opts?.shape, SHAPES, "--shape"),
+      includeOrphans: opts?.includeOrphans,
     }),
   );
 }

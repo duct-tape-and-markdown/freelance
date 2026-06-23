@@ -56,8 +56,9 @@ export function isFileChanged(
 }
 
 /**
- * Name of the TEMP TABLE populated by `materializeStalePropIds`. The
- * read-side queries in `enrichment.ts` + `store.ts` join against it
+ * Name of the TEMP TABLE populated via `primeStaleFilter` (the sole
+ * entry point that touches it). The read-side queries in
+ * `enrichment.ts` + `store.ts` join against it
  * (`NOT EXISTS (SELECT 1 FROM _stale_prop_ids ...)`) instead of
  * spreading ids into a dynamically-sized `NOT IN (?, ?, ?, …)` clause,
  * which would hit SQLite's `SQLITE_MAX_VARIABLE_NUMBER` ceiling on
@@ -75,26 +76,67 @@ export const STALE_PROP_IDS_TABLE = "_stale_prop_ids";
 const STALE_PROP_BATCH_SIZE = 500;
 
 /**
+ * A read-scope narrowing for the staleness scan. `sql` selects
+ * PROPOSITION_IDS (a literal SQL subquery, interpolated raw — same
+ * trusted-identifier posture as `notStaleExists`; never user input in
+ * the string) and `params` binds it. When present, the scan only pulls
+ * proposition_sources rows whose proposition_id is in the subquery, so
+ * a selective read hashes only the files its result set could cite
+ * rather than the whole corpus.
+ *
+ * CRITICAL: the subquery selects proposition_ids; the outer scan then
+ * pulls ALL source rows for those ids. Never filter proposition_sources
+ * by file_path on the outer scan — that would break per-prop
+ * AND-over-sources staleness (a prop sourced from clean file A and
+ * drifted file B must stay stale even when queried via A).
+ *
+ * INVARIANT: a scope MUST cover the domain its consumer's count ranges
+ * over — an empty STALE_PROP_IDS slot is read as valid (`notStaleExists`
+ * returns TRUE), so under-scoping silently inflates
+ * valid_proposition_count. Each public read owns exactly ONE scope per
+ * call and materializes it (via `primeStaleFilter`) immediately before
+ * the joins that consume it. Every per-path scope here is a SUPERSET of
+ * its count's domain (the entity's full prop set / all props citing the
+ * file / all props of matching entities), never the page (LIMIT/OFFSET),
+ * so `valid_proposition_count` stays a true entity-wide total.
+ */
+export interface StaleScopeQuery {
+  sql: string;
+  params: unknown[];
+}
+
+/**
  * Scan proposition_sources and return the set of propositions that have
  * at least one drifted source file. Pure — no side effects on the db
  * handle. The cache amortizes hashSourceFile calls across propositions
  * sharing source files within one operation.
  *
- * Reads that join against `STALE_PROP_IDS_TABLE` must follow this with
- * `materializeStalePropIds(db, stalePropIds)` to populate the temp
- * table. Reads that consume the Set directly (notably `status()`) skip
+ * When `scope` is supplied the scan is narrowed to proposition_sources
+ * rows whose proposition_id is selected by `scope.sql` (see
+ * `StaleScopeQuery`); absent a scope it is a byte-identical full corpus
+ * scan. Either way the result is "stale within this read's scope".
+ *
+ * Reads that join against `STALE_PROP_IDS_TABLE` go through
+ * `primeStaleFilter` (the only entry point that materializes the temp
+ * table). Reads that consume the Set directly (notably `status()`) skip
  * the materialization — the temp-table population is non-trivial work
- * (DELETE plus batched INSERTs over the whole stale set) and pure
- * waste when no join consumes it.
+ * (DELETE plus batched INSERTs over the whole stale set) and pure waste
+ * when no join consumes it.
  */
 export function getStalePropositionIds(
   db: Db,
   sourceRoot: string,
   cache: StalenessCache,
+  scope?: StaleScopeQuery,
 ): Set<string> {
-  const rows = db
-    .prepare("SELECT proposition_id, file_path, content_hash FROM proposition_sources")
-    .all() as Array<{
+  // Scope narrows which proposition_ids the outer scan considers, but it
+  // still pulls ALL source rows for each in-scope id — preserving
+  // per-prop AND-over-sources staleness. Absent a scope this is the
+  // full-corpus scan, byte-identical to the pre-#314 behaviour.
+  const sql = scope
+    ? `SELECT proposition_id, file_path, content_hash FROM proposition_sources WHERE proposition_id IN (${scope.sql})`
+    : "SELECT proposition_id, file_path, content_hash FROM proposition_sources";
+  const rows = db.prepare(sql).all(...(scope?.params ?? [])) as Array<{
     proposition_id: string;
     file_path: string;
     content_hash: string;
@@ -126,21 +168,33 @@ export function notStaleExists(propIdExpr: string): string {
 
 /**
  * Compute the stale set and materialize it into `STALE_PROP_IDS_TABLE`
- * in one call — use at every read that joins against the table.
- * Callers consuming the Set as a JS value (no SQL join) should call
- * `getStalePropositionIds` directly to skip the materialization.
+ * in one call — THE single entry point that touches the temp table.
+ * Use at every read that joins against the table. Callers consuming the
+ * Set as a JS value (no SQL join) should call `getStalePropositionIds`
+ * directly to skip the materialization.
+ *
+ * `scope` (see `StaleScopeQuery`) narrows the scan to the proposition
+ * ids the read's result set could cite. The materialized table then
+ * means "stale within THIS read's scope" — each public read owns
+ * exactly one scope per call and primes immediately before the joins
+ * that consume it. Pass NO scope for corpus-wide reads (unfiltered
+ * browse).
  */
-export function primeStaleFilter(db: Db, sourceRoot: string, cache: StalenessCache): void {
-  materializeStalePropIds(db, getStalePropositionIds(db, sourceRoot, cache));
+export function primeStaleFilter(
+  db: Db,
+  sourceRoot: string,
+  cache: StalenessCache,
+  scope?: StaleScopeQuery,
+): void {
+  materializeStalePropIds(db, getStalePropositionIds(db, sourceRoot, cache, scope));
 }
 
 /**
  * Populate `STALE_PROP_IDS_TABLE` on `db` so subsequent read queries
- * can join against it. Must be called before any helper in
- * `enrichment.ts` runs (every helper there assumes the table reflects
- * the current stale set).
+ * can join against it. Not exported — `primeStaleFilter` is the sole
+ * entry point that touches the temp table (it has no other callers).
  */
-export function materializeStalePropIds(db: Db, stalePropIds: Set<string>): void {
+function materializeStalePropIds(db: Db, stalePropIds: Set<string>): void {
   db.exec(
     `CREATE TEMP TABLE IF NOT EXISTS ${STALE_PROP_IDS_TABLE} (proposition_id TEXT PRIMARY KEY) WITHOUT ROWID`,
   );

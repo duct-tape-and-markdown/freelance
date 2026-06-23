@@ -273,6 +273,30 @@ export function countQuery(db: Db, sql: string, ...params: unknown[]): number {
 }
 
 /**
+ * Run a count + a paginated row SELECT and return `{ rows, total }`.
+ * The single count+rows+limit/offset glue shared by `browse` /
+ * `inspect` / `bySource` / `related` — each keeps its OWN staleness
+ * priming, SQL bodies, and projection; only this mechanical glue moves.
+ *
+ * STOP-LINE (#253): no per-method flags (HAVING / neighbors / sample /
+ * includeOrphans knobs). If a method's count+rows glue would need a
+ * flag here, keep that method's glue inline instead. `rowsSql` must
+ * carry its own trailing `LIMIT ? OFFSET ?`; the caller appends `limit`
+ * and `offset` to `rowsParams`.
+ */
+export function paginate<R>(
+  db: Db,
+  countSql: string,
+  countParams: readonly unknown[],
+  rowsSql: string,
+  rowsParams: readonly unknown[],
+): { rows: R[]; total: number } {
+  const total = countQuery(db, countSql, ...countParams);
+  const rows = db.prepare(rowsSql).all(...rowsParams) as R[];
+  return { rows, total };
+}
+
+/**
  * Run `fn` inside a SQLite transaction. Commits on return, rolls back
  * on throw. Sync-only — every current caller is sync (`prepare().run()`
  * / `prepare().get()`) and `node:sqlite` is sync top-to-bottom; matching

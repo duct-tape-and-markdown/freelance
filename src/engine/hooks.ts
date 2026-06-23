@@ -49,7 +49,10 @@ export interface HookMemoryAccess {
     offset?: number;
     includeOrphans?: boolean;
   }): BrowseResult;
-  search(query: string, options?: { limit?: number }): SearchResult;
+  search(
+    query: string,
+    options?: { limit?: number; shape?: PropositionShape; includeOrphans?: boolean },
+  ): SearchResult;
   related(entityIdOrName: string, options?: { limit?: number; offset?: number }): RelatedResult;
   bySource(
     filePath: string,

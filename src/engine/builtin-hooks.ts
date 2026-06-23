@@ -117,12 +117,18 @@ const memoryBrowse: HookFn = async (ctx) => {
   };
 };
 
+// `shape` defaults to `"minimal"` here for the same response-size reason
+// as memory_inspect / memory_by_source (#87): the warm-path delta check
+// only needs claim text + entities, not per-file provenance. Callers
+// that need provenance pass `shape: "full"` explicitly.
 const memorySearch: HookFn = async (ctx) => {
   const memory = requireMemory(ctx, "memory_search");
   const query = required(ctx.args, "query", isNonEmptyString, "a non-empty string");
   return {
     ...memory.search(query, {
       limit: optional(ctx.args, "limit", isInt, "an integer"),
+      shape: optional(ctx.args, "shape", isShape, '"minimal" or "full"') ?? "minimal",
+      includeOrphans: optional(ctx.args, "includeOrphans", isBool, "a boolean"),
     }),
   };
 };

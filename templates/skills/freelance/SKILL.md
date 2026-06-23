@@ -174,7 +174,7 @@ Read operations (available any time):
 ```bash
 freelance memory status
 freelance memory browse [--name X] [--kind Y] [--limit N] [--offset N]
-freelance memory search "<query>" [--limit N]
+freelance memory search "<query>" [--limit N] [--shape minimal|full] [--include-orphans]
 freelance memory inspect <entityIdOrName> [--limit N] [--offset N] [--shape minimal|full]
 freelance memory related <entityIdOrName> [--limit N] [--offset N]
 freelance memory by-source <filePath> [--limit N] [--offset N]

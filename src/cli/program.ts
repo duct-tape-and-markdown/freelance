@@ -354,7 +354,12 @@ addWorkflowsOpt(
   memoryCmd
     .command("search <query>")
     .description("Full-text search across proposition content")
-    .option("--limit <n>", "Maximum results"),
+    .option("--limit <n>", "Maximum results (default 50, max 200)")
+    .option("--shape <shape>", 'Proposition shape: "full" (default) or "minimal"')
+    .option(
+      "--include-orphans",
+      "Include propositions whose source bytes no longer match disk/any live ref (hidden by default)",
+    ),
 ).action((query, opts) => {
   const { store } = createMemoryStore({ workflows: opts.workflows });
   runCliHandler(store, () => memorySearch(store, query, opts));
