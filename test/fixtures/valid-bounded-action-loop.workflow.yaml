@@ -1,7 +1,7 @@
-id: invalid-action-loop
+id: valid-bounded-action-loop
 version: "1.0.0"
-name: "Invalid Action Loop"
-description: "A cycle whose every edge stays inside the cycle — no exit, so the traversal can never leave it"
+name: "Valid Bounded Action Loop"
+description: "An action retry loop with a real exit edge — bounded, so it is valid (#340)"
 startNode: start
 
 nodes:
@@ -21,7 +21,13 @@ nodes:
 
   step-b:
     type: action
-    description: "Action B — only loops back, no exit edge"
+    description: "Action B — loops back to retry, or exits via finish"
     edges:
       - target: step-a
         label: loop-back
+      - target: done
+        label: finish
+
+  done:
+    type: terminal
+    description: "End"

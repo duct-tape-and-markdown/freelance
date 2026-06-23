@@ -370,6 +370,80 @@ nodes:
     const graphs = loadFixtures("valid-wait-simple.workflow.yaml");
     expect(graphs.has("valid-wait-simple")).toBe(true);
   });
+
+  // #338: fields only read for a specific node type are rejected on
+  // incompatible types instead of being silently ignored at runtime.
+  it("rejects waitOn on a non-wait node", async () => {
+    const dir = writeGraph(`
+id: test-waiton-on-action
+version: "1.0.0"
+name: "Test"
+description: "Test"
+startNode: start
+nodes:
+  start:
+    type: action
+    description: "Action with stray waitOn"
+    waitOn:
+      - key: ready
+        type: boolean
+    edges:
+      - target: done
+        label: go
+  done:
+    type: terminal
+    description: "Done"
+`);
+    expect(() => loadGraphs(dir)).toThrow(/waitOn.*only valid on wait/i);
+  });
+
+  it("rejects timeout on a non-wait node", async () => {
+    const dir = writeGraph(`
+id: test-timeout-on-action
+version: "1.0.0"
+name: "Test"
+description: "Test"
+startNode: start
+nodes:
+  start:
+    type: action
+    description: "Action with stray timeout"
+    timeout: "5m"
+    edges:
+      - target: done
+        label: go
+  done:
+    type: terminal
+    description: "Done"
+`);
+    expect(() => loadGraphs(dir)).toThrow(/timeout.*only valid on wait/i);
+  });
+
+  it("rejects subgraph on a wait node", async () => {
+    const dir = writeGraph(`
+id: test-subgraph-on-wait
+version: "1.0.0"
+name: "Test"
+description: "Test"
+startNode: start
+nodes:
+  start:
+    type: wait
+    description: "Wait with stray subgraph"
+    waitOn:
+      - key: ready
+        type: boolean
+    subgraph:
+      graphId: other
+    edges:
+      - target: done
+        label: go
+  done:
+    type: terminal
+    description: "Done"
+`);
+    expect(() => loadGraphs(dir)).toThrow(/wait node must not have a subgraph/i);
+  });
 });
 
 describe("wait vs gate distinction", () => {

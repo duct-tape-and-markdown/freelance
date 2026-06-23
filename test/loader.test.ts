@@ -93,9 +93,15 @@ describe("loadGraphs — invalid fixtures", () => {
     expect(() => loadGraphs(dir)).toThrow(/gate/i);
   });
 
-  it("rejects action-only cycle", () => {
+  it("rejects a cycle with no exit edge", () => {
     const dir = loadSingleFixture("invalid-action-loop.workflow.yaml");
     expect(() => loadGraphs(dir)).toThrow(/cycle/i);
+  });
+
+  it("accepts a bounded action retry loop with an exit edge (#340)", () => {
+    const dir = loadSingleFixture("valid-bounded-action-loop.workflow.yaml");
+    const graphs = loadGraphs(dir);
+    expect(graphs.has("valid-bounded-action-loop")).toBe(true);
   });
 
   it("rejects invalid validation expression", () => {
@@ -537,5 +543,120 @@ nodes:
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("load-time strictness", () => {
+  function writeTempGraph(content: string): string {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "strictness-test-"));
+    fs.writeFileSync(path.join(tmpDir, "g.workflow.yaml"), content);
+    return tmpDir;
+  }
+
+  const wrap = (context: string, nodes?: string) => `
+id: g
+version: "1.0.0"
+name: "G"
+description: "G"
+startNode: start
+${context}
+nodes:
+${
+  nodes ??
+  `  start:
+    type: action
+    description: "Start"
+    edges:
+      - target: done
+        label: go
+  done:
+    type: terminal
+    description: "Done"`
+}
+`;
+
+  // #339 — context descriptor validation
+  it("rejects a malformed descriptor (typo'd type with enum)", () => {
+    const dir = writeTempGraph(
+      wrap(`context:
+  phase:
+    type: strng
+    enum: [a, b]`),
+    );
+    expect(() => loadGraphs(dir)).toThrow(/malformed/i);
+  });
+
+  it("rejects a descriptor whose default is not in its enum", () => {
+    const dir = writeTempGraph(
+      wrap(`context:
+  phase:
+    type: string
+    enum: [a, b]
+    default: c`),
+    );
+    expect(() => loadGraphs(dir)).toThrow(/not in the declared enum/i);
+  });
+
+  it("rejects a descriptor whose default does not match its type", () => {
+    const dir = writeTempGraph(
+      wrap(`context:
+  count:
+    type: number
+    default: "lots"`),
+    );
+    expect(() => loadGraphs(dir)).toThrow(/not of declared type/i);
+  });
+
+  it("accepts a valid descriptor with a matching default in its enum", () => {
+    const dir = writeTempGraph(
+      wrap(`context:
+  phase:
+    type: string
+    enum: [a, b]
+    default: a`),
+    );
+    expect(loadGraphs(dir).has("g")).toBe(true);
+  });
+
+  // #280 — expression path cross-check under strictContext
+  const strictGraph = (condition: string) => `
+id: g
+version: "1.0.0"
+name: "G"
+description: "G"
+startNode: start
+strictContext: true
+context:
+  ready: false
+nodes:
+  start:
+    type: decision
+    description: "Route"
+    edges:
+      - target: done
+        label: go
+        condition: "${condition}"
+  done:
+    type: terminal
+    description: "Done"
+`;
+
+  it("rejects an expression referencing an undeclared field under strictContext", () => {
+    const dir = writeTempGraph(strictGraph("context.redy == true"));
+    expect(() => loadGraphs(dir)).toThrow(/undeclared context field "redy"/i);
+  });
+
+  it("accepts an expression referencing a declared field under strictContext", () => {
+    const dir = writeTempGraph(strictGraph("context.ready == true"));
+    expect(loadGraphs(dir).has("g")).toBe(true);
+  });
+
+  it("does not cross-check fields when strictContext is off (field may be set at runtime)", () => {
+    // Same undeclared reference, but no strictContext → accepted, since the
+    // field could be populated by initialContext / contextSet / a hook.
+    const dir = writeTempGraph(
+      strictGraph("context.redy == true").replace("strictContext: true\n", ""),
+    );
+    expect(loadGraphs(dir).has("g")).toBe(true);
   });
 });

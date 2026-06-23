@@ -585,3 +585,35 @@ export function evaluatePredicate(expr: string, context: Record<string, unknown>
     return false;
   }
 }
+
+/**
+ * The top-level context fields an expression references — the first
+ * segment of every `context.X[.y...]` path. Used at load time under
+ * strictContext to reject references to undeclared fields (#280). Assumes
+ * a syntactically valid expression; call after `validateExpression`.
+ */
+export function referencedContextFields(expr: string): string[] {
+  const out = new Set<string>();
+  collectProps(parseToAst(expr), out);
+  return [...out];
+}
+
+function collectProps(node: Ast, out: Set<string>): void {
+  switch (node.kind) {
+    case "prop":
+      out.add(contextPathSegments(node.path)[0]);
+      break;
+    case "not":
+      collectProps(node.operand, out);
+      break;
+    case "logic":
+    case "compare":
+      collectProps(node.left, out);
+      collectProps(node.right, out);
+      break;
+    case "call":
+      collectProps(node.arg, out);
+      break;
+    // lit: no property references
+  }
+}

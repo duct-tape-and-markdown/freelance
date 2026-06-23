@@ -140,7 +140,7 @@ Reusable subgraphs should decompose their procedure into distinct steps. One act
 
 ## Cycle Requirements
 
-Every cycle must include at least one decision, gate, or wait node. The engine rejects pure action-node cycles to prevent infinite loops.
+Every cycle must have an exit edge — an edge from some node in the loop to a node outside it — so the traversal can leave and terminate. The engine rejects cycles whose every edge stays inside the loop (a true infinite loop). A bounded action retry loop is fine when one of its nodes has an exit edge.
 
 ## Namespace Organization
 
@@ -186,7 +186,7 @@ Cycles let workflows loop — retry on failure, iterate on tasks, collect feedba
 
 ## Rules
 
-Every cycle MUST include at least one decision, gate, or wait node. This prevents infinite action loops where the agent just runs forever without a checkpoint.
+Every cycle MUST have an exit edge — an edge from some node in the cycle to a node outside it — so a traversal that enters the loop can leave it and eventually terminate. A loop whose every edge points back inside the cycle is rejected at load: nothing can ever break out. A bounded \`action\` retry loop is fine as long as one of its nodes has an edge leaving the loop (e.g. a \`finish\` edge alongside the \`retry\` edge).
 
 ## Common patterns
 

@@ -10,7 +10,11 @@ import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import { buildAndValidateGraph } from "./graph-construction.js";
-import { validateExpressions, validateReturnSchemas } from "./graph-validation.js";
+import {
+  validateContextDescriptors,
+  validateExpressions,
+  validateReturnSchemas,
+} from "./graph-validation.js";
 import { resolveGraphHooks } from "./hook-resolution.js";
 import { mergeSealedGraphs } from "./memory/sealed.js";
 
@@ -90,6 +94,7 @@ export function loadSingleGraph(filePath: string): { id: string } & ValidatedGra
  * @returns The validated graphlib Graph
  */
 export function validateAndBuild(def: GraphDefinition, source: string): Graph {
+  validateContextDescriptors(def, source);
   validateReturnSchemas(def, source);
   validateExpressions(def, source);
   return buildAndValidateGraph(def, source);

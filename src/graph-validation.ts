@@ -13,7 +13,11 @@
 
 import { EC } from "./error-codes.js";
 import { EngineError } from "./errors.js";
-import { extractPropertyComparisons, validateExpression } from "./evaluator.js";
+import {
+  extractPropertyComparisons,
+  referencedContextFields,
+  validateExpression,
+} from "./evaluator.js";
 import type { GraphDefinition } from "./schema/graph-schema.js";
 import { isContextFieldDescriptor } from "./schema/graph-schema.js";
 
@@ -58,6 +62,63 @@ export function validateReturnSchemas(def: GraphDefinition, filePath: string): v
           EC.GRAPH_STRUCTURE_INVALID,
         );
       }
+    }
+  }
+}
+
+/**
+ * An object that looks like a context field descriptor (has a `type` key
+ * plus an `enum` or `default`) but failed descriptor parsing — almost
+ * certainly an intended descriptor with a typo (e.g. `type: "strng"`),
+ * which the schema's `union([descriptor, unknown])` would otherwise accept
+ * as an opaque literal and silently degrade to (#339). A bare `{type: …}`
+ * with no enum/default is left alone — indistinguishable from a literal
+ * object that happens to have a `type` field.
+ */
+function looksLikeMalformedDescriptor(v: unknown): boolean {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "type" in v &&
+    ("enum" in v || "default" in v) &&
+    !isContextFieldDescriptor(v)
+  );
+}
+
+/**
+ * Validate context field descriptors at load (#339):
+ *   - a malformed-looking descriptor (typo'd type) is rejected rather than
+ *     silently treated as a literal;
+ *   - a valid descriptor's `default` must match its declared `type` and,
+ *     when an `enum` is declared, be one of the allowed values.
+ */
+export function validateContextDescriptors(def: GraphDefinition, filePath: string): void {
+  if (!def.context) return;
+  for (const [key, value] of Object.entries(def.context)) {
+    if (looksLikeMalformedDescriptor(value)) {
+      throw new EngineError(
+        `[${filePath}] Context field "${key}" looks like a descriptor but is malformed — ` +
+          `"type" must be one of "string", "number", "boolean". Fix it, or drop the ` +
+          `type/enum/default keys if it is meant to be a literal value.`,
+        EC.GRAPH_STRUCTURE_INVALID,
+      );
+    }
+    if (!isContextFieldDescriptor(value)) continue;
+
+    const { type, enum: allowed, default: dflt } = value;
+    if (dflt === null || dflt === undefined) continue;
+
+    if (typeof dflt !== type) {
+      throw new EngineError(
+        `[${filePath}] Context field "${key}": default ${JSON.stringify(dflt)} is not of declared type "${type}"`,
+        EC.GRAPH_STRUCTURE_INVALID,
+      );
+    }
+    if (allowed && !allowed.map(String).includes(String(dflt))) {
+      throw new EngineError(
+        `[${filePath}] Context field "${key}": default ${JSON.stringify(dflt)} is not in the declared enum [${allowed.join(", ")}]`,
+        EC.GRAPH_STRUCTURE_INVALID,
+      );
     }
   }
 }
@@ -110,12 +171,26 @@ function checkEnumCompliance(
 function validateOneExpression(
   expr: string,
   enumMap: Map<string, Set<string>>,
+  declaredFields: Set<string> | null,
   location: string,
   describe: (innerMessage: string) => string,
 ): void {
   try {
     validateExpression(expr);
     checkEnumCompliance(expr, enumMap, location);
+    // Under strictContext every settable key is declared, so a reference
+    // to an undeclared context field is a typo we can reject at load (#280).
+    // Without strictContext the field may be set at runtime, so we can't.
+    if (declaredFields) {
+      for (const field of referencedContextFields(expr)) {
+        if (!declaredFields.has(field)) {
+          throw new EngineError(
+            `references undeclared context field "${field}" (strictContext is enabled)`,
+            EC.GRAPH_STRUCTURE_INVALID,
+          );
+        }
+      }
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new EngineError(describe(msg), EC.GRAPH_STRUCTURE_INVALID);
@@ -125,10 +200,12 @@ function validateOneExpression(
 /**
  * Parse-check all expressions in edge conditions and validation rules.
  * Catches malformed expressions at load time, not at traversal time.
- * Also checks string literals against declared context enums.
+ * Also checks string literals against declared context enums, and — under
+ * strictContext — that referenced context fields are declared.
  */
 export function validateExpressions(def: GraphDefinition, filePath: string): void {
   const enumMap = extractContextEnums(def);
+  const declaredFields = def.strictContext ? new Set(Object.keys(def.context ?? {})) : null;
 
   for (const [nodeId, node] of Object.entries(def.nodes)) {
     const at = `[${filePath}] Node "${nodeId}"`;
@@ -137,6 +214,7 @@ export function validateExpressions(def: GraphDefinition, filePath: string): voi
       validateOneExpression(
         v.expr,
         enumMap,
+        declaredFields,
         `${at}: validation`,
         (m) => `${at}: invalid validation expression "${v.expr}": ${m}`,
       );
@@ -147,6 +225,7 @@ export function validateExpressions(def: GraphDefinition, filePath: string): voi
       validateOneExpression(
         edge.condition,
         enumMap,
+        declaredFields,
         `${at}: edge "${edge.label}"`,
         (m) => `${at}: edge "${edge.label}" has invalid condition "${edge.condition}": ${m}`,
       );
@@ -156,6 +235,7 @@ export function validateExpressions(def: GraphDefinition, filePath: string): voi
       validateOneExpression(
         node.subgraph.condition,
         enumMap,
+        declaredFields,
         `${at}: subgraph condition`,
         (m) => `${at}: invalid subgraph condition "${node.subgraph?.condition}": ${m}`,
       );
