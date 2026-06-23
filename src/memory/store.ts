@@ -17,7 +17,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { EC, EngineError } from "../errors.js";
-import { hashSourceFile } from "../sources.js";
+import { hashSourceFile, resolveSourcePath } from "../sources.js";
 import { countQuery, type Db, withTransaction } from "./db.js";
 import {
   computeStatus,
@@ -168,26 +168,17 @@ export class MemoryStore {
    * "user-supplied file path → stored path" contract lives in one place
    * and a request for `../../etc/passwd` becomes a structured error on
    * reads too, not a silent empty match.
+   *
+   * The boundary check lives in the shared `resolveSourcePath`
+   * (`../sources.js`). Memory always opts in with `enforceBoundary: true`
+   * because these paths are agent-supplied; graph source bindings call
+   * the same helper WITHOUT the flag — see the policy note there.
    */
   private prepareSourcePath(filePath: string): {
     storedPath: string;
     resolvedPath: string;
   } {
-    const resolvedPath = path.isAbsolute(filePath)
-      ? filePath
-      : path.resolve(this.sourceRoot, filePath);
-
-    const normalizedRoot = path.resolve(this.sourceRoot) + path.sep;
-    const normalizedPath = path.resolve(resolvedPath);
-    if (
-      !normalizedPath.startsWith(normalizedRoot) &&
-      normalizedPath !== path.resolve(this.sourceRoot)
-    ) {
-      throw new EngineError(
-        `Source file is outside the source root: ${filePath}`,
-        EC.SOURCE_OUTSIDE_ROOT,
-      );
-    }
+    const resolvedPath = resolveSourcePath(filePath, this.sourceRoot, { enforceBoundary: true });
 
     const storedPath = path.isAbsolute(filePath)
       ? path.relative(this.sourceRoot, filePath)

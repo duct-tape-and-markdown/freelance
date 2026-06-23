@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
+import { resolveSourceRoot } from "../graph-resolution.js";
 import { validateHookImports } from "../hook-resolution.js";
 import { findGraphFiles, loadSingleGraph, validateCrossGraphRefs } from "../loader.js";
 import { SEALED_GRAPH_IDS } from "../memory/sealed.js";
-import { extractSection } from "../section-resolver.js";
-import type { SourceOptions } from "../sources.js";
-import { getDetailedDrift, validateGraphSources } from "../sources.js";
+import type { GraphDefinition } from "../schema/graph-schema.js";
+import { createCachingResolver } from "../section-resolver.js";
+import type { GraphDrift, SourceOptions } from "../sources.js";
+import { collectGraphDrift } from "../sources.js";
 import type { ValidatedGraph } from "../types.js";
 import { EXIT, outputJson } from "./output.js";
 
@@ -16,18 +18,31 @@ interface GraphResult {
   nodeCount: number;
 }
 
-interface SourceDriftResult {
+/**
+ * Why a drift row was NOT auto-fixed under `--fix`. Surfaced so the
+ * operator sees the reason instead of a silent no-op:
+ *   - `no-match` — the expected hash wasn't found in the yaml (already
+ *     edited, or written in a form the regex doesn't cover).
+ *   - `ambiguous` — one stored hash maps to conflicting current hashes,
+ *     so a text replace can't pick a single target.
+ *   - `file-not-found` — the bound source file is missing; there's no
+ *     current content to rehash, so the drift is unfixable until the
+ *     file is restored.
+ */
+interface FixWarning {
   graphId: string;
   node: string;
-  drifted: Array<{ path: string; section?: string; expected: string; actual: string }>;
+  section?: string;
+  reason: "no-match" | "ambiguous" | "file-not-found";
 }
 
 interface ValidateResult {
   valid: boolean;
   graphs: GraphResult[];
   errors: { file: string; message: string }[];
-  sourceDrift?: SourceDriftResult[];
+  sourceDrift?: GraphDrift[];
   fixed?: number;
+  fixWarnings?: FixWarning[];
 }
 
 interface ValidateOptions {
@@ -119,44 +134,64 @@ export async function validate(graphsDir: string, options?: ValidateOptions): Pr
 
   // Phase 3: if --sources, check source bindings for drift
   if (options?.checkSources && result.errors.length === 0) {
-    const sourceDrift: SourceDriftResult[] = [];
-    // Track files that need hash updates: filePath → Array<{section, oldHash, newHash}>
-    const fixMap = new Map<string, Array<{ section?: string; oldHash: string; newHash: string }>>();
+    const resolvedBasePath = resolveSourceRoot([resolvedDir], options.basePath);
+    // A fresh resolver per run: parses each source file at most once even
+    // when many nodes bind sections of the same file.
+    const sourceOpts: SourceOptions = {
+      resolver: createCachingResolver(),
+      basePath: resolvedBasePath,
+    };
 
-    const resolvedBasePath = options.basePath
-      ? path.resolve(options.basePath)
-      : path.dirname(resolvedDir);
+    const definitions: Array<[string, GraphDefinition]> = [...parsed].map(
+      ([graphId, { definition }]) => [graphId, definition],
+    );
+    const rows: GraphDrift[] = collectGraphDrift(definitions, sourceOpts);
 
-    for (const [graphId, { definition }] of parsed) {
-      const sourceOpts: SourceOptions = { resolver: extractSection, basePath: resolvedBasePath };
-      const sourceResult = validateGraphSources(definition, sourceOpts);
-
-      for (const warning of sourceResult.warnings) {
-        const detailedDrift = getDetailedDrift(definition, warning.node, sourceOpts);
-        sourceDrift.push({
-          graphId,
-          node: warning.node,
-          drifted: detailedDrift,
-        });
-
-        // Collect hash replacements for --fix
-        if (options.fix) {
-          const gFile = graphFilePaths.get(graphId)!;
-          if (!fixMap.has(gFile)) {
-            fixMap.set(gFile, []);
+    // Track files that need hash updates, carrying graphId/node/section
+    // so an un-targetable replacement can be reported as a fixWarning.
+    const fixMap = new Map<
+      string,
+      Array<{
+        graphId: string;
+        node: string;
+        section?: string;
+        oldHash: string;
+        newHash: string;
+      }>
+    >();
+    const fixWarnings: FixWarning[] = [];
+    if (options.fix) {
+      for (const row of rows) {
+        const gFile = graphFilePaths.get(row.graphId)!;
+        if (!fixMap.has(gFile)) fixMap.set(gFile, []);
+        const fileFixList = fixMap.get(gFile)!;
+        for (const d of row.drifted) {
+          if (d.actual === "FILE_NOT_FOUND") {
+            // No current content to rehash — record the unfixable drift
+            // so the valid-flip guard below keeps valid=false instead of
+            // silently dropping it (a missing file alongside a fixable
+            // drift would otherwise flip valid=true).
+            fixWarnings.push({
+              graphId: row.graphId,
+              node: row.node,
+              section: d.section,
+              reason: "file-not-found",
+            });
+            continue;
           }
-          const fileFixList = fixMap.get(gFile)!;
-          for (const d of detailedDrift) {
-            if (d.actual !== "FILE_NOT_FOUND") {
-              fileFixList.push({ section: d.section, oldHash: d.expected, newHash: d.actual });
-            }
-          }
+          fileFixList.push({
+            graphId: row.graphId,
+            node: row.node,
+            section: d.section,
+            oldHash: d.expected,
+            newHash: d.actual,
+          });
         }
       }
     }
 
-    if (sourceDrift.length > 0) {
-      result.sourceDrift = sourceDrift;
+    if (rows.length > 0) {
+      result.sourceDrift = rows;
       result.valid = false;
     }
 
@@ -168,23 +203,48 @@ export async function validate(graphsDir: string, options?: ValidateOptions): Pr
         let content = fs.readFileSync(filePath, "utf-8");
         let fileFixed = 0;
 
-        for (const { section, oldHash, newHash } of fixes) {
-          let replaced: string;
+        // Group by oldHash: identical oldHash => identical stored source
+        // content => when drifted, identical CURRENT content => identical
+        // newHash. So every occurrence of a given oldHash rewrites to the
+        // same target, and replacing them all is correct. The only
+        // un-targetable case is one oldHash mapped to conflicting
+        // newHashes — impossible by the above reasoning unless the bound
+        // content genuinely differs, in which case text alone can't pick
+        // a target. This sidesteps the section/hash key-order coupling a
+        // section-anchored regex would impose.
+        const byOldHash = new Map<string, typeof fixes>();
+        for (const fix of fixes) {
+          const group = byOldHash.get(fix.oldHash);
+          if (group) group.push(fix);
+          else byOldHash.set(fix.oldHash, [fix]);
+        }
 
-          if (section) {
-            const pattern = new RegExp(
-              `(section:\\s*"${escapeRegex(section)}"\\s*\\n\\s*hash:\\s*")${escapeRegex(oldHash)}"`,
-            );
-            replaced = content.replace(pattern, `$1${newHash}"`);
-          } else {
-            const pattern = new RegExp(`(hash:\\s*")${escapeRegex(oldHash)}"`);
-            replaced = content.replace(pattern, `$1${newHash}"`);
+        for (const [oldHash, group] of byOldHash) {
+          // Quote-tolerant: `\2` backref forces the closing quote to
+          // match the opening one (empty for unquoted yaml). The trailing
+          // lookahead pins an end boundary so a hash prefix can't
+          // partial-match a longer unquoted literal.
+          const bareSource = `(hash:\\s*)(["']?)${escapeRegex(oldHash)}\\2(?=$|[\\s"'])`;
+          const occurrences = countMatches(content, bareSource);
+          const newHashes = new Set(group.map((r) => r.newHash));
+
+          if (occurrences === 0) {
+            for (const { graphId, node, section } of group) {
+              fixWarnings.push({ graphId, node, section, reason: "no-match" });
+            }
+            continue;
           }
 
-          if (replaced !== content) {
-            content = replaced;
-            fileFixed++;
+          if (newHashes.size > 1) {
+            for (const { graphId, node, section } of group) {
+              fixWarnings.push({ graphId, node, section, reason: "ambiguous" });
+            }
+            continue;
           }
+
+          const [newHash] = newHashes;
+          content = content.replace(new RegExp(bareSource, "g"), `$1$2${newHash}$2`);
+          fileFixed += occurrences;
         }
 
         if (fileFixed > 0) {
@@ -194,9 +254,16 @@ export async function validate(graphsDir: string, options?: ValidateOptions): Pr
       }
 
       result.fixed = totalFixed;
-      if (totalFixed > 0) {
-        result.valid = true; // Drift was fixed
-      }
+    }
+
+    if (fixWarnings.length > 0) {
+      result.fixWarnings = fixWarnings;
+    }
+    // Only flip valid back to true if every drift row was actually
+    // fixed — a leftover skip (no-match, ambiguous, or file-not-found)
+    // means residual drift the operator must see.
+    if (options.fix && result.fixed && result.fixed > 0 && fixWarnings.length === 0) {
+      result.valid = true; // All drift was fixed
     }
   }
 
@@ -208,4 +275,9 @@ export async function validate(graphsDir: string, options?: ValidateOptions): Pr
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Count global matches of a regex source against content. */
+function countMatches(content: string, source: string): number {
+  return (content.match(new RegExp(source, "g")) ?? []).length;
 }

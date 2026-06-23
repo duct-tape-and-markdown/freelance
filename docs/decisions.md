@@ -137,6 +137,19 @@ Workflows intended to ship in user-level or plugin directories must use absolute
 
 Anchors: `src/graph-resolution.ts`, `src/sources.ts`, `src/compose.ts` (sourceRoot plumbing), README § "Workflow directories". Closes #98.
 
+### Source-path resolution is one helper; boundary enforcement is the caller's policy
+
+"User-supplied source path → absolute path" resolves through a single helper, `resolveSourcePath` in `src/sources.ts`. Whether an escape outside the source root is *rejected* is a per-caller flag, not a property of the helper — and the two callers diverge deliberately:
+
+- **Graph source bindings** (`hashSource`, drift checking) resolve **without** boundary enforcement. Graph yaml is authored by the trusted repo owner; a binding to a sibling directory outside `.freelance/`'s parent (e.g. `../shared-docs/spec.md`) is a legitimate monorepo pattern, not an attack.
+- **Memory `emit` / `bySource`** (`src/memory/store.ts` `prepareSourcePath`) resolve **with** `enforceBoundary: true`. Those paths arrive in agent-supplied payloads inside a running workflow and must not escape the source root — `../../etc/passwd` throws `SOURCE_OUTSIDE_ROOT` on both writes and reads.
+
+Before this, the two operations had independent implementations with opposite policies and no cross-reference (#254): a contributor reading one side couldn't see the other's stance. Now there is one resolver, the boundary check has one implementation (suffix match on `root + path.sep`, so `/root-evil` can't bypass `/root`), and the policy choice is named at both call sites with a pointer to this entry.
+
+**What would break if reversed:** folding enforcement into the helper unconditionally would reject legitimate sibling-dir graph bindings; dropping it entirely would let agent payloads read arbitrary files. The split keeps the trust boundary where it belongs — at the caller that knows who authored the path.
+
+Anchors: `src/sources.ts` (`resolveSourcePath`), `src/memory/store.ts` (`prepareSourcePath`). Closes #254.
+
 ### Subgraph traversal is a session-boundary crossing; returnMap is the explicit contract
 
 A subgraph push is a traversal-session boundary. `freelance inspect --detail history` treats the push as a boundary marker — context writes inside the subgraph are visible via the subgraph's own history, and values flow back to the parent *only* through the explicit `returnMap` declared on the subgraph node.

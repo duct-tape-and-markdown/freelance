@@ -138,7 +138,7 @@ program
   )
   // `validate` is async; the action must await it so an unexpected
   // mid-execution throw (findGraphFiles, validateHookImports,
-  // getDetailedDrift, fs.writeFileSync under --fix) rejects parseAsync's
+  // collectGraphDrift, fs.writeFileSync under --fix) rejects parseAsync's
   // promise and routes through bin.ts's `handleRuntimeError` as a proper
   // error envelope — instead of floating as an unhandled rejection that
   // bypasses the JSON contract (#229). Expected per-file failures stay in

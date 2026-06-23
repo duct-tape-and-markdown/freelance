@@ -10,6 +10,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { EC } from "./error-codes.js";
+import { EngineError } from "./errors.js";
 import type { GraphDefinition } from "./schema/graph-schema.js";
 
 // --- Content hashing ---
@@ -65,7 +67,7 @@ interface SourceHashResult {
   sources: HashedSource[];
 }
 
-interface DriftedSource {
+export interface DriftedSource {
   path: string;
   section?: string;
   expected: string;
@@ -79,7 +81,18 @@ interface SourceCheckResult {
 
 interface NodeSourceWarning {
   node: string;
-  drifted: Array<{ path: string; section?: string }>;
+  drifted: DriftedSource[];
+}
+
+/**
+ * One drifted node's worth of detail, flattened across every graph for
+ * a run. Shared shape for both the stateless `sources validate` verb and
+ * `freelance validate --sources` — see `collectGraphDrift`.
+ */
+export interface GraphDrift {
+  graphId: string;
+  node: string;
+  drifted: DriftedSource[];
 }
 
 interface SourceValidationResult {
@@ -104,12 +117,46 @@ export type SectionResolver = (filePath: string, section: string) => string | nu
 // --- Hashing ---
 
 /**
- * Resolve a source path to an absolute path using basePath if provided. [O-4]
+ * Resolve a source path to an absolute path, optionally enforcing that
+ * it stays within `root`. [O-4]
+ *
+ * Per-caller boundary policy — the divergence is deliberate and
+ * mirrored in `memory/store.ts` (`prepareSourcePath`):
+ *
+ *   - **Graph source bindings** (`hashSource` → here) call WITHOUT
+ *     `enforceBoundary`. Graph yaml is authored by the trusted repo
+ *     owner; a binding to a sibling dir outside `.freelance/`'s parent
+ *     is legitimate (e.g. `../shared-docs/spec.md`).
+ *   - **Memory emit / bySource** (`memory/store.ts`) call WITH
+ *     `enforceBoundary: true`. Those file paths come from agent-supplied
+ *     payloads and must not escape the source root.
+ *
+ * When `enforceBoundary && root` and the resolved path escapes `root`,
+ * throws `SOURCE_OUTSIDE_ROOT`.
  */
-function resolveSourcePath(sourcePath: string, basePath?: string): string {
-  if (path.isAbsolute(sourcePath)) return sourcePath;
-  if (basePath) return path.resolve(basePath, sourcePath);
-  return path.resolve(sourcePath);
+export function resolveSourcePath(
+  sourcePath: string,
+  root?: string,
+  opts?: { enforceBoundary?: boolean },
+): string {
+  const resolved = path.isAbsolute(sourcePath)
+    ? sourcePath
+    : root
+      ? path.resolve(root, sourcePath)
+      : path.resolve(sourcePath);
+
+  if (opts?.enforceBoundary && root) {
+    const normalized = path.resolve(resolved);
+    const resolvedRoot = path.resolve(root);
+    if (normalized !== resolvedRoot && !normalized.startsWith(resolvedRoot + path.sep)) {
+      throw new EngineError(
+        `Source file is outside the source root: ${sourcePath}`,
+        EC.SOURCE_OUTSIDE_ROOT,
+      );
+    }
+  }
+
+  return resolved;
 }
 
 /**
@@ -205,13 +252,7 @@ export function validateGraphSources(
   if (definition.sources && definition.sources.length > 0) {
     const result = checkSourcesDetailed(definition.sources, opts);
     if (!result.valid) {
-      warnings.push({
-        node: "(graph)",
-        drifted: result.drifted.map((d) => ({
-          path: d.path,
-          section: d.section,
-        })),
-      });
+      warnings.push({ node: "(graph)", drifted: result.drifted });
     }
   }
 
@@ -221,13 +262,7 @@ export function validateGraphSources(
 
     const result = checkSourcesDetailed(node.sources, opts);
     if (!result.valid) {
-      warnings.push({
-        node: nodeId,
-        drifted: result.drifted.map((d) => ({
-          path: d.path,
-          section: d.section,
-        })),
-      });
+      warnings.push({ node: nodeId, drifted: result.drifted });
     }
   }
 
@@ -235,43 +270,25 @@ export function validateGraphSources(
 }
 
 /**
- * Get detailed drift info (expected + actual hashes) for a specific node's sources.
- * Returns only sources that have actually drifted (hash mismatch or file not found).
+ * Validate source bindings across many graphs in one pass, flattening
+ * every drifted node into a `GraphDrift` row. The single drift-collection
+ * primitive shared by the stateless `sources validate` verb and
+ * `freelance validate --sources` — both read `warning.drifted` directly,
+ * so expected/actual hashes survive in a single pass without a follow-up
+ * lookup.
  */
-export function getDetailedDrift(
-  definition: GraphDefinition,
-  nodeId: string,
-  opts?: SectionResolver | SourceOptions,
-): DriftedSource[] {
-  const normalizedOpts = normalizeOptions(opts);
-  const sources =
-    nodeId === "(graph)" ? (definition.sources ?? []) : (definition.nodes[nodeId]?.sources ?? []);
-
-  const results: DriftedSource[] = [];
-
-  for (const source of sources) {
-    try {
-      const current = hashSource({ path: source.path, section: source.section }, normalizedOpts);
-
-      if (current.hash !== source.hash) {
-        results.push({
-          path: source.path,
-          section: source.section,
-          expected: source.hash,
-          actual: current.hash,
-        });
-      }
-    } catch {
-      results.push({
-        path: source.path,
-        section: source.section,
-        expected: source.hash,
-        actual: "FILE_NOT_FOUND",
-      });
+export function collectGraphDrift(
+  graphs: Iterable<[string, GraphDefinition]>,
+  opts?: SourceOptions,
+): GraphDrift[] {
+  const rows: GraphDrift[] = [];
+  for (const [graphId, definition] of graphs) {
+    const result = validateGraphSources(definition, opts);
+    for (const warning of result.warnings) {
+      rows.push({ graphId, node: warning.node, drifted: warning.drifted });
     }
   }
-
-  return results;
+  return rows;
 }
 
 // --- Private ---
