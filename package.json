@@ -86,7 +86,7 @@
     "@biomejs/biome": "2.4.15",
     "@types/js-yaml": "^4.0.9",
     "@types/mdast": "^4.0.4",
-    "@types/node": "^25.5.0",
+    "@types/node": "^26.0.1",
     "@vitest/coverage-v8": "^4.1.0",
     "simple-git-hooks": "2.13.1",
     "tsx": "^4.19.0",
