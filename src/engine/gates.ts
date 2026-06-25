@@ -9,7 +9,7 @@ import type {
 } from "../types.js";
 import { buildAdvanceSnapshot } from "./helpers.js";
 import { validateReturnSchema } from "./returns.js";
-import { checkWaitTimeout, evaluateWaitConditions } from "./wait.js";
+import { evaluateWaitConditions, evaluateWaitTimeout, markWaitTimedOut } from "./wait.js";
 
 export type GateBlockResult = AdvanceErrorResult | AdvanceErrorMinimalResult;
 
@@ -59,8 +59,12 @@ export function checkWaitBlocking(
 ): GateBlockResult | null {
   if (nodeDef.type !== "wait" || !nodeDef.waitOn) return null;
 
-  const timedOut = checkWaitTimeout(session, nodeDef);
-  if (timedOut) return null;
+  // Gate/write path: evaluate purely, then latch the timeout so the
+  // post-transition saveEngine persists it (#224).
+  if (evaluateWaitTimeout(session, nodeDef)) {
+    markWaitTimedOut(session);
+    return null;
+  }
 
   const waitConditions = evaluateWaitConditions(nodeDef.waitOn, session.context);
   const allSatisfied = waitConditions.every((w) => w.satisfied);

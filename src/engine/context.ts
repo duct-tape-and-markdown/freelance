@@ -18,7 +18,7 @@ import type {
 } from "../types.js";
 import { toNodeInfo, withGraphSources } from "./helpers.js";
 import { evaluateTransitions } from "./transitions.js";
-import { checkWaitTimeout, computeTimeoutAt, evaluateWaitConditions } from "./wait.js";
+import { computeTimeoutAt, evaluateWaitConditions, evaluateWaitTimeout } from "./wait.js";
 
 /**
  * Caller-controlled response shape. `"full"` (default) is the
@@ -381,7 +381,9 @@ function computeWaitInfo(
 } {
   if (nodeDef.type !== "wait" || !nodeDef.waitOn) return {};
 
-  const timedOut = checkWaitTimeout(session, nodeDef);
+  // Read-only audit path: inspect must not mutate the session, so use
+  // the pure evaluator and never latch (#224).
+  const timedOut = evaluateWaitTimeout(session, nodeDef);
   const waitConditions = evaluateWaitConditions(nodeDef.waitOn, session.context);
   const allSatisfied = waitConditions.every((w) => w.satisfied);
 

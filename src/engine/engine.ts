@@ -47,7 +47,7 @@ import {
 import type { HookRunner, MetaCollector } from "./hooks.js";
 import { maybePushSubgraph, popSubgraph } from "./subgraph.js";
 import { evaluateTransitions } from "./transitions.js";
-import { computeTimeoutAt, evaluateWaitConditions } from "./wait.js";
+import { computeTimeoutAt, enterWait, evaluateWaitConditions } from "./wait.js";
 
 export type { ResponseMode } from "./context.js";
 
@@ -402,9 +402,12 @@ export class GraphEngine {
 
     // Wait node arrival
     if (isWait && newNodeDef.waitOn) {
-      session.waitArrivedAt = new Date().toISOString();
+      // Fresh occupancy: enterWait resets the (waitArrivedAt,
+      // waitTimedOutAt) pair atomically so a prior wait's timeout latch
+      // can't leak into this one (#272).
+      const arrivedAt = enterWait(session);
       const waitConditions = evaluateWaitConditions(newNodeDef.waitOn, session.context);
-      const timeoutAt = computeTimeoutAt(session.waitArrivedAt, newNodeDef.timeout);
+      const timeoutAt = computeTimeoutAt(arrivedAt, newNodeDef.timeout);
 
       return buildAdvanceSuccessResult(
         {

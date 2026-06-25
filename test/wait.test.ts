@@ -262,7 +262,11 @@ describe("wait nodes — timeout", () => {
     }
   });
 
-  it("stamps waitTimedOutAt on SessionState when the timeout fires", async () => {
+  // #224: inspect is a read-only/audit path and must NOT latch
+  // waitTimedOutAt; only the gate/write path (advance) stamps it
+  // durably. evaluateWaitTimeout still reports timed_out by elapsed
+  // time, so the wire signal is unaffected.
+  it("inspect reports timed_out but does NOT stamp waitTimedOutAt (read-only)", async () => {
     const engine = makeEngine("valid-wait.workflow.yaml");
     await engine.start("valid-wait");
     await engine.advance("submitted");
@@ -272,9 +276,32 @@ describe("wait nodes — timeout", () => {
     stack[0].waitArrivedAt = new Date(Date.now() - 25 * 3600 * 1000).toISOString();
     engine.restoreStack(stack);
 
-    // Inspect triggers checkWaitTimeout via computeWaitInfo
-    engine.inspect("position");
+    const inspect = engine.inspect("position") as InspectPositionResult;
+    expect(inspect.waitStatus).toBe("timed_out");
+    // Inspect did not mutate the session.
     const after = engine.getStack();
+    expect(after[0].waitTimedOutAt).toBeUndefined();
+  });
+
+  it("gate path stamps waitTimedOutAt durably when the timeout fires", async () => {
+    const engine = makeEngine("valid-wait.workflow.yaml");
+    await engine.start("valid-wait");
+    await engine.advance("submitted");
+
+    // Simulate timeout
+    const stack = engine.getStack();
+    stack[0].waitArrivedAt = new Date(Date.now() - 25 * 3600 * 1000).toISOString();
+    engine.restoreStack(stack);
+
+    // Advance to a NON-wait target (fix-ci) so the gate's latch isn't
+    // cleared by a fresh wait arrival. This exercises
+    // checkWaitBlocking's write path.
+    engine.contextSet({ ciPassed: false, coverageReport: "fail" });
+    await engine.advance("failed");
+
+    const after = engine.getStack();
+    expect(after[0].currentNode).toBe("fix-ci");
+    // The gate latched the timeout durably during the advance.
     expect(after[0].waitTimedOutAt).toBeDefined();
     // Flag lives on SessionState, not context — confirms no bleed
     // into the wire shape or past strictContext / caps / contextHistory.
