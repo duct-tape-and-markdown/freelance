@@ -1,0 +1,21 @@
+id: subgraph-onenter-child
+version: "1.0.0"
+name: "Subgraph onEnter child"
+description: "Minimal child receiving childCount via the parent's contextMap"
+startNode: child-start
+context:
+  childCount: 0
+
+nodes:
+  child-start:
+    type: action
+    description: "Child start"
+    instructions: "The parent's contextMap seeds childCount here."
+    edges:
+      - target: child-done
+        label: approve
+
+  child-done:
+    type: terminal
+    description: "Child done"
+    instructions: "Complete."

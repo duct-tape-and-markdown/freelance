@@ -216,7 +216,7 @@ Anchors: `src/types.ts` (minimal response shapes), `src/memory/types.ts` (Propos
 
 ### Observable state transitions are durable before side effects
 
-Once an advance mutates `session.currentNode` past an edge, the traversal record is persisted **before** any code that can throw runs — specifically before `runArrivalHooks` fires onEnter hooks on the new node, and before the child-start onEnter fires on a subgraph push. Hook-collected context and meta writes persist on a second save after the hooks resolve.
+Once an advance mutates `session.currentNode` past an edge, the traversal record is persisted **before** any code that can throw runs — specifically before `runArrivalHooks` fires onEnter hooks on the new node, before the parent's subgraph-node onEnter fires on a subgraph push, and before the child-start onEnter fires after the push. Hook-collected context and meta writes persist on a second save after the hooks resolve.
 
 The rationale is log-then-apply on visible state. `advance` splits into two phases: `advanceTransition` (sync — mutates `session.currentNode`, records the history entry, returns), then `runArrivalHooks` (async — fires onEnter for the arrived node, merges hook writes). The traversal store persists between them. Two saves per successful advance; one save (the transition only) on a hook throw.
 
@@ -229,7 +229,7 @@ Under log-then-apply:
 
 - **Success:** two saves (post-transition record, then post-hook record carrying context + meta writes).
 - **Hook throw:** one save (the transition). Disk truth is "arrived at target, no hook writes." The envelope carries `currentNode = new node`, matching disk, with an `error.hook` sub-object naming the broken hook.
-- **Subgraph push:** same invariant. `maybePushSubgraph` mutates the stack, persists, then fires the child's onEnter.
+- **Subgraph push:** same invariant, with two onEnter firings. The subgraph node IS the post-edge target, so its onEnter fires first against the **parent** session — before `maybePushSubgraph` evaluates the subgraph condition or contextMap, so a parent-side hook write can drive whether the push happens and flow values into the child (#267). Those writes ride the `persistBetween` save. Then `maybePushSubgraph` mutates the stack, persists, then fires the **child's** start-node onEnter. A parent-onEnter throw means no push and the one-save (transition-only) disk truth, identical to a standard-arrival hook throw.
 
 This contract applies to *traversal state only*. Memory emits are not traversal state and must not be entangled with transition outcomes — see § "Memory emit attribution is emit-time, not transition-time".
 

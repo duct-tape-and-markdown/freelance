@@ -373,6 +373,14 @@ export class GraphEngine {
     const def = graph.definition;
 
     if (commit.kind === "subgraph-push") {
+      // The subgraph node IS the post-edge target, so its onEnter fires
+      // like any other arrival (#267) — against the PARENT session,
+      // BEFORE maybePushSubgraph evaluates the condition or the
+      // contextMap. That ordering lets a parent-side hook (meta_set,
+      // memory_by_source, a context write) influence whether the push
+      // happens and flow values into the child via contextMap. It fires
+      // on both branches: push and condition-not-met stay-put.
+      await this.runHooksOnArrival(session, graph, options?.metaCollector);
       return maybePushSubgraph({
         stack: this.stack,
         graphs: this.graphs,

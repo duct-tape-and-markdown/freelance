@@ -366,6 +366,16 @@ Script paths resolve relative to the **graph file's directory**. A hook in \`.fr
 - **Execution point**: hooks fire AFTER edge-condition evaluation and transitions — i.e., after the engine has decided the agent is arriving at this node, but before the response is built. The agent sees the node's \`validTransitions\` and \`context\` AFTER hooks have run.
 - **Validation**: script hooks are imported eagerly by \`freelance validate\` — syntax errors, missing deps, and non-function default exports fail at authoring time, not mid-traversal. The validator never invokes the hook body; it only verifies the module loads and its default export is callable.
 
+## Hooks on subgraph nodes
+
+A subgraph node (a node with a \`subgraph\` field) is still an arrival site, so its \`onEnter\` fires like any other node's — against the **parent** context, **before** the engine evaluates the subgraph's \`condition\` or copies \`contextMap\` into the child. That ordering is deliberate:
+
+- A hook write can drive the \`condition\`: \`onEnter\` sets a context key, then \`condition\` reads it to decide whether to push.
+- A hook write flows into the child: anything the hook writes to parent context is visible to \`contextMap\` when the child's initial context is built.
+- It fires on both outcomes — the push **and** the condition-not-met "stay on the parent node" branch.
+
+This makes a subgraph node the natural place for \`meta_set\` (tag the traversal as it enters a sub-workflow) or \`memory_by_source\` (prime prior knowledge before dispatching). The child's start node fires its *own* \`onEnter\` separately, after the push.
+
 ## When to use hooks (vs agent-driven context)
 
 **Use a hook when:**
