@@ -54,6 +54,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`memory search` default page size is now 50 (was 20) (#316).** With no
+  `--limit`, `search` routes through `clampLimit(undefined)` →
+  `DEFAULT_PAGE_LIMIT` (50), matching every other paginated read verb
+  (`browse`, `inspect`, `related`). Default-limit callers get up to 2.5×
+  the rows per page; pass `--limit 20` to restore the old default.
+- **Context descriptors that look malformed are now rejected at load
+  (#339).** A `context` value with a descriptor shape (`type` plus
+  `enum`/`default`) that fails descriptor parsing — e.g. a typo'd
+  `type: strng`, or a `default` outside its declared `type`/`enum` — used
+  to fall through to the `z.unknown()` arm and be silently treated as a
+  literal value, so the intended default never applied. `freelance
+  validate` / first load now fails with `GRAPH_STRUCTURE_INVALID`. A bare
+  `{type: "x"}` with no enum/default is still treated as a literal object
+  (indistinguishable from a descriptor). Declare such values explicitly or
+  give them a valid descriptor.
 - **Memory CLI verbs no longer parse every workflow yaml on startup
   (#198).** `createMemoryStore` (`src/cli/setup.ts`) ran through
   `loadGraphSetup` → `loadGraphsGraceful`, which walks every

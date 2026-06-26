@@ -585,20 +585,19 @@ export class GraphEngine {
 
   // --- Serialization (for persistence) ---
   //
-  // getStack returns the live array (no clone): every consumer either
-  // JSON.stringifies it synchronously (JsonDirectoryStateStore.put) or
-  // re-isolates on the next load via restoreStack's clone. Nothing reads
-  // or mutates the returned array across an await without going through
-  // restoreStack, so the JSON round-trip / restore-clone breaks every
-  // alias that could matter.
+  // getStack returns the live array (no clone). Isolation between the
+  // engine's live stack and a store's retained record is the backend's
+  // job on the WRITE seam: JsonDirectoryStateStore serializes via
+  // JSON.stringify, and InMemoryStateStore deep-copies via structuredClone
+  // on put/putIfVersion. So a mid-advance hook mutation (or a hook throw
+  // after a partial write) can't leak into an already-saved record on
+  // either backend.
   //
-  // restoreStack KEEPS a clone: the in-memory StateStore backend does a
-  // shallow spread on put and returns the stored record verbatim on get,
-  // so it does NOT serialize the stack. Without this clone, a hydrated
-  // engine would share its `this.stack` with the store's retained record,
-  // and an in-place mutation before save (or a mid-advance throw) would
-  // leak into the persisted record with no isolation. One clone on the
-  // load seam is sufficient to isolate both backends.
+  // restoreStack KEEPS a clone for the READ seam: the in-memory backend's
+  // get() returns the retained record by reference, so without this clone
+  // a hydrated engine would share its `this.stack` with the store's record
+  // and later in-place mutations would leak back. Write-seam copy (backend)
+  // + read-seam clone (here) together isolate both directions.
 
   getStack(): SessionState[] {
     return this.stack;

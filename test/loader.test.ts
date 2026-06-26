@@ -365,10 +365,12 @@ describe("loadGraphsCollecting", () => {
     expect(errors).toHaveLength(0);
   });
 
-  it("reports a shadowing id across two dirs as a warning entry (#278)", () => {
+  it("does not flag a cross-dir override as a dropped file — it's the intended cascade (#278)", () => {
     const dir1 = fs.mkdtempSync(path.join(os.tmpdir(), "collecting-shadow-1-"));
     const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "collecting-shadow-2-"));
-    // Both define valid-simple — the later dir shadows the earlier one.
+    // Both dirs define valid-simple — the later dir overrides the earlier.
+    // Nothing is dropped from the listing (the winner loads), so this must
+    // NOT surface as a loadError (SKILL.md: loadErrors means a file was dropped).
     fs.copyFileSync(
       path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
       path.join(dir1, "valid-simple.workflow.yaml"),
@@ -381,10 +383,31 @@ describe("loadGraphsCollecting", () => {
       const { graphs, errors } = loadGraphsCollecting([dir1, dir2]);
       expect(graphs.size).toBe(1);
       expect(graphs.has("valid-simple")).toBe(true);
-      expect(errors.some((e) => /shadows an earlier definition/.test(e.message))).toBe(true);
+      expect(errors).toHaveLength(0);
     } finally {
       fs.rmSync(dir1, { recursive: true, force: true });
       fs.rmSync(dir2, { recursive: true, force: true });
+    }
+  });
+
+  it("reports two files in the SAME dir claiming one id as a dropped file (#278)", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "collecting-dup-"));
+    // One id, two files, one dir — no defined precedence, so one is dropped;
+    // that genuinely belongs in loadErrors.
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(dir, "a.workflow.yaml"),
+    );
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(dir, "b.workflow.yaml"),
+    );
+    try {
+      const { graphs, errors } = loadGraphsCollecting([dir]);
+      expect(graphs.size).toBe(1);
+      expect(errors.some((e) => /more than one file/.test(e.message))).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });
@@ -545,7 +568,12 @@ ${
     expect(loadGraphs(dir).has("g")).toBe(true);
   });
 
-  // #280 — expression path cross-check under strictContext
+  // #280 was reverted: the "undeclared referenced field under strictContext"
+  // load check was unsound. strictContext gates only `contextSet` + hook
+  // results — NOT initialContext (`freelance start --context`), advance
+  // `--context`, or a parent subgraph's contextMap — so a referenced field
+  // can be legitimately runtime-seeded and never declared. The check
+  // rejected valid graphs; load must accept them.
   const strictGraph = (condition: string) => `
 id: g
 version: "1.0.0"
@@ -568,22 +596,16 @@ nodes:
     description: "Done"
 `;
 
-  it("rejects an expression referencing an undeclared field under strictContext", () => {
-    const dir = writeTempGraph(strictGraph("context.redy == true"));
-    expect(() => loadGraphs(dir)).toThrow(/undeclared context field "redy"/i);
-  });
-
-  it("accepts an expression referencing a declared field under strictContext", () => {
-    const dir = writeTempGraph(strictGraph("context.ready == true"));
+  it("accepts a strictContext expression referencing an undeclared (runtime-seeded) field", () => {
+    // `reviewer` isn't in the context block but can arrive via `start
+    // --context` or a parent's contextMap — load must not reject it.
+    const dir = writeTempGraph(strictGraph("context.reviewer == true"));
     expect(loadGraphs(dir).has("g")).toBe(true);
   });
 
-  it("does not cross-check fields when strictContext is off (field may be set at runtime)", () => {
-    // Same undeclared reference, but no strictContext → accepted, since the
-    // field could be populated by initialContext / contextSet / a hook.
-    const dir = writeTempGraph(
-      strictGraph("context.redy == true").replace("strictContext: true\n", ""),
-    );
-    expect(loadGraphs(dir).has("g")).toBe(true);
+  it("still parse-checks the expression itself under strictContext", () => {
+    // Reverting the field cross-check does not relax syntax validation.
+    const dir = writeTempGraph(strictGraph("context.ready ==="));
+    expect(() => loadGraphs(dir)).toThrow();
   });
 });

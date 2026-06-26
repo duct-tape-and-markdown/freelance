@@ -146,7 +146,7 @@ Durable contracts surfaced across multiple features. If a new feature extends on
   - `returns.ts` — Return schema validation
   - `hooks.ts` — `HookRunner`, `HookContext`, `HookMemoryAccess` narrow read interface, `resolveHookArgs`, timeout + error wrapping. Required injection on `GraphEngineOptions`.
   - `builtin-hooks.ts` — `BUILTIN_HOOKS` map of name → `HookFn` (`memory_status`, `memory_browse`); `requireMemory` guard helper
-  - `helpers.ts` — Shared utilities (cloneContext, toNodeInfo)
+  - `helpers.ts` — Shared utilities (toNodeInfo, withGraphSources, buildAdvance* result builders)
 - `src/state/` — Stateless traversal store (JSON files on disk under `.freelance/traversals/`)
   - `traversal-store.ts` — Multi-traversal management, loads/saves state per operation; owns `setMeta` (merge semantics) and meta enrichment of `inspect` / `advance` / `list` responses
   - `db.ts` — `StateStore` interface + JSON-directory and in-memory backends; `TraversalRecord` carries an optional `meta: Record<string,string>` of opaque caller-supplied lookup tags (Freelance never interprets them — see `freelance_guide meta`); `openStateStore` factory owns the `mkdirSync` (constructor is pure)

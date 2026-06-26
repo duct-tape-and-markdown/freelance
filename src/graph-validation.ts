@@ -13,11 +13,7 @@
 
 import { EC } from "./error-codes.js";
 import { EngineError } from "./errors.js";
-import {
-  extractPropertyComparisons,
-  referencedContextFields,
-  validateExpression,
-} from "./evaluator.js";
+import { extractPropertyComparisons, validateExpression } from "./evaluator.js";
 import type { GraphDefinition } from "./schema/graph-schema.js";
 import { isContextFieldDescriptor } from "./schema/graph-schema.js";
 
@@ -171,26 +167,12 @@ function checkEnumCompliance(
 function validateOneExpression(
   expr: string,
   enumMap: Map<string, Set<string>>,
-  declaredFields: Set<string> | null,
   location: string,
   describe: (innerMessage: string) => string,
 ): void {
   try {
     validateExpression(expr);
     checkEnumCompliance(expr, enumMap, location);
-    // Under strictContext every settable key is declared, so a reference
-    // to an undeclared context field is a typo we can reject at load (#280).
-    // Without strictContext the field may be set at runtime, so we can't.
-    if (declaredFields) {
-      for (const field of referencedContextFields(expr)) {
-        if (!declaredFields.has(field)) {
-          throw new EngineError(
-            `references undeclared context field "${field}" (strictContext is enabled)`,
-            EC.GRAPH_STRUCTURE_INVALID,
-          );
-        }
-      }
-    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new EngineError(describe(msg), EC.GRAPH_STRUCTURE_INVALID);
@@ -205,7 +187,6 @@ function validateOneExpression(
  */
 export function validateExpressions(def: GraphDefinition, filePath: string): void {
   const enumMap = extractContextEnums(def);
-  const declaredFields = def.strictContext ? new Set(Object.keys(def.context ?? {})) : null;
 
   for (const [nodeId, node] of Object.entries(def.nodes)) {
     const at = `[${filePath}] Node "${nodeId}"`;
@@ -214,7 +195,6 @@ export function validateExpressions(def: GraphDefinition, filePath: string): voi
       validateOneExpression(
         v.expr,
         enumMap,
-        declaredFields,
         `${at}: validation`,
         (m) => `${at}: invalid validation expression "${v.expr}": ${m}`,
       );
@@ -225,7 +205,6 @@ export function validateExpressions(def: GraphDefinition, filePath: string): voi
       validateOneExpression(
         edge.condition,
         enumMap,
-        declaredFields,
         `${at}: edge "${edge.label}"`,
         (m) => `${at}: edge "${edge.label}" has invalid condition "${edge.condition}": ${m}`,
       );
@@ -235,7 +214,6 @@ export function validateExpressions(def: GraphDefinition, filePath: string): voi
       validateOneExpression(
         node.subgraph.condition,
         enumMap,
-        declaredFields,
         `${at}: subgraph condition`,
         (m) => `${at}: invalid subgraph condition "${node.subgraph?.condition}": ${m}`,
       );

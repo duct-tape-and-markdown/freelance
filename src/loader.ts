@@ -152,15 +152,21 @@ interface CoreLoadResult extends CollectingLoadResult {
 /**
  * Shared multi-file load core: list every *.workflow.yaml under each dir,
  * load each into the Map, and accumulate failures as DATA (never stderr).
- * Later files/dirs shadow earlier ones — a shadowing id is reported as a
- * warning entry in `errors` rather than written to stderr, so every caller
- * surfaces shadowing through the same structured channel. Sealed graphs are
- * merged before cross-graph validation, which only runs when at least one
- * graph loaded (matching the collecting loader's safety guard).
+ * Across dirs, later dirs shadow earlier ones — that is the intended
+ * cascade override and drops nothing (the winner loads), so it is NOT
+ * reported. Two files in the SAME dir claiming one id IS reported as a
+ * warning entry, because there's no defined precedence within a dir so one
+ * is genuinely dropped from the listing (SKILL.md: `loadErrors` means a
+ * file was dropped). Sealed graphs are merged before cross-graph
+ * validation, which only runs when at least one graph loaded (matching the
+ * collecting loader's safety guard).
  */
 function collectGraphs(dirs: string[], options?: LoadGraphsOptions): CoreLoadResult {
   const graphs = new Map<string, ValidatedGraph>();
   const errors: Array<{ file: string; message: string }> = [];
+  // Which dir last claimed each id — lets us tell a same-dir duplicate
+  // (ambiguous, one file dropped) from a cross-dir override (intended).
+  const idSource = new Map<string, string>();
   let sawFiles = false;
 
   const existingDirs = dirs.map((d) => path.resolve(d)).filter((d) => fs.existsSync(d));
@@ -171,13 +177,14 @@ function collectGraphs(dirs: string[], options?: LoadGraphsOptions): CoreLoadRes
       const relFile = path.relative(resolvedDir, filePath);
       try {
         const { id, definition, graph, hookResolutions } = loadSingleGraph(filePath);
-        if (graphs.has(id)) {
+        if (idSource.get(id) === resolvedDir) {
           errors.push({
             file: relFile,
-            message: `Graph "${id}" from ${resolvedDir} shadows an earlier definition`,
+            message: `Graph "${id}" is defined by more than one file in ${resolvedDir}`,
           });
         }
         graphs.set(id, { definition, graph, hookResolutions });
+        idSource.set(id, resolvedDir);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         errors.push({ file: relFile, message: msg });
