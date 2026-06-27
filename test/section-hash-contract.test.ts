@@ -7,9 +7,10 @@
  * break — that's the point.
  */
 
+import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
-import { extractSection } from "../src/section-resolver.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createCachingResolver, extractSection } from "../src/section-resolver.js";
 import { hashContent } from "../src/sources.js";
 
 const FIXTURE = path.resolve(__dirname, "fixtures/section-hash-contract.md");
@@ -49,5 +50,30 @@ describe("section hash contract", () => {
 
   it("returns null for nonexistent section", () => {
     expect(extractSection(FIXTURE, "Nonexistent")).toBeNull();
+  });
+});
+
+describe("createCachingResolver (#331)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("matches extractSection output section-for-section", () => {
+    const resolve = createCachingResolver();
+    for (const section of ["Section A", "Section B", "Section C"] as const) {
+      expect(resolve(FIXTURE, section)).toBe(extractSection(FIXTURE, section));
+      expect(hashContent(resolve(FIXTURE, section)!)).toBe(CONTRACT[section]);
+    }
+    expect(resolve(FIXTURE, "Nonexistent")).toBeNull();
+  });
+
+  it("parses each file once across multiple section lookups", () => {
+    const readSpy = vi.spyOn(fs, "readFileSync");
+    const resolve = createCachingResolver();
+    resolve(FIXTURE, "Section A");
+    resolve(FIXTURE, "Section B");
+    resolve(FIXTURE, "Section C");
+    const readsOfFixture = readSpy.mock.calls.filter((c) => c[0] === FIXTURE).length;
+    expect(readsOfFixture).toBe(1);
   });
 });

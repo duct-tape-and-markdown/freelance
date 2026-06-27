@@ -1,6 +1,6 @@
 import { EC, EngineError } from "../errors.js";
 import { evaluatePredicate } from "../evaluator.js";
-import { resolveContextDefaults } from "../loader.js";
+import { resolveContextDefaults } from "../schema/graph-schema.js";
 import type { NodeDefinition, SessionState, ValidatedGraph } from "../types.js";
 import { buildAdvanceSuccessResult, keysSince, mergeDelta, requireGraph } from "./helpers.js";
 import type { HookRunner, MetaCollector } from "./hooks.js";
@@ -65,11 +65,7 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Subgrap
         },
         minimal
           ? { contextDelta }
-          : {
-              node: newNodeDef,
-              context: parentSession.context,
-              graphSources: parentDef.sources,
-            },
+          : { node: newNodeDef, context: parentSession.context, graphSources: parentDef.sources },
       );
     }
   }
@@ -152,11 +148,7 @@ export async function maybePushSubgraph(args: PushSubgraphArgs): Promise<Subgrap
             keysSince(activeSession.contextHistory, childWritesBefore),
           ),
         }
-      : {
-          node: childStartNode,
-          context: activeSession.context,
-          graphSources: childDef.sources,
-        },
+      : { node: childStartNode, context: activeSession.context, graphSources: childDef.sources },
   );
 }
 
@@ -217,10 +209,6 @@ export function popSubgraph(args: PopSubgraphArgs): SubgraphResult {
       ? {
           contextDelta: mergeDelta(contextDelta, Object.keys(returnedContext)),
         }
-      : {
-          node: parentNodeDef,
-          context: parentSession.context,
-          graphSources: parentDef.sources,
-        },
+      : { node: parentNodeDef, context: parentSession.context, graphSources: parentDef.sources },
   );
 }

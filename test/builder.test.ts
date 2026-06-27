@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GraphBuilder } from "../src/builder.js";
+import { EngineError } from "../src/errors.js";
 
 describe("GraphBuilder", () => {
   it("builds a minimal valid graph", () => {
@@ -175,6 +176,16 @@ describe("GraphBuilder", () => {
 
   it("rejects empty builder", () => {
     expect(() => new GraphBuilder("test-empty").build()).toThrow("no nodes added");
+  });
+
+  it("build() failures throw catalogued EngineError, not bare Error (#310)", () => {
+    try {
+      new GraphBuilder("test-empty-code").build();
+      expect.unreachable("empty builder should throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(EngineError);
+      expect((e as EngineError).code).toBe("GRAPH_STRUCTURE_INVALID");
+    }
   });
 
   it("validates expressions at build time", () => {

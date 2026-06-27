@@ -1,5 +1,5 @@
 import { EC, EngineError } from "../errors.js";
-import { resolveContextDefaults } from "../loader.js";
+import { resolveContextDefaults } from "../schema/graph-schema.js";
 import type {
   AdvanceMinimalResult,
   AdvanceResult,
@@ -20,11 +20,11 @@ import {
   buildContextSetResult,
   buildInspectResult,
   type ContextCaps,
-  DEFAULT_CONTEXT_CAPS,
   enforceContextCaps,
   enforceStrictContext,
   type InspectHistoryOptions,
   type ResponseMode,
+  resolveContextCaps,
 } from "./context.js";
 import {
   checkEdgeCondition,
@@ -39,15 +39,15 @@ import {
   type AdvanceSnapshotMode,
   buildAdvanceSnapshot,
   buildAdvanceSuccessResult,
-  cloneContext,
   keysSince,
   requireGraph,
   toNodeInfo,
+  withGraphSources,
 } from "./helpers.js";
 import type { HookRunner, MetaCollector } from "./hooks.js";
 import { maybePushSubgraph, popSubgraph } from "./subgraph.js";
 import { evaluateTransitions } from "./transitions.js";
-import { computeTimeoutAt, evaluateWaitConditions } from "./wait.js";
+import { computeTimeoutAt, enterWait, evaluateWaitConditions } from "./wait.js";
 
 export type { ResponseMode } from "./context.js";
 
@@ -110,6 +110,10 @@ export interface GraphEngineOptions {
    * `advance`'s contextUpdates, and `contextSet`. Hook return values
    * are capped inside the HookRunner so the runner owns that path
    * end-to-end. Defaults to `DEFAULT_CONTEXT_CAPS` when omitted.
+   *
+   * Hard contract: engine caps === hook-runner caps. composeRuntime is
+   * the single fan-out that passes one ContextCaps to both; GraphEngine
+   * asserts the coupling at construction (see constructor).
    */
   contextCaps?: ContextCaps;
 }
@@ -126,7 +130,30 @@ export class GraphEngine {
   ) {
     this.maxDepth = options.maxDepth ?? 5;
     this.hookRunner = options.hookRunner;
-    this.contextCaps = options.contextCaps ?? DEFAULT_CONTEXT_CAPS;
+    // resolveContextCaps is the single fallback definition (shared with
+    // HookRunner) so both default identically.
+    this.contextCaps = resolveContextCaps(options.contextCaps);
+
+    // Hard contract: engine caps === hook-runner caps. composeRuntime is
+    // the single fan-out that passes one ContextCaps to both; assert it
+    // here so a divergent DIRECT construction fails loud at the point the
+    // two objects are combined, rather than silently mis-capping (the
+    // caller path enforces engine caps, the hook-return path enforces the
+    // runner's — they must agree).
+    const runnerCaps = this.hookRunner.resolvedContextCaps;
+    if (
+      runnerCaps.maxValueBytes !== this.contextCaps.maxValueBytes ||
+      runnerCaps.maxTotalBytes !== this.contextCaps.maxTotalBytes
+    ) {
+      throw new EngineError(
+        `Context-cap divergence: GraphEngine caps ` +
+          `(maxValueBytes=${this.contextCaps.maxValueBytes}, maxTotalBytes=${this.contextCaps.maxTotalBytes}) ` +
+          `differ from the injected HookRunner's caps ` +
+          `(maxValueBytes=${runnerCaps.maxValueBytes}, maxTotalBytes=${runnerCaps.maxTotalBytes}). ` +
+          `Construct both through composeRuntime, which is the single fan-out for one ContextCaps.`,
+        EC.INTERNAL,
+      );
+    }
   }
 
   list(): GraphListResult {
@@ -146,7 +173,7 @@ export class GraphEngine {
   ): Promise<StartResult> {
     if (this.stack.length > 0) {
       throw new EngineError(
-        "A traversal is already active. Call reset() first.",
+        "A traversal is already active. Reset it before starting another.",
         EC.TRAVERSAL_ACTIVE,
       );
     }
@@ -186,8 +213,8 @@ export class GraphEngine {
       currentNode: def.startNode,
       node: toNodeInfo(node),
       validTransitions: evaluateTransitions(node, session.context),
-      context: cloneContext(session.context),
-      ...(def.sources && def.sources.length > 0 ? { graphSources: def.sources } : {}),
+      context: structuredClone(session.context),
+      ...withGraphSources({}, def.sources),
     } satisfies StartResult;
   }
 
@@ -275,7 +302,7 @@ export class GraphEngine {
       node: previousNode,
       edge,
       timestamp: new Date().toISOString(),
-      contextSnapshot: cloneContext(session.context),
+      contextSnapshot: structuredClone(session.context),
     });
     session.currentNode = edgeDef.target;
     session.turnCount = 0;
@@ -346,6 +373,14 @@ export class GraphEngine {
     const def = graph.definition;
 
     if (commit.kind === "subgraph-push") {
+      // The subgraph node IS the post-edge target, so its onEnter fires
+      // like any other arrival (#267) — against the PARENT session,
+      // BEFORE maybePushSubgraph evaluates the condition or the
+      // contextMap. That ordering lets a parent-side hook (meta_set,
+      // memory_by_source, a context write) influence whether the push
+      // happens and flow values into the child via contextMap. It fires
+      // on both branches: push and condition-not-met stay-put.
+      await this.runHooksOnArrival(session, graph, options?.metaCollector);
       return maybePushSubgraph({
         stack: this.stack,
         graphs: this.graphs,
@@ -369,13 +404,18 @@ export class GraphEngine {
     const validTransitions = evaluateTransitions(newNodeDef, session.context);
     const mode: AdvanceResponseMode = minimal
       ? { contextDelta: keysSince(session.contextHistory, writesBefore) }
-      : { node: newNodeDef, context: session.context, graphSources: def.sources };
+      : // graphSources rides through raw — buildAdvanceSuccessResult's
+        // withGraphSources is the single gate that omits it when empty.
+        { node: newNodeDef, context: session.context, graphSources: def.sources };
 
     // Wait node arrival
     if (isWait && newNodeDef.waitOn) {
-      session.waitArrivedAt = new Date().toISOString();
+      // Fresh occupancy: enterWait resets the (waitArrivedAt,
+      // waitTimedOutAt) pair atomically so a prior wait's timeout latch
+      // can't leak into this one (#272).
+      const arrivedAt = enterWait(session);
       const waitConditions = evaluateWaitConditions(newNodeDef.waitOn, session.context);
-      const timeoutAt = computeTimeoutAt(session.waitArrivedAt, newNodeDef.timeout);
+      const timeoutAt = computeTimeoutAt(arrivedAt, newNodeDef.timeout);
 
       return buildAdvanceSuccessResult(
         {
@@ -412,7 +452,7 @@ export class GraphEngine {
     // Root terminal GC: clear the stack so TraversalStore.saveEngine
     // deletes the persisted record. The response is already snapshotted
     // above — context, traversalHistory, and node info survive the pop.
-    // Post-hoc inspect via freelance_inspect is lost, but a completed
+    // Post-hoc inspect via freelance inspect is lost, but a completed
     // traversalId is a dead handle anyway. Subgraph terminals are handled
     // earlier in this function via popSubgraph and don't reach here.
     if (isTerminal && this.stack.length === 1) {
@@ -451,11 +491,14 @@ export class GraphEngine {
     session.turnCount++;
 
     const nodeDef = def.nodes[session.currentNode];
-    return buildContextSetResult(
-      session,
-      nodeDef,
-      options?.responseMode === "minimal" ? Object.keys(updates) : undefined,
-    );
+    // Minimal contextDelta lists only keys that were actually written —
+    // undefined values are no-ops (see omitUndefined in context.ts), so
+    // they must not surface here either.
+    const contextDelta =
+      options?.responseMode === "minimal"
+        ? Object.keys(updates).filter((k) => updates[k] !== undefined)
+        : undefined;
+    return buildContextSetResult(session, nodeDef, contextDelta);
   }
 
   inspect(
@@ -501,8 +544,8 @@ export class GraphEngine {
       previousGraph: prev.graphId,
       previousNode: prev.node,
       message: isMulti
-        ? `Traversal stack cleared (${clearedStack.length} graphs). Call freelance_start to begin a new workflow.`
-        : "Traversal cleared. Call freelance_start to begin a new workflow.",
+        ? `Traversal stack cleared (${clearedStack.length} graphs). Call freelance start to begin a new workflow.`
+        : "Traversal cleared. Call freelance start to begin a new workflow.",
       ...(isMulti ? { clearedStack } : {}),
     } satisfies ResetResult;
   }
@@ -534,14 +577,30 @@ export class GraphEngine {
               ? keysSince(session.contextHistory, opts.writesBefore)
               : [],
         }
-      : { full: true };
+      : // graphSources rides through raw — buildAdvanceSnapshot's
+        // withGraphSources is the single gate that omits it when empty.
+        { full: true, graphSources: def.sources };
     return buildAdvanceSnapshot(session, nodeDef, mode);
   }
 
   // --- Serialization (for persistence) ---
+  //
+  // getStack returns the live array (no clone). Isolation between the
+  // engine's live stack and a store's retained record is the backend's
+  // job on the WRITE seam: JsonDirectoryStateStore serializes via
+  // JSON.stringify, and InMemoryStateStore deep-copies via structuredClone
+  // on put/putIfVersion. So a mid-advance hook mutation (or a hook throw
+  // after a partial write) can't leak into an already-saved record on
+  // either backend.
+  //
+  // restoreStack KEEPS a clone for the READ seam: the in-memory backend's
+  // get() returns the retained record by reference, so without this clone
+  // a hydrated engine would share its `this.stack` with the store's record
+  // and later in-place mutations would leak back. Write-seam copy (backend)
+  // + read-seam clone (here) together isolate both directions.
 
   getStack(): SessionState[] {
-    return structuredClone(this.stack);
+    return this.stack;
   }
 
   restoreStack(stack: SessionState[]): void {

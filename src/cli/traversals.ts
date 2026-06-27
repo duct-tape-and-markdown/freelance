@@ -13,8 +13,8 @@
 import type { InspectHistoryOptions } from "../engine/context.js";
 import { EC, EngineError } from "../errors.js";
 import type { TraversalStore } from "../state/index.js";
-import type { InspectField, InspectPositionResult } from "../types.js";
-import { CliExit, EXIT, outputJson, parseIntArg, splitKeyValue } from "./output.js";
+import type { InspectField } from "../types.js";
+import { CliExit, EXIT, outputJson, splitKeyValue } from "./output.js";
 
 // Shared by `start` and `advance` for their `--context` JSON payload.
 function parseContextJson(raw: string): Record<string, unknown> {
@@ -98,13 +98,16 @@ export async function traversalAdvance(
 ): Promise<void> {
   const id = store.resolveTraversalId(opts?.traversal);
   const contextUpdates = opts?.context ? parseContextJson(opts.context) : undefined;
+  // A missing edge is a malformed invocation, not a read-only probe. The
+  // node's `validTransitions` already ride on every `start`/`advance`
+  // response, and `inspect --minimal` covers the re-check case — so a
+  // bare `advance` has no read-only meaning and is rejected like any
+  // other missing required argument (#258).
   if (!edge) {
-    // No edge argument: report the available edges instead. Useful for
-    // the skill to probe validTransitions without side effects.
-    const raw = store.inspect(id, "position");
-    const inspectResult = raw as { traversalId: string } & InspectPositionResult;
-    outputJson({ traversalId: id, validTransitions: inspectResult.validTransitions });
-    return;
+    throw new EngineError(
+      "advance requires an edge label (e.g. `freelance advance <edge>`).",
+      EC.INVALID_FLAG_VALUE,
+    );
   }
   const result = await store.advance(id, edge, contextUpdates, {
     ...(opts?.minimal ? { responseMode: "minimal" as const } : {}),
@@ -114,8 +117,8 @@ export async function traversalAdvance(
     // requested edge didn't pass. Exit BLOCKED so the skill can
     // distinguish "retry with different context" from "structural
     // error, stop". Response still carries `validTransitions` etc.
-    // `CliExit` lets `runCliHandlerAsync` close the runtime before
-    // the BLOCKED exit — direct `process.exit` would leak sidecars.
+    // `CliExit` lets `runCliHandler` close the runtime before the
+    // BLOCKED exit — direct `process.exit` would leak sidecars.
     throw new CliExit(result, EXIT.BLOCKED);
   }
   outputJson(result);
@@ -168,13 +171,13 @@ export function traversalInspect(
   opts?: {
     minimal?: boolean;
     fields?: readonly InspectField[];
-    limit?: string;
-    offset?: string;
+    limit?: number;
+    offset?: number;
     includeSnapshots?: boolean;
   },
 ): void {
-  const limit = parseIntArg(opts?.limit, "--limit");
-  const offset = parseIntArg(opts?.offset, "--offset");
+  const limit = opts?.limit;
+  const offset = opts?.offset;
   const id = store.resolveTraversalId(traversalId);
   const historyOpts: InspectHistoryOptions = {
     ...(limit !== undefined && { limit }),

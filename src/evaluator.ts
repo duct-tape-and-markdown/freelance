@@ -186,6 +186,16 @@ function tokenize(expr: string): Token[] {
       } else if (BUILTIN_FUNCTIONS.has(ident)) {
         tokens.push({ type: "FUNCTION", value: ident, pos: start });
       } else if (ident.startsWith("context.")) {
+        // Reject empty path segments from consecutive dots — `context..foo`
+        // or `context.foo..bar` would otherwise tokenize cleanly and
+        // resolve to null at runtime, masking the typo (#282).
+        if (contextPathSegments(ident).some((seg) => seg.length === 0)) {
+          throw new EvaluatorError(
+            `Malformed context path '${ident}' at position ${start}: empty path segment (check for consecutive dots).`,
+            expr,
+            start,
+          );
+        }
         tokens.push({ type: "PROPERTY", value: ident, pos: start });
       } else {
         throw new EvaluatorError(
@@ -204,14 +214,31 @@ function tokenize(expr: string): Token[] {
   return tokens;
 }
 
-// --- Parser / Evaluator ---
+// --- AST ---
+
+/**
+ * Parsed expression tree. Context-independent: a given expression string
+ * parses to one immutable `Ast` (cached in `astCache`) and is re-evaluated
+ * against fresh context on every advance — no re-tokenize, no re-parse
+ * per evaluation (#285). Expressions are pure (property reads + literal
+ * comparisons, no side effects), so lazily evaluating the tree gives the
+ * same result the old fused parse-and-eval produced eagerly.
+ */
+type Ast =
+  | { kind: "lit"; value: string | number | boolean | null }
+  | { kind: "prop"; path: string }
+  | { kind: "not"; operand: Ast }
+  | { kind: "logic"; op: "&&" | "||"; left: Ast; right: Ast }
+  | { kind: "compare"; op: string; left: Ast; right: Ast }
+  | { kind: "call"; name: string; arg: Ast };
+
+// --- Parser (token stream → Ast; no evaluation) ---
 
 class Parser {
   private pos = 0;
 
   constructor(
     private tokens: Token[],
-    private context: Record<string, unknown>,
     private expr: string,
   ) {}
 
@@ -225,8 +252,8 @@ class Parser {
     return t;
   }
 
-  parse(): boolean {
-    const result = this.parseOrExpr();
+  parse(): Ast {
+    const ast = this.parseOrExpr();
     if (this.peek().type !== "EOF") {
       const t = this.peek();
       throw new EvaluatorError(
@@ -235,54 +262,53 @@ class Parser {
         t.pos,
       );
     }
-    return toBool(result);
+    return ast;
   }
 
-  private parseOrExpr(): unknown {
+  private parseOrExpr(): Ast {
     let left = this.parseAndExpr();
     while (this.peek().type === "LOGIC" && this.peek().value === "||") {
       this.advance();
       const right = this.parseAndExpr();
-      if (!toBool(left)) left = right; // short-circuit: keep left if truthy
+      left = { kind: "logic", op: "||", left, right };
     }
     return left;
   }
 
-  private parseAndExpr(): unknown {
+  private parseAndExpr(): Ast {
     let left = this.parseNotExpr();
     while (this.peek().type === "LOGIC" && this.peek().value === "&&") {
       this.advance();
       const right = this.parseNotExpr();
-      if (toBool(left)) left = right; // short-circuit: keep left if falsy
+      left = { kind: "logic", op: "&&", left, right };
     }
     return left;
   }
 
-  private parseNotExpr(): unknown {
+  private parseNotExpr(): Ast {
     if (this.peek().type === "NOT") {
       this.advance();
-      const val = this.parseNotExpr();
-      return !toBool(val);
+      return { kind: "not", operand: this.parseNotExpr() };
     }
     return this.parseComparison();
   }
 
-  private parseComparison(): unknown {
+  private parseComparison(): Ast {
     const left = this.parseValue();
     if (this.peek().type === "OP") {
       const op = this.advance().value as string;
       const right = this.parseValue();
-      return compare(left, op, right);
+      return { kind: "compare", op, left, right };
     }
     return left;
   }
 
-  private parseValue(): unknown {
+  private parseValue(): Ast {
     const t = this.peek();
 
     if (t.type === "LPAREN") {
       this.advance();
-      const val = this.parseOrExpr();
+      const inner = this.parseOrExpr();
       if (this.peek().type !== "RPAREN") {
         throw new EvaluatorError(
           `Expected ')' at position ${this.peek().pos}`,
@@ -291,17 +317,17 @@ class Parser {
         );
       }
       this.advance();
-      return val;
+      return inner;
     }
 
     if (t.type === "STRING" || t.type === "NUMBER" || t.type === "BOOLEAN" || t.type === "NULL") {
       this.advance();
-      return t.value;
+      return { kind: "lit", value: t.value };
     }
 
     if (t.type === "PROPERTY") {
       this.advance();
-      return this.resolveProperty(t.value as string);
+      return { kind: "prop", path: t.value as string };
     }
 
     if (t.type === "FUNCTION") {
@@ -323,7 +349,7 @@ class Parser {
         );
       }
       this.advance();
-      return callFunction(t.value as string, arg);
+      return { kind: "call", name: t.value as string, arg };
     }
 
     if (t.type === "EOF") {
@@ -336,18 +362,66 @@ class Parser {
       t.pos,
     );
   }
+}
 
-  private resolveProperty(path: string): unknown {
-    // path is "context.foo.bar" — skip the "context." prefix
-    return walkContextSegments(this.context, path.slice("context.".length).split("."));
+/**
+ * Evaluate a parsed tree against a context object. Logic nodes
+ * short-circuit; since expressions are side-effect-free the result is
+ * identical to evaluating both arms eagerly.
+ */
+function evalAst(node: Ast, context: Record<string, unknown>): unknown {
+  switch (node.kind) {
+    case "lit":
+      return node.value;
+    case "prop":
+      return walkContextSegments(context, contextPathSegments(node.path));
+    case "not":
+      return !toBool(evalAst(node.operand, context));
+    case "logic": {
+      const left = evalAst(node.left, context);
+      if (node.op === "||") return toBool(left) ? left : evalAst(node.right, context);
+      return toBool(left) ? evalAst(node.right, context) : left;
+    }
+    case "compare":
+      return compare(evalAst(node.left, context), node.op, evalAst(node.right, context));
+    case "call":
+      return callFunction(node.name, evalAst(node.arg, context));
   }
+}
+
+// Expression strings come from graph definitions (finite), so this memo is
+// bounded by the number of distinct expressions across loaded graphs — no
+// eviction needed. Validating an expression at load warms the cache for
+// the advances that later evaluate it.
+const astCache = new Map<string, Ast>();
+
+function parseToAst(expr: string): Ast {
+  const trimmed = expr.trim();
+  if (trimmed.length === 0) {
+    throw new EvaluatorError("Empty expression", expr, 0);
+  }
+  const cached = astCache.get(trimmed);
+  if (cached) return cached;
+  const ast = new Parser(tokenize(trimmed), trimmed).parse();
+  astCache.set(trimmed, ast);
+  return ast;
+}
+
+/**
+ * Strip the mandatory `context.` prefix from a PROPERTY path and split
+ * into segments. The single place the prefix convention is encoded —
+ * shared by the parser's property resolver, `resolveContextRef`, and
+ * `extractPropertyComparisons` (which re-joins for its enum lookup).
+ */
+function contextPathSegments(path: string): string[] {
+  return path.slice("context.".length).split(".");
 }
 
 /**
  * Walk a pre-split dotted path against a context object. Missing or
  * non-object intermediates short-circuit to null so callers can treat
  * "absent" and "explicit null" uniformly. Shared by the expression
- * parser's property resolver and the public resolveContextPath below.
+ * parser's property resolver and the public resolveContextRef below.
  */
 function walkContextSegments(context: Record<string, unknown>, segments: string[]): unknown {
   let current: unknown = context;
@@ -387,23 +461,26 @@ function toBool(val: unknown): boolean {
   return true;
 }
 
+// Numeric comparison operators. Each requires both operands to be
+// numbers; a non-number operand makes the comparison false (a missing
+// context path resolves to null, so `context.count > 3` is false until
+// the count is set). Equality (`==`/`!=`) is handled separately because
+// it's type-agnostic.
+const NUMERIC_OPS: Record<string, (a: number, b: number) => boolean> = {
+  ">": (a, b) => a > b,
+  "<": (a, b) => a < b,
+  ">=": (a, b) => a >= b,
+  "<=": (a, b) => a <= b,
+};
+
 function compare(left: unknown, op: string, right: unknown): boolean {
-  switch (op) {
-    case "==":
-      return left === right;
-    case "!=":
-      return left !== right;
-    case ">":
-      return typeof left === "number" && typeof right === "number" ? left > right : false;
-    case "<":
-      return typeof left === "number" && typeof right === "number" ? left < right : false;
-    case ">=":
-      return typeof left === "number" && typeof right === "number" ? left >= right : false;
-    case "<=":
-      return typeof left === "number" && typeof right === "number" ? left <= right : false;
-    default:
-      return false;
+  if (op === "==") return left === right;
+  if (op === "!=") return left !== right;
+  const numOp = NUMERIC_OPS[op];
+  if (numOp) {
+    return typeof left === "number" && typeof right === "number" ? numOp(left, right) : false;
   }
+  return false;
 }
 
 /**
@@ -412,16 +489,10 @@ function compare(left: unknown, op: string, right: unknown): boolean {
  * Used at graph load time to catch typos early.
  */
 export function validateExpression(expr: string): void {
-  const trimmed = expr.trim();
-  if (trimmed.length === 0) {
-    throw new EvaluatorError("Empty expression", expr, 0);
-  }
-  // Tokenize to catch lexical errors, then parse with an empty context
-  // to catch structural errors. Property access resolves to null against
-  // empty context, which is fine — we're checking syntax, not semantics.
-  const tokens = tokenize(trimmed);
-  const parser = new Parser(tokens, {}, expr);
-  parser.parse();
+  // parseToAst tokenizes + parses (and caches the tree, warming it for
+  // the advances that later evaluate this expression). Throws on lexical
+  // or structural errors; no evaluation needed to check syntax.
+  parseToAst(expr);
 }
 
 /**
@@ -454,12 +525,12 @@ export function extractPropertyComparisons(expr: string): Array<{
 
     // context.X == 'value'
     if (a.type === "PROPERTY" && b.type === "STRING") {
-      const prop = (a.value as string).replace(/^context\./, "");
+      const prop = contextPathSegments(a.value as string).join(".");
       results.push({ property: prop, operator: op.value as string, literal: b.value as string });
     }
     // 'value' == context.X
     if (a.type === "STRING" && b.type === "PROPERTY") {
-      const prop = (b.value as string).replace(/^context\./, "");
+      const prop = contextPathSegments(b.value as string).join(".");
       results.push({ property: prop, operator: op.value as string, literal: a.value as string });
     }
   }
@@ -477,20 +548,19 @@ export const CONTEXT_PATH_PATTERN =
   /^context\.[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$/;
 
 /**
- * Resolve a `context.foo.bar` path against a live context object.
- * Returns null for missing or non-object intermediates so callers can
- * treat "absent" and "explicit null" uniformly. Throws if the path
- * string doesn't match CONTEXT_PATH_PATTERN.
+ * If `value` is a string addressing a context path (`context.foo[.bar]`),
+ * resolve it against `context`; otherwise return it unchanged. The single
+ * site that recognizes the `context.` reference convention for hook args:
+ * the CONTEXT_PATH_PATTERN test that decides "reference vs literal" and the
+ * resolution live together, so there's no separate caller pre-check plus a
+ * re-validating guard that can never fire (#279).
+ *
+ * Returns null for missing or non-object intermediates so callers treat
+ * "absent" and "explicit null" uniformly.
  */
-export function resolveContextPath(context: Record<string, unknown>, path: string): unknown {
-  if (!CONTEXT_PATH_PATTERN.test(path)) {
-    throw new EvaluatorError(
-      `Invalid context path "${path}"; expected format "context.foo[.bar...]"`,
-      path,
-      0,
-    );
-  }
-  return walkContextSegments(context, path.slice("context.".length).split("."));
+export function resolveContextRef(context: Record<string, unknown>, value: unknown): unknown {
+  if (typeof value !== "string" || !CONTEXT_PATH_PATTERN.test(value)) return value;
+  return walkContextSegments(context, contextPathSegments(value));
 }
 
 /**
@@ -498,13 +568,7 @@ export function resolveContextPath(context: Record<string, unknown>, path: strin
  * Throws EvaluatorError on syntax errors.
  */
 export function evaluate(expr: string, context: Record<string, unknown>): boolean {
-  const trimmed = expr.trim();
-  if (trimmed.length === 0) {
-    throw new EvaluatorError("Empty expression", expr, 0);
-  }
-  const tokens = tokenize(trimmed);
-  const parser = new Parser(tokens, context, expr);
-  return parser.parse();
+  return toBool(evalAst(parseToAst(expr), context));
 }
 
 /**

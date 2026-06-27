@@ -6,8 +6,8 @@
  * structural rules: startNode must exist, all edge targets must
  * resolve, terminals have no outgoing edges, non-terminals have at
  * least one, gates have validations, wait nodes have waitOn, all
- * nodes are reachable from startNode, and every cycle includes at
- * least one decision/gate/wait node.
+ * nodes are reachable from startNode, and every cycle has an exit edge
+ * leaving the cycle.
  */
 
 // @dagrejs/graphlib — see loader.ts for the createRequire explanation
@@ -96,6 +96,30 @@ export function buildAndValidateGraph(def: GraphDefinition, filePath: string): G
           EC.GRAPH_STRUCTURE_INVALID,
         );
       }
+      // `subgraph` is only read for non-terminal, non-wait nodes — on a
+      // wait node it would be silently ignored at runtime (#338).
+      if (node.subgraph) {
+        throw new EngineError(
+          `[${filePath}] Node "${nodeId}": wait node must not have a subgraph (it is never entered)`,
+          EC.GRAPH_STRUCTURE_INVALID,
+        );
+      }
+    } else {
+      // `waitOn` and `timeout` are only read on wait nodes — on any other
+      // type they pass schema validation but are silently ignored at
+      // runtime, so reject them at load instead (#338).
+      if (node.waitOn) {
+        throw new EngineError(
+          `[${filePath}] Node "${nodeId}": "waitOn" is only valid on wait nodes (got type "${node.type}")`,
+          EC.GRAPH_STRUCTURE_INVALID,
+        );
+      }
+      if (node.timeout) {
+        throw new EngineError(
+          `[${filePath}] Node "${nodeId}": "timeout" is only valid on wait nodes (got type "${node.type}")`,
+          EC.GRAPH_STRUCTURE_INVALID,
+        );
+      }
     }
   }
 
@@ -114,35 +138,43 @@ export function buildAndValidateGraph(def: GraphDefinition, filePath: string): G
     }
   }
 
-  // (g) Cycles must include at least one decision or gate node
-  validateCycles(g, def, filePath);
+  // (g) Every cycle must have an edge leaving it
+  validateCycles(g, filePath);
 
   return g;
 }
 
 /**
- * Detect cycles and ensure each cycle contains at least one decision or gate node.
- * Uses Tarjan's SCC algorithm — any SCC with size > 1 is a cycle.
- * Also check self-loops (single-node SCCs with an edge to themselves).
+ * Detect cycles and ensure each cycle has an exit edge — a route the
+ * traversal can take to leave the loop and eventually terminate.
+ * Uses Tarjan's SCC algorithm — any SCC with size > 1 is a cycle, as is
+ * a single node with a self-edge.
+ *
+ * A cycle is bounded iff some member node has an out-edge to a node
+ * *outside* the SCC. This is the structural fact the old check
+ * approximated by node type ("the cycle contains a decision/gate/wait").
+ * Keying on type was wrong in both directions: it rejected a bounded
+ * `action` retry loop that has a real exit edge (#340), and accepted a
+ * decision/wait cycle whose every edge stays inside the SCC (a genuine
+ * infinite loop). The exit-edge test is exact — the agent who reaches a
+ * node with an out-of-cycle edge can always leave.
  */
-function validateCycles(g: Graph, def: GraphDefinition, filePath: string): void {
+function validateCycles(g: Graph, filePath: string): void {
   const sccs = alg.tarjan(g);
 
   for (const scc of sccs) {
-    // Only check SCCs that form actual cycles
     const isCycle = scc.length > 1 || (scc.length === 1 && g.hasEdge(scc[0], scc[0]));
-
     if (!isCycle) continue;
 
-    const hasBreakingNode = scc.some((nodeId) => {
-      const nodeType = def.nodes[nodeId]?.type;
-      return nodeType === "decision" || nodeType === "gate" || nodeType === "wait";
-    });
+    const inScc = new Set(scc);
+    const hasExitEdge = scc.some((nodeId) =>
+      (g.outEdges(nodeId) ?? []).some((edge) => !inScc.has(edge.w)),
+    );
 
-    if (!hasBreakingNode) {
+    if (!hasExitEdge) {
       throw new EngineError(
-        `[${filePath}] Cycle detected among nodes [${scc.join(", ")}] with no decision, gate, or wait node. ` +
-          `Cycles must include at least one decision, gate, or wait node to prevent infinite action loops.`,
+        `[${filePath}] Cycle among nodes [${scc.join(", ")}] has no exit edge — every edge stays within the cycle, ` +
+          `so a traversal that enters it can never leave. Add an edge from a node in the cycle to a node outside it.`,
         EC.GRAPH_STRUCTURE_INVALID,
       );
     }

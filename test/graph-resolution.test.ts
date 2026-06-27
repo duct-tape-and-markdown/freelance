@@ -38,6 +38,26 @@ describe("resolveDefaultGraphsDirs", () => {
       expect(dirs[0]).toContain(".freelance");
     });
   });
+
+  it("skips the user-level dir (no literal '~') when home is undeterminable", () => {
+    delete process.env.FREELANCE_WORKFLOWS_DIR;
+    // os.homedir() returns "" when no home is resolvable; the resolver
+    // must skip user-level entirely rather than anchor a literal "~"
+    // against CWD as `<cwd>/~/.freelance` (#325).
+    vi.spyOn(os, "homedir").mockReturnValue("");
+    const freelanceDir = tmpFreelanceDir("gr-nohome-");
+    const tmpDir = path.dirname(freelanceDir);
+
+    withTmpEnv(tmpDir, () => {
+      const dirs = resolveDefaultGraphsDirs();
+      expect(dirs).toEqual([freelanceDir]);
+      expect(dirs.some((d) => d.split(path.sep).includes("~"))).toBe(false);
+    });
+    // Note: no separate "unset HOME/USERPROFILE" test — `os.homedir()`
+    // falls back to the passwd entry when env vars are absent, so that
+    // path can't reproduce the empty-home condition; mocking homedir to
+    // "" (above) is the only way to exercise the skip branch (#325).
+  });
 });
 
 describe("config-based workflow discovery", () => {

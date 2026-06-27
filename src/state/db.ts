@@ -99,7 +99,7 @@ class InMemoryStateStore implements StateStore {
   }
   put(record: TraversalRecord): void {
     assertSafeId(record.id);
-    this.records.set(record.id, { ...record, version: (record.version ?? 0) + 1 });
+    this.records.set(record.id, { ...structuredClone(record), version: (record.version ?? 0) + 1 });
   }
   putIfVersion(record: TraversalRecord, expectedVersion: number): TraversalRecord {
     assertSafeId(record.id);
@@ -111,7 +111,15 @@ class InMemoryStateStore implements StateStore {
     if (currentVersion !== expectedVersion) {
       throw new TraversalConflictError(record.id, expectedVersion, currentVersion);
     }
-    const next = { ...record, version: expectedVersion + 1 };
+    // Deep-copy on store so the retained record is isolated from the
+    // caller's live objects — `engine.getStack()` returns the live stack
+    // array, and a shallow spread would alias it (the JSON backend gets
+    // this isolation for free via JSON.stringify). Without the copy, an
+    // onEnter hook that mutates context after the pre-hook save but then
+    // throws would leak its partial write into the retained record,
+    // breaking the "hook throw leaves disk on the pre-hook state"
+    // contract on this backend.
+    const next = { ...structuredClone(record), version: expectedVersion + 1 };
     this.records.set(record.id, next);
     return next;
   }

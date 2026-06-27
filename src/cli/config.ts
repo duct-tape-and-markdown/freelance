@@ -14,7 +14,7 @@ import path from "node:path";
 import { loadConfig, loadConfigFromDirs, updateLocalConfig } from "../config.js";
 import { EC } from "../errors.js";
 import { resolveGraphsDirs } from "../graph-resolution.js";
-import { EXIT, fatal, outputJson } from "./output.js";
+import { fatal, outputJson } from "./output.js";
 
 // --- config show ---
 
@@ -30,32 +30,19 @@ export function configShow(opts: { workflows?: string | string[] }): void {
 
 // --- config set-local ---
 
-const SETTABLE_KEYS = ["workflows", "memory.dir", "memory.enabled"] as const;
-
-export function configSetLocal(
-  key: string,
-  value: string,
-  opts: { workflows?: string | string[] },
-): void {
-  const dirs = resolveGraphsDirs(opts.workflows);
-  if (dirs.length === 0) {
-    fatal(
-      "No .freelance directory found. Run `freelance init` first.",
-      EXIT.INVALID_INPUT,
-      EC.NO_FREELANCE_DIR,
-    );
-  }
-
-  const freelanceDir = dirs[0];
-
-  if (key === "workflows") {
+// Per-key setter: each owns its own parse + validate + update against
+// config.local.yml. Replaces the if/else chain; `SETTABLE_KEYS` is
+// derived from these keys so the unknown-key error stays in sync.
+const SETTERS: Record<string, (freelanceDir: string, value: string) => void> = {
+  workflows(freelanceDir, value) {
     const resolved = path.resolve(value);
     updateLocalConfig(freelanceDir, (config) => {
       const existing = config.workflows ?? [];
       if (existing.includes(resolved)) return config; // idempotent
       return { ...config, workflows: [...existing, resolved] };
     });
-  } else if (key === "memory.dir") {
+  },
+  "memory.dir"(freelanceDir, value) {
     const resolved = path.resolve(value);
     updateLocalConfig(freelanceDir, (config) => {
       const existing = config.memory?.dir;
@@ -66,25 +53,40 @@ export function configSetLocal(
       }
       return { ...config, memory: { ...config.memory, dir: resolved } };
     });
-  } else if (key === "memory.enabled") {
+  },
+  "memory.enabled"(freelanceDir, value) {
     if (value !== "true" && value !== "false") {
-      fatal(
-        `memory.enabled must be "true" or "false", got "${value}"`,
-        EXIT.INVALID_INPUT,
-        EC.INVALID_CONFIG_VALUE,
-      );
+      fatal(`memory.enabled must be "true" or "false", got "${value}"`, EC.INVALID_CONFIG_VALUE);
     }
     const enabled = value === "true";
     updateLocalConfig(freelanceDir, (config) => {
       return { ...config, memory: { ...config.memory, enabled } };
     });
-  } else {
+  },
+};
+
+const SETTABLE_KEYS = Object.keys(SETTERS);
+
+export function configSetLocal(
+  key: string,
+  value: string,
+  opts: { workflows?: string | string[] },
+): void {
+  const dirs = resolveGraphsDirs(opts.workflows);
+  if (dirs.length === 0) {
+    fatal("No .freelance directory found. Run `freelance init` first.", EC.NO_FREELANCE_DIR);
+  }
+
+  const freelanceDir = dirs[0];
+
+  const setter = SETTERS[key];
+  if (!setter) {
     fatal(
       `Unknown config key: ${key}. Supported: ${SETTABLE_KEYS.join(", ")}`,
-      EXIT.INVALID_INPUT,
       EC.UNKNOWN_CONFIG_KEY,
     );
   }
+  setter(freelanceDir, value);
 
   outputJson(loadConfig(freelanceDir));
 }

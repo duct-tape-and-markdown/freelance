@@ -6,11 +6,10 @@ import {
   findGraphFiles,
   loadGraphs,
   loadGraphsCollecting,
-  loadGraphsLayered,
-  resolveContextDefaults,
   validateCrossGraphRefs,
 } from "../src/loader.js";
 import { getSealedGraphs, SEALED_GRAPH_IDS } from "../src/memory/sealed.js";
+import { resolveContextDefaults } from "../src/schema/graph-schema.js";
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, "fixtures");
 
@@ -93,9 +92,15 @@ describe("loadGraphs — invalid fixtures", () => {
     expect(() => loadGraphs(dir)).toThrow(/gate/i);
   });
 
-  it("rejects action-only cycle", () => {
+  it("rejects a cycle with no exit edge", () => {
     const dir = loadSingleFixture("invalid-action-loop.workflow.yaml");
     expect(() => loadGraphs(dir)).toThrow(/cycle/i);
+  });
+
+  it("accepts a bounded action retry loop with an exit edge (#340)", () => {
+    const dir = loadSingleFixture("valid-bounded-action-loop.workflow.yaml");
+    const graphs = loadGraphs(dir);
+    expect(graphs.has("valid-bounded-action-loop")).toBe(true);
   });
 
   it("rejects invalid validation expression", () => {
@@ -155,7 +160,7 @@ describe("loadGraphs — edge cases", () => {
     fs.rmSync(emptyDir, { recursive: true, force: true });
   });
 
-  it("warns on partial failures but loads valid graphs", () => {
+  it("loads valid graphs on partial failure without writing to stderr (#276)", () => {
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "partial-fail-"));
     // Copy one valid and one invalid
@@ -170,7 +175,9 @@ describe("loadGraphs — edge cases", () => {
     const graphs = loadGraphs(tmpDir);
     expect(graphs.size).toBe(1);
     expect(graphs.has("valid-simple")).toBe(true);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("failed validation"));
+    // loadGraphs is public lib API and must not emit stderr — partial-failure
+    // detail is available via loadGraphsCollecting instead.
+    expect(stderrSpy).not.toHaveBeenCalled();
     stderrSpy.mockRestore();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -255,103 +262,6 @@ describe("loadGraphs — recursive loading", () => {
     expect(graphs.has("valid-simple")).toBe(true);
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-});
-
-describe("loadGraphsLayered", () => {
-  it("throws when given empty directories array", () => {
-    expect(() => loadGraphsLayered([])).toThrow(/No graph directories provided/i);
-  });
-
-  it("loads graphs from a single directory", () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-single-"));
-    fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(tmpDir, "valid-simple.workflow.yaml"),
-    );
-    const graphs = loadGraphsLayered([tmpDir]);
-    expect(graphs.size).toBe(1);
-    expect(graphs.has("valid-simple")).toBe(true);
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("later directory shadows earlier one (same graph id)", () => {
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    const dir1 = fs.mkdtempSync(path.join(os.tmpdir(), "layered-1-"));
-    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "layered-2-"));
-    // Both have valid-simple — dir2 should shadow dir1
-    fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(dir1, "valid-simple.workflow.yaml"),
-    );
-    fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(dir2, "valid-simple.workflow.yaml"),
-    );
-    const graphs = loadGraphsLayered([dir1, dir2]);
-    expect(graphs.size).toBe(1);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("shadows"));
-    stderrSpy.mockRestore();
-    fs.rmSync(dir1, { recursive: true, force: true });
-    fs.rmSync(dir2, { recursive: true, force: true });
-  });
-
-  it("skips non-existent directories with warning", () => {
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    const dir1 = fs.mkdtempSync(path.join(os.tmpdir(), "layered-real-"));
-    fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(dir1, "valid-simple.workflow.yaml"),
-    );
-    const graphs = loadGraphsLayered(["/tmp/nonexistent-xyz", dir1]);
-    expect(graphs.size).toBe(1);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("does not exist"));
-    stderrSpy.mockRestore();
-    fs.rmSync(dir1, { recursive: true, force: true });
-  });
-
-  it("skips empty directories with warning", () => {
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-empty-"));
-    const validDir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-valid-"));
-    fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(validDir, "valid-simple.workflow.yaml"),
-    );
-    const graphs = loadGraphsLayered([emptyDir, validDir]);
-    expect(graphs.size).toBe(1);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("no *.workflow.yaml"));
-    stderrSpy.mockRestore();
-    fs.rmSync(emptyDir, { recursive: true, force: true });
-    fs.rmSync(validDir, { recursive: true, force: true });
-  });
-
-  it("throws when no valid graphs found in any directory", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-allfail-"));
-    fs.copyFileSync(
-      path.join(FIXTURES_DIR, "invalid-orphan.workflow.yaml"),
-      path.join(dir, "invalid-orphan.workflow.yaml"),
-    );
-    expect(() => loadGraphsLayered([dir])).toThrow(/No valid graphs found/i);
-    fs.rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("warns about validation failures in individual directories", () => {
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "layered-mixed-"));
-    fs.copyFileSync(
-      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
-      path.join(dir, "valid-simple.workflow.yaml"),
-    );
-    fs.copyFileSync(
-      path.join(FIXTURES_DIR, "invalid-orphan.workflow.yaml"),
-      path.join(dir, "invalid-orphan.workflow.yaml"),
-    );
-    const graphs = loadGraphsLayered([dir]);
-    expect(graphs.size).toBe(1);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("failed validation"));
-    stderrSpy.mockRestore();
-    fs.rmSync(dir, { recursive: true, force: true });
   });
 });
 
@@ -454,6 +364,52 @@ describe("loadGraphsCollecting", () => {
     expect(graphs.size).toBe(0);
     expect(errors).toHaveLength(0);
   });
+
+  it("does not flag a cross-dir override as a dropped file — it's the intended cascade (#278)", () => {
+    const dir1 = fs.mkdtempSync(path.join(os.tmpdir(), "collecting-shadow-1-"));
+    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "collecting-shadow-2-"));
+    // Both dirs define valid-simple — the later dir overrides the earlier.
+    // Nothing is dropped from the listing (the winner loads), so this must
+    // NOT surface as a loadError (SKILL.md: loadErrors means a file was dropped).
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(dir1, "valid-simple.workflow.yaml"),
+    );
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(dir2, "valid-simple.workflow.yaml"),
+    );
+    try {
+      const { graphs, errors } = loadGraphsCollecting([dir1, dir2]);
+      expect(graphs.size).toBe(1);
+      expect(graphs.has("valid-simple")).toBe(true);
+      expect(errors).toHaveLength(0);
+    } finally {
+      fs.rmSync(dir1, { recursive: true, force: true });
+      fs.rmSync(dir2, { recursive: true, force: true });
+    }
+  });
+
+  it("reports two files in the SAME dir claiming one id as a dropped file (#278)", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "collecting-dup-"));
+    // One id, two files, one dir — no defined precedence, so one is dropped;
+    // that genuinely belongs in loadErrors.
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(dir, "a.workflow.yaml"),
+    );
+    fs.copyFileSync(
+      path.join(FIXTURES_DIR, "valid-simple.workflow.yaml"),
+      path.join(dir, "b.workflow.yaml"),
+    );
+    try {
+      const { graphs, errors } = loadGraphsCollecting([dir]);
+      expect(graphs.size).toBe(1);
+      expect(errors.some((e) => /more than one file/.test(e.message))).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("cross-graph validation with sealed graphs", () => {
@@ -537,5 +493,119 @@ nodes:
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("load-time strictness", () => {
+  function writeTempGraph(content: string): string {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "strictness-test-"));
+    fs.writeFileSync(path.join(tmpDir, "g.workflow.yaml"), content);
+    return tmpDir;
+  }
+
+  const wrap = (context: string, nodes?: string) => `
+id: g
+version: "1.0.0"
+name: "G"
+description: "G"
+startNode: start
+${context}
+nodes:
+${
+  nodes ??
+  `  start:
+    type: action
+    description: "Start"
+    edges:
+      - target: done
+        label: go
+  done:
+    type: terminal
+    description: "Done"`
+}
+`;
+
+  // #339 — context descriptor validation
+  it("rejects a malformed descriptor (typo'd type with enum)", () => {
+    const dir = writeTempGraph(
+      wrap(`context:
+  phase:
+    type: strng
+    enum: [a, b]`),
+    );
+    expect(() => loadGraphs(dir)).toThrow(/malformed/i);
+  });
+
+  it("rejects a descriptor whose default is not in its enum", () => {
+    const dir = writeTempGraph(
+      wrap(`context:
+  phase:
+    type: string
+    enum: [a, b]
+    default: c`),
+    );
+    expect(() => loadGraphs(dir)).toThrow(/not in the declared enum/i);
+  });
+
+  it("rejects a descriptor whose default does not match its type", () => {
+    const dir = writeTempGraph(
+      wrap(`context:
+  count:
+    type: number
+    default: "lots"`),
+    );
+    expect(() => loadGraphs(dir)).toThrow(/not of declared type/i);
+  });
+
+  it("accepts a valid descriptor with a matching default in its enum", () => {
+    const dir = writeTempGraph(
+      wrap(`context:
+  phase:
+    type: string
+    enum: [a, b]
+    default: a`),
+    );
+    expect(loadGraphs(dir).has("g")).toBe(true);
+  });
+
+  // #280 was reverted: the "undeclared referenced field under strictContext"
+  // load check was unsound. strictContext gates only `contextSet` + hook
+  // results — NOT initialContext (`freelance start --context`), advance
+  // `--context`, or a parent subgraph's contextMap — so a referenced field
+  // can be legitimately runtime-seeded and never declared. The check
+  // rejected valid graphs; load must accept them.
+  const strictGraph = (condition: string) => `
+id: g
+version: "1.0.0"
+name: "G"
+description: "G"
+startNode: start
+strictContext: true
+context:
+  ready: false
+nodes:
+  start:
+    type: decision
+    description: "Route"
+    edges:
+      - target: done
+        label: go
+        condition: "${condition}"
+  done:
+    type: terminal
+    description: "Done"
+`;
+
+  it("accepts a strictContext expression referencing an undeclared (runtime-seeded) field", () => {
+    // `reviewer` isn't in the context block but can arrive via `start
+    // --context` or a parent's contextMap — load must not reject it.
+    const dir = writeTempGraph(strictGraph("context.reviewer == true"));
+    expect(loadGraphs(dir).has("g")).toBe(true);
+  });
+
+  it("still parse-checks the expression itself under strictContext", () => {
+    // Reverting the field cross-check does not relax syntax validation.
+    const dir = writeTempGraph(strictGraph("context.ready ==="));
+    expect(() => loadGraphs(dir)).toThrow();
   });
 });

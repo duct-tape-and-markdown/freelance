@@ -1,3 +1,5 @@
+import { EC, EngineError } from "./errors.js";
+
 export const GUIDE_TOPICS = [
   "basics",
   "conventions",
@@ -138,7 +140,7 @@ Reusable subgraphs should decompose their procedure into distinct steps. One act
 
 ## Cycle Requirements
 
-Every cycle must include at least one decision, gate, or wait node. The engine rejects pure action-node cycles to prevent infinite loops.
+Every cycle must have an exit edge — an edge from some node in the loop to a node outside it — so the traversal can leave and terminate. The engine rejects cycles whose every edge stays inside the loop (a true infinite loop). A bounded action retry loop is fine when one of its nodes has an exit edge.
 
 ## Namespace Organization
 
@@ -184,7 +186,7 @@ Cycles let workflows loop — retry on failure, iterate on tasks, collect feedba
 
 ## Rules
 
-Every cycle MUST include at least one decision, gate, or wait node. This prevents infinite action loops where the agent just runs forever without a checkpoint.
+Every cycle MUST have an exit edge — an edge from some node in the cycle to a node outside it — so a traversal that enters the loop can leave it and eventually terminate. A loop whose every edge points back inside the cycle is rejected at load: nothing can ever break out. A bounded \`action\` retry loop is fine as long as one of its nodes has an edge leaving the loop (e.g. a \`finish\` edge alongside the \`retry\` edge).
 
 ## Common patterns
 
@@ -363,6 +365,16 @@ Script paths resolve relative to the **graph file's directory**. A hook in \`.fr
 - **Errors**: a throwing hook aborts the node arrival with an \`EngineError\` wrapping the underlying message, the node id, and the hook call. The traversal stays on the previous node.
 - **Execution point**: hooks fire AFTER edge-condition evaluation and transitions — i.e., after the engine has decided the agent is arriving at this node, but before the response is built. The agent sees the node's \`validTransitions\` and \`context\` AFTER hooks have run.
 - **Validation**: script hooks are imported eagerly by \`freelance validate\` — syntax errors, missing deps, and non-function default exports fail at authoring time, not mid-traversal. The validator never invokes the hook body; it only verifies the module loads and its default export is callable.
+
+## Hooks on subgraph nodes
+
+A subgraph node (a node with a \`subgraph\` field) is still an arrival site, so its \`onEnter\` fires like any other node's — against the **parent** context, **before** the engine evaluates the subgraph's \`condition\` or copies \`contextMap\` into the child. That ordering is deliberate:
+
+- A hook write can drive the \`condition\`: \`onEnter\` sets a context key, then \`condition\` reads it to decide whether to push.
+- A hook write flows into the child: anything the hook writes to parent context is visible to \`contextMap\` when the child's initial context is built.
+- It fires on both outcomes — the push **and** the condition-not-met "stay on the parent node" branch.
+
+This makes a subgraph node the natural place for \`meta_set\` (tag the traversal as it enters a sub-workflow) or \`memory_by_source\` (prime prior knowledge before dispatching). The child's start node fires its *own* \`onEnter\` separately, after the push.
 
 ## When to use hooks (vs agent-driven context)
 
@@ -624,17 +636,34 @@ export function getGuideTopics(): string[] {
   return [...GUIDE_TOPICS];
 }
 
-export function getGuide(topic?: string): { content: string } | { error: string } {
+function isGuideTopic(topic: string): topic is GuideTopic {
+  return (GUIDE_TOPICS as readonly string[]).includes(topic);
+}
+
+/**
+ * Discovery (no topic) returns the structured `topics` array alongside
+ * the markdown blob so an agent can enumerate topics without parsing
+ * prose (#304). A specific topic returns its `content`. An unknown
+ * topic throws `TOPIC_NOT_FOUND` with the valid list carried in
+ * `envelopeSlots.availableTopics` — recovery data lives in the envelope,
+ * never in `error.message` prose (#305).
+ */
+export function getGuide(
+  topic?: string,
+): { topics: string[]; content: string } | { topic: GuideTopic; content: string } {
   if (!topic) {
     const catalog = GUIDE_TOPICS.map((t) => `- ${t}`).join("\n");
     return {
+      topics: [...GUIDE_TOPICS],
       content: `# Freelance Graph Authoring Guide\n\nAvailable topics:\n${catalog}\n\nCall freelance guide with a topic to read it.`,
     };
   }
 
-  if (!GUIDE_TOPICS.includes(topic as GuideTopic)) {
-    return { error: `Unknown topic "${topic}". Available: ${GUIDE_TOPICS.join(", ")}` };
+  if (!isGuideTopic(topic)) {
+    throw new EngineError(`Unknown guide topic "${topic}".`, EC.TOPIC_NOT_FOUND, {
+      envelopeSlots: { availableTopics: [...GUIDE_TOPICS] },
+    });
   }
 
-  return { content: GUIDE_CONTENT[topic as GuideTopic] };
+  return { topic, content: GUIDE_CONTENT[topic] };
 }

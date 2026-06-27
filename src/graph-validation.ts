@@ -63,6 +63,63 @@ export function validateReturnSchemas(def: GraphDefinition, filePath: string): v
 }
 
 /**
+ * An object that looks like a context field descriptor (has a `type` key
+ * plus an `enum` or `default`) but failed descriptor parsing — almost
+ * certainly an intended descriptor with a typo (e.g. `type: "strng"`),
+ * which the schema's `union([descriptor, unknown])` would otherwise accept
+ * as an opaque literal and silently degrade to (#339). A bare `{type: …}`
+ * with no enum/default is left alone — indistinguishable from a literal
+ * object that happens to have a `type` field.
+ */
+function looksLikeMalformedDescriptor(v: unknown): boolean {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "type" in v &&
+    ("enum" in v || "default" in v) &&
+    !isContextFieldDescriptor(v)
+  );
+}
+
+/**
+ * Validate context field descriptors at load (#339):
+ *   - a malformed-looking descriptor (typo'd type) is rejected rather than
+ *     silently treated as a literal;
+ *   - a valid descriptor's `default` must match its declared `type` and,
+ *     when an `enum` is declared, be one of the allowed values.
+ */
+export function validateContextDescriptors(def: GraphDefinition, filePath: string): void {
+  if (!def.context) return;
+  for (const [key, value] of Object.entries(def.context)) {
+    if (looksLikeMalformedDescriptor(value)) {
+      throw new EngineError(
+        `[${filePath}] Context field "${key}" looks like a descriptor but is malformed — ` +
+          `"type" must be one of "string", "number", "boolean". Fix it, or drop the ` +
+          `type/enum/default keys if it is meant to be a literal value.`,
+        EC.GRAPH_STRUCTURE_INVALID,
+      );
+    }
+    if (!isContextFieldDescriptor(value)) continue;
+
+    const { type, enum: allowed, default: dflt } = value;
+    if (dflt === null || dflt === undefined) continue;
+
+    if (typeof dflt !== type) {
+      throw new EngineError(
+        `[${filePath}] Context field "${key}": default ${JSON.stringify(dflt)} is not of declared type "${type}"`,
+        EC.GRAPH_STRUCTURE_INVALID,
+      );
+    }
+    if (allowed && !allowed.map(String).includes(String(dflt))) {
+      throw new EngineError(
+        `[${filePath}] Context field "${key}": default ${JSON.stringify(dflt)} is not in the declared enum [${allowed.join(", ")}]`,
+        EC.GRAPH_STRUCTURE_INVALID,
+      );
+    }
+  }
+}
+
+/**
  * Extract enum constraints from context field descriptors.
  * Returns a map of field name → set of allowed string values.
  */
@@ -101,64 +158,65 @@ function checkEnumCompliance(
 }
 
 /**
+ * Parse-check one expression and its enum compliance, wrapping any
+ * failure in a GRAPH_STRUCTURE_INVALID with a location-prefixed message.
+ * `location` is the prefix `checkEnumCompliance` reports against;
+ * `describe` builds the catch message (the call sites phrase the
+ * "invalid …" wording differently per expression kind).
+ */
+function validateOneExpression(
+  expr: string,
+  enumMap: Map<string, Set<string>>,
+  location: string,
+  describe: (innerMessage: string) => string,
+): void {
+  try {
+    validateExpression(expr);
+    checkEnumCompliance(expr, enumMap, location);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new EngineError(describe(msg), EC.GRAPH_STRUCTURE_INVALID);
+  }
+}
+
+/**
  * Parse-check all expressions in edge conditions and validation rules.
  * Catches malformed expressions at load time, not at traversal time.
- * Also checks string literals against declared context enums.
+ * Also checks string literals against declared context enums, and — under
+ * strictContext — that referenced context fields are declared.
  */
 export function validateExpressions(def: GraphDefinition, filePath: string): void {
   const enumMap = extractContextEnums(def);
 
   for (const [nodeId, node] of Object.entries(def.nodes)) {
-    if (node.validations) {
-      for (const v of node.validations) {
-        try {
-          validateExpression(v.expr);
-          checkEnumCompliance(v.expr, enumMap, `[${filePath}] Node "${nodeId}": validation`);
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          throw new EngineError(
-            `[${filePath}] Node "${nodeId}": invalid validation expression "${v.expr}": ${msg}`,
-            EC.GRAPH_STRUCTURE_INVALID,
-          );
-        }
-      }
+    const at = `[${filePath}] Node "${nodeId}"`;
+
+    for (const v of node.validations ?? []) {
+      validateOneExpression(
+        v.expr,
+        enumMap,
+        `${at}: validation`,
+        (m) => `${at}: invalid validation expression "${v.expr}": ${m}`,
+      );
     }
-    if (node.edges) {
-      for (const edge of node.edges) {
-        if (edge.condition) {
-          try {
-            validateExpression(edge.condition);
-            checkEnumCompliance(
-              edge.condition,
-              enumMap,
-              `[${filePath}] Node "${nodeId}": edge "${edge.label}"`,
-            );
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            throw new EngineError(
-              `[${filePath}] Node "${nodeId}": edge "${edge.label}" has invalid condition "${edge.condition}": ${msg}`,
-              EC.GRAPH_STRUCTURE_INVALID,
-            );
-          }
-        }
-      }
+
+    for (const edge of node.edges ?? []) {
+      if (!edge.condition) continue;
+      validateOneExpression(
+        edge.condition,
+        enumMap,
+        `${at}: edge "${edge.label}"`,
+        (m) => `${at}: edge "${edge.label}" has invalid condition "${edge.condition}": ${m}`,
+      );
     }
-    // Validate subgraph condition expression
+
     if (node.subgraph?.condition) {
-      try {
-        validateExpression(node.subgraph.condition);
-        checkEnumCompliance(
-          node.subgraph.condition,
-          enumMap,
-          `[${filePath}] Node "${nodeId}": subgraph condition`,
-        );
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        throw new EngineError(
-          `[${filePath}] Node "${nodeId}": invalid subgraph condition "${node.subgraph.condition}": ${msg}`,
-          EC.GRAPH_STRUCTURE_INVALID,
-        );
-      }
+      validateOneExpression(
+        node.subgraph.condition,
+        enumMap,
+        `${at}: subgraph condition`,
+        (m) => `${at}: invalid subgraph condition "${node.subgraph?.condition}": ${m}`,
+      );
     }
   }
 }

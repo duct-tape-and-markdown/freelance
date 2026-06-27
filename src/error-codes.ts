@@ -20,7 +20,7 @@
  * can be typed directly from the catalog instead of restating the
  * union; all four are also merged into `ENGINE_ERROR_CODES.BLOCKED`
  * below so they share exit mapping + `kind` classification with
- * thrown BLOCKED-category codes (NO_EDGES, STACK_DEPTH_EXCEEDED).
+ * thrown BLOCKED-category codes (NO_EDGES, DATABASE_BUSY).
  */
 export const GATE_BLOCK_CODES = [
   "WAIT_BLOCKING",
@@ -65,7 +65,7 @@ export const ENGINE_ERROR_CODES = {
     "INVALID_META",
     "INVALID_FLAG_VALUE",
   ],
-  BLOCKED: ["NO_EDGES", "STACK_DEPTH_EXCEEDED", "DATABASE_BUSY", ...GATE_BLOCK_CODES],
+  BLOCKED: ["NO_EDGES", "DATABASE_BUSY", ...GATE_BLOCK_CODES],
   // Hook wiring failures (missing export, bad shape, import error,
   // timeout). Retrying with new context won't repair a broken hook
   // script — surface as INTERNAL so the skill reports instead of loops.
@@ -73,6 +73,7 @@ export const ENGINE_ERROR_CODES = {
     "HOOK_FAILED",
     "HOOK_IMPORT_FAILED",
     "HOOK_BAD_SHAPE",
+    "HOOK_BAD_ARGS",
     "HOOK_RESOLUTION_MISMATCH",
     "HOOK_BUILTIN_MISSING",
     "HOOK_BAD_RETURN",
@@ -108,16 +109,19 @@ export const ENGINE_ERROR_CODES = {
     "ENTITY_NOT_FOUND",
     "TEMPLATE_NOT_FOUND",
   ],
-  // CLI-surface structural failure: graph load, internal invariant,
-  // source file unreadable, missing optional peer dep. Maps to exit 1
-  // like engine internal errors — not operator-fixable via retry,
-  // report-and-stop.
+  // Structural failure, report-and-stop (exit 1). Despite the `CLI_`
+  // prefix this bucket is the home for engine-domain structural codes too
+  // (INTERNAL, STACK_DEPTH_EXCEEDED) — the unifying property is "not
+  // operator-fixable via retry," not the surface that raises it. Why
+  // STACK_DEPTH_EXCEEDED lives here rather than BLOCKED: see
+  // docs/decisions.md § "Catalog actionability signals must be coherent".
   CLI_STRUCTURAL: [
     "GRAPH_LOAD_FAILED",
     "INTERNAL",
     "FATAL",
     "SOURCE_FILE_UNREADABLE",
     "MISSING_OPTIONAL_DEP",
+    "STACK_DEPTH_EXCEEDED",
   ],
   // Authoring-time graph validation failure. Exit 3 is reserved for
   // these so CI pipelines and `freelance validate` can branch on
@@ -194,6 +198,7 @@ export const EC = {
   HOOK_FAILED: "HOOK_FAILED",
   HOOK_IMPORT_FAILED: "HOOK_IMPORT_FAILED",
   HOOK_BAD_SHAPE: "HOOK_BAD_SHAPE",
+  HOOK_BAD_ARGS: "HOOK_BAD_ARGS",
   HOOK_RESOLUTION_MISMATCH: "HOOK_RESOLUTION_MISMATCH",
   HOOK_BUILTIN_MISSING: "HOOK_BUILTIN_MISSING",
   HOOK_BAD_RETURN: "HOOK_BAD_RETURN",
@@ -313,7 +318,12 @@ export const RECOVERY = {
   CONTEXT_TOTAL_TOO_LARGE: { verb: "advance", kind: "fix-context" },
   REQUIRED_META_MISSING: { verb: "advance", kind: "fix-context" },
   AMBIGUOUS_TRAVERSAL: { verb: "advance --traversal {traversalId}", kind: "fix-context" },
-  TRAVERSAL_ACTIVE: { verb: "advance --traversal {traversalId}", kind: "fix-context" },
+  // Slot-free: the only throw site is engine-level (start() on an engine
+  // whose stack is non-empty — library reuse, never the CLI, which always
+  // builds a fresh engine per traversal). The engine has no traversalId to
+  // populate, so the verb must not reference one; `reset` clears the active
+  // traversal so start() can proceed (#336).
+  TRAVERSAL_ACTIVE: { verb: "reset", kind: "fix-context" },
   TRAVERSAL_CONFLICT: { verb: "advance", kind: "retry" },
   INVALID_KEY_VALUE_PAIR: { verb: "advance", kind: "fix-context" },
   INVALID_CONTEXT_JSON: { verb: "advance", kind: "fix-context" },
@@ -324,7 +334,6 @@ export const RECOVERY = {
 
   // BLOCKED — traversal state fine, fix context and re-advance
   NO_EDGES: { verb: "advance", kind: "fix-context" },
-  STACK_DEPTH_EXCEEDED: { verb: null, kind: "report" },
   DATABASE_BUSY: { verb: "advance", kind: "retry" },
   WAIT_BLOCKING: { verb: "advance", kind: "fix-context" },
   RETURN_SCHEMA_VIOLATION: { verb: "advance", kind: "fix-context" },
@@ -335,6 +344,12 @@ export const RECOVERY = {
   HOOK_FAILED: { verb: "advance", kind: "fix-context" },
   HOOK_IMPORT_FAILED: { verb: "advance", kind: "fix-context" },
   HOOK_BAD_SHAPE: { verb: "advance", kind: "fix-context" },
+  // Arg validation failure on a built-in hook. When the arg is sourced
+  // from a context path, fixing the referenced context value and
+  // re-advancing recovers; when it's a literal in the graph yaml it's an
+  // authoring bug. fix-context covers the recoverable case; the distinct
+  // code (vs HOOK_FAILED) tells the operator it's the args, not a crash.
+  HOOK_BAD_ARGS: { verb: "advance", kind: "fix-context" },
   HOOK_RESOLUTION_MISMATCH: { verb: null, kind: "report" },
   HOOK_BUILTIN_MISSING: { verb: "advance", kind: "fix-context" },
   HOOK_BAD_RETURN: { verb: "advance", kind: "fix-context" },
@@ -369,6 +384,7 @@ export const RECOVERY = {
   FATAL: { verb: null, kind: "report" },
   SOURCE_FILE_UNREADABLE: { verb: null, kind: "report" },
   MISSING_OPTIONAL_DEP: { verb: null, kind: "report" },
+  STACK_DEPTH_EXCEEDED: { verb: null, kind: "report" },
 
   // GRAPH_VALIDATION — authoring-time, operator fixes yaml
   GRAPH_STRUCTURE_INVALID: { verb: "validate {graphDir}", kind: "report" },

@@ -205,6 +205,11 @@ describe("validateGraphSources", () => {
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0].node).toBe("start");
     expect(result.warnings[0].drifted[0].path).toBe(fileA);
+    // warning.drifted now carries expected/actual verbatim from
+    // checkSourcesDetailed (no stripping map). [#330]
+    expect(result.warnings[0].drifted[0].expected).toBe("wrong-hash-value!");
+    expect(result.warnings[0].drifted[0].actual).toBeTruthy();
+    expect(result.warnings[0].drifted[0].actual).not.toBe("wrong-hash-value!");
   });
 
   it("passes for matching source hashes", () => {

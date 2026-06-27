@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { loadConfigFromDirs } from "./config.js";
 import type { LoadGraphsOptions } from "./loader.js";
@@ -26,10 +27,16 @@ export function resolveDefaultGraphsDirs(): string[] {
     dirs.push(projectGraphs);
   }
 
-  const userHome = process.env.HOME || process.env.USERPROFILE || "~";
-  const userGraphs = path.resolve(userHome, ".freelance");
-  if (fs.existsSync(userGraphs)) {
-    dirs.push(userGraphs);
+  // os.homedir() resolves the real home (HOME / USERPROFILE / passwd
+  // entry). When no home is determinable it returns "" — skip the
+  // user-level dir entirely rather than substituting a literal "~",
+  // which path.resolve would anchor to CWD as `<cwd>/~/.freelance` (#325).
+  const userHome = os.homedir();
+  if (userHome) {
+    const userGraphs = path.resolve(userHome, ".freelance");
+    if (fs.existsSync(userGraphs)) {
+      dirs.push(userGraphs);
+    }
   }
 
   // Append workflow directories from config.yml / config.local.yml

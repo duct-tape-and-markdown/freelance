@@ -348,8 +348,10 @@ export interface SessionState {
   startedAt: string;
   waitArrivedAt?: string;
   /**
-   * ISO timestamp of when `checkWaitTimeout` first observed that
-   * `waitArrivedAt + timeout` was in the past. Engine-internal —
+   * ISO timestamp of when the gate path first latched (via
+   * `markWaitTimedOut`) that `waitArrivedAt + timeout` was in the
+   * past. Paired with `waitArrivedAt` and scoped to the current wait
+   * occupancy — both reset on fresh wait arrival (#272). Engine-internal —
    * lives on SessionState rather than `context` so it doesn't ride
    * the context wire (full-mode echoes) or slip past `strictContext`,
    * byte caps, or the `contextHistory` audit trail. `waitStatus:

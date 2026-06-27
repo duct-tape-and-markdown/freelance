@@ -35,6 +35,10 @@ vi.mock("../src/cli/memory.js", () => ({
   memoryRelated: vi.fn(),
   memoryBySource: vi.fn(),
   memoryEmit: vi.fn(),
+  memoryPrune: vi.fn(),
+  memoryReset: vi.fn(),
+  // program.ts imports SHAPES for the `--shape` enumOption argParser.
+  SHAPES: ["minimal", "full"],
 }));
 vi.mock("../src/cli/stateless.js", () => ({
   guideShow: vi.fn(),
@@ -76,7 +80,6 @@ vi.mock("../src/cli/setup.js", () => ({
 }));
 vi.mock("../src/loader.js", () => ({
   loadGraphs: vi.fn(() => new Map([["test", {}]])),
-  loadGraphsLayered: vi.fn(() => new Map([["test", {}]])),
   loadGraphsCollecting: vi.fn(() => ({ graphs: new Map([["test", {}]]), errors: [] })),
 }));
 // Stub sealed graph builder — irrelevant to these wiring tests and pulls in GraphBuilder.

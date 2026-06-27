@@ -1,0 +1,42 @@
+id: subgraph-onenter-parent
+version: "1.0.0"
+name: "Subgraph onEnter parent"
+description: "Parent whose subgraph (dispatch) node carries an onEnter hook"
+startNode: start
+context:
+  childCount: 0
+  shouldEnter: false
+
+nodes:
+  start:
+    type: action
+    description: "Begin"
+    instructions: "Advance to the dispatch node."
+    edges:
+      - target: dispatch
+        label: go
+
+  dispatch:
+    type: gate
+    description: "Dispatch into the child subgraph"
+    instructions: "onEnter writes count into parent context before the push decision."
+    onEnter:
+      - call: ./scripts/set-count.js
+        args:
+          value: 42
+    subgraph:
+      graphId: subgraph-onenter-child
+      condition: "context.shouldEnter == true"
+      contextMap:
+        count: childCount
+    validations:
+      - expr: "context.childCount >= 0"
+        message: "childCount must be non-negative."
+    edges:
+      - target: done
+        label: finish
+
+  done:
+    type: terminal
+    description: "Done"
+    instructions: "Complete."

@@ -13,7 +13,7 @@ import path from "node:path";
 import { EC } from "../errors.js";
 import { loadSingleGraph } from "../loader.js";
 import type { GraphDefinition } from "../types.js";
-import { EXIT, fatal, outputJson } from "./output.js";
+import { fatal, outputJson } from "./output.js";
 
 type Format = "mermaid" | "dot";
 
@@ -96,27 +96,23 @@ function loadDefinition(filePath: string): GraphDefinition {
   const resolved = path.resolve(filePath);
 
   if (!fs.existsSync(resolved)) {
-    fatal(`File not found: ${resolved}`, EXIT.NOT_FOUND, EC.FILE_NOT_FOUND);
+    fatal(`File not found: ${resolved}`, EC.FILE_NOT_FOUND);
   }
 
   if (!resolved.endsWith(".workflow.yaml")) {
     fatal(
       `File must have .workflow.yaml extension: ${path.basename(resolved)}`,
-      EXIT.INVALID_INPUT,
       EC.INVALID_EXTENSION,
     );
   }
 
-  try {
-    const { definition } = loadSingleGraph(resolved);
-    return definition;
-  } catch (err) {
-    fatal(
-      `Failed to load graph: ${err instanceof Error ? err.message : err}`,
-      EXIT.VALIDATION,
-      EC.GRAPH_LOAD_FAILED,
-    );
-  }
+  // `loadSingleGraph` now throws catalogued `EngineError`s (schema →
+  // GRAPH_STRUCTURE_INVALID, yaml syntax → GRAPH_STRUCTURE_INVALID, read
+  // failure → GRAPH_LOAD_FAILED). Let them propagate to bin.ts's
+  // top-level `handleRuntimeError` so each surfaces with its own catalog
+  // code + exit, instead of flattening every cause to GRAPH_LOAD_FAILED
+  // with a mismatched exit (the #335 divergence).
+  return loadSingleGraph(resolved).definition;
 }
 
 export function visualize(filePath: string, options: VisualizeOptions): void {

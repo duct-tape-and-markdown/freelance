@@ -111,7 +111,7 @@ export class TraversalStore {
   // --- Read operations ---
 
   listGraphs(): TraversalListResult {
-    // Sort by id so `freelance_list` is deterministic across filesystems
+    // Sort by id so `freelance status` is deterministic across filesystems
     // and runs — eval harnesses diff the output, and readdir order is not
     // stable across platforms.
     const graphList = [];
@@ -185,7 +185,7 @@ export class TraversalStore {
       if (missing.length > 0) {
         throw new EngineError(
           `Graph "${graphId}" requires meta keys [${missing.join(", ")}] at start. ` +
-            `Pass them via freelance_start's \`meta\` argument, or set them via an ` +
+            `Pass them via freelance start's \`meta\` argument, or set them via an ` +
             `onEnter meta_set hook on the start node.`,
           EC.REQUIRED_META_MISSING,
         );
@@ -419,7 +419,7 @@ export class TraversalStore {
 
     const ids = this.state.listIds();
     if (ids.length === 0) {
-      throw new EngineError("No active traversals. Call freelance_start first.", EC.NO_TRAVERSAL);
+      throw new EngineError("No active traversals. Call freelance start first.", EC.NO_TRAVERSAL);
     }
     if (ids.length === 1) return ids[0];
 

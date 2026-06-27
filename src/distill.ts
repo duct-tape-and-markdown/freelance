@@ -40,7 +40,7 @@ Define these as context fields with sensible defaults. Use context enums for fie
 
 ## Step 3b: Decide on meta tags
 
-If this workflow operates on something that exists in an external system (a ticket, a PR, a doc, an entity in another tool), plan for the caller to tag the traversal with an opaque \`meta\` key at \`freelance_start\` — usually \`externalKey\` set to the upstream id. This lets the caller (and other agents) find the traversal later by domain identity, not by an opaque \`tr_xxxx\` id. If the workflow is meaningless without this binding, declare \`requiredMeta: [externalKey]\` at the top level so \`freelance_start\` rejects calls that omit it. See \`freelance_guide meta\` for the pattern.
+If this workflow operates on something that exists in an external system (a ticket, a PR, a doc, an entity in another tool), plan for the caller to tag the traversal with an opaque \`meta\` key at \`freelance start\` — usually \`externalKey\` set to the upstream id. This lets the caller (and other agents) find the traversal later by domain identity, not by an opaque \`tr_xxxx\` id. If the workflow is meaningless without this binding, declare \`requiredMeta: [externalKey]\` at the top level so \`freelance start\` rejects calls that omit it. See \`freelance guide meta\` for the pattern.
 
 If the workflow doesn't operate on a discrete external entity, skip this step.
 
@@ -81,7 +81,7 @@ You just completed a workflow-guided task. Now let's review how the workflow per
 
 ## Step 1: Review the traversal
 
-Call \`freelance_inspect\` with detail \`history\` to see the full traversal record. Then reflect:
+Call \`freelance inspect\` with detail \`history\` to see the full traversal record. Then reflect:
 
 - **Flow** — Did the node sequence match how the work actually needed to happen? Were there steps you wanted to skip, or steps missing that you had to do outside the graph?
 - **Friction** — Where did the workflow fight you? Gates that blocked progress on technicalities? Decision nodes that didn't have the right edges? Instructions that were too vague or too rigid?

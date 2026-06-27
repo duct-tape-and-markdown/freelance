@@ -32,7 +32,7 @@ export function buildCompileKnowledgeWorkflow(): ValidatedGraph {
       type: "action",
       description: M.nodes.exploring.description,
       instructions: M.nodes.exploring.instructions,
-      suggestedTools: ["Read", "freelance_context_set"],
+      suggestedTools: ["Read", "freelance context set"],
       // Guard against runaway gaps-remain loops. Each return to
       // exploring is a deliberate "we missed coverage" lap; a sane
       // compile shouldn't need more than a few. Beyond this the

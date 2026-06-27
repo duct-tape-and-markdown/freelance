@@ -8,17 +8,32 @@
 
 import { countQuery, type Db, sqlPlaceholders } from "./db.js";
 import { isFileChanged, notStaleExists, type StalenessCache } from "./staleness.js";
-import type { NeighborEntity, PropositionInfo, PropositionRow, StatusResult } from "./types.js";
+import type {
+  MinimalProposition,
+  NeighborEntity,
+  PropositionInfo,
+  PropositionRow,
+  PropositionShape,
+  StatusResult,
+} from "./types.js";
 
 // Every query below joins against `STALE_PROP_IDS_TABLE` via
-// `notStaleExists`. Callers MUST invoke `materializeStalePropIds(db,
-// stalePropIds)` on the same db handle before any of these helpers
-// runs — otherwise the table reflects the previous read's stale set
-// (or is empty on a fresh connection) and the joins return wrong
-// counts. The TEMP-TABLE shape (vs spreading ids inline as
-// `NOT IN (?, ?, …)`) keeps us clear of SQLite's
-// `SQLITE_MAX_VARIABLE_NUMBER` ceiling and lets the prepared-statement
-// cache reuse one SQL string across calls.
+// `notStaleExists`. Callers MUST invoke `primeStaleFilter(db,
+// sourceRoot, cache, scope?)` on the same db handle before any of these
+// helpers runs — it is the sole entry point that materializes the temp
+// table. Otherwise the table reflects the previous read's stale set (or
+// is empty on a fresh connection) and the joins return wrong counts.
+//
+// Scoping contract (#314): the table means "stale within THIS read's
+// scope". Each public read owns exactly ONE scope per call and primes
+// immediately before the joins that consume it. A scope MUST be a
+// superset of the domain each consumed count ranges over — an empty
+// slot reads as valid (`notStaleExists` returns TRUE), so under-scoping
+// silently inflates valid counts. See `StaleScopeQuery` in staleness.ts.
+//
+// The TEMP-TABLE shape (vs spreading ids inline as `NOT IN (?, ?, …)`)
+// keeps us clear of SQLite's `SQLITE_MAX_VARIABLE_NUMBER` ceiling and
+// lets the prepared-statement cache reuse one SQL string across calls.
 const NOT_STALE_EXISTS_FILTER = notStaleExists("a1.proposition_id");
 
 /**
@@ -184,6 +199,32 @@ export function enrichProposition(
     valid,
     source_files: sourceFiles,
   };
+}
+
+/**
+ * Project a page of proposition rows into the requested wire shape.
+ * `"minimal"` returns `{ id, content }` per row with no source join;
+ * `"full"` bulk-fetches `proposition_sources` for the page and enriches
+ * each row (per-file hashes + validity). Shared by `inspect()` and
+ * `bySource()`, which differ only in their SQL bodies, not in this
+ * two-arm projection. (`search()` stays separate — it additionally
+ * attaches entities.)
+ */
+export function projectPropositions(
+  sourceRoot: string,
+  cache: StalenessCache,
+  db: Db,
+  rows: readonly PropositionRow[],
+  shape: PropositionShape,
+): MinimalProposition[] | PropositionInfo[] {
+  if (shape === "minimal") {
+    return rows.map((p) => ({ id: p.id, content: p.content }));
+  }
+  const sourcesByProp = fetchSourcesByProp(
+    db,
+    rows.map((p) => p.id),
+  );
+  return rows.map((p) => enrichProposition(sourceRoot, cache, p, sourcesByProp.get(p.id) ?? []));
 }
 
 /**

@@ -10,7 +10,11 @@ import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import { buildAndValidateGraph } from "./graph-construction.js";
-import { validateExpressions, validateReturnSchemas } from "./graph-validation.js";
+import {
+  validateContextDescriptors,
+  validateExpressions,
+  validateReturnSchemas,
+} from "./graph-validation.js";
 import { resolveGraphHooks } from "./hook-resolution.js";
 import { mergeSealedGraphs } from "./memory/sealed.js";
 
@@ -25,7 +29,7 @@ type Graph = import("@dagrejs/graphlib").Graph;
 import { EC } from "./error-codes.js";
 import { EngineError } from "./errors.js";
 import type { GraphDefinition } from "./schema/graph-schema.js";
-import { graphDefinitionSchema, isContextFieldDescriptor } from "./schema/graph-schema.js";
+import { graphDefinitionSchema } from "./schema/graph-schema.js";
 import type { ValidatedGraph } from "./types.js";
 
 /**
@@ -35,8 +39,32 @@ import type { ValidatedGraph } from "./types.js";
  */
 export function loadSingleGraph(filePath: string): { id: string } & ValidatedGraph {
   const resolved = path.resolve(filePath);
-  const content = fs.readFileSync(resolved, "utf-8");
-  const parsed = yaml.load(content);
+
+  let content: string;
+  try {
+    content = fs.readFileSync(resolved, "utf-8");
+  } catch (err) {
+    // ENOENT → the file the operator named doesn't exist (exit 4);
+    // any other read failure (permissions, I/O) is structural (exit 1).
+    // Without this, a raw fs error would collapse to INTERNAL.
+    const code =
+      (err as NodeJS.ErrnoException).code === "ENOENT" ? EC.FILE_NOT_FOUND : EC.GRAPH_LOAD_FAILED;
+    throw new EngineError(`Cannot read graph file ${resolved}: ${(err as Error).message}`, code);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(content);
+  } catch (err) {
+    // A YAML syntax error means the *.workflow.yaml file is malformed —
+    // an authoring-time failure (exit 3), same category as schema
+    // validation below. Without this, js-yaml's YAMLException collapses
+    // to INTERNAL (#273).
+    throw new EngineError(
+      `YAML parse failed for ${resolved}:\n  ${(err as Error).message}`,
+      EC.GRAPH_STRUCTURE_INVALID,
+    );
+  }
 
   const parseResult = graphDefinitionSchema.safeParse(parsed);
   if (!parseResult.success) {
@@ -66,21 +94,10 @@ export function loadSingleGraph(filePath: string): { id: string } & ValidatedGra
  * @returns The validated graphlib Graph
  */
 export function validateAndBuild(def: GraphDefinition, source: string): Graph {
+  validateContextDescriptors(def, source);
   validateReturnSchemas(def, source);
   validateExpressions(def, source);
   return buildAndValidateGraph(def, source);
-}
-
-/**
- * Resolve context field descriptors to their default values.
- * Plain scalars pass through unchanged; descriptors are replaced by their default.
- */
-export function resolveContextDefaults(context: Record<string, unknown>): Record<string, unknown> {
-  const resolved: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(context)) {
-    resolved[key] = isContextFieldDescriptor(value) ? (value.default ?? null) : value;
-  }
-  return resolved;
 }
 
 /**
@@ -109,10 +126,95 @@ export interface LoadGraphsOptions {
   sealedGraphs?: Map<string, ValidatedGraph>;
 }
 
+export interface CollectingLoadResult {
+  graphs: Map<string, ValidatedGraph>;
+  errors: Array<{ file: string; message: string }>;
+}
+
+/**
+ * Sentinel `file` value for the single whole-set cross-graph validation
+ * failure (unknown subgraph ref, circular ref) — distinct from per-file load
+ * failures. Surfaced as data in `loadGraphsCollecting`'s public output; the
+ * fail-loud `loadGraphs` wrapper keys off `crossGraphError` instead so it
+ * never depends on this string.
+ */
+const CROSS_GRAPH_FILE = "(cross-graph)";
+
+/** Internal core result: adds the cross-graph signal and the "any files seen"
+ * flag that the throwing `loadGraphs` wrapper needs without re-walking. */
+interface CoreLoadResult extends CollectingLoadResult {
+  /** True if at least one *.workflow.yaml was found under any input dir. */
+  sawFiles: boolean;
+  /** The whole-set cross-graph failure, if any (also mirrored into `errors`). */
+  crossGraphError?: string;
+}
+
+/**
+ * Shared multi-file load core: list every *.workflow.yaml under each dir,
+ * load each into the Map, and accumulate failures as DATA (never stderr).
+ * Across dirs, later dirs shadow earlier ones — that is the intended
+ * cascade override and drops nothing (the winner loads), so it is NOT
+ * reported. Two files in the SAME dir claiming one id IS reported as a
+ * warning entry, because there's no defined precedence within a dir so one
+ * is genuinely dropped from the listing (SKILL.md: `loadErrors` means a
+ * file was dropped). Sealed graphs are merged before cross-graph
+ * validation, which only runs when at least one graph loaded (matching the
+ * collecting loader's safety guard).
+ */
+function collectGraphs(dirs: string[], options?: LoadGraphsOptions): CoreLoadResult {
+  const graphs = new Map<string, ValidatedGraph>();
+  const errors: Array<{ file: string; message: string }> = [];
+  // Which dir last claimed each id — lets us tell a same-dir duplicate
+  // (ambiguous, one file dropped) from a cross-dir override (intended).
+  const idSource = new Map<string, string>();
+  let sawFiles = false;
+
+  const existingDirs = dirs.map((d) => path.resolve(d)).filter((d) => fs.existsSync(d));
+
+  for (const resolvedDir of existingDirs) {
+    for (const filePath of findGraphFiles(resolvedDir)) {
+      sawFiles = true;
+      const relFile = path.relative(resolvedDir, filePath);
+      try {
+        const { id, definition, graph, hookResolutions } = loadSingleGraph(filePath);
+        if (idSource.get(id) === resolvedDir) {
+          errors.push({
+            file: relFile,
+            message: `Graph "${id}" is defined by more than one file in ${resolvedDir}`,
+          });
+        }
+        graphs.set(id, { definition, graph, hookResolutions });
+        idSource.set(id, resolvedDir);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        errors.push({ file: relFile, message: msg });
+      }
+    }
+  }
+
+  if (options?.sealedGraphs) mergeSealedGraphs(graphs, options.sealedGraphs);
+
+  // Cross-graph validation (only if we have graphs)
+  let crossGraphError: string | undefined;
+  if (graphs.size > 0) {
+    try {
+      validateCrossGraphRefs(graphs);
+    } catch (e) {
+      crossGraphError = e instanceof Error ? e.message : String(e);
+      errors.push({ file: CROSS_GRAPH_FILE, message: crossGraphError });
+    }
+  }
+
+  return { graphs, errors, sawFiles, crossGraphError };
+}
+
 /**
  * Load and validate all *.workflow.yaml files from a directory (recursively).
  * Returns a Map of graphId → ValidatedGraph.
- * Throws on any validation failure with descriptive errors.
+ * Throws when nothing loads; otherwise returns the partial Map.
+ *
+ * This is public lib API (re-exported from core/index.ts) and must NOT emit
+ * stderr — partial-failure detail is available via loadGraphsCollecting.
  */
 export function loadGraphs(
   directory: string,
@@ -124,51 +226,34 @@ export function loadGraphs(
     throw new EngineError(`Graph directory does not exist: ${resolvedDir}`, EC.NO_GRAPHS_DIR);
   }
 
-  const files = findGraphFiles(resolvedDir);
+  // Single directory walk: collectGraphs reports `sawFiles`, so we derive the
+  // "no files" and "all failed" cases from its result instead of pre-scanning.
+  const { graphs, errors, sawFiles, crossGraphError } = collectGraphs([resolvedDir], options);
 
-  if (files.length === 0) {
+  if (!sawFiles) {
     throw new EngineError(
       `No *.workflow.yaml files found in or under: ${resolvedDir}`,
       EC.NO_GRAPHS_LOADED,
     );
   }
 
-  const results = new Map<string, ValidatedGraph>();
-  const errors: string[] = [];
-
-  for (const filePath of files) {
-    try {
-      const { id, definition, graph, hookResolutions } = loadSingleGraph(filePath);
-      results.set(id, { definition, graph, hookResolutions });
-    } catch (e) {
-      errors.push(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  if (results.size === 0) {
+  // Fail loud when nothing loaded; otherwise return the partial Map.
+  if (graphs.size === 0 && errors.length > 0) {
     throw new EngineError(
-      `All ${files.length} graph(s) failed validation:\n${errors.join("\n")}`,
+      `All graph(s) failed validation:\n${errors.map((e) => e.message).join("\n")}`,
       EC.NO_GRAPHS_LOADED,
     );
   }
 
-  if (errors.length > 0) {
-    process.stderr.write(
-      `Warning: ${errors.length} graph(s) failed validation and were skipped:\n${errors.join("\n")}\n`,
-    );
+  // Cross-graph validation failures (unknown subgraph ref, circular ref) are a
+  // structural defect of the loaded set, not a skippable per-file failure — fail
+  // loud even when individual graphs loaded. loadGraphsCollecting surfaces the
+  // same failure as data instead.
+  if (crossGraphError) {
+    throw new EngineError(crossGraphError, EC.GRAPH_STRUCTURE_INVALID);
   }
 
-  if (options?.sealedGraphs) mergeSealedGraphs(results, options.sealedGraphs);
-
-  // Cross-graph validation: subgraph references and circular detection
-  validateCrossGraphRefs(results);
-
-  return results;
-}
-
-export interface CollectingLoadResult {
-  graphs: Map<string, ValidatedGraph>;
-  errors: Array<{ file: string; message: string }>;
+  return graphs;
 }
 
 /**
@@ -180,122 +265,8 @@ export function loadGraphsCollecting(
   directories: string[],
   options?: LoadGraphsOptions,
 ): CollectingLoadResult {
-  const graphs = new Map<string, ValidatedGraph>();
-  const errors: Array<{ file: string; message: string }> = [];
-
-  const resolvedDirs = directories.map((d) => path.resolve(d));
-  const existingDirs = resolvedDirs.filter((d) => fs.existsSync(d));
-
-  if (existingDirs.length === 0) {
-    if (options?.sealedGraphs) mergeSealedGraphs(graphs, options.sealedGraphs);
-    return { graphs, errors };
-  }
-
-  for (const resolvedDir of existingDirs) {
-    const files = findGraphFiles(resolvedDir);
-
-    for (const filePath of files) {
-      const relFile = path.relative(resolvedDir, filePath);
-      try {
-        const { id, definition, graph, hookResolutions } = loadSingleGraph(filePath);
-        graphs.set(id, { definition, graph, hookResolutions });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        errors.push({ file: relFile, message: msg });
-      }
-    }
-  }
-
-  if (options?.sealedGraphs) mergeSealedGraphs(graphs, options.sealedGraphs);
-
-  // Cross-graph validation (only if we have graphs)
-  if (graphs.size > 0) {
-    try {
-      validateCrossGraphRefs(graphs);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      errors.push({ file: "(cross-graph)", message: msg });
-    }
-  }
-
+  const { graphs, errors } = collectGraphs(directories, options);
   return { graphs, errors };
-}
-
-/**
- * Load and validate graphs from multiple directories with cascading resolution.
- * Later directories shadow earlier ones (same graph ID in later dir wins).
- * Non-existent or empty directories are skipped with warnings.
- * Returns a Map of graphId → ValidatedGraph.
- */
-export function loadGraphsLayered(
-  directories: string[],
-  options?: LoadGraphsOptions,
-): Map<string, ValidatedGraph> {
-  const results = new Map<string, ValidatedGraph>();
-  const warnings: string[] = [];
-
-  if (directories.length === 0) {
-    throw new EngineError("No graph directories provided", EC.NO_GRAPHS_DIR);
-  }
-
-  // Load in order so later directories override earlier ones
-  for (const dir of directories) {
-    const resolvedDir = path.resolve(dir);
-
-    if (!fs.existsSync(resolvedDir)) {
-      warnings.push(`Skipped ${resolvedDir}: directory does not exist`);
-      continue;
-    }
-
-    const files = findGraphFiles(resolvedDir);
-
-    if (files.length === 0) {
-      warnings.push(`Skipped ${resolvedDir}: no *.workflow.yaml files found in or under directory`);
-      continue;
-    }
-
-    const errors: string[] = [];
-
-    for (const filePath of files) {
-      try {
-        const { id, definition, graph, hookResolutions } = loadSingleGraph(filePath);
-        if (results.has(id)) {
-          warnings.push(
-            `Graph "${id}" from ${resolvedDir} shadows earlier definition from another directory`,
-          );
-        }
-        results.set(id, { definition, graph, hookResolutions });
-      } catch (e) {
-        errors.push(e instanceof Error ? e.message : String(e));
-      }
-    }
-
-    if (errors.length > 0) {
-      warnings.push(
-        `Warning from ${resolvedDir}: ${errors.length} graph(s) failed validation:\n${errors.join("\n")}`,
-      );
-    }
-  }
-
-  if (results.size === 0) {
-    const dirs = directories.map((d) => path.resolve(d)).join(", ");
-    throw new EngineError(
-      `No valid graphs found in any directory: ${dirs}.\n\nSearched: ${directories.join(" → ")}`,
-      EC.NO_GRAPHS_LOADED,
-    );
-  }
-
-  // Emit warnings after successful load
-  if (warnings.length > 0) {
-    process.stderr.write(`Warnings:\n${warnings.join("\n")}\n`);
-  }
-
-  if (options?.sealedGraphs) mergeSealedGraphs(results, options.sealedGraphs);
-
-  // Cross-graph validation: subgraph references and circular detection
-  validateCrossGraphRefs(results);
-
-  return results;
 }
 
 export interface ValidateCrossGraphRefsOptions {

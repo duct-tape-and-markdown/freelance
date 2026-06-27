@@ -2,10 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EngineError } from "../src/errors.js";
 import { openDatabase, retryOnSqliteBusy } from "../src/memory/db.js";
 import { MemoryStore } from "../src/memory/store.js";
+import * as sources from "../src/sources.js";
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "memory-test-"));
@@ -694,6 +695,216 @@ describe("MemoryStore", () => {
       expect(() => store.related("Shared")).not.toThrow();
 
       expect(store.status().stale_propositions).toBe(N);
+    });
+  });
+
+  describe("scope-to-query staleness (#314)", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("inspect valid_proposition_count matches full-scan while an out-of-entity file is drifted", () => {
+      writeFile(tmpDir, "auth.ts", "class Auth {}");
+      writeFile(tmpDir, "other.ts", "class Other {}");
+      store.emit([
+        { content: "Auth validates tokens.", entities: ["Auth"], sources: ["auth.ts"] },
+        { content: "Auth refreshes tokens.", entities: ["Auth"], sources: ["auth.ts"] },
+        { content: "Other does work.", entities: ["Other"], sources: ["other.ts"] },
+      ]);
+
+      // Drift a file OUTSIDE the inspected entity's scope. The scoped
+      // scan never touches it, but the entity-wide count for Auth must
+      // still equal what a full-corpus scan would produce.
+      writeFile(tmpDir, "other.ts", "class Other { drifted }");
+
+      const result = store.inspect("Auth");
+      expect(result.entity.proposition_count).toBe(2);
+      expect(result.entity.valid_proposition_count).toBe(2);
+      // Sanity: the out-of-scope drift is real — Other is now stale.
+      expect(store.inspect("Other").entity.valid_proposition_count).toBe(0);
+    });
+
+    it("bySource on a two-source prop: querying the clean source still hides it when the other drifts", () => {
+      // The proposition_id-scoping trap. The prop cites a.ts (clean) and
+      // b.ts (drifted). Querying via a.ts must scope to the prop's id and
+      // then re-expand to ALL its source rows — so b.ts's drift is seen
+      // and the prop is hidden, even though a.ts itself is clean.
+      writeFile(tmpDir, "a.ts", "a-original");
+      writeFile(tmpDir, "b.ts", "b-original");
+      store.emit([
+        { content: "Cross-file claim.", entities: ["Multi"], sources: ["a.ts", "b.ts"] },
+      ]);
+
+      // a.ts stays clean; drift b.ts.
+      writeFile(tmpDir, "b.ts", "b-drifted");
+
+      const viaClean = store.bySource("a.ts");
+      expect(viaClean.total).toBe(0);
+      expect(viaClean.propositions).toHaveLength(0);
+
+      // includeOrphans surfaces it for audits.
+      const audit = store.bySource("a.ts", { includeOrphans: true });
+      expect(audit.total).toBe(1);
+    });
+
+    it("inspect on a 1-file entity hashes exactly 1 file with N unrelated files in the db", () => {
+      // Regression guard for #314: the scoped scan must hash only the
+      // files the inspected entity's props could cite, not every distinct
+      // source file in the corpus.
+      writeFile(tmpDir, "target.ts", "class Target {}");
+      for (let i = 0; i < 7; i++) {
+        writeFile(tmpDir, `unrelated${i}.ts`, `class Unrelated${i} {}`);
+        store.emit([
+          {
+            content: `Unrelated claim ${i}.`,
+            entities: [`Unrelated${i}`],
+            sources: [`unrelated${i}.ts`],
+          },
+        ]);
+      }
+      store.emit([
+        { content: "Target does the thing.", entities: ["Target"], sources: ["target.ts"] },
+      ]);
+
+      const spy = vi.spyOn(sources, "hashSourceFile");
+      const result = store.inspect("Target");
+      expect(result.entity.valid_proposition_count).toBe(1);
+
+      const hashedPaths = new Set(spy.mock.calls.map((c) => c[0] as string));
+      expect(hashedPaths.size).toBe(1);
+      expect([...hashedPaths][0]).toContain("target.ts");
+    });
+
+    it("unfiltered browse still hashes corpus-wide and counts correctly", () => {
+      writeFile(tmpDir, "x.ts", "x");
+      writeFile(tmpDir, "y.ts", "y");
+      store.emit([
+        { content: "X claim.", entities: ["X"], sources: ["x.ts"] },
+        { content: "Y claim.", entities: ["Y"], sources: ["y.ts"] },
+      ]);
+      // Drift y.ts so Y's valid_count must drop — only possible if the
+      // unfiltered scan covers the whole corpus.
+      writeFile(tmpDir, "y.ts", "y-drifted");
+
+      const spy = vi.spyOn(sources, "hashSourceFile");
+      const result = store.browse({ includeOrphans: true });
+      const hashedPaths = new Set(spy.mock.calls.map((c) => c[0] as string));
+      // Corpus-wide: both files hashed.
+      expect(hashedPaths.size).toBe(2);
+
+      const x = result.entities.find((e) => e.name === "X");
+      const y = result.entities.find((e) => e.name === "Y");
+      expect(x?.valid_proposition_count).toBe(1);
+      expect(y?.valid_proposition_count).toBe(0);
+    });
+
+    it("scoped valid_proposition_count equals full-scan count over a mixed clean/drifted fixture", () => {
+      // Mixed corpus: one clean entity, one whose source drifts. Each
+      // scoped read's header count must equal the count a full-corpus
+      // scan (here: status + per-entity) would yield.
+      writeFile(tmpDir, "clean.ts", "clean");
+      writeFile(tmpDir, "dirty.ts", "dirty-v1");
+      store.emit([
+        { content: "Clean A.", entities: ["Clean"], sources: ["clean.ts"] },
+        { content: "Clean B.", entities: ["Clean"], sources: ["clean.ts"] },
+        { content: "Dirty A.", entities: ["Dirty"], sources: ["dirty.ts"] },
+      ]);
+      writeFile(tmpDir, "dirty.ts", "dirty-v2");
+
+      // Full-scan ground truth.
+      expect(store.status().valid_propositions).toBe(2);
+
+      // inspect (scope = entity props)
+      expect(store.inspect("Clean").entity.valid_proposition_count).toBe(2);
+      expect(store.inspect("Dirty").entity.valid_proposition_count).toBe(0);
+
+      // related (scope = entity props)
+      expect(store.related("Clean").entity.valid_proposition_count).toBe(2);
+
+      // browse with name filter (scope = props of matching entities)
+      const cleanBrowse = store.browse({ name: "Clean", includeOrphans: true });
+      expect(cleanBrowse.entities[0].valid_proposition_count).toBe(2);
+      const dirtyBrowse = store.browse({ name: "Dirty", includeOrphans: true });
+      expect(dirtyBrowse.entities[0].valid_proposition_count).toBe(0);
+
+      // bySource (scope = props citing the file)
+      expect(store.bySource("clean.ts").total).toBe(2);
+      expect(store.bySource("dirty.ts").total).toBe(0);
+    });
+  });
+
+  describe("emit source I/O hoisting (#315)", () => {
+    it("emit of a batch with one unreadable source throws before any row is written", () => {
+      writeFile(tmpDir, "good.ts", "ok");
+
+      expect(() =>
+        store.emit([
+          { content: "Good claim.", entities: ["Good"], sources: ["good.ts"] },
+          { content: "Bad claim.", entities: ["Bad"], sources: ["missing.ts"] },
+        ]),
+      ).toThrow("Cannot read source file");
+
+      // No partial rows: neither the good prop (earlier in the batch) nor
+      // any entity should have been written. The hash pre-pass throws
+      // before the transaction opens.
+      expect(store.status().total_propositions).toBe(0);
+      expect(store.status().total_entities).toBe(0);
+      expect(() => store.inspect("Good")).toThrow("Entity not found");
+    });
+  });
+
+  describe("search alignment (#316/#237)", () => {
+    it("clamps limit to 200", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.emit([{ content: "Auth validates tokens.", entities: ["Auth"], sources: ["a.ts"] }]);
+
+      // Over the cap — silently clamped, doesn't throw.
+      const result = store.search("tokens", { limit: 10000 });
+      expect(result.propositions.length).toBeLessThanOrEqual(200);
+    });
+
+    it("hides stale propositions by default, surfaces them with includeOrphans", () => {
+      writeFile(tmpDir, "drift.ts", "original");
+      store.emit([
+        { content: "Searchable drifting claim.", entities: ["Drift"], sources: ["drift.ts"] },
+      ]);
+      writeFile(tmpDir, "drift.ts", "replaced");
+
+      const hidden = store.search("drifting");
+      expect(hidden.total).toBe(0);
+      expect(hidden.propositions).toHaveLength(0);
+
+      const surfaced = store.search("drifting", { includeOrphans: true });
+      expect(surfaced.total).toBe(1);
+      expect(surfaced.propositions).toHaveLength(1);
+    });
+
+    it("returns total so truncation is observable", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      for (let i = 0; i < 5; i++) {
+        store.emit([
+          { content: `Token claim number ${i}.`, entities: ["Auth"], sources: ["a.ts"] },
+        ]);
+      }
+
+      const result = store.search("token", { limit: 2 });
+      expect(result.total).toBe(5);
+      expect(result.propositions).toHaveLength(2);
+    });
+
+    it("full shape carries provenance; minimal shape carries only id/content + entities", () => {
+      writeFile(tmpDir, "a.ts", "x");
+      store.emit([{ content: "Auth validates tokens.", entities: ["Auth"], sources: ["a.ts"] }]);
+
+      const full = store.search("tokens");
+      const firstFull = full.propositions[0] as unknown as Record<string, unknown>;
+      expect(firstFull).toHaveProperty("source_files");
+      expect(firstFull).toHaveProperty("valid");
+      expect(firstFull).toHaveProperty("entities");
+
+      const minimal = store.search("tokens", { shape: "minimal" });
+      const firstMin = minimal.propositions[0] as unknown as Record<string, unknown>;
+      expect(Object.keys(firstMin).sort()).toEqual(["content", "entities", "id"]);
     });
   });
 

@@ -1,0 +1,41 @@
+id: wait-reentry
+version: "1.0.0"
+name: "Two Wait Nodes"
+description: "Tests that a prior wait's timeout latch does not leak into a later wait occupancy (#272)"
+startNode: start
+
+nodes:
+  start:
+    type: action
+    description: "Kick off"
+    edges:
+      - target: wait-a
+        label: goA
+
+  wait-a:
+    type: wait
+    description: "First wait"
+    waitOn:
+      - key: signalA
+        type: boolean
+        description: "First external signal"
+    timeout: 24h
+    edges:
+      - target: wait-b
+        label: toB
+
+  wait-b:
+    type: wait
+    description: "Second wait"
+    waitOn:
+      - key: signalB
+        type: boolean
+        description: "Second external signal"
+    timeout: 24h
+    edges:
+      - target: done
+        label: finish
+
+  done:
+    type: terminal
+    description: "Done"

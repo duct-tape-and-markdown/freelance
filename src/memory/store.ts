@@ -17,16 +17,15 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { EC, EngineError } from "../errors.js";
-import { hashSourceFile } from "../sources.js";
-import { countQuery, type Db, withTransaction } from "./db.js";
+import { hashSourceFile, resolveSourcePath } from "../sources.js";
+import { countQuery, type Db, paginate, withTransaction } from "./db.js";
 import {
   computeStatus,
   countNeighbors,
   countValidForEntity,
-  enrichProposition,
   fetchEntitiesByProp,
-  fetchSourcesByProp,
   getNeighbors,
+  projectPropositions,
 } from "./enrichment.js";
 import { findEntity, resolveEntity } from "./entities.js";
 import { generateId, now } from "./ids.js";
@@ -36,6 +35,7 @@ import {
   getStalePropositionIds,
   notStaleExists,
   primeStaleFilter,
+  type StaleScopeQuery,
 } from "./staleness.js";
 import type {
   BrowseResult,
@@ -46,8 +46,6 @@ import type {
   EntityInfo,
   EntityRow,
   InspectResult,
-  MinimalProposition,
-  PropositionInfo,
   PropositionRow,
   PropositionShape,
   RelatedResult,
@@ -75,6 +73,17 @@ function clampLimit(requested: number | undefined): number {
 function clampOffset(requested: number | undefined): number {
   if (requested === undefined || requested < 0) return 0;
   return Math.trunc(requested);
+}
+
+/**
+ * Stale-scan scope (#314) covering exactly one entity's propositions.
+ * Shared by `inspect` and `related`: both must scope to the entity's FULL
+ * proposition set (not the page) so `valid_proposition_count` and the
+ * neighbor valid-share counts stay true entity-wide totals — a scope that
+ * under-covers a count's domain silently reads missing rows as valid.
+ */
+function entityPropScope(entityId: string): StaleScopeQuery {
+  return { sql: "SELECT proposition_id FROM about WHERE entity_id = ?", params: [entityId] };
 }
 
 /**
@@ -168,26 +177,17 @@ export class MemoryStore {
    * "user-supplied file path → stored path" contract lives in one place
    * and a request for `../../etc/passwd` becomes a structured error on
    * reads too, not a silent empty match.
+   *
+   * The boundary check lives in the shared `resolveSourcePath`
+   * (`../sources.js`). Memory always opts in with `enforceBoundary: true`
+   * because these paths are agent-supplied; graph source bindings call
+   * the same helper WITHOUT the flag — see the policy note there.
    */
   private prepareSourcePath(filePath: string): {
     storedPath: string;
     resolvedPath: string;
   } {
-    const resolvedPath = path.isAbsolute(filePath)
-      ? filePath
-      : path.resolve(this.sourceRoot, filePath);
-
-    const normalizedRoot = path.resolve(this.sourceRoot) + path.sep;
-    const normalizedPath = path.resolve(resolvedPath);
-    if (
-      !normalizedPath.startsWith(normalizedRoot) &&
-      normalizedPath !== path.resolve(this.sourceRoot)
-    ) {
-      throw new EngineError(
-        `Source file is outside the source root: ${filePath}`,
-        EC.SOURCE_OUTSIDE_ROOT,
-      );
-    }
+    const resolvedPath = resolveSourcePath(filePath, this.sourceRoot, { enforceBoundary: true });
 
     const storedPath = path.isAbsolute(filePath)
       ? path.relative(this.sourceRoot, filePath)
@@ -227,11 +227,34 @@ export class MemoryStore {
       "INSERT OR IGNORE INTO proposition_sources (proposition_id, file_path, content_hash) VALUES (?, ?, ?)",
     );
 
+    // Pre-pass OUTSIDE the transaction: resolve + hash every source for
+    // every prop before any write lock is held (#315). Source hashing is
+    // pure fs.readFileSync + sha256 — keeping it inside withTransaction
+    // would hold the WAL writer lock across all that I/O. The
+    // unreadable-source error is thrown here, before a single row is
+    // written, so a bad source fails the whole batch without acquiring
+    // the lock or leaving a partial batch.
+    const hashedSourcesByProp = propositions.map((prop) =>
+      prop.sources.map((sourcePath) => {
+        const { storedPath, resolvedPath } = this.prepareSourcePath(sourcePath);
+        const hash = hashSourceFile(resolvedPath);
+        if (hash === null) {
+          throw new EngineError(
+            `Cannot read source file "${sourcePath}" during emit.`,
+            EC.SOURCE_FILE_UNREADABLE,
+          );
+        }
+        return { storedPath, hash };
+      }),
+    );
+
     // Caller expects every prop in the batch to have its full source
-    // set on success — a missing-source-file or constraint throw
-    // mid-loop must roll back, not leave half-attributed rows.
+    // set on success — a constraint throw mid-loop must roll back, not
+    // leave half-attributed rows. (Source hashing already happened above,
+    // so the transaction body is INSERTs only.)
     withTransaction(this.db, () => {
-      for (const prop of propositions) {
+      for (let i = 0; i < propositions.length; i++) {
+        const prop = propositions[i];
         const contentHash = hashPropContent(prop.content);
         const newId = generateId();
         const inserted = upsertProp.get(newId, prop.content, contentHash, now()) as
@@ -258,17 +281,8 @@ export class MemoryStore {
         }
         propResult.id = propId;
 
-        // Per-proposition source attribution. Each source file is hashed fresh
-        // at emit time; if the file can't be read, the emit fails for this prop.
-        for (const sourcePath of prop.sources) {
-          const { storedPath, resolvedPath } = this.prepareSourcePath(sourcePath);
-          const hash = hashSourceFile(resolvedPath);
-          if (hash === null) {
-            throw new EngineError(
-              `Cannot read source file "${sourcePath}" during emit.`,
-              EC.SOURCE_FILE_UNREADABLE,
-            );
-          }
+        // Per-proposition source attribution from the pre-hashed set.
+        for (const { storedPath, hash } of hashedSourcesByProp[i]) {
           insertPropSource.run(propId, storedPath, hash);
         }
 
@@ -318,7 +332,21 @@ export class MemoryStore {
       whereParams.push(options.kind);
     }
 
-    primeStaleFilter(this.db, this.sourceRoot, cache);
+    // Scope (#314): a name/kind filter narrows the stale scan to props
+    // about matching entities — a SUPERSET of valid_count's domain (all
+    // props of those entities), so the entity-wide count stays true.
+    // Reuse the EXACT same where/whereParams as the main select so scope
+    // and projection stay in lockstep. WITHOUT a filter, pass NO scope:
+    // the per-entity valid_count total ranges over the whole corpus, so
+    // the scan must too.
+    const scope =
+      options?.name || options?.kind
+        ? {
+            sql: `SELECT a.proposition_id FROM about a JOIN entities e ON e.id = a.entity_id WHERE ${where}`,
+            params: whereParams,
+          }
+        : undefined;
+    primeStaleFilter(this.db, this.sourceRoot, cache, scope);
     const having = includeOrphans ? "" : "HAVING valid_count > 0";
 
     const selectExpr = `
@@ -331,13 +359,15 @@ export class MemoryStore {
       GROUP BY e.id
       ${having}`;
 
-    const total = countQuery(this.db, `SELECT COUNT(*) FROM (${selectExpr})`, ...whereParams);
-
-    const rows = this.db
-      .prepare(`${selectExpr} ORDER BY e.created_at DESC LIMIT ? OFFSET ?`)
-      .all(...whereParams, limit, offset) as Array<
+    const { rows, total } = paginate<
       EntityRow & { proposition_count: number; valid_count: number }
-    >;
+    >(
+      this.db,
+      `SELECT COUNT(*) FROM (${selectExpr})`,
+      whereParams,
+      `${selectExpr} ORDER BY e.created_at DESC LIMIT ? OFFSET ?`,
+      [...whereParams, limit, offset],
+    );
 
     const entities: EntityInfo[] = rows.map((row) => ({
       id: row.id,
@@ -362,26 +392,27 @@ export class MemoryStore {
 
     // Total is computed over the full matching set — independent of
     // limit/offset — so the caller can decide whether to page further.
-    const total = countQuery(
+    const { rows: propRows, total } = paginate<PropositionRow>(
       this.db,
       "SELECT COUNT(*) FROM propositions p JOIN about a ON p.id = a.proposition_id WHERE a.entity_id = ?",
-      entity.id,
-    );
-
-    const propRows = this.db
-      .prepare(
-        `SELECT p.* FROM propositions p
+      [entity.id],
+      `SELECT p.* FROM propositions p
          JOIN about a ON p.id = a.proposition_id
          WHERE a.entity_id = ?
          ORDER BY p.created_at DESC
          LIMIT ? OFFSET ?`,
-      )
-      .all(entity.id, limit, offset) as PropositionRow[];
+      [entity.id, limit, offset],
+    );
 
-    // `valid_proposition_count` on the entity header reports the
-    // entity-wide valid total (across the full, unpaginated set); the
-    // paginated `propositions` list is just the current page.
-    primeStaleFilter(this.db, this.sourceRoot, cache);
+    // Scope (#314): only this entity's propositions. A SUPERSET of
+    // validCount's domain (all props about the entity) and of the
+    // neighbors' valid_shared_propositions domain (props about the
+    // entity it shares with a neighbor), so both stay true entity-wide
+    // totals — never the page. `valid_proposition_count` on the entity
+    // header reports the entity-wide valid total (across the full,
+    // unpaginated set); the paginated `propositions` list is just the
+    // current page.
+    primeStaleFilter(this.db, this.sourceRoot, cache, entityPropScope(entity.id));
     const validCount = countValidForEntity(this.db, entity.id);
     const neighbors = getNeighbors(this.db, entity.id);
 
@@ -394,19 +425,13 @@ export class MemoryStore {
           proposition_count: total,
           valid_proposition_count: validCount,
         },
-        propositions: propRows.map((p) => ({ id: p.id, content: p.content }) as MinimalProposition),
+        propositions: projectPropositions(this.sourceRoot, cache, this.db, propRows, "minimal"),
         total,
         neighbors,
       };
     }
 
-    const sourcesByProp = fetchSourcesByProp(
-      this.db,
-      propRows.map((p) => p.id),
-    );
-    const propositions = propRows.map((p) =>
-      enrichProposition(this.sourceRoot, cache, p, sourcesByProp.get(p.id) ?? []),
-    );
+    const propositions = projectPropositions(this.sourceRoot, cache, this.db, propRows, "full");
 
     // Deduped source files across the entity's *full* proposition set
     // (not just the current page). Callers use this to size-check the
@@ -457,71 +482,97 @@ export class MemoryStore {
     // Mirror `browse`'s staleness filter: propositions whose declared
     // source bytes don't match disk/any live ref are hidden by default.
     // Caller opts in with includeOrphans to see orphans during audits.
-    primeStaleFilter(this.db, this.sourceRoot, cache);
+    //
+    // Scope (#314): the props citing THIS file — but the outer scan
+    // re-expands each to ALL its source rows, so a two-source prop
+    // queried via its clean source still goes stale when its OTHER
+    // source drifts (the proposition_id-scoping trap). Scoping
+    // proposition_sources by file_path on the outer scan would break
+    // that; we only scope WHICH proposition_ids are considered.
+    primeStaleFilter(this.db, this.sourceRoot, cache, {
+      sql: "SELECT proposition_id FROM proposition_sources WHERE file_path = ?",
+      params: [storedPath],
+    });
     const notStaleJoin = includeOrphans ? "" : ` AND ${notStaleExists("p.id")}`;
 
-    const total = countQuery(
+    const { rows: propRows, total } = paginate<PropositionRow>(
       this.db,
       `SELECT COUNT(DISTINCT p.id) FROM propositions p
        JOIN proposition_sources ps ON p.id = ps.proposition_id
        WHERE ps.file_path = ?${notStaleJoin}`,
-      storedPath,
-    );
-
-    const propRows = this.db
-      .prepare(
-        `SELECT DISTINCT p.* FROM propositions p
+      [storedPath],
+      `SELECT DISTINCT p.* FROM propositions p
          JOIN proposition_sources ps ON p.id = ps.proposition_id
          WHERE ps.file_path = ?${notStaleJoin}
          ORDER BY p.created_at DESC
          LIMIT ? OFFSET ?`,
-      )
-      .all(storedPath, limit, offset) as PropositionRow[];
-
-    let propositions: MinimalProposition[] | PropositionInfo[];
-    if (shape === "minimal") {
-      propositions = propRows.map((p) => ({ id: p.id, content: p.content }) as MinimalProposition);
-    } else {
-      const sourcesByProp = fetchSourcesByProp(
-        this.db,
-        propRows.map((p) => p.id),
-      );
-      propositions = propRows.map((p) =>
-        enrichProposition(this.sourceRoot, cache, p, sourcesByProp.get(p.id) ?? []),
-      );
-    }
+      [storedPath, limit, offset],
+    );
 
     return {
       file_path: storedPath,
-      propositions,
+      propositions: projectPropositions(this.sourceRoot, cache, this.db, propRows, shape),
       total,
     };
   }
 
-  search(query: string, options?: { limit?: number }): SearchResult {
+  search(
+    query: string,
+    options?: { limit?: number; shape?: PropositionShape; includeOrphans?: boolean },
+  ): SearchResult {
     const cache = createStalenessCache();
-    const limit = options?.limit ?? 20;
+    const limit = clampLimit(options?.limit);
+    const shape: PropositionShape = options?.shape ?? "full";
+    const includeOrphans = options?.includeOrphans ?? false;
 
     // Sanitize query: replace bare hyphens with spaces so FTS5 doesn't
     // interpret them as the NOT operator (e.g. "query-driven" → "query driven")
     // Preserve explicitly quoted phrases and prefix wildcards.
     const sanitized = query.replace(/(?<!["])\b(\w+)-(\w+)\b(?!["])/g, "$1 $2");
 
-    const rows = this.db
-      .prepare(
-        `SELECT p.* FROM propositions p JOIN propositions_fts fts ON p.rowid = fts.rowid WHERE propositions_fts MATCH ? ORDER BY fts.rank LIMIT ?`,
-      )
-      .all(sanitized, limit) as PropositionRow[];
+    // Scope (#314): the FTS-matched proposition ids. Scoping the stale
+    // scan to the matches keeps hashing cheap (only the files those props
+    // cite) and is a superset of the page (the page is a LIMIT over this
+    // same match set), so the stale-hide and total below stay consistent.
+    const ftsMatchSql =
+      "SELECT p2.id FROM propositions p2 JOIN propositions_fts fts2 ON p2.rowid = fts2.rowid WHERE propositions_fts MATCH ?";
+    primeStaleFilter(this.db, this.sourceRoot, cache, { sql: ftsMatchSql, params: [sanitized] });
 
-    const propIds = rows.map((p) => p.id);
-    const sourcesByProp = fetchSourcesByProp(this.db, propIds);
-    const entitiesByProp = fetchEntitiesByProp(this.db, propIds);
-    const propositions = rows.map((p) => ({
-      ...enrichProposition(this.sourceRoot, cache, p, sourcesByProp.get(p.id) ?? []),
-      entities: entitiesByProp.get(p.id) ?? [],
-    }));
+    // Stale propositions are hidden BY DEFAULT (matching browse/bySource
+    // and the orphan-hiding lens in memory-intent.md). includeOrphans
+    // bypasses the filter for audits.
+    const notStaleJoin = includeOrphans ? "" : ` AND ${notStaleExists("p.id")}`;
 
-    return { query, propositions };
+    const { rows, total } = paginate<PropositionRow>(
+      this.db,
+      `SELECT COUNT(*) FROM propositions p
+       JOIN propositions_fts fts ON p.rowid = fts.rowid
+       WHERE propositions_fts MATCH ?${notStaleJoin}`,
+      [sanitized],
+      `SELECT p.* FROM propositions p
+       JOIN propositions_fts fts ON p.rowid = fts.rowid
+       WHERE propositions_fts MATCH ?${notStaleJoin}
+       ORDER BY fts.rank LIMIT ?`,
+      [sanitized, limit],
+    );
+
+    const entitiesByProp = fetchEntitiesByProp(
+      this.db,
+      rows.map((p) => p.id),
+    );
+
+    // Reuse the shared shape projection (#240) and layer search's
+    // distinguishing payload (entities) on top — search differs from the
+    // other reads only by that extra field, not by how it projects.
+    const propositions: SearchResult["propositions"] = projectPropositions(
+      this.sourceRoot,
+      cache,
+      this.db,
+      rows,
+      shape,
+    ).map((p) => ({ ...p, entities: entitiesByProp.get(p.id) ?? [] }));
+
+    return { query, propositions, total };
   }
 
   status(): StatusResult {
@@ -538,7 +589,12 @@ export class MemoryStore {
     const limit = clampLimit(options?.limit);
     const offset = clampOffset(options?.offset);
 
-    primeStaleFilter(this.db, this.sourceRoot, cache);
+    // Scope (#314): same as inspect — only this entity's propositions.
+    // getNeighbors' valid_shared_propositions counts only props about the
+    // queried entity (a1.entity_id = entity.id), and validCount ranges
+    // over the entity's full prop set; both are subsets of this scope, so
+    // it's a true superset and the counts stay entity-wide.
+    primeStaleFilter(this.db, this.sourceRoot, cache, entityPropScope(entity.id));
     const validCount = countValidForEntity(this.db, entity.id);
     const totalCount = countQuery(
       this.db,

@@ -1,0 +1,22 @@
+id: valid-empty-sources
+version: "1.0.0"
+name: "Empty Sources Workflow"
+description: "Graph with an explicit empty sources array — must never ship graphSources:[]"
+startNode: start
+
+sources: []
+
+context:
+  taskStarted: false
+
+nodes:
+  start:
+    type: action
+    description: "Begin the task"
+    edges:
+      - target: done
+        label: next
+
+  done:
+    type: terminal
+    description: "Task complete"

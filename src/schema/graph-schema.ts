@@ -100,6 +100,18 @@ export function isContextFieldDescriptor(v: unknown): v is ContextFieldDescripto
   );
 }
 
+/**
+ * Resolve context field descriptors to their default values.
+ * Plain scalars pass through unchanged; descriptors are replaced by their default.
+ */
+export function resolveContextDefaults(context: Record<string, unknown>): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(context)) {
+    resolved[key] = isContextFieldDescriptor(value) ? (value.default ?? null) : value;
+  }
+  return resolved;
+}
+
 export const graphDefinitionSchema = z.object({
   id: z.string(),
   version: z.string(),
@@ -110,7 +122,7 @@ export const graphDefinitionSchema = z.object({
   strictContext: z.boolean().optional().default(false),
   nodes: z.record(z.string(), nodeDefinitionSchema),
   sources: z.array(sourceBindingSchema).optional(),
-  // Meta keys a caller must supply at freelance_start (or that the start
+  // Meta keys a caller must supply at freelance start (or that the start
   // node's onEnter hooks must set) before the traversal is accepted. Use
   // this for workflows bound to an external entity — e.g. `[externalKey]`
   // for ticket-driven delivery workflows. Freelance still never interprets

@@ -16,17 +16,13 @@ export { GraphEngine } from "../engine/index.js";
 export { EngineError } from "../errors.js";
 // Expression evaluator
 export { evaluate, validateExpression } from "../evaluator.js";
-export {
-  loadGraphs,
-  loadSingleGraph,
-  resolveContextDefaults,
-  validateAndBuild,
-} from "../loader.js";
+export { loadGraphs, loadSingleGraph, validateAndBuild } from "../loader.js";
 // Schema
 export {
   edgeDefinitionSchema,
   graphDefinitionSchema,
   nodeDefinitionSchema,
+  resolveContextDefaults,
   sourceBindingSchema,
   validationRuleSchema,
 } from "../schema/graph-schema.js";

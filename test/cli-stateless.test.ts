@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { sourcesValidate } from "../src/cli/stateless.js";
+import { sourcesCheck, sourcesHash, sourcesValidate } from "../src/cli/stateless.js";
 
 describe("sourcesValidate", () => {
   let exitSpy: ReturnType<typeof vi.spyOn>;
@@ -56,5 +56,51 @@ describe("sourcesValidate", () => {
     expect(exitSpy).toHaveBeenCalledWith(4);
     const parsed = stdoutJson() as { isError: true; error: { code: string } };
     expect(parsed.error.code).toBe("GRAPH_NOT_FOUND");
+  });
+
+  describe("sourcesHash colon-arity contract (#264)", () => {
+    it("accepts bare path", () => {
+      const dir = tmpDir();
+      fs.writeFileSync(path.join(dir, "doc.md"), "# Doc\n");
+      sourcesHash({ basePath: dir }, ["doc.md"]);
+      const parsed = stdoutJson() as { sources: Array<{ path: string; section?: string }> };
+      expect(parsed.sources[0].path).toBe("doc.md");
+      expect(parsed.sources[0].section).toBeUndefined();
+    });
+
+    it("accepts path:section", () => {
+      const dir = tmpDir();
+      fs.writeFileSync(path.join(dir, "doc.md"), "# Sec\n\nbody\n");
+      sourcesHash({ basePath: dir }, ["doc.md:Sec"]);
+      const parsed = stdoutJson() as { sources: Array<{ path: string; section?: string }> };
+      expect(parsed.sources[0].path).toBe("doc.md");
+      expect(parsed.sources[0].section).toBe("Sec");
+    });
+
+    it("rejects input with more than one colon (was silently mis-split before)", () => {
+      const dir = tmpDir();
+      expect(() => sourcesHash({ basePath: dir }, ["doc.md:Sec:extra"])).toThrow("process.exit");
+      expect(exitSpy).toHaveBeenCalledWith(5); // EXIT.INVALID_INPUT
+      const parsed = stdoutJson() as { isError: true; error: { code: string } };
+      expect(parsed.error.code).toBe("INVALID_SOURCE_FORMAT");
+    });
+  });
+
+  describe("sourcesCheck colon-arity contract (#264)", () => {
+    it("accepts path:hash and path:section:hash", () => {
+      const dir = tmpDir();
+      fs.writeFileSync(path.join(dir, "doc.md"), "# Doc\n");
+      sourcesCheck({ basePath: dir }, ["doc.md:0000000000000000"]);
+      const parsed = stdoutJson() as { drifted: Array<{ path: string }> };
+      expect(parsed.drifted[0].path).toBe("doc.md");
+    });
+
+    it("rejects a bare path with no hash", () => {
+      const dir = tmpDir();
+      expect(() => sourcesCheck({ basePath: dir }, ["doc.md"])).toThrow("process.exit");
+      expect(exitSpy).toHaveBeenCalledWith(5);
+      const parsed = stdoutJson() as { isError: true; error: { code: string } };
+      expect(parsed.error.code).toBe("INVALID_SOURCE_FORMAT");
+    });
   });
 });

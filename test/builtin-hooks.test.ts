@@ -38,6 +38,13 @@ describe("meta_set built-in hook", () => {
     ).rejects.toThrow(/must resolve to a string/);
   });
 
+  it("arg-validation failures throw EngineError with HOOK_BAD_ARGS, not a bare TypeError (#247)", async () => {
+    const metaSet = BUILTIN_HOOKS.meta_set;
+    const promise = metaSet(makeCtx({ args: { externalKey: 1234 }, setMeta: () => {} }));
+    await expect(promise).rejects.toBeInstanceOf(EngineError);
+    await expect(promise).rejects.toMatchObject({ code: "HOOK_BAD_ARGS" });
+  });
+
   it("requires at least one arg", async () => {
     const metaSet = BUILTIN_HOOKS.meta_set;
     await expect(metaSet(makeCtx({ args: {}, setMeta: () => {} }))).rejects.toThrow(
@@ -180,16 +187,13 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
     store = new MemoryStore(openDatabase(path.join(tmpDir, "memory.db")), tmpDir);
     sourcePath = "fixture.md";
     fs.writeFileSync(path.join(tmpDir, sourcePath), "# fixture\nBiome formats the repo.\n");
-    store.emit(
-      [
-        {
-          content: "Biome formats and lints the freelance repo.",
-          entities: ["Biome", "freelance"],
-          sources: [sourcePath],
-        },
-      ],
-      "default",
-    );
+    store.emit([
+      {
+        content: "Biome formats and lints the freelance repo.",
+        entities: ["Biome", "freelance"],
+        sources: [sourcePath],
+      },
+    ]);
   });
 
   afterEach(() => {
@@ -205,6 +209,28 @@ describe("memory_search, memory_related, memory_inspect, memory_by_source built-
       expect(result).toHaveProperty("query", "Biome");
       expect(Array.isArray(result.propositions)).toBe(true);
       expect((result.propositions as unknown[]).length).toBeGreaterThan(0);
+    });
+
+    it("defaults to minimal shape (no provenance payload) like the other memory_* built-ins", async () => {
+      // Hooks default to `shape: "minimal"` — issue #87 response-size
+      // precedent. Search keeps entities (its distinguishing payload) but
+      // drops the per-file source_files/valid provenance.
+      const memorySearch = BUILTIN_HOOKS.memory_search;
+      const result = await memorySearch(makeCtx({ args: { query: "Biome" }, memory: store }));
+      const first = (result.propositions as Array<Record<string, unknown>>)[0];
+      expect(Object.keys(first).sort()).toEqual(["content", "entities", "id"]);
+      expect(first).not.toHaveProperty("source_files");
+    });
+
+    it("returns full shape with source_files when shape: full is passed", async () => {
+      const memorySearch = BUILTIN_HOOKS.memory_search;
+      const result = await memorySearch(
+        makeCtx({ args: { query: "Biome", shape: "full" }, memory: store }),
+      );
+      const first = (result.propositions as Array<Record<string, unknown>>)[0];
+      expect(first).toHaveProperty("source_files");
+      expect(first).toHaveProperty("valid");
+      expect(first).toHaveProperty("entities");
     });
 
     it("threads limit + collection args through", async () => {

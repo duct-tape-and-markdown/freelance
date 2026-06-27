@@ -190,6 +190,8 @@ Over-cap writes are rejected with `CONTEXT_VALUE_TOO_LARGE` or `CONTEXT_TOTAL_TO
 
 Merge rules: arrays (`workflows`) concatenate across files. Scalars use highest-precedence value.
 
+Config files fail loud: a missing file falls back to defaults, but malformed YAML, a value that fails validation (`maxDepth: 0`), or an unknown top-level key (`maxDepht: 10`) aborts the command with `INVALID_CONFIG_VALUE` / `UNKNOWN_CONFIG_KEY` rather than being silently ignored. `config set-local` likewise refuses to overwrite an existing-but-invalid `config.local.yml`.
+
 Use `freelance config show` to see the resolved configuration and which files contributed.
 
 Use `freelance config set-local <key> <value>` to modify `config.local.yml` programmatically (used by plugin hooks).

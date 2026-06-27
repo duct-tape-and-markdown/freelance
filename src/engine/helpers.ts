@@ -24,8 +24,20 @@ export function requireGraph(
   return graph;
 }
 
-export function cloneContext(ctx: Record<string, unknown>): Record<string, unknown> {
-  return structuredClone(ctx);
+/**
+ * The single decision point for "attach graphSources iff full-shape and
+ * non-empty". Full-mode response builders spread the result onto their
+ * base object; `graphSources` lands only when `sources?.length` is
+ * truthy, so an empty or undefined `def.sources` never leaks a
+ * `graphSources: []` onto the wire. Minimal responses never call this —
+ * they carry `contextDelta`, not source bindings.
+ */
+export function withGraphSources<T extends object>(
+  base: T,
+  sources: readonly SourceBinding[] | undefined,
+): T | (T & { graphSources: readonly SourceBinding[] }) {
+  if (!sources?.length) return base;
+  return { ...base, graphSources: sources };
 }
 
 export function toNodeInfo(node: NodeDefinition): NodeInfo {
@@ -115,13 +127,15 @@ export function buildAdvanceSuccessResult(
   if ("contextDelta" in mode) {
     return { ...base, isError: false, contextDelta: mode.contextDelta };
   }
-  return {
-    ...base,
-    isError: false,
-    node: toNodeInfo(mode.node),
-    context: cloneContext(mode.context),
-    ...(mode.graphSources?.length ? { graphSources: mode.graphSources } : {}),
-  };
+  return withGraphSources(
+    {
+      ...base,
+      isError: false,
+      node: toNodeInfo(mode.node),
+      context: structuredClone(mode.context),
+    },
+    mode.graphSources,
+  );
 }
 
 /**
@@ -131,13 +145,15 @@ export function buildAdvanceSuccessResult(
  */
 export type AdvanceSnapshotMode =
   | { readonly contextDelta: readonly string[] }
-  | { readonly full: true };
+  | { readonly full: true; readonly graphSources?: readonly SourceBinding[] };
 
 /**
  * Shared advance-failure snapshot fields — `currentNode`,
  * `validTransitions`, and `context | contextDelta`. The bundle a
  * skill needs to recover from any advance failure (gate-block or
- * post-transition hook throw).
+ * post-transition hook throw). On the full shape `graphSources` rides
+ * along iff the graph has non-empty sources — `withGraphSources` is the
+ * single decision point, so gate-block builders don't re-check it.
  */
 export type AdvanceSnapshot =
   | {
@@ -149,6 +165,7 @@ export type AdvanceSnapshot =
       readonly currentNode: string;
       readonly validTransitions: readonly TransitionInfo[];
       readonly context: Readonly<Record<string, unknown>>;
+      readonly graphSources?: readonly SourceBinding[];
     };
 
 /**
@@ -158,6 +175,8 @@ export type AdvanceSnapshot =
  * future field on the recover-or-stop bundle lands on both paths.
  * Computes `validTransitions` once against the post-transition node;
  * skills read it on every advance failure to pick the next move.
+ * Full-shape snapshots attach `graphSources` through `withGraphSources`
+ * — the one place that decides "include iff full-shape and non-empty".
  */
 export function buildAdvanceSnapshot(
   session: SessionState,
@@ -172,9 +191,12 @@ export function buildAdvanceSnapshot(
       contextDelta: mode.contextDelta,
     };
   }
-  return {
-    currentNode: session.currentNode,
-    validTransitions,
-    context: cloneContext(session.context),
-  };
+  return withGraphSources(
+    {
+      currentNode: session.currentNode,
+      validTransitions,
+      context: structuredClone(session.context),
+    },
+    mode.graphSources,
+  );
 }

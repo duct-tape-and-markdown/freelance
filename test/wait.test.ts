@@ -262,7 +262,11 @@ describe("wait nodes — timeout", () => {
     }
   });
 
-  it("stamps waitTimedOutAt on SessionState when the timeout fires", async () => {
+  // #224: inspect is a read-only/audit path and must NOT latch
+  // waitTimedOutAt; only the gate/write path (advance) stamps it
+  // durably. evaluateWaitTimeout still reports timed_out by elapsed
+  // time, so the wire signal is unaffected.
+  it("inspect reports timed_out but does NOT stamp waitTimedOutAt (read-only)", async () => {
     const engine = makeEngine("valid-wait.workflow.yaml");
     await engine.start("valid-wait");
     await engine.advance("submitted");
@@ -272,9 +276,32 @@ describe("wait nodes — timeout", () => {
     stack[0].waitArrivedAt = new Date(Date.now() - 25 * 3600 * 1000).toISOString();
     engine.restoreStack(stack);
 
-    // Inspect triggers checkWaitTimeout via computeWaitInfo
-    engine.inspect("position");
+    const inspect = engine.inspect("position") as InspectPositionResult;
+    expect(inspect.waitStatus).toBe("timed_out");
+    // Inspect did not mutate the session.
     const after = engine.getStack();
+    expect(after[0].waitTimedOutAt).toBeUndefined();
+  });
+
+  it("gate path stamps waitTimedOutAt durably when the timeout fires", async () => {
+    const engine = makeEngine("valid-wait.workflow.yaml");
+    await engine.start("valid-wait");
+    await engine.advance("submitted");
+
+    // Simulate timeout
+    const stack = engine.getStack();
+    stack[0].waitArrivedAt = new Date(Date.now() - 25 * 3600 * 1000).toISOString();
+    engine.restoreStack(stack);
+
+    // Advance to a NON-wait target (fix-ci) so the gate's latch isn't
+    // cleared by a fresh wait arrival. This exercises
+    // checkWaitBlocking's write path.
+    engine.contextSet({ ciPassed: false, coverageReport: "fail" });
+    await engine.advance("failed");
+
+    const after = engine.getStack();
+    expect(after[0].currentNode).toBe("fix-ci");
+    // The gate latched the timeout durably during the advance.
     expect(after[0].waitTimedOutAt).toBeDefined();
     // Flag lives on SessionState, not context — confirms no bleed
     // into the wire shape or past strictContext / caps / contextHistory.
@@ -369,6 +396,80 @@ nodes:
   it("accepts valid wait node", async () => {
     const graphs = loadFixtures("valid-wait-simple.workflow.yaml");
     expect(graphs.has("valid-wait-simple")).toBe(true);
+  });
+
+  // #338: fields only read for a specific node type are rejected on
+  // incompatible types instead of being silently ignored at runtime.
+  it("rejects waitOn on a non-wait node", async () => {
+    const dir = writeGraph(`
+id: test-waiton-on-action
+version: "1.0.0"
+name: "Test"
+description: "Test"
+startNode: start
+nodes:
+  start:
+    type: action
+    description: "Action with stray waitOn"
+    waitOn:
+      - key: ready
+        type: boolean
+    edges:
+      - target: done
+        label: go
+  done:
+    type: terminal
+    description: "Done"
+`);
+    expect(() => loadGraphs(dir)).toThrow(/waitOn.*only valid on wait/i);
+  });
+
+  it("rejects timeout on a non-wait node", async () => {
+    const dir = writeGraph(`
+id: test-timeout-on-action
+version: "1.0.0"
+name: "Test"
+description: "Test"
+startNode: start
+nodes:
+  start:
+    type: action
+    description: "Action with stray timeout"
+    timeout: "5m"
+    edges:
+      - target: done
+        label: go
+  done:
+    type: terminal
+    description: "Done"
+`);
+    expect(() => loadGraphs(dir)).toThrow(/timeout.*only valid on wait/i);
+  });
+
+  it("rejects subgraph on a wait node", async () => {
+    const dir = writeGraph(`
+id: test-subgraph-on-wait
+version: "1.0.0"
+name: "Test"
+description: "Test"
+startNode: start
+nodes:
+  start:
+    type: wait
+    description: "Wait with stray subgraph"
+    waitOn:
+      - key: ready
+        type: boolean
+    subgraph:
+      graphId: other
+    edges:
+      - target: done
+        label: go
+  done:
+    type: terminal
+    description: "Done"
+`);
+    expect(() => loadGraphs(dir)).toThrow(/wait node must not have a subgraph/i);
   });
 });
 

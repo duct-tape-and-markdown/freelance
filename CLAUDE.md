@@ -127,10 +127,12 @@ Durable contracts surfaced across multiple features. If a new feature extends on
 
 **`splitKeyValue` is the single CLI primitive for `key=value` flags.** `--meta`, `--filter`, and `context set` all parse `key=value` pairs. One helper in `src/cli/output.ts` (co-located with `parseIntArg` and other cross-feature CLI primitives) splits on the first `=`, validates a non-empty key, and throws a consistent error. Value handling (string-only for meta, JSON-coerced for context, byte-capped for meta via `parseMetaPairs`) stays at the caller — domain-specific — but the split + empty-key guard is shared.
 
+**Runtime verbs wire up through `runTraversalVerb` / `runMemoryVerb`; flag values parse via `intOption` / `enumOption`.** A `program.ts` `.action()` for a traversal or memory verb is a one-liner: `runTraversalVerb(opts, (store) => traversalX(store, …))` / `runMemoryVerb(opts, (store) => memoryX(store, …))`. Each builds the store/runtime from `opts.workflows` and runs the body through the single `runCliHandler` (async; it disposes, routes `CliExit`, and synthesizes the error envelope — there is no separate sync variant). Don't hand-roll the construct-dispose-catch skeleton or call a handler directly. Integer/enum flags validate at the option boundary via the commander argParsers `intOption(flag)` / `enumOption(flag, choices)` (in `output.ts`), so handler signatures take `number` / the enum, not `string`. The one deliberate exception is `memoryReset`, which can't construct a `MemoryStore` (it's the schema-incompat recovery path that opening the db would block) — it wires through `runCliHandler(NO_DISPOSABLE, …)` with a `dbPath`, and says so in a comment.
+
 ## Project structure
 
 - `src/schema/` — Zod schemas for graph definitions (single source of truth for types + validation)
-- `src/evaluator.ts` — Expression evaluator for edge conditions and validations; exports `CONTEXT_PATH_PATTERN` + `resolveContextPath` for hook arg resolution
+- `src/evaluator.ts` — Expression evaluator for edge conditions and validations; exports `CONTEXT_PATH_PATTERN` + `resolveContextRef` for hook arg resolution
 - `src/loader.ts` — YAML graph loader with structural validation; threads `resolveGraphHooks` results into `ValidatedGraph.hookResolutions`
 - `src/hook-resolution.ts` — Load-time hook path resolver: classifies `onEnter[].call` as built-in name or local script path, stats scripts, merges into the `ValidatedGraph`
 - `src/compose.ts` — **Composition root.** Single `composeRuntime` factory that wires state backend → memory store → hook runner → traversal store and returns a `Runtime` with an idempotent `close()`. Also owns `buildMemoryStore` (shared with CLI memory commands) and `migrateLegacyLayout` (transparent `.state/` → flat layout migration). Both `src/server.ts` and `src/cli/setup.ts` call `composeRuntime`.
@@ -144,7 +146,7 @@ Durable contracts surfaced across multiple features. If a new feature extends on
   - `returns.ts` — Return schema validation
   - `hooks.ts` — `HookRunner`, `HookContext`, `HookMemoryAccess` narrow read interface, `resolveHookArgs`, timeout + error wrapping. Required injection on `GraphEngineOptions`.
   - `builtin-hooks.ts` — `BUILTIN_HOOKS` map of name → `HookFn` (`memory_status`, `memory_browse`); `requireMemory` guard helper
-  - `helpers.ts` — Shared utilities (cloneContext, toNodeInfo)
+  - `helpers.ts` — Shared utilities (toNodeInfo, withGraphSources, buildAdvance* result builders)
 - `src/state/` — Stateless traversal store (JSON files on disk under `.freelance/traversals/`)
   - `traversal-store.ts` — Multi-traversal management, loads/saves state per operation; owns `setMeta` (merge semantics) and meta enrichment of `inspect` / `advance` / `list` responses
   - `db.ts` — `StateStore` interface + JSON-directory and in-memory backends; `TraversalRecord` carries an optional `meta: Record<string,string>` of opaque caller-supplied lookup tags (Freelance never interprets them — see `freelance_guide meta`); `openStateStore` factory owns the `mkdirSync` (constructor is pure)

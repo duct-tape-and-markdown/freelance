@@ -59,13 +59,17 @@ export interface HookImportError {
 }
 
 /**
- * Walk every node's `onEnter` list and resolve each hook reference.
- * Returns a map keyed by node id; nodes without hooks are absent.
- * Throws a single error listing every problem found (so the author
- * fixes all of them in one pass instead of whack-a-mole).
+ * Walk every node's `onEnter` list, dispatch each entry to `resolveOne`,
+ * accumulate `Node "<id>", onEnter[<i>]: <err>` failures, and throw one
+ * combined message under `errorPrefix` so the author fixes every problem in
+ * one pass. Returns a map keyed by node id; nodes whose entries all failed
+ * (or that have no hooks) are absent.
  */
-export function resolveGraphHooks(def: GraphDefinition, graphFilePath: string): HookResolutionMap {
-  const graphDir = path.dirname(path.resolve(graphFilePath));
+function walkOnEnterHooks(
+  def: GraphDefinition,
+  resolveOne: (call: string) => ResolvedHook | string,
+  errorPrefix: string,
+): Map<string, ResolvedHook[]> {
   const resolutions = new Map<string, ResolvedHook[]>();
   const errors: string[] = [];
 
@@ -74,7 +78,7 @@ export function resolveGraphHooks(def: GraphDefinition, graphFilePath: string): 
 
     const nodeResolutions: ResolvedHook[] = [];
     for (const [i, hook] of node.onEnter.entries()) {
-      const resolved = resolveOneHook(hook.call, graphDir);
+      const resolved = resolveOne(hook.call);
       if (typeof resolved === "string") {
         errors.push(`Node "${nodeId}", onEnter[${i}]: ${resolved}`);
       } else {
@@ -87,12 +91,25 @@ export function resolveGraphHooks(def: GraphDefinition, graphFilePath: string): 
   }
 
   if (errors.length > 0) {
-    throw new Error(
-      `[${graphFilePath}] Hook resolution failed:\n${errors.map((e) => `  ${e}`).join("\n")}`,
-    );
+    throw new Error(`${errorPrefix}:\n${errors.map((e) => `  ${e}`).join("\n")}`);
   }
 
   return resolutions;
+}
+
+/**
+ * Walk every node's `onEnter` list and resolve each hook reference.
+ * Returns a map keyed by node id; nodes without hooks are absent.
+ * Throws a single error listing every problem found (so the author
+ * fixes all of them in one pass instead of whack-a-mole).
+ */
+export function resolveGraphHooks(def: GraphDefinition, graphFilePath: string): HookResolutionMap {
+  const graphDir = path.dirname(path.resolve(graphFilePath));
+  return walkOnEnterHooks(
+    def,
+    (call) => resolveOneHook(call, graphDir),
+    `[${graphFilePath}] Hook resolution failed`,
+  );
 }
 
 /**
@@ -102,47 +119,29 @@ export function resolveGraphHooks(def: GraphDefinition, graphFilePath: string): 
  * against. Throws a single error listing every problem found.
  */
 export function resolveBuiltinOnlyHooks(def: GraphDefinition): HookResolutionMap {
-  const resolutions = new Map<string, ResolvedHook[]>();
-  const errors: string[] = [];
+  return walkOnEnterHooks(def, resolveBuiltinOnlyHook, "Programmatic graph hook resolution failed");
+}
 
-  for (const [nodeId, node] of Object.entries(def.nodes)) {
-    if (!node.onEnter || node.onEnter.length === 0) continue;
-
-    const nodeResolutions: ResolvedHook[] = [];
-    for (const [i, hook] of node.onEnter.entries()) {
-      const call = hook.call;
-      if (call.length === 0) {
-        errors.push(`Node "${nodeId}", onEnter[${i}]: empty call value`);
-        continue;
-      }
-      if (call.startsWith("./") || call.startsWith("../") || call.includes("/")) {
-        errors.push(
-          `Node "${nodeId}", onEnter[${i}]: programmatic graphs may only reference ` +
-            `built-in hooks by name; script paths like "${call}" require a YAML graph ` +
-            `with a source-file directory to anchor against.`,
-        );
-        continue;
-      }
-      if (!isBuiltinHookName(call)) {
-        errors.push(
-          `Node "${nodeId}", onEnter[${i}]: unknown built-in hook "${call}". ` +
-            `Registered built-ins: [${formatBuiltinHookNames()}]`,
-        );
-        continue;
-      }
-      nodeResolutions.push({ kind: "builtin", call, name: call });
-    }
-    if (nodeResolutions.length > 0) {
-      resolutions.set(nodeId, nodeResolutions);
-    }
+/**
+ * Resolve a single `call:` string against built-in hooks only. Returns the
+ * resolved hook on success or an error string on failure; script paths are
+ * rejected since a programmatic graph has no source-file directory.
+ */
+function resolveBuiltinOnlyHook(call: string): ResolvedHook | string {
+  if (call.length === 0) {
+    return `empty call value`;
   }
-
-  if (errors.length > 0) {
-    throw new Error(
-      `Programmatic graph hook resolution failed:\n${errors.map((e) => `  ${e}`).join("\n")}`,
+  if (call.startsWith("./") || call.startsWith("../") || call.includes("/")) {
+    return (
+      `programmatic graphs may only reference built-in hooks by name; ` +
+      `script paths like "${call}" require a YAML graph with a source-file ` +
+      `directory to anchor against.`
     );
   }
-  return resolutions;
+  if (!isBuiltinHookName(call)) {
+    return `unknown built-in hook "${call}". Registered built-ins: [${formatBuiltinHookNames()}]`;
+  }
+  return { kind: "builtin", call, name: call };
 }
 
 /**

@@ -10,7 +10,7 @@
 
 import { pathToFileURL } from "node:url";
 import { EC, EngineError } from "../errors.js";
-import { CONTEXT_PATH_PATTERN, resolveContextPath } from "../evaluator.js";
+import { resolveContextRef } from "../evaluator.js";
 import type { HookResolutionMap, ResolvedHook } from "../hook-resolution.js";
 import type {
   BrowseResult,
@@ -26,9 +26,9 @@ import { BUILTIN_HOOKS, type BuiltinHookOverrides } from "./builtin-hooks.js";
 import {
   applyContextUpdates,
   type ContextCaps,
-  DEFAULT_CONTEXT_CAPS,
   enforceContextCaps,
   enforceStrictContext,
+  resolveContextCaps,
 } from "./context.js";
 
 /**
@@ -49,7 +49,10 @@ export interface HookMemoryAccess {
     offset?: number;
     includeOrphans?: boolean;
   }): BrowseResult;
-  search(query: string, options?: { limit?: number }): SearchResult;
+  search(
+    query: string,
+    options?: { limit?: number; shape?: PropositionShape; includeOrphans?: boolean },
+  ): SearchResult;
   related(entityIdOrName: string, options?: { limit?: number; offset?: number }): RelatedResult;
   bySource(
     filePath: string,
@@ -137,7 +140,20 @@ export class HookRunner {
     this.memory = options.memory;
     this.hookTimeoutMs = options.hookTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS;
     this.builtinHooks = options.builtinHooks ?? BUILTIN_HOOKS;
-    this.contextCaps = options.contextCaps ?? DEFAULT_CONTEXT_CAPS;
+    // resolveContextCaps is the single fallback definition (shared with
+    // GraphEngine) so both sides default identically.
+    this.contextCaps = resolveContextCaps(options.contextCaps);
+  }
+
+  /**
+   * Resolved caps applied to hook-return writes. Exposed read-only so
+   * GraphEngine can assert engine-caps === hook-runner-caps at the point
+   * the two are combined — composeRuntime is the single fan-out that
+   * keeps them equal, and this getter lets a divergent direct
+   * construction fail loud instead of silently mis-capping.
+   */
+  get resolvedContextCaps(): ContextCaps {
+    return this.contextCaps;
   }
 
   /**
@@ -218,6 +234,9 @@ export class HookRunner {
       }
 
       enforceStrictContext(graphDef, result);
+      // Hard contract: engine caps === hook-runner caps. composeRuntime is
+      // the single fan-out that passes one ContextCaps to both, and
+      // GraphEngine asserts the coupling at construction.
       enforceContextCaps(session.context, result, this.contextCaps);
       applyContextUpdates(session, result);
     }
@@ -279,7 +298,7 @@ export class HookRunner {
 }
 
 /**
- * Walk raw arg values; strings matching CONTEXT_PATH_PATTERN get
+ * Walk raw arg values; strings addressing a `context.foo` path get
  * resolved against live context, everything else passes through. Does
  * not recurse into nested objects/arrays — if authors ever need that,
  * add it with a test case, not speculatively.
@@ -290,11 +309,7 @@ export function resolveHookArgs(
 ): Record<string, unknown> {
   const resolved: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(args)) {
-    if (typeof value === "string" && CONTEXT_PATH_PATTERN.test(value)) {
-      resolved[key] = resolveContextPath(context, value);
-    } else {
-      resolved[key] = value;
-    }
+    resolved[key] = resolveContextRef(context, value);
   }
   return resolved;
 }

@@ -25,7 +25,7 @@ describe("CLI validate", () => {
   let stdoutSpy: ReturnType<typeof vi.spyOn>;
 
   function stdoutJson(): unknown {
-    const out = stdoutSpy.mock.calls.map((c) => c[0]).join("");
+    const out = stdoutSpy.mock.calls.map((c: unknown[]) => c[0]).join("");
     return JSON.parse(out);
   }
 
@@ -208,6 +208,25 @@ nodes:
       expect(result.fixed).toBeGreaterThan(0);
     });
 
+    it("propagates an unexpected mid-execution throw instead of swallowing it (#229)", async () => {
+      const dir = tmpDir();
+      const docContent = "# Doc\n\nFixed content.\n";
+      fs.writeFileSync(path.join(dir, "doc.md"), docContent);
+      writeGraphWithSources(dir, "0000000000000000");
+
+      // Simulate an IO failure on the --fix rewrite. The throw must
+      // propagate (so the awaited action routes it through
+      // handleRuntimeError as an error envelope), NOT vanish into the
+      // ValidateResult report or get masked as a "process.exit".
+      vi.spyOn(fs, "writeFileSync").mockImplementation(() => {
+        throw new Error("EACCES: simulated read-only filesystem");
+      });
+
+      await expect(validate(dir, { checkSources: true, fix: true, basePath: dir })).rejects.toThrow(
+        "EACCES: simulated read-only filesystem",
+      );
+    });
+
     it("--fix skips FILE_NOT_FOUND sources", async () => {
       const dir = tmpDir();
       writeGraphWithSources(dir, "0000000000000000");
@@ -235,6 +254,234 @@ nodes:
       expect(result.valid).toBe(false);
       expect(result.sourceDrift[0].drifted[0].expected).toBe("0000000000000000");
       expect(result.sourceDrift[0].drifted[0].actual).toBeTruthy();
+    });
+
+    it("--fix surfaces an ambiguous skip when one wrong hash appears twice (#333)", async () => {
+      const dir = tmpDir();
+      fs.writeFileSync(path.join(dir, "a.md"), "# A\n\nalpha\n");
+      fs.writeFileSync(path.join(dir, "b.md"), "# B\n\nbeta\n");
+      // Two bindings sharing the SAME wrong placeholder hash. With no
+      // section anchor, neither can be uniquely targeted for rewrite.
+      const graphContent = `id: ambig
+version: "1.0.0"
+name: "Ambiguous"
+description: "Two bindings, same placeholder hash"
+startNode: start
+nodes:
+  start:
+    type: action
+    description: "Start"
+    sources:
+      - path: "a.md"
+        hash: "0000000000000000"
+      - path: "b.md"
+        hash: "0000000000000000"
+    edges:
+      - target: done
+        label: done
+  done:
+    type: terminal
+    description: "Done"
+`;
+      fs.writeFileSync(path.join(dir, "ambig.workflow.yaml"), graphContent);
+
+      await expect(validate(dir, { checkSources: true, fix: true, basePath: dir })).rejects.toThrow(
+        "process.exit",
+      );
+      // Residual drift remains, so the run stays invalid (exit 3).
+      expect(exitSpy).toHaveBeenCalledWith(3);
+      const result = stdoutJson() as {
+        valid: boolean;
+        fixWarnings?: Array<{ reason: string }>;
+      };
+      expect(result.valid).toBe(false);
+      expect(result.fixWarnings?.some((w) => w.reason === "ambiguous")).toBe(true);
+      // The placeholder must remain untouched — no half-rewrite.
+      const after = fs.readFileSync(path.join(dir, "ambig.workflow.yaml"), "utf-8");
+      expect((after.match(/0000000000000000/g) ?? []).length).toBe(2);
+    });
+
+    it("--fix rewrites the fixable hash but keeps valid=false when a sibling source is missing (#318/#333)", async () => {
+      const dir = tmpDir();
+      const presentContent = "# Present\n\nstill here\n";
+      fs.writeFileSync(path.join(dir, "present.md"), presentContent);
+      // present.md exists (fixable drift); missing.md does not (FILE_NOT_FOUND).
+      const graphContent = `id: mixed
+version: "1.0.0"
+name: "Mixed"
+description: "One fixable drift, one missing file"
+startNode: start
+nodes:
+  start:
+    type: action
+    description: "Start"
+    sources:
+      - path: "present.md"
+        hash: "0000000000000000"
+      - path: "missing.md"
+        hash: "1111111111111111"
+    edges:
+      - target: done
+        label: done
+  done:
+    type: terminal
+    description: "Done"
+`;
+      fs.writeFileSync(path.join(dir, "mixed.workflow.yaml"), graphContent);
+
+      await expect(validate(dir, { checkSources: true, fix: true, basePath: dir })).rejects.toThrow(
+        "process.exit",
+      );
+      // The missing file leaves residual drift, so the run stays invalid.
+      expect(exitSpy).toHaveBeenCalledWith(3);
+      const result = stdoutJson() as {
+        valid: boolean;
+        fixed?: number;
+        fixWarnings?: Array<{ reason: string }>;
+      };
+      expect(result.valid).toBe(false);
+      // The fixable hash WAS rewritten — the missing file doesn't block it.
+      expect(result.fixed).toBeGreaterThan(0);
+      const after = fs.readFileSync(path.join(dir, "mixed.workflow.yaml"), "utf-8");
+      expect(after).toContain(hashContent(presentContent));
+      expect(after).not.toContain("0000000000000000");
+      // The missing file surfaces as a file-not-found warning.
+      expect(result.fixWarnings?.some((w) => w.reason === "file-not-found")).toBe(true);
+    });
+
+    it("--fix replaces all occurrences when one oldHash maps to one newHash (section/path/hash order, #333)", async () => {
+      const dir = tmpDir();
+      const docContent = "# Doc\n\n## Section One\n\nshared content\n";
+      fs.writeFileSync(path.join(dir, "doc.md"), docContent);
+      // Two nodes bind the SAME file+section with the SAME (wrong) hash,
+      // authored in section:/path:/hash: key order — the order the prior
+      // section-anchored regex couldn't handle.
+      const graphContent = `id: dup
+version: "1.0.0"
+name: "Duplicate"
+description: "Two bindings, same file/section/hash, section-first key order"
+startNode: start
+nodes:
+  start:
+    type: action
+    description: "Start"
+    sources:
+      - section: "Section One"
+        path: "doc.md"
+        hash: "0000000000000000"
+    edges:
+      - target: second
+        label: go
+  second:
+    type: action
+    description: "Second"
+    sources:
+      - section: "Section One"
+        path: "doc.md"
+        hash: "0000000000000000"
+    edges:
+      - target: done
+        label: done
+  done:
+    type: terminal
+    description: "Done"
+`;
+      fs.writeFileSync(path.join(dir, "dup.workflow.yaml"), graphContent);
+
+      await expect(validate(dir, { checkSources: true, fix: true, basePath: dir })).rejects.toThrow(
+        "process.exit",
+      );
+      // Replace-all fixed both, so the run is valid.
+      expect(exitSpy).toHaveBeenCalledWith(0);
+      const result = stdoutJson() as { valid: boolean; fixWarnings?: unknown[] };
+      expect(result.valid).toBe(true);
+      expect(result.fixWarnings).toBeUndefined();
+      const after = fs.readFileSync(path.join(dir, "dup.workflow.yaml"), "utf-8");
+      // Both placeholders gone; the real hash appears twice.
+      expect((after.match(/0000000000000000/g) ?? []).length).toBe(0);
+      const sectionContent = "## Section One\n\nshared content\n";
+      expect((after.match(new RegExp(hashContent(sectionContent), "g")) ?? []).length).toBe(2);
+    });
+
+    it("--fix leaves the file unchanged when one oldHash maps to two different newHashes (#333)", async () => {
+      const dir = tmpDir();
+      // Same wrong placeholder hash bound to two DIFFERENT files, so the
+      // single oldHash resolves to two conflicting newHashes — genuinely
+      // un-targetable by text.
+      fs.writeFileSync(path.join(dir, "x.md"), "# X\n\nex\n");
+      fs.writeFileSync(path.join(dir, "y.md"), "# Y\n\nwhy\n");
+      const graphContent = `id: conflict
+version: "1.0.0"
+name: "Conflict"
+description: "One placeholder hash, two distinct files"
+startNode: start
+nodes:
+  start:
+    type: action
+    description: "Start"
+    sources:
+      - path: "x.md"
+        hash: "0000000000000000"
+      - path: "y.md"
+        hash: "0000000000000000"
+    edges:
+      - target: done
+        label: done
+  done:
+    type: terminal
+    description: "Done"
+`;
+      fs.writeFileSync(path.join(dir, "conflict.workflow.yaml"), graphContent);
+
+      await expect(validate(dir, { checkSources: true, fix: true, basePath: dir })).rejects.toThrow(
+        "process.exit",
+      );
+      expect(exitSpy).toHaveBeenCalledWith(3);
+      const result = stdoutJson() as {
+        valid: boolean;
+        fixWarnings?: Array<{ reason: string }>;
+      };
+      expect(result.valid).toBe(false);
+      expect(result.fixWarnings?.some((w) => w.reason === "ambiguous")).toBe(true);
+      // File left untouched — both placeholders intact.
+      const after = fs.readFileSync(path.join(dir, "conflict.workflow.yaml"), "utf-8");
+      expect((after.match(/0000000000000000/g) ?? []).length).toBe(2);
+    });
+
+    it("--fix targets unquoted hashes (quote-tolerant regex, #333)", async () => {
+      const dir = tmpDir();
+      const docContent = "# Doc\n\nUnquoted fix.\n";
+      fs.writeFileSync(path.join(dir, "doc.md"), docContent);
+      // Unquoted hash in the yaml — the quote-tolerant regex must still
+      // match and rewrite it.
+      const graphContent = `id: unquoted
+version: "1.0.0"
+name: "Unquoted"
+description: "Unquoted hash"
+startNode: start
+nodes:
+  start:
+    type: action
+    description: "Start"
+    sources:
+      - path: "doc.md"
+        hash: abc0000000000000
+    edges:
+      - target: done
+        label: done
+  done:
+    type: terminal
+    description: "Done"
+`;
+      fs.writeFileSync(path.join(dir, "unquoted.workflow.yaml"), graphContent);
+
+      await expect(validate(dir, { checkSources: true, fix: true, basePath: dir })).rejects.toThrow(
+        "process.exit",
+      );
+      expect(exitSpy).toHaveBeenCalledWith(0);
+      const after = fs.readFileSync(path.join(dir, "unquoted.workflow.yaml"), "utf-8");
+      expect(after).toContain(hashContent(docContent));
+      expect(after).not.toContain("abc0000000000000");
     });
   });
 

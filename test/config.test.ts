@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadConfig, loadConfigFromDirs, updateLocalConfig } from "../src/config.js";
+import { EC, EngineError } from "../src/errors.js";
 import { tmpFreelanceDir } from "./helpers.js";
 
 const cleanup: string[] = [];
@@ -16,6 +17,19 @@ function makeDir(prefix?: string): string {
   const dir = tmpFreelanceDir(prefix);
   cleanup.push(path.dirname(dir));
   return dir;
+}
+
+/** Assert `fn` throws an EngineError with the given code and a message substring. */
+function expectEngineError(fn: () => unknown, code: string, needle: string): void {
+  let err: unknown;
+  try {
+    fn();
+  } catch (e) {
+    err = e;
+  }
+  expect(err, "expected an EngineError to be thrown").toBeInstanceOf(EngineError);
+  expect((err as EngineError).code).toBe(code);
+  expect((err as EngineError).message).toContain(needle);
 }
 
 describe("loadConfig", () => {
@@ -110,9 +124,28 @@ workflows:
     expect(config.workflows).toEqual([relTarget]);
   });
 
-  it("ignores malformed config.yml", () => {
+  it("throws on malformed config.yml instead of silently swallowing", () => {
     const dir = makeDir();
     fs.writeFileSync(path.join(dir, "config.yml"), "not: valid: yaml: {{");
+    expectEngineError(() => loadConfig(dir), EC.INVALID_CONFIG_VALUE, "config.yml");
+  });
+
+  it("throws INVALID_CONFIG_VALUE on an out-of-range scalar", () => {
+    const dir = makeDir();
+    // maxDepth must be a positive integer; 0 fails the schema.
+    fs.writeFileSync(path.join(dir, "config.yml"), "maxDepth: 0\n");
+    expectEngineError(() => loadConfig(dir), EC.INVALID_CONFIG_VALUE, "maxDepth");
+  });
+
+  it("throws UNKNOWN_CONFIG_KEY on a misspelled top-level key", () => {
+    const dir = makeDir();
+    fs.writeFileSync(path.join(dir, "config.yml"), "maxDepht: 10\n");
+    expectEngineError(() => loadConfig(dir), EC.UNKNOWN_CONFIG_KEY, "maxDepht");
+  });
+
+  it("returns defaults cleanly when no file exists (ENOENT is not an error)", () => {
+    const dir = makeDir();
+    expect(() => loadConfig(dir)).not.toThrow();
     const config = loadConfig(dir);
     expect(config.workflows).toEqual([]);
     expect(config.sources).toEqual([]);
@@ -180,5 +213,19 @@ workflows:
     const config = loadConfig(dir);
     expect(config.workflows).toContain("/existing/path");
     expect(config.memory.dir).toBe("/persistent");
+  });
+
+  it("refuses to clobber an invalid-but-nonempty config.local.yml", () => {
+    const dir = makeDir();
+    const localPath = path.join(dir, "config.local.yml");
+    const original = "not: valid: yaml: {{";
+    fs.writeFileSync(localPath, original);
+
+    expect(() => updateLocalConfig(dir, (c) => ({ ...c, workflows: ["/new/path"] }))).toThrow(
+      EngineError,
+    );
+
+    // The broken file must be left exactly as it was — no write happened.
+    expect(fs.readFileSync(localPath, "utf-8")).toBe(original);
   });
 });

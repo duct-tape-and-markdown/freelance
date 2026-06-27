@@ -163,6 +163,24 @@ describe("evaluate — error cases", () => {
   it("empty expression", () => {
     expect(() => evaluate("", {})).toThrow(EvaluatorError);
   });
+  it("rejects empty path segments from consecutive dots (#282)", () => {
+    // Previously these tokenized cleanly and resolved to null at runtime,
+    // silently masking the typo. Now they fail at tokenize time.
+    expect(() => evaluate("context..foo == 1", { foo: 1 })).toThrow(/empty path segment/);
+    expect(() => evaluate("context.foo..bar == 1", {})).toThrow(/empty path segment/);
+  });
+});
+
+describe("evaluate — AST cache is context-independent (#285)", () => {
+  it("re-evaluates a cached expression against fresh context each call", () => {
+    const expr = "context.count > 3 && context.flag == true";
+    // First call parses + caches the tree; subsequent calls reuse it.
+    expect(evaluate(expr, { count: 5, flag: true })).toBe(true);
+    // Different context through the same cached AST — no stale capture.
+    expect(evaluate(expr, { count: 1, flag: true })).toBe(false);
+    expect(evaluate(expr, { count: 5, flag: false })).toBe(false);
+    expect(evaluate(expr, { count: 5, flag: true })).toBe(true);
+  });
 });
 
 describe("evaluate — whitespace handling", () => {

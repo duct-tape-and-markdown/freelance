@@ -29,6 +29,16 @@ The rationale is a token budget asymmetry. Any mechanism that ships a fixed per-
 
 See issue [#99](https://github.com/duct-tape-and-markdown/freelance/issues/99) for the decision record.
 
+### Each runtime verb has one identity; `advance` writes, `inspect` reads
+
+A corollary of the committed verb surface above: a verb does one thing, and argument presence does not fork its meaning. `freelance advance` used to reinterpret a *missing* edge as a read-only probe returning `{ traversalId, validTransitions }` (#258) — so the same verb meant "move" or "describe" depending on whether an edge was passed. That is removed: a missing edge is now an `INVALID_INPUT` error like any other missing required argument, and `inspect --minimal` is the read surface for previewing `validTransitions` (it returns a strict superset — `currentNode`, `turnCount`, wait info — that the probe dropped).
+
+The agent-efficiency framing matters here because the agent is the *only* CLI consumer (human ergonomics are a no-op): the worry was added round-trips. The opposite holds — every `start` and `advance` response already carries the node's `validTransitions` (plus instructions/sources), so the loop is read-response → pick-edge → advance with **no** separate preview call. `inspect --minimal` is only for re-checking state after a compaction or out-of-band change. SKILL.md (both byte-identical copies) teaches this.
+
+**What would break if reversed:** a verb whose contract forks on argument presence forces every caller (skill, shell script) to special-case "advance with no edge is a no-op," and undercuts `inspect --minimal`'s reason for existing as the lean read surface (#81).
+
+Anchors: `src/cli/traversals.ts` (`traversalAdvance`), `src/engine/context.ts` (minimal inspect), SKILL.md § the loop. Closes #258.
+
 ### MCP server and tool surface deleted
 
 The MCP server (`src/server.ts`), all `freelance_*` / `memory_*` MCP tools, `plugins/freelance/.mcp.json`, and the `freelance mcp` subcommand are gone. The skill + CLI path above is now the only execution surface.
@@ -56,6 +66,34 @@ Freelance config (`.freelance/config.yml`, `.freelance/config.local.yml`) is rea
 Historical note (closed by #121 and #90): an MCP-server era `onConfigChange` handler in `src/server.ts` logged `"Freelance: config reloaded"` on `config.yml` / `config.local.yml` edits but never re-threaded the new values into the live `HookRunner` or `GraphEngine` — edits looked like they applied and didn't. #91 called that out. The handler was deleted with the MCP server (#121); the watcher that would have invoked it was deleted with #90. A future re-introduction of any long-running surface must either (a) plumb the new config through every downstream that consumed it (hook timeouts, maxDepth, memory dir — with the caveat that some fields can't hot-swap, e.g. memory db path reopening) or (b) log `"Freelance: config changed on disk — restart to apply"` and leave the mutation out. Silent reload-without-apply is the specific trap to avoid.
 
 See issue [#91](https://github.com/duct-tape-and-markdown/freelance/issues/91).
+
+### Library code returns diagnostics as data; the CLI owns the output stream
+
+Functions exported from `src/core/index.ts` (the public lib surface) must not write to `process.stderr`/`stdout` — they return warnings/errors as data and let the caller decide where they go. The choice of stream (and whether `--quiet` suppresses it) belongs at the CLI boundary, not inside a library function a consumer can't silence without monkey-patching. `loadGraphs` used to `process.stderr.write` a "N graph(s) failed validation" warning; that's removed (#276). The multi-file loaders now route through one `collectGraphs` core that returns `{ graphs, errors }`, and `loadGraphsCollecting` — the production path via `loadGraphsGraceful` — surfaces that data; `loadGraphs` keeps only its fail-loud throw (nothing loaded, or a cross-graph structural error). `errors` reports only genuine *drops*: a same-dir duplicate id (two files, one dir, no defined precedence). A cross-dir override is the documented cascade (later dirs shadow earlier) and drops nothing, so it is silent — surfacing it would contradict SKILL.md's contract that `loadErrors` means a file was dropped from the listing.
+
+**What would break if reversed:** a lib function emitting to stderr re-creates the asymmetry where the same logical event ("some graph failed to validate") prints from one loader and is returned as data from another, and gives lib consumers noise they can't gate. The open sibling #235 (`config set-local memory.dir` writing to stderr, bypassing `info()`/`--quiet`) is the CLI-side instance of the same posture.
+
+Anchors: `src/loader.ts` (`collectGraphs`, `loadGraphs`, `loadGraphsCollecting`), `src/core/index.ts`. Closes #276 (and #274/#278 consolidation: three multi-file loaders → one core + two dispositions; the unused `loadGraphsLayered` is deleted).
+
+### An `undefined` context write is a no-op; all surfaces agree "undefined = not set"
+
+A context write of `{ key: undefined }` (from `contextUpdates`, `context set`, or a hook return) is stripped at a single write seam (`omitUndefined`, consumed by `applyContextUpdates` in `src/engine/context.ts`) before it is materialized. The key is never assigned to `session.context`, never recorded in `contextHistory`, never surfaced in `contextDelta`, and never echoed by the clone/inspect path. This was previously inconsistent (#301): `enforceContextCaps`, `evaluateWaitConditions`, and `validateReturnSchema` treated `undefined` as absent (matching JSON missing-key semantics, which the cap code documented), but `applyContextUpdates` materialized it as a present key with value `undefined` — so the same advance's wait/return gate saw the key as unset while `contextDelta` reported it written and `inspect` echoed it present.
+
+There is now one definition of "what counts as a context write," and all six surfaces (caps, apply, history/delta, clone/inspect, wait, return) agree. `undefined` is *skip*, not *delete* — there is deliberately no key-deletion-via-undefined feature; if true deletion is ever needed it must be an explicit mechanism, not value coercion.
+
+**What would break if reversed:** materializing `undefined` re-opens the split where a gate considers a key unsatisfied while the wire reports it written — the exact divergence #301 documents.
+
+Anchors: `src/engine/context.ts` (`omitUndefined`, `applyContextUpdates`). Closes #301.
+
+### `contextCaps` is single-sourced; the engine asserts the engine/runner coupling
+
+Byte caps on context writes are enforced at two sites — `GraphEngine` for caller writes, `HookRunner` for hook-return writes — and per the hook convention caps are *configuration* the `HookRunner` holds (not a `runHooksFor` capability). That leaves the two enforcement sites each holding their own `ContextCaps`, kept equal only because `composeRuntime` is the single fan-out that passes one resolved value to both. A direct construction (`new GraphEngine(...)` + `new HookRunner(...)`, a supported path) could set them to different values, silently accepting or rejecting an identical-size write based purely on whether a caller or a hook produced it.
+
+Three changes close this (#302): the default lives in one resolver (`resolveContextCaps`, used by both); `HookRunner` exposes its resolved caps via a `resolvedContextCaps` getter; and `GraphEngine`'s constructor asserts the injected runner's caps deep-equal its own, throwing `EngineError`/`INTERNAL` on divergence. The coupling fails loud at the point the two objects are combined instead of mis-capping at runtime.
+
+**What would break if reversed:** dropping the assert lets engine-caps and runner-caps diverge undetected, making cap enforcement depend on the write's origin — observable as inconsistent gate behavior, not a clean error.
+
+Anchors: `src/engine/engine.ts` (constructor assert), `src/engine/hooks.ts` (`resolvedContextCaps`), `src/engine/context.ts` (`resolveContextCaps`), `src/compose.ts` (single fan-out). Closes #302.
 
 ### Hook trust model: built-ins curated, script hooks full-privilege, sandbox deferred
 
@@ -137,6 +175,19 @@ Workflows intended to ship in user-level or plugin directories must use absolute
 
 Anchors: `src/graph-resolution.ts`, `src/sources.ts`, `src/compose.ts` (sourceRoot plumbing), README § "Workflow directories". Closes #98.
 
+### Source-path resolution is one helper; boundary enforcement is the caller's policy
+
+"User-supplied source path → absolute path" resolves through a single helper, `resolveSourcePath` in `src/sources.ts`. Whether an escape outside the source root is *rejected* is a per-caller flag, not a property of the helper — and the two callers diverge deliberately:
+
+- **Graph source bindings** (`hashSource`, drift checking) resolve **without** boundary enforcement. Graph yaml is authored by the trusted repo owner; a binding to a sibling directory outside `.freelance/`'s parent (e.g. `../shared-docs/spec.md`) is a legitimate monorepo pattern, not an attack.
+- **Memory `emit` / `bySource`** (`src/memory/store.ts` `prepareSourcePath`) resolve **with** `enforceBoundary: true`. Those paths arrive in agent-supplied payloads inside a running workflow and must not escape the source root — `../../etc/passwd` throws `SOURCE_OUTSIDE_ROOT` on both writes and reads.
+
+Before this, the two operations had independent implementations with opposite policies and no cross-reference (#254): a contributor reading one side couldn't see the other's stance. Now there is one resolver, the boundary check has one implementation (suffix match on `root + path.sep`, so `/root-evil` can't bypass `/root`), and the policy choice is named at both call sites with a pointer to this entry.
+
+**What would break if reversed:** folding enforcement into the helper unconditionally would reject legitimate sibling-dir graph bindings; dropping it entirely would let agent payloads read arbitrary files. The split keeps the trust boundary where it belongs — at the caller that knows who authored the path.
+
+Anchors: `src/sources.ts` (`resolveSourcePath`), `src/memory/store.ts` (`prepareSourcePath`). Closes #254.
+
 ### Subgraph traversal is a session-boundary crossing; returnMap is the explicit contract
 
 A subgraph push is a traversal-session boundary. `freelance inspect --detail history` treats the push as a boundary marker — context writes inside the subgraph are visible via the subgraph's own history, and values flow back to the parent *only* through the explicit `returnMap` declared on the subgraph node.
@@ -165,7 +216,7 @@ Anchors: `src/types.ts` (minimal response shapes), `src/memory/types.ts` (Propos
 
 ### Observable state transitions are durable before side effects
 
-Once an advance mutates `session.currentNode` past an edge, the traversal record is persisted **before** any code that can throw runs — specifically before `runArrivalHooks` fires onEnter hooks on the new node, and before the child-start onEnter fires on a subgraph push. Hook-collected context and meta writes persist on a second save after the hooks resolve.
+Once an advance mutates `session.currentNode` past an edge, the traversal record is persisted **before** any code that can throw runs — specifically before `runArrivalHooks` fires onEnter hooks on the new node, before the parent's subgraph-node onEnter fires on a subgraph push, and before the child-start onEnter fires after the push. Hook-collected context and meta writes persist on a second save after the hooks resolve.
 
 The rationale is log-then-apply on visible state. `advance` splits into two phases: `advanceTransition` (sync — mutates `session.currentNode`, records the history entry, returns), then `runArrivalHooks` (async — fires onEnter for the arrived node, merges hook writes). The traversal store persists between them. Two saves per successful advance; one save (the transition only) on a hook throw.
 
@@ -178,7 +229,7 @@ Under log-then-apply:
 
 - **Success:** two saves (post-transition record, then post-hook record carrying context + meta writes).
 - **Hook throw:** one save (the transition). Disk truth is "arrived at target, no hook writes." The envelope carries `currentNode = new node`, matching disk, with an `error.hook` sub-object naming the broken hook.
-- **Subgraph push:** same invariant. `maybePushSubgraph` mutates the stack, persists, then fires the child's onEnter.
+- **Subgraph push:** same invariant, with two onEnter firings. The subgraph node IS the post-edge target, so its onEnter fires first against the **parent** session — before `maybePushSubgraph` evaluates the subgraph condition or contextMap, so a parent-side hook write can drive whether the push happens and flow values into the child (#267). Those writes ride the `persistBetween` save. Then `maybePushSubgraph` mutates the stack, persists, then fires the **child's** start-node onEnter. A parent-onEnter throw means no push and the one-save (transition-only) disk truth, identical to a standard-arrival hook throw.
 
 This contract applies to *traversal state only*. Memory emits are not traversal state and must not be entangled with transition outcomes — see § "Memory emit attribution is emit-time, not transition-time".
 
@@ -257,6 +308,31 @@ Post-#74 the `mtime_ms` column was neither written nor read — drift detection 
 
 Anchors: `src/memory/db.ts`, `src/memory/sources.ts`.
 
+### Read-time staleness is scoped to the query's reachable propositions
+
+Every filtering memory read used to compute staleness over the **entire** `proposition_sources` table — `readFileSync` + SHA-256 of every distinct source file in the DB — regardless of how narrow the query was (#314). Since the DB opens lazily and every `freelance` verb is a fresh process (§ "Memory database opens lazily on first access"), there is no cross-call amortization: each `memory inspect SomeEntity` re-paid the full O(distinct-source-files) hash cost from cold. That scales with total corpus — the exact dimension memory-intent.md stakes the product on.
+
+`getStalePropositionIds` / `primeStaleFilter` now take an optional `scope?: { sql; params }`. The scan becomes `… FROM proposition_sources WHERE proposition_id IN (<scope.sql>)`; absent a scope it is byte-identical to the old full scan. The staleness predicate is unchanged — `isFileChanged` still re-hashes the file on disk and compares to the stored `content_hash`. The hash stays the **sole authoritative frame selector**; no mtime, no flag, no schema change. Per-path scopes: `inspect`/`related` = the entity's props (`about WHERE entity_id=?`), `bySource` = props citing the file, `browse` *with* a name/kind filter = props of matching entities, `search` = the FTS match set. `status` and **unfiltered** `browse` stay corpus-wide.
+
+Two load-bearing rules a future contributor must not break:
+
+1. **Scope by `proposition_id`, never by `file_path` on the outer scan.** The scope subquery picks proposition ids; the scan then pulls *all* source rows for those props. A proposition sourced from a clean file A and a drifted file B must still read stale when queried via A — file_path-scoping the outer scan would mark it valid.
+2. **A scope MUST be a superset of the domain its count ranges over.** `valid_proposition_count` is an entity-wide total, not page-scoped. An empty `_stale_prop_ids` slot is read as *valid* (`notStaleExists` returns TRUE), so under-scoping silently *inflates* valid counts with no error. `_stale_prop_ids` now means "stale within this read's scope"; each public read owns exactly one scope per call and materializes immediately before the joins that consume it. The per-path scoped-vs-full-scan equality test is the only guard against a future scope being narrowed too far.
+
+A persistent advisory `(size,mtime)→hash` cache (the one design that could also speed unfiltered `browse`/`status`) was **deferred** — it reintroduces read-path write contention and a `valid_count` correctness residual on mtime collisions, and doesn't decouple cost from corpus size. Revisit only if profiling shows those two corpus-wide paths dominate (tracked in `docs/debt.md`).
+
+**What would break if reversed:** unscoping returns every selective read to O(corpus) cold-start hashing; file_path-scoping or under-scoping silently corrupts `valid_proposition_count` rather than failing.
+
+Anchors: `src/memory/staleness.ts` (`getStalePropositionIds`, `primeStaleFilter`, scope param), `src/memory/store.ts` (per-path scopes), `src/memory/enrichment.ts` (one-scope-per-call header note). Closes #314.
+
+### `memory search` observes the paginated-read contract
+
+`search()` was the outlier among the paginated reads — it bypassed `clampLimit`, skipped the stale filter, returned no `total`, and took no `shape` (#316, #237). memory-intent.md ("Orphan hiding is a lens") explicitly names "the analogous filters on `memory_search`, `memory_inspect`" as part of the default orphan-hiding lens, so the divergence was a drift from stated intent, not a deliberate exception. `search` now: clamps `limit` to the shared `[1, MAX_PAGE_LIMIT]` ceiling; hides stale rows **by default** via a stale filter *scoped to the FTS match set* (the #314 mechanism), with `includeOrphans` to opt in; returns `total` (respecting the same filter as the page) so truncation is observable; and threads `shape`, defaulting to `full` for CLI parity and `minimal` for the `memory_search` built-in hook (the #87 response-size precedent the other `memory_*` built-ins already follow).
+
+**What would break if reversed:** an unbounded `search` limit escapes the response-size ceiling on a verb the sealed `memory:recall` workflow drives; a missing `total` makes silent truncation unobservable to an agent deciding whether recall is complete.
+
+Anchors: `src/memory/store.ts` (`search`), `src/engine/builtin-hooks.ts` (`memory_search` minimal default), `src/cli/program.ts` (--limit help). Builds on § "Projection vocabulary is a deliberate three-way split". Closes #316, #237.
+
 ### Recovery lives in `envelopeSlots`, never in `error.message`
 
 The wire contract (§ "Error envelope is the wire contract") says `recoveryVerb` is a literal CLI template, interpolated against root-level slots the throw site populates via `EngineError.context.envelopeSlots`. The corollary: a throw site whose recovery requires a parameter (a traversalId to reset, a graphId to restart, a list of candidates to choose among) MUST populate the matching slot. Recovery instructions in `error.message` prose — `"Run \`freelance reset <id> --confirm\`"` baked into the message string — fail the contract: the skill renders the template by literal field lookup, has no parser for the prose, and falls back to surfacing the message verbatim or asking the operator. Either way, the catalog template stops being load-bearing.
@@ -282,3 +358,46 @@ The fix has two coupled halves that must stay together: `package.json#overrides[
 **What would break if reversed:** dropping the override (or letting it float to `^0.8.3`), or switching the CI step back to `npx -y`, re-crashes the attw step and red-walls every PR (the failure is on the base, not the diff). Lift the pin only after attw ships a release that concatenates Gunzip chunks instead of keeping the last; verify by removing the override, `npm install`, and running `npx attw --pack .` against this package.
 
 Anchors: `.github/workflows/ci.yml` (`arethetypeswrong` step), `package.json` (`overrides`, `devDependencies`).
+
+### Catalog actionability signals must be coherent
+
+Every error envelope carries three actionability signals the driving skill reads together: `errorKind` (`blocked`|`structural`, derived from the `ENGINE_ERROR_CODES` category), `exit` (derived from the same category), and `recoveryKind` (`retry`|`fix-context`|`report`|`clear`, authored in the `RECOVERY` sidecar). The `satisfies` checks guarantee every code *has* all three, but nothing stopped them from *contradicting*. #337 shipped `STACK_DEPTH_EXCEEDED` in the `BLOCKED` category — so `errorKind: "blocked"` (= "traversal state is fine; fix context and re-advance the same edge") and `exit: 2` — while its `RECOVERY` said `{ verb: null, kind: "report" }` (= "stop and surface to the operator"). A skill branching on `errorKind` retries; a skill branching on `recoveryKind` reports; they can't both be right.
+
+The resolution has two parts. First, the per-code fix: stack-depth overflow is genuinely structural — re-advancing the same edge re-triggers the same subgraph push and fails identically, so the only fix is to the graph's recursion bound (an authoring action). It moved from `BLOCKED` to `CLI_STRUCTURAL` (`errorKind: structural`, `exit: 1`, `recoveryKind: report` — all coherent). The `CLI_` prefix is historical; that bucket is the home for any structural report-and-stop code regardless of which surface raises it (it already houses engine-domain `INTERNAL`). Second, and more durable: a coherence test (`test/catalog.test.ts` § "catalog actionability coherence") asserts the invariant **`errorKind: "blocked"` ⟹ `recoveryKind ∈ {fix-context, retry}`** across every code. `blocked` is a promise that the operation can proceed once context is fixed or after a transient retry; `report` and `clear` (drop a stale pointer) belong to structural codes and contradict that promise.
+
+Note the asymmetry: the reverse — `report` with a non-null `verb` — is *not* incoherent and is deliberately allowed. `GRAPH_STRUCTURE_INVALID` is `{ verb: "validate {graphDir}", kind: "report" }`: stop the run, but the verb tells the operator how to *see* the full validation errors. A recovery verb on a report code is a diagnostic aid, not a retry instruction, so the coherence test does not forbid it.
+
+**What would break if reversed:** without the test, the next code added to `BLOCKED` with a `report`/`clear` recovery (or moved into `BLOCKED` without revisiting its recovery) silently re-opens the split-brain — the bug is invisible because each signal is independently well-formed; only their *combination* is wrong. The test makes the contradiction a compile-adjacent failure at authoring time.
+
+Anchors: `src/error-codes.ts` (`ENGINE_ERROR_CODES.CLI_STRUCTURAL`, `RECOVERY`), `test/catalog.test.ts` (coherence test). Closes #337; #336 (the unpopulatable `{traversalId}` slot on `TRAVERSAL_ACTIVE`) is an application of § "Recovery lives in `envelopeSlots`, never in `error.message`" — the engine-level throw site has no traversalId, so the verb became slot-free (`reset`). Builds on § "Error envelope is the wire contract".
+
+### Malformed graphs are rejected at load, not silently degraded at runtime
+
+A graph that parses (Zod-valid) can still be semantically broken in ways the runtime then *ignores* rather than surfaces: a field that doesn't apply to the node's type, a context descriptor with a typo'd `type`, a cycle with no way out, an expression referencing a field that doesn't exist. Each one "works" — it just does nothing, or silently resolves to null — so the authoring mistake ships and only shows up as a workflow that mysteriously never advances. The load pipeline (`validateAndBuild`: `validateContextDescriptors` → `validateReturnSchemas` → `validateExpressions` → `buildAndValidateGraph`) is the place to convert these into `GRAPH_STRUCTURE_INVALID` at `freelance validate` / first load, where the author is looking, instead of mid-traversal where the agent is.
+
+Three such degradations were closed, each guarding against a different silent-ignore:
+
+- **Type-incompatible node fields (#338).** The node schema is one flat object — every type-specific field is optional on every type — so `waitOn`/`timeout` on a non-wait node, or `subgraph` on a wait node, pass Zod and are then never read at runtime. `buildAndValidateGraph` rejects fields the runtime only reads for another type. (A discriminated-union schema would encode this in Zod directly, but it would ripple `NodeDefinition` narrowing across every engine read site; the explicit construction-time checks match the existing idiom — terminal-without-edges, gate-without-validations — at far lower blast radius.)
+- **Context descriptor coherence (#339).** `context` values are `union([descriptor, unknown])`, so a descriptor with a typo'd `type` (`strng`) falls through to the `unknown` arm and is silently treated as a literal value — the intended default never applies. `validateContextDescriptors` rejects an object that *looks* like a descriptor (has `type` + `enum`/`default`) but fails descriptor parsing, and checks a valid descriptor's `default` against its declared `type` and `enum`. A bare `{type: "x"}` with no enum/default is left alone — indistinguishable from a literal object that happens to have a `type` field.
+- **Inescapable cycles (#340).** Cycle validity is whether the loop has an *exit edge* (some member node points outside the SCC), not whether it contains a decision/gate/wait node. The old type-based proxy was wrong both ways: it rejected a bounded `action` retry loop that has a real exit, and accepted a decision/wait loop whose every edge stays inside it.
+**Attempted and reverted — undeclared expression paths under strictContext (#280).** The idea was: under `strictContext`, an expression referencing `context.X` for an undeclared `X` is a typo, so reject it at load. It rested on the premise "under strictContext every settable key is declared" — which is **false**. `enforceStrictContext` gates only `contextSet` and hook results; three write paths bypass it entirely: `initialContext` at `start` (`freelance start --context`, caps only), `contextUpdates` at `advanceTransition` (`advance --context`, caps only), and a parent's `contextMap` injection in `maybePushSubgraph`. So a `strictContext` graph can legitimately reference a field that is only ever runtime-seeded (the sharpest case: a child subgraph whose field arrives solely via the parent's contextMap), and the check rejected those valid graphs with `GRAPH_STRUCTURE_INVALID`. Since `initialContext`/`contextUpdates` are runtime operator inputs unknowable at load, **no static "referenced ⊆ declared" check can be sound** while those paths stay ungated. The check was removed; `referencedContextFields` went with it. A sound version would require making `strictContext` gate *all* write paths (start/advance/contextMap, not just contextSet/hooks) — a runtime-semantics expansion with migration impact, deferred as its own design question rather than smuggled in as a lint.
+
+**What would break if reversed:** each removed check returns its degradation to runtime, where it reads as "the workflow is stuck" with no pointer to the authoring mistake — exactly the failure mode `freelance validate` exists to prevent.
+
+Anchors: `src/graph-construction.ts` (`buildAndValidateGraph`, `validateCycles`), `src/graph-validation.ts` (`validateContextDescriptors`, `validateExpressions`), `test/loader.test.ts` (§ "load-time strictness"), `test/wait.test.ts` (#338 cases). Closes #338, #339, #340.
+
+### Wait timeout: pure evaluation vs. durable latch, and the pair is scoped to the current occupancy
+
+The wait-timeout check is split into a pure query and an explicit latch. `evaluateWaitTimeout(session, nodeDef)` reports whether the deadline elapsed *without* mutating the session (honoring an already-set `waitTimedOutAt` as a short-circuit read); `markWaitTimedOut(session)` idempotently stamps the latch. Only the gate/write path (`checkWaitBlocking` in `gates.ts`) latches, because its writes are persisted by the post-transition `saveEngine`. The inspect/audit path (`computeWaitInfo` in `context.ts`) calls `evaluateWaitTimeout` only — `TraversalStore.inspect` does not `saveEngine`, so latching there would be decorative on disk yet observable in-process, i.e. inconsistent across CLI invocations. The rule: a function named like a query must not mutate, and the write must live where it is durable. (#224)
+
+`waitArrivedAt` and `waitTimedOutAt` are a **pair scoped to the current wait occupancy**. Entering a wait node fresh resets BOTH — `waitArrivedAt = now`, `waitTimedOutAt = undefined` — at the single fresh-arrival seam in `engine.ts runArrivalHooks` (which fires once per occupancy, not on re-polls while blocked). They must never leak across distinct arrivals: a stale `waitTimedOutAt` makes `evaluateWaitTimeout` short-circuit `true` and instantly bypass a *later* wait's gate even though its conditions are unmet — a silent gate-skip with a well-formed response, the worst failure shape. Leaving a wait node does not clear the pair; correctness rests entirely on the unconditional fresh-arrival reset, so any future path that can arrive at a wait node without going through standard `runArrivalHooks` arrival (e.g. a new resume/restore path) must reset the pair too. (#272)
+
+**What would break if reversed:** moving the latch back into the query reintroduces a mutation on the read-only `inspect` path; dropping the fresh-arrival reset returns the cross-occupancy leak where a prior timeout silently skips the next wait's gate. Anchors: `src/engine/wait.ts` (`evaluateWaitTimeout`, `markWaitTimedOut`), `src/engine/gates.ts` (`checkWaitBlocking`), `src/engine/context.ts` (`computeWaitInfo`), `src/engine/engine.ts` (wait-arrival seam), `test/wait-reentry.test.ts`. Closes #224, #272.
+
+### Config loading fails loud; `{}` fallback is ENOENT-only
+
+`loadConfigFile` (`src/config.ts`) returns `null` only for a genuinely absent file (ENOENT) or an empty/comment-only file. Every other failure — unreadable file, malformed YAML, non-mapping root, schema-validation failure, unknown key — throws `EngineError` (`UNKNOWN_CONFIG_KEY` for Zod `unrecognized_keys` issues, `INVALID_CONFIG_VALUE` otherwise) with the file path and a concise issue summary, so a broken config surfaces through the CLI error envelope on every runtime verb instead of silently collapsing to defaults. `configSchema` is `.strict()` at the **top level** so misspelled top-level keys (`maxDepht`, `wokflows`) are rejected rather than stripped (nested objects stay lenient deliberately — see `docs/debt.md`).
+
+Two invariants other code relies on: (1) callers that do `loadConfigFile(...) ?? {}` — notably `updateLocalConfig` — treat `{}` as **ENOENT-only**, so `config set-local` against an existing-but-invalid file now throws and refuses to write rather than clobbering every other setting (a silent, unconfirmed destructive overwrite — #322). (2) The throw must stay un-caught through `loadConfig`/`loadConfigFromDirs` so it reaches `runCliHandler` (runtime verbs) or `bin.ts`'s top-level `parseAsync().catch` (config verbs). Don't reintroduce a `catch`-to-null anywhere on this path.
+
+**What would break if reversed:** restoring the bare `catch {}` returns the project to silent-default-on-typo (a typo'd or out-of-range value evaporates with zero diagnostics) and re-arms the `updateLocalConfig` data-loss clobber. Anchors: `src/config.ts` (`loadConfigFile`, `configSchema`, `updateLocalConfig`), `test/config.test.ts`. Closes #321, #322.

@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EC } from "../errors.js";
 import { allClientChoices, type Client, clientDisplayName, detectClients } from "./clients.js";
-import { displayPath, EXIT, fatal, homeDir, info, outputJson } from "./output.js";
+import { displayPath, fatal, homeDir, info, outputJson } from "./output.js";
 import { ensureFreelanceDir } from "./setup.js";
 
 export type { Client } from "./clients.js";
@@ -121,6 +121,25 @@ function hasFreelanceHook(entries: HookEntry[] | undefined, marker: string): boo
 const SESSION_START_MARKER = "freelance-mcp@latest status";
 const PROMPT_SUBMIT_MARKER = "freelance start <graphId>";
 
+// Which hook entries are not yet present in `.claude/settings.json`.
+// Single predicate shared by the preview and the writer below — the
+// preview lists exactly the entries the writer will add (#231).
+function pendingHooks(): string[] {
+  const settingsPath = path.join(process.cwd(), ".claude", "settings.json");
+  const settings: ClaudeSettings = fs.existsSync(settingsPath)
+    ? (readJsonFile(settingsPath) as ClaudeSettings)
+    : {};
+
+  const pending: string[] = [];
+  if (!hasFreelanceHook(settings.hooks?.SessionStart, SESSION_START_MARKER)) {
+    pending.push("SessionStart");
+  }
+  if (!hasFreelanceHook(settings.hooks?.UserPromptSubmit, PROMPT_SUBMIT_MARKER)) {
+    pending.push("UserPromptSubmit");
+  }
+  return pending;
+}
+
 function writeHooks(): { path: string; wrote: string[] } | null {
   const settingsPath = path.join(process.cwd(), ".claude", "settings.json");
   const settings: ClaudeSettings = readJsonFile(settingsPath) as ClaudeSettings;
@@ -153,20 +172,16 @@ function writeHooks(): { path: string; wrote: string[] } | null {
   return { path: settingsPath, wrote };
 }
 
-function wouldWriteHooks(): string[] {
-  const settingsPath = path.join(process.cwd(), ".claude", "settings.json");
-  const settings: ClaudeSettings = fs.existsSync(settingsPath)
-    ? (readJsonFile(settingsPath) as ClaudeSettings)
-    : {};
-
-  const would: string[] = [];
-  if (!hasFreelanceHook(settings.hooks?.SessionStart, SESSION_START_MARKER)) {
-    would.push("SessionStart");
+// Whether CLAUDE.md still needs the Freelance section. Single predicate
+// shared by the preview and `appendClaudeMd` so dry-run can't disagree
+// with execute (#231).
+function claudeMdNeedsSection(): boolean {
+  const claudeMdPath = path.join(process.cwd(), "CLAUDE.md");
+  if (fs.existsSync(claudeMdPath)) {
+    const content = fs.readFileSync(claudeMdPath, "utf-8");
+    return !content.includes("Freelance");
   }
-  if (!hasFreelanceHook(settings.hooks?.UserPromptSubmit, PROMPT_SUBMIT_MARKER)) {
-    would.push("UserPromptSubmit");
-  }
-  return would;
+  return true;
 }
 
 function appendClaudeMd(): boolean {
@@ -180,15 +195,6 @@ function appendClaudeMd(): boolean {
     fs.writeFileSync(claudeMdPath, `${content.trimEnd()}\n\n${CLAUDE_MD_SECTION}\n`);
   } else {
     fs.writeFileSync(claudeMdPath, `${CLAUDE_MD_SECTION}\n`);
-  }
-  return true;
-}
-
-function wouldAppendClaudeMd(): boolean {
-  const claudeMdPath = path.join(process.cwd(), "CLAUDE.md");
-  if (fs.existsSync(claudeMdPath)) {
-    const content = fs.readFileSync(claudeMdPath, "utf-8");
-    return !content.includes("Freelance");
   }
   return true;
 }
@@ -219,78 +225,148 @@ export async function init(options: InitOptions): Promise<void> {
       ? graphsDir
       : `./${path.relative(process.cwd(), graphsDir).replace(/\\/g, "/")}`;
 
-  // Collect actions for dry-run or execution
-  interface Action {
+  // Single source of truth for both modes. Each step carries a `preview`
+  // (what `--dry-run` reports) computed from the same predicate its
+  // `apply()` acts on, plus an `apply()` returning the paths it touched.
+  // Dry-run prints previews and never calls apply; the real run calls
+  // apply and collects the touched paths. Keeping one predicate per step
+  // is what stops the two modes drifting (#231) — notably the
+  // `.gitignore` / `.gitattributes` step, which is marker-gated by
+  // `ensureFreelanceDir` and now previews exactly what it writes.
+  interface Preview {
     verb: "create" | "append" | "configure" | "skip";
     target: string;
     detail?: string;
   }
-  const actions: Action[] = [];
-
-  // 1. Graphs directory
-  if (!fs.existsSync(graphsDir)) {
-    actions.push({ verb: "create", target: `${graphsDisplayPath}/` });
+  interface Step {
+    preview: Preview;
+    apply: () => string[];
   }
+  const steps: Step[] = [];
 
-  // 1b. Auto-generated .gitignore covering runtime artifacts. Mirrors
-  // the lazy drop done by ensureFreelanceDir at CLI-load — we do it
-  // eagerly here so users inspecting `.freelance/` right after `init`
-  // see the file they'd expect.
-  if (!fs.existsSync(path.join(graphsDir, ".gitignore"))) {
-    actions.push({ verb: "create", target: `${graphsDisplayPath}/.gitignore` });
+  const skillPath = resolveSkillInstallPath(client, scope);
+
+  // 1. Graphs directory + the marker-gated runtime `.gitignore` /
+  // `.gitattributes`. `ensureFreelanceDir` upserts both (skips
+  // user-authored files lacking the generated marker), so the preview
+  // lists exactly the currently-missing ones and apply reports the same.
+  {
+    const ignorePath = path.join(graphsDir, ".gitignore");
+    const attrPath = path.join(graphsDir, ".gitattributes");
+    const willCreateDir = !fs.existsSync(graphsDir);
+    const missing = [
+      ...(willCreateDir ? [`${graphsDisplayPath}/`] : []),
+      ...(!fs.existsSync(ignorePath) ? [`${graphsDisplayPath}/.gitignore`] : []),
+      ...(!fs.existsSync(attrPath) ? [`${graphsDisplayPath}/.gitattributes`] : []),
+    ];
+    steps.push({
+      preview:
+        missing.length > 0
+          ? { verb: "create", target: missing.join(", ") }
+          : { verb: "skip", target: `${graphsDisplayPath}/`, detail: "already initialized" },
+      apply() {
+        const touched: string[] = [];
+        if (!fs.existsSync(graphsDir)) {
+          fs.mkdirSync(graphsDir, { recursive: true });
+          touched.push(graphsDir);
+        }
+        const ignorePreexisted = fs.existsSync(ignorePath);
+        const attrPreexisted = fs.existsSync(attrPath);
+        ensureFreelanceDir(graphsDir);
+        if (!ignorePreexisted && fs.existsSync(ignorePath)) touched.push(ignorePath);
+        if (!attrPreexisted && fs.existsSync(attrPath)) touched.push(attrPath);
+        return touched;
+      },
+    });
   }
 
   // 2. Starter graph
   if (starter !== "none") {
     const destFile = path.join(graphsDir, `${starter}.workflow.yaml`);
-    if (!fs.existsSync(destFile)) {
-      actions.push({ verb: "create", target: `${graphsDisplayPath}/${starter}.workflow.yaml` });
-    } else {
-      actions.push({ verb: "skip", target: `${starter}.workflow.yaml`, detail: "already exists" });
-    }
+    const exists = fs.existsSync(destFile);
+    steps.push({
+      preview: exists
+        ? { verb: "skip", target: `${starter}.workflow.yaml`, detail: "already exists" }
+        : { verb: "create", target: `${graphsDisplayPath}/${starter}.workflow.yaml` },
+      apply() {
+        if (fs.existsSync(destFile)) return [];
+        const templateFile = path.join(getTemplatesDir(), `${starter}.workflow.yaml`);
+        if (!fs.existsSync(templateFile)) {
+          fatal(`Template not found: ${starter}.workflow.yaml`, EC.TEMPLATE_NOT_FOUND);
+        }
+        fs.copyFileSync(templateFile, destFile);
+        return [destFile];
+      },
+    });
   }
 
   // 2b. Starter config.yml — gives users a committed-default surface
   // for memory + hooks + workflows settings instead of a blank slate.
-  const configDest = path.join(graphsDir, "config.yml");
-  if (!fs.existsSync(configDest)) {
-    actions.push({ verb: "create", target: `${graphsDisplayPath}/config.yml` });
-  } else {
-    actions.push({ verb: "skip", target: "config.yml", detail: "already exists" });
+  {
+    const configDest = path.join(graphsDir, "config.yml");
+    const exists = fs.existsSync(configDest);
+    steps.push({
+      preview: exists
+        ? { verb: "skip", target: "config.yml", detail: "already exists" }
+        : { verb: "create", target: `${graphsDisplayPath}/config.yml` },
+      apply() {
+        const configTemplate = path.join(getTemplatesDir(), "config.yml");
+        if (!fs.existsSync(configDest) && fs.existsSync(configTemplate)) {
+          fs.copyFileSync(configTemplate, configDest);
+          return [configDest];
+        }
+        return [];
+      },
+    });
   }
 
   // 3. CLAUDE.md (claude-code only, project scope)
   if (scope === "project" && client === "claude-code") {
-    if (wouldAppendClaudeMd()) {
-      const claudeExists = fs.existsSync(path.join(process.cwd(), "CLAUDE.md"));
-      actions.push({
-        verb: claudeExists ? "append" : "create",
-        target: "CLAUDE.md",
-        detail: "workflow instructions section",
+    const claudeMdPath = path.join(process.cwd(), "CLAUDE.md");
+    if (claudeMdNeedsSection()) {
+      steps.push({
+        preview: {
+          verb: fs.existsSync(claudeMdPath) ? "append" : "create",
+          target: "CLAUDE.md",
+          detail: "workflow instructions section",
+        },
+        apply: () => (appendClaudeMd() ? [claudeMdPath] : []),
       });
     } else {
-      actions.push({
-        verb: "skip",
-        target: "CLAUDE.md",
-        detail: "already has Freelance instructions",
+      steps.push({
+        preview: {
+          verb: "skip",
+          target: "CLAUDE.md",
+          detail: "already has Freelance instructions",
+        },
+        apply: () => [],
       });
     }
   }
 
   // 5. Enforcement hooks for claude-code (opt-in)
   if (client === "claude-code" && options.hooks) {
-    const wouldWrite = wouldWriteHooks();
-    if (wouldWrite.length > 0) {
-      actions.push({
-        verb: "configure",
-        target: ".claude/settings.json",
-        detail: `hooks: ${wouldWrite.join(", ")}`,
+    const pending = pendingHooks();
+    if (pending.length > 0) {
+      steps.push({
+        preview: {
+          verb: "configure",
+          target: ".claude/settings.json",
+          detail: `hooks: ${pending.join(", ")}`,
+        },
+        apply() {
+          const hookResult = writeHooks();
+          return hookResult ? [hookResult.path] : [];
+        },
       });
     } else {
-      actions.push({
-        verb: "skip",
-        target: ".claude/settings.json",
-        detail: "hooks already configured",
+      steps.push({
+        preview: {
+          verb: "skip",
+          target: ".claude/settings.json",
+          detail: "hooks already configured",
+        },
+        apply: () => [],
       });
     }
   }
@@ -298,98 +374,34 @@ export async function init(options: InitOptions): Promise<void> {
   // 6. Driving skill — Claude Code only. Installs `SKILL.md` so the
   // agent can drive workflows via the CLI. Cursor / Windsurf / Cline
   // don't consume Claude Skills; skip for them.
-  const skillPath = resolveSkillInstallPath(client, scope);
   if (skillPath) {
-    if (fs.existsSync(skillPath)) {
-      actions.push({ verb: "skip", target: displayPath(skillPath), detail: "already exists" });
-    } else {
-      actions.push({ verb: "create", target: displayPath(skillPath) });
-    }
+    const exists = fs.existsSync(skillPath);
+    steps.push({
+      preview: exists
+        ? { verb: "skip", target: displayPath(skillPath), detail: "already exists" }
+        : { verb: "create", target: displayPath(skillPath) },
+      apply() {
+        // Skip if the target exists to preserve local edits on re-init.
+        if (fs.existsSync(skillPath)) return [];
+        const skillTemplate = path.join(getTemplatesDir(), "skills", "freelance", "SKILL.md");
+        if (!fs.existsSync(skillTemplate)) {
+          fatal(`Skill template not found: ${skillTemplate}`, EC.TEMPLATE_NOT_FOUND);
+        }
+        fs.mkdirSync(path.dirname(skillPath), { recursive: true });
+        fs.copyFileSync(skillTemplate, skillPath);
+        return [skillPath];
+      },
+    });
   }
 
-  // --- Dry run ---
+  // --- Dry run: report previews, write nothing ---
   if (dryRun) {
-    outputJson({ dryRun: true, scope, client, starter, actions });
+    outputJson({ dryRun: true, scope, client, starter, actions: steps.map((s) => s.preview) });
     return;
   }
 
-  // --- Execute ---
-  const filesCreated: string[] = [];
-
-  // 1. Create graphs directory
-  if (!fs.existsSync(graphsDir)) {
-    fs.mkdirSync(graphsDir, { recursive: true });
-    filesCreated.push(graphsDir);
-  }
-
-  // 1b. Drop the runtime `.gitignore` and `.gitattributes` eagerly
-  // (marker-gated upserts, safe to call repeatedly — see
-  // `ensureFreelanceDir` in setup.ts).
-  const ignorePath = path.join(graphsDir, ".gitignore");
-  const attrPath = path.join(graphsDir, ".gitattributes");
-  const ignorePreexisted = fs.existsSync(ignorePath);
-  const attrPreexisted = fs.existsSync(attrPath);
-  ensureFreelanceDir(graphsDir);
-  if (!ignorePreexisted && fs.existsSync(ignorePath)) {
-    filesCreated.push(ignorePath);
-  }
-  if (!attrPreexisted && fs.existsSync(attrPath)) {
-    filesCreated.push(attrPath);
-  }
-
-  const templatesDir = getTemplatesDir();
-
-  // 2. Copy starter graph
-  if (starter !== "none") {
-    const templateFile = path.join(templatesDir, `${starter}.workflow.yaml`);
-
-    if (!fs.existsSync(templateFile)) {
-      fatal(`Template not found: ${starter}.workflow.yaml`, EXIT.NOT_FOUND, EC.TEMPLATE_NOT_FOUND);
-    }
-
-    const destFile = path.join(graphsDir, `${starter}.workflow.yaml`);
-    if (!fs.existsSync(destFile)) {
-      fs.copyFileSync(templateFile, destFile);
-      filesCreated.push(destFile);
-    }
-  }
-
-  // 2b. Copy starter config.yml
-  {
-    const configTemplate = path.join(templatesDir, "config.yml");
-    const configDest = path.join(graphsDir, "config.yml");
-    if (!fs.existsSync(configDest) && fs.existsSync(configTemplate)) {
-      fs.copyFileSync(configTemplate, configDest);
-      filesCreated.push(configDest);
-    }
-  }
-
-  // 3. Append CLAUDE.md for project scope with Claude Code
-  if (scope === "project" && client === "claude-code") {
-    if (appendClaudeMd()) {
-      filesCreated.push(path.join(process.cwd(), "CLAUDE.md"));
-    }
-  }
-
-  // 4. Write enforcement hooks for Claude Code (opt-in)
-  if (client === "claude-code" && options.hooks) {
-    const hookResult = writeHooks();
-    if (hookResult) {
-      filesCreated.push(hookResult.path);
-    }
-  }
-
-  // 6. Install the driving skill. Skip if the target exists to preserve
-  // local edits on re-init.
-  if (skillPath && !fs.existsSync(skillPath)) {
-    const skillTemplate = path.join(templatesDir, "skills", "freelance", "SKILL.md");
-    if (!fs.existsSync(skillTemplate)) {
-      fatal(`Skill template not found: ${skillTemplate}`, EXIT.NOT_FOUND, EC.TEMPLATE_NOT_FOUND);
-    }
-    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
-    fs.copyFileSync(skillTemplate, skillPath);
-    filesCreated.push(skillPath);
-  }
+  // --- Execute: apply every step, collect touched paths ---
+  const filesCreated = steps.flatMap((s) => s.apply());
 
   outputJson({
     scope,
@@ -411,7 +423,6 @@ async function loadPrompts() {
         "Interactive init requires @inquirer/prompts (optional dependency).\n" +
           "  Install: npm install @inquirer/prompts\n" +
           "  Or skip prompts: freelance init --yes",
-        EXIT.INTERNAL,
         EC.MISSING_OPTIONAL_DEP,
       );
     }

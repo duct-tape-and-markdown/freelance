@@ -22,19 +22,22 @@ import {
   memoryReset,
   memorySearch,
   memoryStatus,
+  SHAPES,
 } from "./memory.js";
 import {
-  EXIT,
   enumArg,
+  enumOption,
   fatal,
+  intOption,
+  NO_DISPOSABLE,
   outputJson,
   runCliHandler,
-  runCliHandlerAsync,
+  runMemoryVerb,
+  runTraversalVerb,
   setCli,
 } from "./output.js";
 import {
   createMemoryStore,
-  createTraversalStore,
   loadGraphSetup,
   loadMemorySetup,
   resolveMemoryConfig,
@@ -144,8 +147,15 @@ program
     "--base-path <path>",
     "Base path for resolving source references (default: parent of graph directory)",
   )
-  .action((directory, opts) => {
-    validate(directory, {
+  // `validate` is async; the action must await it so an unexpected
+  // mid-execution throw (findGraphFiles, validateHookImports,
+  // collectGraphDrift, fs.writeFileSync under --fix) rejects parseAsync's
+  // promise and routes through bin.ts's `handleRuntimeError` as a proper
+  // error envelope — instead of floating as an unhandled rejection that
+  // bypasses the JSON contract (#229). Expected per-file failures stay in
+  // the `ValidateResult.errors` report; only exceptional throws envelope.
+  .action(async (directory, opts) => {
+    await validate(directory, {
       checkSources: opts.sources || opts.fix,
       fix: opts.fix,
       basePath: opts.basePath,
@@ -187,10 +197,9 @@ addWorkflowsOpt(
       "Show only traversals whose meta tags match key=value (repeatable; all must match)",
       collectRepeatable,
     ),
-).action((opts) => {
-  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
-  runCliHandler(runtime, () => traversalStatus(store, { filter: opts.filter }));
-});
+).action((opts) =>
+  runTraversalVerb(opts, (store) => traversalStatus(store, { filter: opts.filter })),
+);
 
 addWorkflowsOpt(
   program
@@ -202,12 +211,11 @@ addWorkflowsOpt(
       "Opaque key=value tag for lookup via `freelance traversals find` (repeatable)",
       collectRepeatable,
     ),
-).action(async (graphId, opts) => {
-  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
-  await runCliHandlerAsync(runtime, () =>
+).action((graphId, opts) =>
+  runTraversalVerb(opts, (store) =>
     traversalStart(store, graphId, opts.context, { meta: opts.meta }),
-  );
-});
+  ),
+);
 
 addWorkflowsOpt(
   program
@@ -219,10 +227,7 @@ addWorkflowsOpt(
       "--minimal",
       "Lean response: drop full context + node instructions, keep currentNode/validTransitions/contextDelta",
     ),
-).action(async (edge, opts) => {
-  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
-  await runCliHandlerAsync(runtime, () => traversalAdvance(store, edge, opts));
-});
+).action((edge, opts) => runTraversalVerb(opts, (store) => traversalAdvance(store, edge, opts)));
 
 const contextCmd = program.command("context").description("Update traversal context");
 
@@ -235,10 +240,9 @@ addWorkflowsOpt(
       "--minimal",
       "Lean response: drop full context echo, keep contextDelta/validTransitions/turnCount",
     ),
-).action((updates, opts) => {
-  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
-  runCliHandler(runtime, () => traversalContextSet(store, updates, opts));
-});
+).action((updates, opts) =>
+  runTraversalVerb(opts, (store) => traversalContextSet(store, updates, opts)),
+);
 
 const metaCmd = program.command("meta").description("Update traversal meta tags");
 
@@ -247,10 +251,9 @@ addWorkflowsOpt(
     .command("set <updates...>")
     .description("Merge meta key=value tags (e.g. prUrl=https://… branch=feature/x)")
     .option("--traversal <id>", "Traversal ID (auto-resolved if only one active)"),
-).action((updates, opts) => {
-  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
-  runCliHandler(runtime, () => traversalMetaSet(store, updates, opts));
-});
+).action((updates, opts) =>
+  runTraversalVerb(opts, (store) => traversalMetaSet(store, updates, opts)),
+);
 
 addWorkflowsOpt(
   program
@@ -276,15 +279,22 @@ addWorkflowsOpt(
         return previous ? [...previous, value] : [value];
       },
     )
-    .option("--limit <n>", "Max history entries (default 50, max 200). --detail history only.")
-    .option("--offset <n>", "Skip first N history entries. --detail history only.")
+    .option(
+      "--limit <n>",
+      "Max history entries (default 50, max 200). --detail history only.",
+      intOption("--limit"),
+    )
+    .option(
+      "--offset <n>",
+      "Skip first N history entries. --detail history only.",
+      intOption("--offset"),
+    )
     .option(
       "--include-snapshots",
       "Include per-step contextSnapshot in history entries (opt-in: quadratic size). --detail history only.",
     ),
-).action((traversalId, opts) => {
-  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
-  runCliHandler(runtime, () => {
+).action((traversalId, opts) =>
+  runTraversalVerb(opts, (store) => {
     if (opts.active) {
       traversalInspectActive(store, { waitsOnly: opts.waits });
     } else {
@@ -296,18 +306,17 @@ addWorkflowsOpt(
         includeSnapshots: opts.includeSnapshots,
       });
     }
-  });
-});
+  }),
+);
 
 addWorkflowsOpt(
   program
     .command("reset [traversalId]")
     .description("Clear a traversal")
     .option("--confirm", "Required safety check"),
-).action((traversalId, opts) => {
-  const { store, runtime } = createTraversalStore({ workflows: opts.workflows });
-  runCliHandler(runtime, () => traversalReset(store, traversalId, opts));
-});
+).action((traversalId, opts) =>
+  runTraversalVerb(opts, (store) => traversalReset(store, traversalId, opts)),
+);
 
 // --- Memory commands ---
 
@@ -317,10 +326,7 @@ const memoryCmd = program
 
 addWorkflowsOpt(
   memoryCmd.command("status").description("Show proposition and entity counts"),
-).action((opts) => {
-  const { store } = createMemoryStore({ workflows: opts.workflows });
-  runCliHandler(store, () => memoryStatus(store));
-});
+).action((opts) => runMemoryVerb(opts, (store) => memoryStatus(store)));
 
 addWorkflowsOpt(
   memoryCmd
@@ -328,74 +334,73 @@ addWorkflowsOpt(
     .description("Find entities by name, kind, or partial match")
     .option("--name <pattern>", "Partial name match (case-insensitive)")
     .option("--kind <kind>", "Filter by entity kind")
-    .option("--limit <n>", "Maximum results")
-    .option("--offset <n>", "Skip first N results")
+    .option("--limit <n>", "Maximum results", intOption("--limit"))
+    .option("--offset <n>", "Skip first N results", intOption("--offset"))
     .option(
       "--include-orphans",
       "Include entities whose valid_proposition_count is 0 (hidden by default)",
     ),
-).action((opts) => {
-  const { store } = createMemoryStore({ workflows: opts.workflows });
-  runCliHandler(store, () => memoryBrowse(store, opts));
-});
+).action((opts) => runMemoryVerb(opts, (store) => memoryBrowse(store, opts)));
 
 addWorkflowsOpt(
   memoryCmd
     .command("inspect <entity>")
     .description("Full entity details — propositions, neighbors, sources")
-    .option("--limit <n>", "Maximum propositions (default 50, max 200)")
-    .option("--offset <n>", "Skip first N propositions")
-    .option("--shape <shape>", 'Proposition shape: "full" (default) or "minimal"'),
-).action((entity, opts) => {
-  const { store } = createMemoryStore({ workflows: opts.workflows });
-  runCliHandler(store, () => memoryInspect(store, entity, opts));
-});
+    .option("--limit <n>", "Maximum propositions (default 50, max 200)", intOption("--limit"))
+    .option("--offset <n>", "Skip first N propositions", intOption("--offset"))
+    .option(
+      "--shape <shape>",
+      'Proposition shape: "full" (default) or "minimal"',
+      enumOption("--shape", SHAPES),
+    ),
+).action((entity, opts) => runMemoryVerb(opts, (store) => memoryInspect(store, entity, opts)));
 
 addWorkflowsOpt(
   memoryCmd
     .command("search <query>")
     .description("Full-text search across proposition content")
-    .option("--limit <n>", "Maximum results"),
-).action((query, opts) => {
-  const { store } = createMemoryStore({ workflows: opts.workflows });
-  runCliHandler(store, () => memorySearch(store, query, opts));
-});
+    .option("--limit <n>", "Maximum results (default 50, max 200)", intOption("--limit"))
+    .option(
+      "--shape <shape>",
+      'Proposition shape: "full" (default) or "minimal"',
+      enumOption("--shape", SHAPES),
+    )
+    .option(
+      "--include-orphans",
+      "Include propositions whose source bytes no longer match disk/any live ref (hidden by default)",
+    ),
+).action((query, opts) => runMemoryVerb(opts, (store) => memorySearch(store, query, opts)));
 
 addWorkflowsOpt(
   memoryCmd
     .command("related <entity>")
     .description("Show entities related via shared propositions")
-    .option("--limit <n>", "Maximum neighbors (default 50, max 200)")
-    .option("--offset <n>", "Skip first N neighbors"),
-).action((entity, opts) => {
-  const { store } = createMemoryStore({ workflows: opts.workflows });
-  runCliHandler(store, () => memoryRelated(store, entity, opts));
-});
+    .option("--limit <n>", "Maximum neighbors (default 50, max 200)", intOption("--limit"))
+    .option("--offset <n>", "Skip first N neighbors", intOption("--offset")),
+).action((entity, opts) => runMemoryVerb(opts, (store) => memoryRelated(store, entity, opts)));
 
 addWorkflowsOpt(
   memoryCmd
     .command("by-source <file>")
     .description("All propositions derived from a source file")
-    .option("--limit <n>", "Maximum propositions (default 50, max 200)")
-    .option("--offset <n>", "Skip first N propositions")
-    .option("--shape <shape>", 'Proposition shape: "full" (default) or "minimal"')
+    .option("--limit <n>", "Maximum propositions (default 50, max 200)", intOption("--limit"))
+    .option("--offset <n>", "Skip first N propositions", intOption("--offset"))
+    .option(
+      "--shape <shape>",
+      'Proposition shape: "full" (default) or "minimal"',
+      enumOption("--shape", SHAPES),
+    )
     .option(
       "--include-orphans",
       "Include propositions whose source bytes no longer match disk/any live ref (hidden by default)",
     ),
-).action((file, opts) => {
-  const { store } = createMemoryStore({ workflows: opts.workflows });
-  runCliHandler(store, () => memoryBySource(store, file, opts));
-});
+).action((file, opts) => runMemoryVerb(opts, (store) => memoryBySource(store, file, opts)));
 
 addWorkflowsOpt(
   memoryCmd
     .command("emit <file>")
     .description("Write propositions from JSON file (use - for stdin)"),
-).action((file, opts) => {
-  const { store } = createMemoryStore({ workflows: opts.workflows });
-  runCliHandler(store, () => memoryEmit(store, file));
-});
+).action((file, opts) => runMemoryVerb(opts, (store) => memoryEmit(store, file)));
 
 addWorkflowsOpt(
   memoryCmd
@@ -409,8 +414,9 @@ addWorkflowsOpt(
     .option("--dry-run", "Show what would be pruned without deleting")
     .option("--confirm", "Execute the prune (required unless --dry-run)"),
 ).action((opts) => {
+  // Stays inline (not runMemoryVerb): needs `setup.config` to merge the
+  // CLI --keep on top of memory.prune.keep before invoking the handler.
   const { store, setup } = createMemoryStore({ workflows: opts.workflows });
-  // CLI --keep concatenates on top of memory.prune.keep in config.
   const mergedKeep = [...(setup.config.memory.prune?.keep ?? []), ...(opts.keep ?? [])];
   runCliHandler(store, () =>
     memoryPrune(store, { keep: mergedKeep, dryRun: opts.dryRun, confirm: opts.confirm }),
@@ -423,20 +429,23 @@ addWorkflowsOpt(
     .description("Delete memory.db + sidecars (re-created on next run)")
     .option("--confirm", "Required safety check"),
 ).action((opts) => {
-  // Does NOT open the db — resolves the path from config and unlinks
-  // the files directly. This is the recovery path for "old memory.db
-  // schema is incompatible with the current build," which would
-  // otherwise block composeRuntime from opening the db at all. No
-  // resource to dispose, but the wrapper still carries its weight:
-  // `CliExit` from the `--confirm` refusal and any `EngineError` from
-  // the unlink loop both route through the standard exit plumbing.
+  // Deliberate exception to `runMemoryVerb` (#266): this is the
+  // schema-incompat recovery path. It must NOT open the db —
+  // `createMemoryStore`/`composeRuntime` would block or throw against an
+  // incompatible memory.db, which is exactly the file the operator is
+  // trying to reset. So it open-codes `loadMemorySetup` +
+  // `resolveMemoryConfig`, resolves the path from config, and unlinks
+  // the files directly. There is no live store to dispose, but the call
+  // still routes through `runCliHandler(NO_DISPOSABLE, …)` so the
+  // `--confirm` refusal (`CliExit`) and any unlink `EngineError` share
+  // the standard exit plumbing.
   const setup = loadMemorySetup({ workflows: opts.workflows });
   const memConfig = resolveMemoryConfig(setup.graphsDirs, {}, setup.config);
   if (!memConfig) {
     outputJson({ status: "noop", reason: "memory disabled in config" });
     return;
   }
-  runCliHandler({ close() {} }, () => memoryReset(memConfig.db, { confirm: opts.confirm }));
+  runCliHandler(NO_DISPOSABLE, () => memoryReset(memConfig.db, { confirm: opts.confirm }));
 });
 
 // --- Stateless commands ---
@@ -474,7 +483,9 @@ addWorkflowsOpt(
     .option("--source-root <path>", "Base path for resolving source references"),
 ).action((paths, opts) => {
   const setup = loadGraphSetup({ workflows: opts.workflows, sourceRoot: opts.sourceRoot });
-  sourcesHash(setup.sourceOpts, paths);
+  // Stateless: no store to dispose. The handler throws on failure;
+  // `runCliHandler` routes that through the shared exit plumbing (#230).
+  runCliHandler(NO_DISPOSABLE, () => sourcesHash(setup.sourceOpts, paths));
 });
 
 addWorkflowsOpt(
@@ -484,7 +495,7 @@ addWorkflowsOpt(
     .option("--source-root <path>", "Base path for resolving source references"),
 ).action((sources, opts) => {
   const setup = loadGraphSetup({ workflows: opts.workflows, sourceRoot: opts.sourceRoot });
-  sourcesCheck(setup.sourceOpts, sources);
+  runCliHandler(NO_DISPOSABLE, () => sourcesCheck(setup.sourceOpts, sources));
 });
 
 addWorkflowsOpt(
@@ -495,7 +506,9 @@ addWorkflowsOpt(
     .option("--source-root <path>", "Base path for resolving source references"),
 ).action((opts) => {
   const setup = loadGraphSetup({ workflows: opts.workflows, sourceRoot: opts.sourceRoot });
-  sourcesValidate(setup.graphsDirs, setup.sourceOpts, opts.graph);
+  runCliHandler(NO_DISPOSABLE, () =>
+    sourcesValidate(setup.graphsDirs, setup.sourceOpts, opts.graph),
+  );
 });
 
 // --- config ---
@@ -524,11 +537,7 @@ program
   .action((shell) => {
     const supported = ["bash", "zsh", "fish"];
     if (!supported.includes(shell)) {
-      fatal(
-        `Unknown shell: ${shell}. Supported: ${supported.join(", ")}`,
-        EXIT.INVALID_INPUT,
-        EC.UNKNOWN_SHELL,
-      );
+      fatal(`Unknown shell: ${shell}. Supported: ${supported.join(", ")}`, EC.UNKNOWN_SHELL);
     }
     const completionFile = path.resolve(
       path.dirname(new URL(import.meta.url).pathname),
@@ -539,11 +548,7 @@ program
       `freelance.${shell}`,
     );
     if (!fs.existsSync(completionFile)) {
-      fatal(
-        `Completion file not found: ${completionFile}`,
-        EXIT.NOT_FOUND,
-        EC.COMPLETION_NOT_FOUND,
-      );
+      fatal(`Completion file not found: ${completionFile}`, EC.COMPLETION_NOT_FOUND);
     }
     process.stdout.write(fs.readFileSync(completionFile, "utf-8"));
   });

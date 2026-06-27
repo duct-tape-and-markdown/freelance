@@ -139,13 +139,25 @@ export interface BySourceResult {
   total: number;
 }
 
+/** An entity link as attached to a search result row. */
+export type SearchEntity = { id: string; name: string; kind: string | null };
+
 export interface SearchResult {
   query: string;
-  propositions: Array<
-    PropositionInfo & {
-      entities: Array<{ id: string; name: string; kind: string | null }>;
-    }
-  >;
+  /**
+   * Each row carries entities (search's distinguishing payload) over
+   * either the full `PropositionInfo` (default, CLI parity) or the
+   * minimal `{ id, content }` shape (default for the `memory_search`
+   * built-in hook — #87 response-size precedent). The source-join +
+   * staleness fields are present only under `shape: "full"`.
+   */
+  propositions: Array<(PropositionInfo | MinimalProposition) & { entities: SearchEntity[] }>;
+  /**
+   * Total propositions matching the query (respecting the stale filter
+   * unless includeOrphans), independent of limit — so truncation is
+   * observable, matching the other reads' { total } contract.
+   */
+  total: number;
 }
 
 export interface StatusResult {

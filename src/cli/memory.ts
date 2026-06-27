@@ -13,9 +13,9 @@ import { EC, EngineError } from "../errors.js";
 import { EmitBatchSchema } from "../memory/emit-schema.js";
 import type { MemoryStore } from "../memory/index.js";
 import type { PropositionShape } from "../memory/types.js";
-import { CliExit, EXIT, enumArg, errorEnvelope, outputJson, parseIntArg } from "./output.js";
+import { CliExit, EXIT, errorEnvelope, outputJson } from "./output.js";
 
-const SHAPES = ["minimal", "full"] as const satisfies readonly PropositionShape[];
+export const SHAPES = ["minimal", "full"] as const satisfies readonly PropositionShape[];
 
 export function memoryStatus(store: MemoryStore): void {
   outputJson(store.status());
@@ -26,16 +26,16 @@ export function memoryBrowse(
   opts?: {
     name?: string;
     kind?: string;
-    limit?: string;
-    offset?: string;
+    limit?: number;
+    offset?: number;
     includeOrphans?: boolean;
   },
 ): void {
   const result = store.browse({
     name: opts?.name,
     kind: opts?.kind,
-    limit: parseIntArg(opts?.limit, "--limit"),
-    offset: parseIntArg(opts?.offset, "--offset"),
+    limit: opts?.limit,
+    offset: opts?.offset,
     includeOrphans: opts?.includeOrphans,
   });
   outputJson(result);
@@ -44,21 +44,27 @@ export function memoryBrowse(
 export function memoryInspect(
   store: MemoryStore,
   entity: string,
-  opts?: { limit?: string; offset?: string; shape?: string },
+  opts?: { limit?: number; offset?: number; shape?: PropositionShape },
 ): void {
   outputJson(
     store.inspect(entity, {
-      limit: parseIntArg(opts?.limit, "--limit"),
-      offset: parseIntArg(opts?.offset, "--offset"),
-      shape: enumArg(opts?.shape, SHAPES, "--shape"),
+      limit: opts?.limit,
+      offset: opts?.offset,
+      shape: opts?.shape,
     }),
   );
 }
 
-export function memorySearch(store: MemoryStore, query: string, opts?: { limit?: string }): void {
+export function memorySearch(
+  store: MemoryStore,
+  query: string,
+  opts?: { limit?: number; shape?: PropositionShape; includeOrphans?: boolean },
+): void {
   outputJson(
     store.search(query, {
-      limit: parseIntArg(opts?.limit, "--limit"),
+      limit: opts?.limit,
+      shape: opts?.shape,
+      includeOrphans: opts?.includeOrphans,
     }),
   );
 }
@@ -66,12 +72,12 @@ export function memorySearch(store: MemoryStore, query: string, opts?: { limit?:
 export function memoryRelated(
   store: MemoryStore,
   entity: string,
-  opts?: { limit?: string; offset?: string },
+  opts?: { limit?: number; offset?: number },
 ): void {
   outputJson(
     store.related(entity, {
-      limit: parseIntArg(opts?.limit, "--limit"),
-      offset: parseIntArg(opts?.offset, "--offset"),
+      limit: opts?.limit,
+      offset: opts?.offset,
     }),
   );
 }
@@ -79,13 +85,13 @@ export function memoryRelated(
 export function memoryBySource(
   store: MemoryStore,
   filePath: string,
-  opts?: { limit?: string; offset?: string; shape?: string; includeOrphans?: boolean },
+  opts?: { limit?: number; offset?: number; shape?: PropositionShape; includeOrphans?: boolean },
 ): void {
   outputJson(
     store.bySource(filePath, {
-      limit: parseIntArg(opts?.limit, "--limit"),
-      offset: parseIntArg(opts?.offset, "--offset"),
-      shape: enumArg(opts?.shape, SHAPES, "--shape"),
+      limit: opts?.limit,
+      offset: opts?.offset,
+      shape: opts?.shape,
       includeOrphans: opts?.includeOrphans,
     }),
   );
@@ -154,10 +160,15 @@ export function memoryPrune(
 /**
  * Delete memory.db + WAL/SHM sidecars. Safe because memory is
  * content-addressable: the next run rebuilds everything on demand.
- * Requires `--confirm` as a deliberate guard against accidents. Does
- * not open the database, so it works even when checkSchemaCompatibility
- * would reject the current file (the canonical "I upgraded Freelance
- * and my old memory.db has the wrong schema" recovery path).
+ * Requires `--confirm` as a deliberate guard against accidents.
+ *
+ * Takes a `dbPath` rather than a `MemoryStore` on purpose — this is the
+ * one memory verb that deliberately does NOT go through
+ * `createMemoryStore`/`runMemoryVerb` (#266). It is the schema-incompat
+ * recovery path: opening the store would run `checkSchemaCompatibility`
+ * and reject the very file the operator is trying to delete (the
+ * canonical "I upgraded Freelance and my old memory.db has the wrong
+ * schema" case). The path is resolved open-coded at the wiring instead.
  */
 export function memoryReset(dbPath: string, opts: { confirm?: boolean }): void {
   if (!opts.confirm) {

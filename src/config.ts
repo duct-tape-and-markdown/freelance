@@ -27,6 +27,7 @@ import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import { z } from "zod";
+import { EC, EngineError } from "./errors.js";
 
 // --- Schema ---
 
@@ -62,13 +63,19 @@ const contextSchema = z
   })
   .optional();
 
-const configSchema = z.object({
-  workflows: z.array(z.string()).optional(),
-  memory: memorySchema,
-  hooks: hooksSchema,
-  context: contextSchema,
-  maxDepth: z.number().int().positive().optional(),
-});
+// `.strict()` so a misspelled top-level key (`maxDepht`, `wokflows`)
+// fails loud as UNKNOWN_CONFIG_KEY instead of being silently stripped
+// and leaving the field at its default. See docs/decisions.md §
+// "Config loading fails loud".
+const configSchema = z
+  .object({
+    workflows: z.array(z.string()).optional(),
+    memory: memorySchema,
+    hooks: hooksSchema,
+    context: contextSchema,
+    maxDepth: z.number().int().positive().optional(),
+  })
+  .strict();
 
 type FreelanceConfigFile = z.infer<typeof configSchema>;
 
@@ -100,16 +107,69 @@ export interface FreelanceConfig {
 const CONFIG_FILE = "config.yml";
 const CONFIG_LOCAL_FILE = "config.local.yml";
 
-/** Parse and validate a single config file. Returns null if file doesn't exist or is invalid. */
+/**
+ * Parse and validate a single config file.
+ *
+ * Fail-loud contract: `null` means *only* "the file does not exist"
+ * (ENOENT) or "the file is empty / comment-only". Every other failure
+ * mode — unreadable file, malformed YAML, schema-validation failure,
+ * unknown key — THROWS an `EngineError` so a broken config surfaces via
+ * the CLI error envelope instead of silently collapsing to defaults
+ * (see docs/decisions.md § "Config loading fails loud"). Callers that
+ * fall back to `{}` on null (e.g. `updateLocalConfig`) rely on this:
+ * the `{}` path is ENOENT-only, never "invalid file".
+ */
 function loadConfigFile(filePath: string): FreelanceConfigFile | null {
+  let raw: string;
   try {
-    const raw = fs.readFileSync(filePath, "utf-8");
-    const parsed = yaml.load(raw);
-    if (!parsed || typeof parsed !== "object") return null;
-    return configSchema.parse(parsed);
-  } catch {
-    return null;
+    raw = fs.readFileSync(filePath, "utf-8");
+  } catch (err) {
+    // A genuinely-missing file is the one legitimate null. Any other
+    // read error (permissions, I/O) is a real failure — surface it.
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw new EngineError(
+      `Could not read config file ${filePath}: ${(err as Error).message}`,
+      EC.INVALID_CONFIG_VALUE,
+    );
   }
+
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(raw);
+  } catch (err) {
+    throw new EngineError(
+      `Malformed YAML in ${filePath}: ${(err as Error).message}`,
+      EC.INVALID_CONFIG_VALUE,
+    );
+  }
+
+  // Empty or comment-only file parses to null/undefined — treat as
+  // "no config here", same as a missing file.
+  if (parsed === null || parsed === undefined) return null;
+  if (typeof parsed !== "object") {
+    throw new EngineError(
+      `Config file ${filePath} must contain a YAML mapping, got ${typeof parsed}`,
+      EC.INVALID_CONFIG_VALUE,
+    );
+  }
+
+  const result = configSchema.safeParse(parsed);
+  if (!result.success) {
+    const unknownKeys = result.error.issues
+      .filter((issue) => issue.code === "unrecognized_keys")
+      .flatMap((issue) => issue.keys);
+    if (unknownKeys.length > 0) {
+      throw new EngineError(
+        `Unknown config key(s) in ${filePath}: ${unknownKeys.join(", ")}`,
+        EC.UNKNOWN_CONFIG_KEY,
+      );
+    }
+    const summary = result.error.issues
+      .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      .join("; ");
+    throw new EngineError(`Invalid config in ${filePath}: ${summary}`, EC.INVALID_CONFIG_VALUE);
+  }
+  return result.data;
 }
 
 /** Resolve relative paths in a config file relative to a base directory. */
@@ -266,6 +326,11 @@ export function updateLocalConfig(
   updater: (config: FreelanceConfigFile) => FreelanceConfigFile,
 ): void {
   const localPath = path.join(freelanceDir, CONFIG_LOCAL_FILE);
+  // `?? {}` is the ENOENT-only fallback: loadConfigFile returns null
+  // exclusively for a missing/empty file. An invalid-but-nonempty file
+  // THROWS (see #321), so this never collapses real-but-broken contents
+  // to `{}` and clobbers them on write — `config set-local` refuses and
+  // fails loud instead. Do NOT wrap this in a try/catch.
   const existing = loadConfigFile(localPath) ?? {};
   const updated = updater(existing);
   const content = yaml.dump(updated, { lineWidth: -1, noRefs: true });

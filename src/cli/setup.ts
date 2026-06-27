@@ -16,7 +16,7 @@ import { EC } from "../error-codes.js";
 import { EngineError } from "../errors.js";
 import { loadGraphsGraceful, resolveGraphsDirs, resolveSourceRoot } from "../graph-resolution.js";
 import type { MemoryConfig, MemoryStore } from "../memory/index.js";
-import { extractSection } from "../section-resolver.js";
+import { createCachingResolver, extractSection } from "../section-resolver.js";
 import type { SourceOptions } from "../sources.js";
 import type { TraversalStore } from "../state/index.js";
 import type { LoadError, ValidatedGraph } from "../types.js";
@@ -183,7 +183,7 @@ export function loadGraphSetup(opts: CliSetupOptions): CliSetup {
   return {
     ...base,
     graphs,
-    sourceOpts: { resolver: extractSection, basePath: base.sourceRoot },
+    sourceOpts: { resolver: createCachingResolver(), basePath: base.sourceRoot },
     loadErrors,
   };
 }

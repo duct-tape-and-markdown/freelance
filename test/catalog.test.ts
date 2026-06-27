@@ -68,3 +68,27 @@ describe("freelance catalog --json — round-trip against ENGINE_ERROR_CODES", (
     expect(emitted.size).toBe(ALL_ENGINE_ERROR_CODES.length);
   });
 });
+
+describe("catalog actionability coherence", () => {
+  // The catalog carries three independent actionability signals —
+  // `errorKind` (blocked|structural), `exit`, and `recoveryKind` — that
+  // a driving skill reads together. Nothing in the `satisfies` checks
+  // stops them from contradicting each other; #337 shipped a code
+  // (STACK_DEPTH_EXCEEDED) classified `blocked` (= "traversal fine,
+  // re-advance") whose recovery said `report` (= "stop"). This test is
+  // the enforcement that closes that gap. See docs/decisions.md §
+  // "Catalog actionability signals must be coherent".
+  it("blocked codes are retryable — never recoveryKind 'report' or 'clear'", () => {
+    for (const code of ALL_ENGINE_ERROR_CODES) {
+      if (errorKind(code) !== "blocked") continue;
+      // `blocked` tells the skill the traversal state is fine and the
+      // same operation can proceed once context is fixed (or after a
+      // transient retry). `report` (stop) and `clear` (drop a stale
+      // pointer) both contradict that — they belong to structural codes.
+      expect(
+        ["fix-context", "retry"],
+        `${code} is errorKind "blocked" but recoveryKind "${RECOVERY[code].kind}" — signals disagree`,
+      ).toContain(RECOVERY[code].kind);
+    }
+  });
+});
